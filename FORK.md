@@ -51,6 +51,7 @@ Their SHAs change at every re-pin; the ledger records the SHAs of each rebase.
 | `fix(a2agateway): leave a pause whose node has no worker alone, and delete a runtime that cannot be suspended as it is` | the pause TTL's first sweep on graveler (2026-09-15 13:46Z) tried to suspend three paused Actors whose checkpoint nodes were gone: Substrate fails the upload at once (`UploadPausedCheckpoint: while getting atelet conn for node …`) and leaves the Actor `SUSPENDING`, which the lost-runtime patch's `Delete` then suspends first — and fails the same way — so sessions that were deletable while `PAUSED` were not any more. `Idle` counts a `PAUSED` Actor only while a worker runs on its checkpoint's node (`ListWorkers`), so the sweep leaves a pause on a lost node to the node-loss handling (Substrate row 44); `Delete` falls back to an any-state delete when the pre-delete suspend fails | to file — folded into `upstream/a2agateway-pause-ttl` (giantswarm/giantswarm#37742 row 45) |
 | `feat(runtime): name the agent and the user on every model call` | under the kagent API v2 every agent is a Substrate actor in a shared WorkerPool and every actor connection leaves the worker through the Substrate egress, so a gateway in front of the model providers (the platform's `llm` listener, which prices every call and labels usage per agent and user) sees one caller for every agent and no user: since the platform's cut-over every dollar of agent spend sat on the egress row and the `user` label was unknown (giantswarm/giantswarm#37871). The controller now injects `KAGENT_AGENT_TEMPLATE` next to `KAGENT_NAMESPACE`; the Go ADK sets `x-kagent-agent` and `x-kagent-agent-namespace` on every model call after a ModelConfig's default headers (so none can name another agent) and `x-kagent-user`, the person of the turn — the identity the controller's trusted-proxy authenticator resolved from the caller's validated token, which the a2a gateway forwards to the actor as metadata of the same name; a session without claims (unsecure mode and its `admin@kagent.dev` default, an agent's propagated caller id) forwards nothing, so the header is absent, never a token or a stand-in; the Claude harness sends the two agent headers through `ANTHROPIC_CUSTOM_HEADERS`, which the controller renders and owns. The gateway reads the headers only from the egress's traffic (giantswarm/agent-platform#586) | to file — prepared in the fork: branch `upstream/model-call-identity-headers`; giantswarm/giantswarm#37742 row 48 |
 | `fix(controller): compare the pair collections' outputs by content` | the PairReconciliation and PairRuntimeObservation collections carry the desired and observed ActorTemplates, protobuf messages, and left their comparison to krt's default, reflect.DeepEqual: a message initialises its reflection state on its first protobuf operation, the reconciler performs those on the graph's messages from its own goroutine, so the graph's reflect.DeepEqual raced with them — the race detector failed the controller tests' CI twice (2026-09-15, 2026-09-18) — and told equal messages apart by that state; both types implement krt's Equaler now, the messages compared with proto.Equal | to file — prepared in the fork: branch `upstream/pair-collection-equality`; giantswarm/giantswarm#37742 row 49 |
+| `ci(fork): publish through the orb's stock jobs with decoupled versions` | the RFCs (giantswarm/rfc `semantic-versioning-of-upstream-software`, `semver-based-automatic-upgrades`) give a package of upstream software its own stable semver, `-rc.N` and gitsemver's dev shape, nothing else: the images are built by the orb's `build-image` (native per architecture, the Makefile's build arguments through `build-args`) and `push-to-registries` (merge, sign, attest, the upstream-pin annotation), the version is gitsemver's (`vX.Y.Z` tags → `X.Y.Z`, first `1.0.0`), the pipeline's own `version` and image jobs and the `-gs.N` scheme are gone, pull request branches build without pushing, and `mirror.sh` refuses an upstream tag the fork already holds at another commit ("What is published", "Release scheme") | fork-only, never upstream — ours to keep |
 
 Rules for the table: every non-`ci(fork)` row has an upstream pull request or a "to file" that
 giantswarm/giantswarm#37742 tracks; a row leaves when the sync drops the commit because upstream merged it
@@ -60,23 +61,28 @@ charts, not here.
 
 ## What is published
 
-`.circleci/config.yml` (the fork's own, hand-written — upstream has no CircleCI pipeline) runs on every push to a
-branch of the line — the consumed branch, a `sync/**` re-pin candidate, a pull request branch — and on `vX.Y.Z-gs.N`
-tags; the mirrored upstream refs (`main`, `release/v*.x`, upstream's tags) are filtered out:
+`.circleci/config.yml` (the fork's own, hand-written — upstream has no CircleCI pipeline) publishes on every push to the
+consumed branch `giantswarm` and on the line's release tags `vX.Y.Z` and `vX.Y.Z-rc.N`, through the architect orb's
+stock jobs: one `build-image` job per image and architecture (amd64 and arm64, each native on a machine of its
+architecture, pushed by digest) and one `push-to-registries` job per image, which joins the two into the tagged index,
+signs and attests it. Every other branch of the line — a pull request branch, a `sync/**` re-pin candidate — runs the
+same eight builds with `push: false` and publishes nothing; the mirrored upstream refs (`main`, `release/v*.x`,
+upstream's tags) run nothing:
 
 | Artifact | Reference |
 |---|---|
-| Images (multi-arch, amd64 + arm64) | `gsoci.azurecr.io/giantswarm/kagent/{controller,ui,golang-adk,claude-harness}:<version>` — built with the repository's `make build-<image>`, signed with cosign keyless under the project's CircleCI OIDC identity (`cosign verify --certificate-oidc-issuer https://oidc.circleci.com --certificate-identity-regexp '^https://circleci\.com/api/v2/projects/[a-f0-9-]+/pipeline-definitions/[a-f0-9-]+$'`), the SPDX SBOM attestation of each platform signed the same way |
+| Images (multi-arch, amd64 + arm64) | `gsoci.azurecr.io/giantswarm/kagent/{controller,ui,golang-adk,claude-harness}:<version>` — upstream's Dockerfiles as they are (`go/Dockerfile` with `BUILD_PACKAGE` for the controller and the Go ADK, `ui/Dockerfile`, `go/harness/claude/Dockerfile`), built with the build arguments the Makefile passes (`VERSION`, the `LDFLAGS` `-X` flags for the version and the commit, `BUILD_PACKAGE`), signed with cosign keyless under the project's CircleCI OIDC identity (`cosign verify --certificate-oidc-issuer https://oidc.circleci.com --certificate-identity-regexp '^https://circleci\.com/api/v2/projects/[a-f0-9-]+/pipeline-definitions/[a-f0-9-]+$'`), the provenance and the SPDX SBOM attestation of each platform signed the same way; the index carries the annotation `io.giantswarm.upstream.version=main@<pin sha7>`, the upstream pin ("Re-pin") |
 | Charts | `oci://gsoci.azurecr.io/giantswarm/kagent/helm/kagent:<version>`, `oci://gsoci.azurecr.io/giantswarm/kagent/helm/kagent-crds:<version>` — the line's own path, not `charts/giantswarm/kagent` (the 0.10 wrapper chart's, below); signed like the images. The chart's image defaults are stamped with the same registry, repositories and version, `controller.agentImage.digest` and `runtimeImages.claudeHarness.digest` with the index digests of that build's golang-adk and claude-harness images, `substrateWorkerPool.workerImage` with the worker of the Makefile's `SUBSTRATE_VERSION` |
-| Dev version of a branch push | `0.11.0-dev.giantswarm.<YYYY-MM-DD>.<HH-MM-SS>.h<sha7>` — base `0.11.0` (upstream `main`'s next release), the branch lowercased to `[a-z0-9-]`, the committer date in UTC, the short commit. Consumers select the channel with a Flux `semverFilter` of `.*-dev\.giantswarm\..*` on the range `>=0.11.0-0 <0.12.0-0` |
-| Release version of a tag | the tag without `v`: `X.Y.Z-gs.N` (the release scheme below; the pipeline's `version` job refuses any other tag shape) |
+| Dev version of a push to `giantswarm` | gitsemver's dev shape as the orb's gitsemver emits it today, `X.Y.Z-dev.giantswarm.<YYYY-MM-DD>.<HH-MM-SS>.h<sha7>` — the RFC's successor shape `X.Y.Z-r<crc32 of the branch>t<YYYYMMDDHHMMSS>h<sha7>` arrives with the orb's gitsemver, and the filter below moves with it. `X.Y.Z` is the next patch above the newest stable tag reachable from the commit (upstream's mirrored `v0.9.10` until the line's `v1.0.0` is on the branch, then `1.0.1`; a re-pin rebases the branch past the line's tags, so the base falls back to upstream's until the next release tag), then the branch, the committer date in UTC, the short commit. Consumers select the channel with a Flux `semverFilter` of `.*-dev\.giantswarm\..*` and no range (a range never admits a pre-release). Flux takes the highest match, and the base outranks the time stamp: after a re-pin the channel stays on the last build before it (`1.0.1-dev.…` above `0.9.11-dev.…`) until the release that follows the re-pin is tagged — a re-pin is released, not left to the filter |
+| Release version of a tag | the tag without `v`: `X.Y.Z`, or `X.Y.Z-rc.N` for a release candidate (the release scheme below; the workflow's tag filter admits no other shape) |
 | Digests | every build's image and chart digests (multi-arch index digests, what a `Harness` pins) are a row of [`builds.md`](../../blob/ledger/builds.md) on the `ledger` branch and the `published.md` artifact of the pipeline's `record` job |
 
 Only what the platform consumes is published: the Python ADK, the Codex harness and the CLI image are not
-offered on the platform and are not built here. A dev build is the test artifact of a change — a pull request's
-branch or a re-pin, proven in agentlab before the tag that consumers depend on. Its consumers: the agent-platform
-meta chart's dev line (`components.kagent` follows the channel; its `kagent.tag` and the two `Harness` image digests
-are pinned there and re-pinned per build), agentlab (`agentlab configure --chart-branch poc/kagent-main`), and the
+offered on the platform and are not built here. A dev build is the test artifact of the consumed branch — a merged
+pull request or a landed re-pin — proven in agentlab on the meta chart's dev channel before the tag that consumers
+depend on; a pull request's branch is proven with a build of its checkout swapped into the lab (the pipeline builds
+it, pushes nothing). Its consumers: the agent-platform meta chart's dev line (`components.kagent` follows the channel;
+its `kagent.tag` and the two `Harness` image digests are pinned there and re-pinned per build), agentlab, and the
 test cluster following the channel. A release (below) is what the meta chart's release line resolves.
 
 Publishing does not wait for the tests. Nothing reaches the consumed branch untested — a pull request needs a
@@ -87,34 +93,39 @@ Actions tab, never a reason to pull a build that was green on the same tree.
 
 ### Release scheme
 
-A release of the line is a tag `vX.Y.Z-gs.N` on the consumed branch — the scheme of the Substrate line
-(giantswarm/substrate). `X.Y.Z` is the upstream version the pin anticipates: `DEV_BASE_VERSION` in `.circleci/config.yml`,
-today `0.11.0`, upstream `main`'s next release. `N` counts the line's releases of that base, from 1. The first
-release is `v0.11.0-gs.1`. The pipeline publishes a tag the way it publishes a dev build (the workflow's tag filter
-admits `v*-gs.N` only, the version is the tag without `v`, and the `version` job refuses a tag whose base is not
-`DEV_BASE_VERSION`): the four images and both charts under `gsoci.azurecr.io/giantswarm/kagent` at
-`0.11.0-gs.1`, the digests as a row of `builds.md`. The release's row in the table below is written by hand.
+A release of the line is a tag `vX.Y.Z` on the consumed branch — its own stable semver, decoupled from upstream's
+version, as the RFCs prescribe for every Giant Swarm package of upstream software (giantswarm/rfc
+`semantic-versioning-of-upstream-software`, `semver-based-automatic-upgrades`): the version says nothing about the
+upstream version, which is documented instead — the pin in the table above and the ledger, the annotation
+`io.giantswarm.upstream.version` on every image, the release's row below. `1.0.0` is the first release of the scheme,
+the next major above the coupled `0.11.0-gs.N` releases it replaces, so every consumer range moves forward and none
+back; a patch or a minor of the line is a patch or a minor of the version, whatever upstream did in the re-pin between;
+a major is the line's own breaking change (a chart value renamed, a CRD contract changed), never upstream's numbering.
+A release candidate is `vX.Y.Z-rc.N`. The pipeline publishes a tag the way it publishes a dev build — the version is
+the tag without `v`; the workflow's tag filter admits `vX.Y.Z` and `vX.Y.Z-rc.N` and nothing else: the four images and
+both charts under `gsoci.azurecr.io/giantswarm/kagent` at `X.Y.Z`, the digests as a row of `builds.md`. The release's
+row in the table below is written by hand.
 
 Why this shape:
 
-- **Order.** Semver sorts `0.11.0-dev.giantswarm.… < 0.11.0-gs.1 < 0.11.0`: a release outranks every dev build of
-  its base and never outranks the upstream release it anticipates, so the day upstream ships everything the line
-  carries, the switch to the upstream tag is a range change for the consumers, not a rename. When upstream tags
-  `v0.11.0`, the next re-pin moves `DEV_BASE_VERSION` to `0.12.0` and the counter restarts at `-gs.1`.
-- **No collision with the mirror.** Upstream's tags are `vX.Y.Z` (and its own pre-release suffixes); `-gs.N` is
-  ours alone. The mirror copies every upstream tag the fork lacks and never touches a tag upstream does not have —
-  which is also why a fork tag must never carry a name upstream will use: a `v0.11.0` here would make the mirror
-  skip upstream's `v0.11.0` silently. Upstream's version resolvers in `ci.yaml` see the fork's tags too:
-  `scripts/upgrade-from-version.sh` (the `adjacent` leg) is skipped on a non-release base such as `giantswarm`,
-  and `scripts/prev-stable-version.sh` only looks at the release line below the one being built (`release/v0.10.x`
-  today), where no `-gs.N` tag lives. The one window: after upstream opens `release/v0.11.x` and before its first
-  `v0.11.*` tag, a `0.11.0-gs.N` tag would be the only `prev-stable` candidate — the re-pin that follows upstream's
-  release closes it (the base moves); until then, expect that leg red and re-pin.
+- **Order.** Releases sort as plain semver, so a consumer follows the line with a range — the meta chart's release
+  line `>=1.0.0 <2.0.0` — and re-resolves on every reconcile. Dev builds (`-dev.…`) and release candidates (`-rc.N`) are
+  pre-releases, which Flux's semver (Masterminds) never matches against a range without a pre-release bound; the dev
+  channel is selected by `semverFilter` (above) and nothing else.
+- **No collision with the mirror.** Upstream's tags are `vX.Y.Z` too, and the mirror copies every upstream tag the
+  fork lacks; a name both use would make the two refs disagree. The line's tags therefore live in a major above
+  upstream's — `1.x` against upstream's `0.x` — and `scripts/fork/mirror.sh` refuses, naming the tag, to mirror an
+  upstream tag whose name the fork already holds at another commit, instead of skipping it silently. The rule: when
+  upstream's version approaches the line's major (upstream tags `0.99.x`, or a `1.0.0-rc`), the line moves to its next
+  major first — a deliberate `v2.0.0` — and the consumers' ranges with it. Upstream's version resolvers in `ci.yaml`
+  see the fork's tags too: `scripts/upgrade-from-version.sh` (the `adjacent` leg) is skipped on a non-release base such
+  as `giantswarm`, and `scripts/prev-stable-version.sh` only looks at the release line below the one being built
+  (`release/v0.10.x` today), where no fork tag lives.
 - **Out of the wrapper's range.** Every 3.x installation of the platform selects the 0.10 wrapper chart `kagent` at
   `oci://gsoci.azurecr.io/charts/giantswarm/kagent` with `>=0.2.0 <1.0.0` and re-resolves it on every reconcile.
-  The line's chart must never be resolvable there. It is not, twice over: it lives on another OCI path
-  (`gsoci.azurecr.io/giantswarm/kagent/helm`), and its version is a pre-release (`-gs.N`, `-dev.…`), which Flux's semver
-  (Masterminds) never matches against a range without a pre-release bound. Either alone keeps it out; both are used.
+  The line's chart must never be resolvable there. It is not: it lives on another OCI path
+  (`gsoci.azurecr.io/giantswarm/kagent/helm`) — the wrapper's repository and the line's never share a version — and
+  its versions are `>=1.0.0`, outside that range besides.
 - **gsoci, from CircleCI, under the line's own path.** The org publishes to `gsoci.azurecr.io` from CircleCI only —
   the architect orb's multi-arch builds, signed with cosign keyless under the project's CircleCI identity — and
   never from a GitHub Actions job: no Actions workflow of this repository holds a registry credential, and nothing
@@ -124,20 +135,23 @@ Why this shape:
   pins. A consumer names the registry (`kagent.registry: gsoci.azurecr.io`) and the chart repository
   (`oci://gsoci.azurecr.io/giantswarm/kagent/helm`); the version scheme is the same for both.
 
-A tag is cut only after the build of the same commit — its dev build — has passed the platform's proofs in
-agentlab on the meta chart's dev channel; the tag re-publishes the same tree under the release version. Cut it
-deliberately (no tag ruleset gates it; anyone with write access can push a tag):
+A tag is cut only after the build of the same commit — its dev build on the consumed branch — has passed the
+platform's proofs in agentlab on the meta chart's dev channel; the tag re-publishes the same tree under the release
+version. Cut it deliberately (no tag ruleset gates it; anyone with write access can push a tag):
 
 ```bash
-git tag v0.11.0-gs.1 <sha> && git push origin v0.11.0-gs.1
+git tag -a v1.0.0 -m v1.0.0 <sha> && git push origin v1.0.0
 # or, without a checkout:
-gh api -X POST repos/giantswarm/kagent-upstream/git/refs -f ref=refs/tags/v0.11.0-gs.1 -f sha=<sha>
+gh api -X POST repos/giantswarm/kagent-upstream/git/refs -f ref=refs/tags/v1.0.0 -f sha=<sha>
 ```
 
 Then add the row below from the run summary (or `builds.md`).
 
 ### Releases
 
+Rows up to `0.11.0-gs.22` are releases of the coupled scheme that preceded the one above — `vX.Y.Z-gs.N`, `X.Y.Z` the
+upstream version the pin anticipated, published by the pipeline's own jobs; `v0.11.0-gs.22` the first from CircleCI.
+`1.0.0` and later follow the release scheme above.
 | Release | Tag | Commit | Upstream pin | Images (index digests: controller, ui, golang-adk, claude-harness) | Charts (kagent, kagent-crds) |
 |---|---|---|---|---|---|
 | `0.11.0-gs.1` | `v0.11.0-gs.1` (2026-09-10T23:36Z, after the agentlab proof of the dev build `0.11.0-dev.giantswarm.2026-09-10.22-06-46.h0ac5240`: platform, agents and toolsets proofs green) | `0ac5240` | `4a91c27` (2026-09-10) | `sha256:04106af50ee8e68e0388006981e25bd61b5220f50ece8fe7920269aea3b8d49c`, `sha256:3275c7ab8f09291f4806ed49e406d98c1dbec51e5d05415ed07ade2799423f81`, `sha256:969af5f733c8e2bd7756f40766352f5af744964e969a031ba146198d8becd546`, `sha256:c8a9c7c3d5dd7ecc3953fff2a12b6b4a44b46eb6a66687a5604f6851fe453ca3` | `sha256:3c9ee22cb60c493b7e99bbc27d260cb5aa5e48d0996db1bbd28abae3b17a8a9e`, `sha256:7c62f76e5693bad9b603f4e557b82da9b54060e3d1f811133905b4d6cca76d70` ([run 34542852237](https://github.com/giantswarm/kagent-upstream/actions/runs/34542852237)) |
@@ -211,6 +225,12 @@ also on demand (`gh workflow run sync-upstream.yaml`, inputs `upstream_ref`, `dr
    `giantswarm` names the conflicting carried commit (with the files) or the failed checks, and the
    candidate branch stays for the fix. Finish by hand, then close that pull request — never merge it (a merge
    would keep the old base).
+6. the pin annotation `index:io.giantswarm.upstream.version=main@<sha7>` in `.circleci/config.yml` names the
+   upstream pin on every published image ("What is published") and the sync does not edit it: after a landed re-pin,
+   a pull request against `giantswarm` moves it to the new pin (its own commit — a pull request cannot fix up the
+   `ci(fork)` carried commit; a manual re-pin may fold it). `record` compares the stamped annotation with
+   `git merge-base` on every build: a dev build whose annotation lags warns, a release whose annotation disagrees is
+   refused before its ledger row.
 
 A re-pin is proven before anything depends on it: the agent-platform dev line re-pins the new build's tag and
 `Harness` digests, and agentlab on the dev channel runs its proofs from the published artifacts.
@@ -224,6 +244,7 @@ git clone https://github.com/giantswarm/kagent-upstream && cd kagent-upstream
 git remote add upstream https://github.com/kagent-dev/kagent.git
 CANDIDATE=sync/upstream-$(date -u +%Y%m%d)-manual scripts/fork/repin.sh   # exit 2 = conflict, report in repin-report.md
 # on a conflict: git rebase --onto upstream/main "$(git merge-base origin/giantswarm upstream/main)" ; fix ; git rebase --continue
+sed -i "s|upstream.version=main@[0-9a-f]*|upstream.version=main@$(git merge-base HEAD upstream/main | cut -c1-7)|" .circleci/config.yml && git commit -qsam 'chore(fork): upstream pin annotation'   # the pin annotation moves with the pin (step 6); fold it into the ci(fork) commit if you rebase interactively
 git push origin "$CANDIDATE"                      # ci.yaml + image-scan.yaml run on sync/** ; wait for ci-ok and scan-ok
 git push --force-with-lease=refs/heads/giantswarm origin "$CANDIDATE":giantswarm
 git push origin --delete "$CANDIDATE"
@@ -244,7 +265,7 @@ GitHub refuses any push that creates or updates a file under `.github/workflows`
 permission, mirrored upstream commits included, and `GITHUB_TOKEN` never has it. An App push starts upstream's
 workflow files at the mirrored refs; `scripts/fork/mirror-quiet.sh` cancels them right after. Upstream's CI
 resolves the upgrade-test baseline from the fork's own release branches and tags, so the mirror must carry them
-(the fork's own release tags, when they come, need a version scheme that cannot collide with upstream's `v*`).
+(the fork's own release tags `vX.Y.Z` share upstream's shape and live in a major above upstream's — "Release scheme"; `mirror.sh` refuses to mirror an upstream tag whose name the fork already holds at another commit, so a collision stops the sync, naming the tag, instead of one side silently winning).
 If a mirrored branch was ever edited, the sync refuses to fast-forward it; restore it with
 `git push --force-with-lease=refs/heads/<branch> origin upstream/<branch>:<branch>` after lifting the ruleset
 briefly, then run the sync again. `gh workflow run sync-upstream.yaml -f mirror_only=true` mirrors without

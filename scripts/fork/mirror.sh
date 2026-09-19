@@ -39,13 +39,29 @@ for branch in main $(git for-each-ref --format='%(refname:strip=3)' refs/remotes
   echo "branch ${branch}: ${cur:-(new)} -> ${up}"
 done
 
-tags_of() { git ls-remote --tags "$1" | sed -n 's#.*refs/tags/\([^^]*\)$#\1#p' | sort; }
-while read -r tag; do
+# Tags: every upstream tag the fork lacks is copied; one the fork already holds
+# at the same object is current. One the fork holds at ANOTHER object is a
+# collision — the line's own release tags share upstream's `vX.Y.Z` shape and
+# live in a major above upstream's (FORK.md, "Release scheme") — and stops the
+# run, naming the tag, instead of one side silently winning.
+tags_of() { git ls-remote --tags "$1" | sed -n 's#^\([0-9a-f]*\)[[:space:]]*refs/tags/\([^^]*\)$#\2 \1#p' | sort; }
+declare -A fork_tag
+while read -r tag sha; do
+  [ -n "$tag" ] && fork_tag[$tag]=$sha
+done < <(tags_of origin)
+while read -r tag sha; do
   [ -n "$tag" ] || continue
+  if [ -n "${fork_tag[$tag]:-}" ]; then
+    if [ "${fork_tag[$tag]}" != "$sha" ]; then
+      echo "::error::tag ${tag} exists in the fork at ${fork_tag[$tag]} and upstream at ${sha} — a release tag of the line collides with upstream's; move the line to its next major first (FORK.md, 'Release scheme')."
+      exit 1
+    fi
+    continue
+  fi
   refspecs+=("refs/tags/${tag}:refs/tags/${tag}")
   names+=("$tag")
   echo "tag ${tag}: new"
-done < <(comm -23 <(tags_of upstream) <(tags_of origin))
+done < <(tags_of upstream)
 
 if [ ${#refspecs[@]} -eq 0 ]; then
   echo "mirror is current"
