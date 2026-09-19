@@ -10,7 +10,7 @@ import (
 
 type authorizationServer struct {
 	apiv1alpha1.UnimplementedAuthorizationServiceServer
-	reviewer *kubeauth.Reviewer
+	reviewer *kubeauth.AccessReviewer
 }
 
 func (s *authorizationServer) CheckAccess(ctx context.Context, request *apiv1alpha1.CheckAccessRequest) (*apiv1alpha1.CheckAccessResponse, error) {

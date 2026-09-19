@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type Reviewer struct {
+type AccessReviewer struct {
 	authorizer auth.CollectionAuthorizer
 }
 
@@ -22,11 +22,11 @@ type ReviewResult struct {
 	AllowedVerbs []auth.Verb
 }
 
-func NewReviewer(authorizer auth.CollectionAuthorizer) *Reviewer {
-	return &Reviewer{authorizer: authorizer}
+func NewAccessReviewer(authorizer auth.CollectionAuthorizer) *AccessReviewer {
+	return &AccessReviewer{authorizer: authorizer}
 }
 
-func (r *Reviewer) Review(ctx context.Context, resourceType string, verbs []auth.Verb, targets []ReviewTarget) ([]ReviewResult, error) {
+func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs []auth.Verb, targets []ReviewTarget) ([]ReviewResult, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)

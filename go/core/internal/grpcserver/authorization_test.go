@@ -45,7 +45,7 @@ func TestAuthorizationServiceGeneratedClient(t *testing.T) {
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
-		AuthorizationService: kubeauth.NewReviewer(authorizer),
+		AuthorizationService: kubeauth.NewAccessReviewer(authorizer),
 	})
 	require.NoError(t, err)
 	serverContext, cancelServer := context.WithCancel(t.Context())

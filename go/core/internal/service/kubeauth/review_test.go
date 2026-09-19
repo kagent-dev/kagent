@@ -65,7 +65,7 @@ func TestCheckAccessMatrix(t *testing.T) {
 		{Namespace: "team-a", Name: "other"},
 	}
 
-	results, err := kubeauth.NewReviewer(authorizer).Review(
+	results, err := kubeauth.NewAccessReviewer(authorizer).Review(
 		ctx,
 		auth.ResourceAgentTemplate,
 		[]auth.Verb{auth.VerbUpdate, auth.VerbCreate},
@@ -112,7 +112,7 @@ func TestCheckAccessScopeFailures(t *testing.T) {
 			}
 			ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
-			_, err := kubeauth.NewReviewer(authorizer).Review(
+			_, err := kubeauth.NewAccessReviewer(authorizer).Review(
 				ctx,
 				auth.ResourceModelConfig,
 				[]auth.Verb{auth.VerbCreate},
@@ -124,7 +124,7 @@ func TestCheckAccessScopeFailures(t *testing.T) {
 }
 
 func TestCheckAccessRequiresSession(t *testing.T) {
-	_, err := kubeauth.NewReviewer(&testAuthorizer{}).Review(
+	_, err := kubeauth.NewAccessReviewer(&testAuthorizer{}).Review(
 		t.Context(),
 		auth.ResourceAgentTemplate,
 		[]auth.Verb{auth.VerbGet},
