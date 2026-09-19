@@ -60,7 +60,7 @@ type Config struct {
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
 	ScheduledRunService   *scheduledrun.Service
-	AuthorizationService  *kubeauth.Reviewer
+	AuthorizationService  *kubeauth.AccessReviewer
 	A2AHandler            a2asrv.RequestHandler
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.

@@ -322,7 +322,7 @@ func Run(ctx context.Context, opts Options) error {
 		MemoryService:         memory,
 		AgentInstanceService:  instances,
 		ScheduledRunService:   schedules,
-		AuthorizationService:  kubeauth.NewReviewer(authorizer),
+		AuthorizationService:  kubeauth.NewAccessReviewer(authorizer),
 		// Both halves of the pair CreateAgentInstance names. Without these two
 		// the only way to author a Harness or an AgentTemplate is kubectl.
 		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, auth.ResourceAgentTemplate),
