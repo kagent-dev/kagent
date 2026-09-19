@@ -63,9 +63,9 @@ test("live: schedule configuration persists through the browser and controller",
       await page.goto(detailURL);
       await page.getByRole("button", { name: `Delete schedule ${name}`, exact: true }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
-      await expect(page.getByText("This schedule was deleted. Its execution history is retained.")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
-      await page.getByRole("link", { name: "Back", exact: true }).click();
+      // Deleting leaves the detail page; its retained-history controls are no
+      // longer mounted. Wait for navigation before checking the list.
+      await expect(page).toHaveURL(/\/schedules(?:\?.*)?$/);
       await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
     }
   }
