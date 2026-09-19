@@ -249,13 +249,13 @@ SUBSTRATE_ENABLED ?= false
 # Fork: the charts' substrate/substrate-crds dependencies come from the Giant
 # Swarm line of Substrate (giantswarm/substrate, branch giantswarm: the upstream
 # release go/go.mod pins plus cherry-picked fixes, published to
-# ghcr.io/giantswarm/substrate; its FORK.md is the ledger). The Go module pin
+# gsoci.azurecr.io/giantswarm/substrate from CircleCI; its FORK.md is the ledger). The Go module pin
 # in go/go.mod stays upstream's release — the ate-api contract is versioned by
 # it — so the chart version is set here, not derived from go.mod, and the two
 # move together at a re-pin. Upstream: SUBSTRATE_VERSION from the go.mod
 # replace target, SUBSTRATE_REPO oci://ghcr.io/kagent-dev/substrate/helm.
-SUBSTRATE_VERSION ?= 0.0.30-gs.4
-SUBSTRATE_REPO ?= oci://ghcr.io/giantswarm/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
+SUBSTRATE_VERSION ?= 0.0.30-gs.5
+SUBSTRATE_REPO ?= oci://gsoci.azurecr.io/giantswarm/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
 SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
 SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 
