@@ -7,8 +7,10 @@ tasks and ordered events, allowing interaction history to remain as an audit tra
 after compute is removed. New instances allocate independent instance, wire A2A
 context, and durable history IDs. `agent_instance.history_id` selects the history;
 `agent_instance.context_id` binds its public context. A composite foreign key
-ensures that binding agrees with `agent_history`. A history belongs to at most one
-live instance, while multiple fork authorities may use the same wire context.
+ensures the instance ID, owner, and context agree with `agent_history`. The history
+retains its unique originating `instance_id` after compute is deleted, so that ID
+still resolves the complete checkpoint lineage. Multiple fork authorities may use
+the same wire context.
 
 The core PostgreSQL records are:
 
@@ -92,16 +94,18 @@ Tag's copied snapshot with the Tag.
 History ancestry is recorded directly on `agent_history`: `parent_history_id` and
 `parent_history_sequence` identify the source history and the cutoff copied from
 it. Roots have neither field. Fork creation sets both fields atomically with the
-new instance and never changes them. Each new history points to an existing
-parent; ancestry traversal needs no checkpoint rows. `agent_instance.source_checkpoint_id`
+new instance and never changes them. Foreign keys require the parent to share the
+child's owner and context, and the cutoff to identify an event in that parent.
+Each new history points to an existing parent; ancestry traversal needs no
+checkpoint rows. `agent_instance.source_checkpoint_id`
 separately retains fork-request identity and runtime provenance while the instance exists.
 
 Checkpoint listing follows parent histories and their cutoffs, returning owned
 ready checkpoints with their original source provenance. Membership depends on the
 history boundary, so a checkpoint created later at an already inherited boundary
 also appears. Listing uses checkpoint-ID pagination across local and inherited
-results. After an instance is deleted, listing by its former ID returns only its
-locally created checkpoints; surviving descendants still follow retained ancestry.
+results. Listing starts from the history's retained instance ID, so deleting an
+instance does not change its local or inherited checkpoint results.
 
 Forking creates a new AgentInstance authority and durable history scope. It
 preserves wire context, task, message, artifact IDs, and request deduplication

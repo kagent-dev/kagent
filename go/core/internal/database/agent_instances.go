@@ -420,9 +420,9 @@ func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *ap
 		parentHistorySequence = &source.HistorySequence
 	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO agent_history (id, user_id, context_id, parent_history_id, parent_history_sequence)
-		VALUES ($1, $2, $3, $4, $5)
-	`, historyID, instance.Creator, instance.ContextId, parentHistoryID, parentHistorySequence); err != nil {
+		INSERT INTO agent_history (id, instance_id, user_id, context_id, parent_history_id, parent_history_sequence)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, historyID, instance.Id, instance.Creator, instance.ContextId, parentHistoryID, parentHistorySequence); err != nil {
 		return agentInstanceRow{}, fmt.Errorf("insert agent history: %w", err)
 	}
 	return queryOne(ctx, db, `

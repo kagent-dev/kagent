@@ -68,12 +68,18 @@ CREATE INDEX agent_template_harness_pair_name_idx
 -- Each row owns one history branch; forks preserve the public A2A context_id.
 CREATE TABLE agent_history (
     id                      UUID        PRIMARY KEY,
+    -- Historical provenance, retained after the instance is deleted.
+    instance_id             UUID        NOT NULL UNIQUE,
     user_id                 TEXT        NOT NULL CHECK (user_id <> ''),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     context_id              UUID        NOT NULL,
-    parent_history_id       UUID        REFERENCES agent_history(id) ON DELETE RESTRICT,
+    parent_history_id       UUID,
     parent_history_sequence BIGINT,
-    CONSTRAINT agent_history_binding_key UNIQUE (id, context_id),
+    CONSTRAINT agent_history_binding_key UNIQUE (id, user_id, context_id),
+    CONSTRAINT agent_history_instance_binding_key UNIQUE (id, instance_id, user_id, context_id),
+    CONSTRAINT agent_history_parent_binding_fkey
+        FOREIGN KEY (parent_history_id, user_id, context_id)
+        REFERENCES agent_history(id, user_id, context_id) ON DELETE RESTRICT,
     CHECK ((parent_history_id IS NULL) = (parent_history_sequence IS NULL)),
     CHECK (parent_history_id <> id),
     CHECK (parent_history_sequence > 0)
@@ -131,7 +137,8 @@ CREATE TABLE agent_instance (
         (prepared_revision IS NULL AND operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED')),
     history_id           UUID        NOT NULL,
     CONSTRAINT agent_instance_context_binding_fkey
-        FOREIGN KEY (history_id, context_id) REFERENCES agent_history(id, context_id) ON DELETE RESTRICT,
+        FOREIGN KEY (history_id, id, user_id, context_id)
+        REFERENCES agent_history(id, instance_id, user_id, context_id) ON DELETE RESTRICT,
     CONSTRAINT agent_instance_history_key UNIQUE (history_id),
     CONSTRAINT agent_instance_operation_check
         CHECK (operation IN ('AGENT_INSTANCE_OPERATION_UNSPECIFIED', 'AGENT_INSTANCE_OPERATION_CREATE',
@@ -211,11 +218,16 @@ CREATE UNIQUE INDEX agent_instance_task_event_creation_idx
     ON agent_instance_task_event (history_id, task_id) WHERE task_position IS NOT NULL;
 CREATE UNIQUE INDEX agent_instance_task_event_position_idx
     ON agent_instance_task_event (history_id, task_position) WHERE task_position IS NOT NULL;
-CREATE INDEX agent_instance_task_event_instance_sequence_idx
+CREATE UNIQUE INDEX agent_instance_task_event_instance_sequence_idx
     ON agent_instance_task_event (history_id, sequence);
 CREATE UNIQUE INDEX agent_instance_task_event_message_idx
     ON agent_instance_task_event (history_id, task_id, message_id)
     WHERE message_id IS NOT NULL;
+
+-- Histories own events, so the reverse boundary reference must follow both tables.
+ALTER TABLE agent_history ADD CONSTRAINT agent_history_parent_event_fkey
+    FOREIGN KEY (parent_history_id, parent_history_sequence)
+    REFERENCES agent_instance_task_event(history_id, sequence) ON DELETE RESTRICT;
 
 CREATE TABLE scheduled_run (
     id UUID PRIMARY KEY,
@@ -286,11 +298,11 @@ DROP TABLE scheduled_run;
 DROP VIEW unreferenced_runtime_revision;
 
 DROP TABLE agent_instance_share;
-DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
 DROP TABLE agent_instance_checkpoint;
-DROP TABLE agent_history;
+-- Drop both ends of the history/event references together.
+DROP TABLE agent_instance_task_event, agent_history;
 DROP TABLE agent_template_harness_pair;
 DROP TABLE runtime_revision;
 DROP TABLE toolserver;

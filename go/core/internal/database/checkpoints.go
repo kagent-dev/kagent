@@ -396,25 +396,20 @@ func checkpointSnapshot(row agentInstanceCheckpointRow) *AgentInstanceTaskSnapsh
 
 // ListAgentInstanceCheckpoints returns an owner's READY checkpoints in the instance's
 // history and inherited prefixes, in ascending ID order after afterID, up to limit.
-// Checkpoint fields retain their source provenance. Locally created checkpoints remain
+// Checkpoint fields retain their source provenance. The complete lineage remains
 // listable after the instance is deleted.
 func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
 	// Limit candidates per history before fetching payloads. Filtering the entire
 	// checkpoint table by lineage can otherwise turn a small page into a full scan.
 	rows, err := queryMany(ctx, c.db, `
 		WITH RECURSIVE lineage (history_id, boundary) AS (
-		    SELECT history_id, NULL::bigint FROM agent_instance WHERE id = $1 AND user_id = $2
+		    SELECT id, NULL::bigint FROM agent_history WHERE instance_id = $1 AND user_id = $2
 		    UNION
 		    SELECT h.parent_history_id, h.parent_history_sequence
 		    FROM lineage l
 		    JOIN agent_history h ON h.id = l.history_id
 		    WHERE h.user_id = $2 AND h.parent_history_id IS NOT NULL
 		), page AS MATERIALIZED (
-		    (SELECT id FROM agent_instance_checkpoint
-		     WHERE source_instance_id = $1 AND user_id = $2 AND state = 'READY'
-		       AND (NULLIF($3::text, '') IS NULL OR id > NULLIF($3::text, '')::uuid)
-		     ORDER BY id LIMIT $4)
-		    UNION
 		    SELECT c.id FROM lineage l
 		    CROSS JOIN LATERAL (
 		        SELECT id FROM agent_instance_checkpoint

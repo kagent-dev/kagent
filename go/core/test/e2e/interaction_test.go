@@ -305,6 +305,25 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	if _, err := fixture.instances.DeleteAgentInstance(nestedCtx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: nestedID}); err != nil {
 		t.Fatalf("delete nested fork: %v", err)
 	}
+	// Both deleted instance IDs still resolve their complete checkpoint lineage,
+	// including a nested fork that never created a checkpoint of its own.
+	for _, instanceID := range []string{fork.GetId(), nestedID} {
+		remaining := map[string]bool{checkpoint.GetId(): true, forkCheckpoint.GetCheckpoint().GetId(): true}
+		var pageToken string
+		for page := range 2 {
+			listed, err := fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
+				AgentInstanceId: instanceID, Page: &apiv1alpha1.PageRequest{Limit: 1, PageToken: pageToken},
+			})
+			if err != nil || len(listed.GetCheckpoints()) != 1 || !remaining[listed.GetCheckpoints()[0].GetId()] {
+				t.Fatalf("deleted instance %s checkpoint page = %+v, error %v", instanceID, listed, err)
+			}
+			delete(remaining, listed.GetCheckpoints()[0].GetId())
+			pageToken = listed.GetPage().GetNextPageToken()
+			if (pageToken == "") != (page == 1) {
+				t.Fatalf("deleted instance %s page %d token = %q", instanceID, page, pageToken)
+			}
+		}
+	}
 	// Deleting instances retains their histories and the checkpoints they inherit.
 	for _, id := range []string{checkpoint.GetId(), forkCheckpoint.GetCheckpoint().GetId()} {
 		if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{

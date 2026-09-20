@@ -176,16 +176,16 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "old", "old-actor-uid"))
 }
 
-// Pause the real store before or after it locks a revision. Exercise both
-// commit orderings without replacing persistence queries with test-only writes.
-type runtimeReferenceBarrier struct {
+// Pause a real store query before or after execution to control commit ordering.
+// Tests still exercise production persistence queries and PostgreSQL locks.
+type queryBarrier struct {
 	query      string
 	afterQuery bool
 	reached    chan struct{}
 	resume     chan struct{}
 }
 
-func (b *runtimeReferenceBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+func (b *queryBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if strings.Contains(data.SQL, b.query) {
 		if !b.afterQuery {
 			close(b.reached)
@@ -196,7 +196,7 @@ func (b *runtimeReferenceBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Co
 	return ctx
 }
 
-func (b *runtimeReferenceBarrier) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
+func (b *queryBarrier) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
 	if b.afterQuery && ctx.Value(b) != nil {
 		close(b.reached)
 		<-b.resume
@@ -217,7 +217,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					query = "FOR UPDATE OF r"
 					require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 				}
-				barrier := &runtimeReferenceBarrier{query: query, afterQuery: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
+				barrier := &queryBarrier{query: query, afterQuery: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
 				var resume sync.Once
 				defer resume.Do(func() { close(barrier.resume) })
 				config := pool.Config()
@@ -355,7 +355,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, claimed)
 
-				barrier := &runtimeReferenceBarrier{
+				barrier := &queryBarrier{
 					query: "FOR UPDATE OF r", reached: make(chan struct{}), resume: make(chan struct{}),
 				}
 				if operation == "record" {
