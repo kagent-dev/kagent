@@ -50,8 +50,13 @@ const text = (value: string) => ({ content: { case: "text" as const, value } });
  * the point, since the client reading one as if it were JSON is the bug this file
  * caught.
  */
-const data = (value: Record<string, unknown>) => ({
+const data = (
+  value: Record<string, unknown>,
+  options: { mediaType?: string; metadata?: Record<string, unknown> } = {},
+) => ({
   content: { case: "data" as const, value: fromJson(ValueSchema, value as never) },
+  mediaType: options.mediaType ?? "",
+  metadata: options.metadata,
 });
 
 /** A `working` status update carrying one message. */
@@ -670,6 +675,41 @@ describe("A2AGrpcChatClient.send", () => {
     expect(kinds).toEqual(["tool_call", "tool_result"]);
   });
 
+  it("keeps a streamed JSON result distinct from tool traffic", async () => {
+    const result = data(
+      { payload: { customerId: "12345" }, status: "success" },
+      {
+        mediaType: "application/json",
+        metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+      },
+    );
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate" as const,
+          value: {
+            taskId: "task-1",
+            contextId: CONVERSATION.contextId,
+            artifact: { artifactId: "answer", parts: [result] },
+            lastChunk: true,
+          },
+        },
+      },
+      statusFrame({ state: TaskState.COMPLETED }),
+    ]);
+
+    const part = transcript(events)
+      .flatMap((message) => message.parts)
+      .find((candidate) => candidate.kind === "data");
+    expect(part).toEqual({
+      kind: "data",
+      dataKind: "structured_output",
+      data: { payload: { customerId: "12345" }, status: "success" },
+      mediaType: "application/json",
+      metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+    });
+  });
+
   it("reports the turn reaching completion", async () => {
     const events = await turn([
       statusFrame({
@@ -1170,6 +1210,40 @@ describe("A2AGrpcChatClient.history", () => {
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
     expect(messages).toHaveLength(1);
+  });
+
+  it("restores a persisted structured result with its contract metadata", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "answer",
+            parts: [
+              data(
+                { status: "success" },
+                {
+                  mediaType: "application/json",
+                  metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+                },
+              ),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0]?.parts[0]).toEqual({
+      kind: "data",
+      dataKind: "structured_output",
+      data: { status: "success" },
+      mediaType: "application/json",
+      metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+    });
   });
 
   it("coalesces persisted artifact chunks without crossing structured parts", async () => {

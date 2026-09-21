@@ -111,6 +111,7 @@ const HISTORY_PAGE_LIMIT = 50;
  * https://github.com/a2aproject/A2A/pull/2129
  */
 const TIMELINE_POSITION_METADATA_KEY = "kagent.dev/timeline-position";
+const OUTPUT_SCHEMA_SHA256_METADATA_KEY = "kagent.dev/output-schema-sha256";
 
 /** Ids for the messages the wire did not name. */
 let counter = 0;
@@ -185,7 +186,19 @@ function toPart(part: A2APart): ChatPart | undefined {
       return undefined;
     }
     const data = value as Record<string, unknown>;
-    return { kind: "data", dataKind: dataKindOf(data), data };
+    return {
+      kind: "data",
+      dataKind: dataKindOf(
+        data,
+        part.mediaType,
+        part.metadata as Record<string, unknown> | undefined,
+      ),
+      data,
+      ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+      ...(part.metadata
+        ? { metadata: part.metadata as Record<string, unknown> }
+        : {}),
+    };
   }
   // A file part, by url or raw bytes. Nothing renders one yet, and inventing a
   // placeholder would put a broken attachment in a transcript that has none.
@@ -195,13 +208,24 @@ function toPart(part: A2APart): ChatPart | undefined {
 /**
  * What a data part represents.
  *
- * Read from the payload's own shape rather than from a `kind` the wire does not
- * carry: the runtime emits a tool call as `{name, args}` and its result as
- * `{name, response}`. Anything else is passed through as `unknown` and rendered
- * as structured data, which is honest — it is data, and this build does not know
- * what kind.
+ * A structured terminal answer has an explicit runtime-owned signature: JSON media
+ * type plus the digest of the schema that was enforced. Tool traffic has no wire
+ * discriminator, so it is read from the payload shape the runtime emits:
+ * `{name, args}` for a call and `{name, response}` for its result. Requiring both
+ * pieces of the output signature avoids relabelling an arbitrary JSON tool payload
+ * as the agent's final answer.
  */
-function dataKindOf(data: Record<string, unknown>): ChatDataPart["dataKind"] {
+function dataKindOf(
+  data: Record<string, unknown>,
+  mediaType: string,
+  metadata: Record<string, unknown> | undefined,
+): ChatDataPart["dataKind"] {
+  if (
+    mediaType.split(";", 1)[0]?.trim().toLowerCase() === "application/json" &&
+    typeof metadata?.[OUTPUT_SCHEMA_SHA256_METADATA_KEY] === "string"
+  ) {
+    return "structured_output";
+  }
   if ("args" in data) return "tool_call";
   if ("response" in data || "result" in data) return "tool_result";
   return "unknown";
