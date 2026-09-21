@@ -667,6 +667,7 @@ function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
   return {
     id: checkpoint.id,
     agentInstanceId: checkpoint.agentInstanceId,
+    name: checkpoint.name,
     headTaskId: checkpoint.headTaskId,
     state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
     createdAt: isoFrom(checkpoint.createdAt),
@@ -680,6 +681,7 @@ const agentInstances: Pick<
   | "agentInstances.checkpoints.list"
   | "agentInstances.checkpoints.fork"
   | "agentInstances.checkpoints.delete"
+  | "agentInstances.checkpoints.rename"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -806,7 +808,7 @@ const agentInstances: Pick<
     );
     const checkpoint = toCheckpoint(required(created.checkpoint, name, "checkpoint"));
     if (checkpoint.state !== "ready") {
-      throw new ApiError(checkpoint.failure || "The checkpoint did not become ready.", {
+      throw new ApiError(checkpoint.failure || "The snapshot did not become ready.", {
         kind: "http",
         url: name,
         status: 500,
@@ -836,9 +838,10 @@ const agentInstances: Pick<
   /*
    * The fork of a boundary saved earlier, which is where the history it holds stops.
    *
-   * Renaming is a second call because `ForkAgentInstance` takes no name — the fork
-   * inherits the source's, and a reader looking at two rows with the same title
-   * cannot tell which one they just made.
+   * `ForkAgentInstance` names the fork after the snapshot, so the chat sends no name
+   * and takes that. `name` is for the caller that wants something else — duplicating a
+   * conversation from the rail, which titles the copy after the conversation — and it
+   * costs a second call because the fork RPC has nowhere to put it.
    */
   "agentInstances.checkpoints.fork": async (input, options) => {
     const name = "CheckpointService/ForkAgentInstance";
@@ -851,6 +854,24 @@ const agentInstances: Pick<
     const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
     if (!input.name) return instance;
     return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
+  },
+
+  /*
+   * The name a reader gave a boundary, which the fork of it inherits.
+   *
+   * Empty is not a no-op: the controller restores its generated default, so the
+   * record that comes back is what the boundary is now called rather than what was
+   * sent — which is why this answers with the checkpoint instead of nothing.
+   */
+  "agentInstances.checkpoints.rename": async (input, options) => {
+    const name = "CheckpointService/UpdateCheckpointName";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).updateCheckpointName(
+        { checkpointId: input.checkpointId, name: input.name },
+        call("agentInstances.checkpoints.rename", options),
+      ),
+    );
+    return toCheckpoint(required(response.checkpoint, name, "renamed checkpoint"));
   },
 
   "agentInstances.checkpoints.delete": async (input, options) => {
@@ -1174,9 +1195,8 @@ function toActorTemplateEntry(
     name: metadata.name,
     phase: golden?.errorMessage
       ? "Failed"
-      : golden?.goldenSnapshot ? "Ready" : "Pending",
-    goldenActorId: orUndefined(metadata.uid),
-    goldenSnapshot: orUndefined(golden?.goldenSnapshot?.snapshotUri),
+      : golden?.goldenTag ? "Ready" : "Pending",
+    goldenTag: golden?.goldenTag ? `${golden.goldenTag.atespace}/${golden.goldenTag.name}` : undefined,
     sandboxClass:
       SandboxClass[
         actorTemplate.sandboxConfig?.sandboxClass ?? SandboxClass.UNSPECIFIED
@@ -1218,7 +1238,7 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
     ateomPodIp: orUndefined(assignment?.workerPodIp),
     latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
     workerPoolName: orUndefined(assignment?.workerPool),
-    inProgressSnapshot: orUndefined(actor.status?.inProgressSnapshotName),
+    inProgressSnapshot: orUndefined(actor.status?.inProgressLocalSnapshotName),
     version: toNumber(metadata.version),
   };
 }

@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -812,6 +814,9 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 			t.Fatalf("KAGENT_LOCAL_HOST is required on %s", goruntime.GOOS)
 		}
 	}
+	if net.ParseIP(host) != nil {
+		host = mockOriginService(t, host, port)
+	}
 	parsed.Host = net.JoinHostPort(host, port)
 	parsed.Path = path
 	return parsed.String()
@@ -925,6 +930,9 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 	clientScheme := k8sruntime.NewScheme()
 	if err := corev1.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register Kubernetes core API: %v", err)
+	}
+	if err := discoveryv1.AddToScheme(clientScheme); err != nil {
+		t.Fatalf("register discovery API: %v", err)
 	}
 	if err := v1alpha3.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register kagent API: %v", err)
@@ -1056,10 +1064,45 @@ func startForkMemoryMock(t *testing.T) string {
 		t.Fatal(err)
 	}
 	config.OpenAI = append(config.OpenAI, continuation)
-	upstream, err := url.Parse(startMockLLMConfig(t, config))
+	recorder := startModelRecorder(t, startMockLLMConfig(t, config), func(body []byte) error {
+		if !bytes.Contains(body, []byte("What was the answer before the checkpoint?")) {
+			return nil
+		}
+		if !bytes.Contains(body, []byte("The answer is 4.")) || bytes.Count(body, []byte("What is 2+2?")) != 1 {
+			return errors.New("fork did not restore the checkpoint conversation")
+		}
+		return nil
+	})
+	return reachableModelURL(t, recorder.URL)
+}
+
+// modelRecorder proxies model requests to a mock LLM and keeps a copy of each
+// one, so a test can assert on what the runtime sent rather than only on what
+// the mock answered.
+type modelRecorder struct {
+	// URL is the proxy's listener on the test host.
+	URL string
+
+	mu       sync.Mutex
+	requests []recordedModelRequest
+}
+
+type recordedModelRequest struct {
+	Header http.Header
+	Body   []byte
+}
+
+// startModelRecorder puts a recording proxy in front of the mock LLM at
+// upstreamURL. An inspect function may reject a request: its error is
+// answered with 400 instead of being forwarded, which fails the agent's turn
+// visibly rather than letting the mock answer a prompt it should not see.
+func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []byte) error) *modelRecorder {
+	t.Helper()
+	upstream, err := url.Parse(upstreamURL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	recorder := &modelRecorder{}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -1068,9 +1111,12 @@ func startForkMemoryMock(t *testing.T) string {
 			return
 		}
 		_ = r.Body.Close()
-		if bytes.Contains(body, []byte("What was the answer before the checkpoint?")) {
-			if !bytes.Contains(body, []byte("The answer is 4.")) || bytes.Count(body, []byte("What is 2+2?")) != 1 {
-				http.Error(w, "fork did not restore the checkpoint conversation", http.StatusBadRequest)
+		recorder.mu.Lock()
+		recorder.requests = append(recorder.requests, recordedModelRequest{Header: r.Header.Clone(), Body: body})
+		recorder.mu.Unlock()
+		if inspect != nil {
+			if err := inspect(body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -1084,5 +1130,49 @@ func startForkMemoryMock(t *testing.T) string {
 	}
 	server.Start()
 	t.Cleanup(server.Close)
-	return reachableModelURL(t, server.URL)
+	recorder.URL = server.URL
+	return recorder
+}
+
+// Requests returns the recorded requests carrying the header value, in
+// arrival order.
+func (r *modelRecorder) Requests(header, value string) []recordedModelRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var matched []recordedModelRequest
+	for _, request := range r.requests {
+		if request.Header.Get(header) == value {
+			matched = append(matched, request)
+		}
+	}
+	return matched
+}
+
+// Gateway credential rules match DNS names. Give host-based mocks a cluster
+// service name without depending on public DNS or changing the gateway config.
+func mockOriginService(t *testing.T, address, port string) string {
+	t.Helper()
+	number, err := strconv.ParseInt(port, 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kube := interactionKubeClient(t)
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{GenerateName: "mock-origin-", Namespace: "kagent"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "http", Port: int32(number)}}}}
+	if err := kube.Create(t.Context(), service); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), service); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete mock service: %v", err)
+		}
+	})
+	addressType := discoveryv1.AddressTypeIPv4
+	if net.ParseIP(address).To4() == nil {
+		addressType = discoveryv1.AddressTypeIPv6
+	}
+	endpoints := &discoveryv1.EndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: service.Name, Namespace: service.Namespace, Labels: map[string]string{discoveryv1.LabelServiceName: service.Name, discoveryv1.LabelManagedBy: "kagent-e2e"}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: service.Name, UID: service.UID}}}, AddressType: addressType, Ports: []discoveryv1.EndpointPort{{Name: new("http"), Port: new(int32(number)), Protocol: new(corev1.ProtocolTCP)}}, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{address}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}}}}
+	if err := kube.Create(t.Context(), endpoints); err != nil {
+		t.Fatal(err)
+	}
+	return service.Name + "." + service.Namespace + ".svc.cluster.local"
 }

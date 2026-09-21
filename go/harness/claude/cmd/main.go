@@ -11,11 +11,8 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
-	"github.com/kagent-dev/kagent/go/harness/claude/internal/adapter"
-	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
-	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
+	"github.com/kagent-dev/kagent/go/harness/claude/executor"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -71,44 +68,19 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 		}()
 	}
 
-	runner, err := adapter.New(ctx, adapter.Input{
-		ConfigJSON: configJSON,
-		Workspace:  dataDir + "/workspace", DurableDir: dataDir,
-		EphemeralDir: "/tmp/kagent-claude",
-		Environment:  environment,
-	})
+	exec, closer, err := executor.New(ctx, executor.Config{ConfigJSON: configJSON, DataDir: dataDir, Environment: environment})
 	if err != nil {
-		return fmt.Errorf("configure Claude Harness: %w", err)
-	}
-	defer runner.Close()
-	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := runner.Validate(validateCtx); err != nil {
 		return err
 	}
+	defer closer.Close()
 	if check {
 		return nil
 	}
-	store, err := continuation.New(dataDir+"/adapter", "claude", validateSessionID)
-	if err != nil {
-		return err
-	}
-	executor, err := runtimea2a.New(runner, store)
-	if err != nil {
-		return err
-	}
-	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, executor)
+	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, exec)
 	if err != nil {
 		return fmt.Errorf("construct private A2A app: %w", err)
 	}
 	return application.Run()
-}
-
-func validateSessionID(id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return fmt.Errorf("invalid Claude session ID: %w", err)
-	}
-	return nil
 }
 
 func requiredEnvironment(getenv func(string) string, name string) ([]byte, error) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -55,9 +56,11 @@ type Revision struct {
 	WorkerPoolName   string
 	SnapshotLocation string
 
-	// Provenance identifies every Kubernetes input to this revision. Secret
-	// values are represented only by hashes.
+	// Provenance identifies non-secret Kubernetes inputs. Gateway-fetched
+	// credential values are deliberately excluded from revision identity.
 	Provenance json.RawMessage
+	// Credentials contains references resolved by the egress gateway.
+	Credentials []egress.Credential
 	// EgressDestinations is the hostname allowlist required by this revision.
 	EgressDestinations []string
 }
@@ -67,23 +70,24 @@ type Revision struct {
 // prefix only for readability.
 func (r *Revision) Digest() (RevisionID, error) {
 	raw, err := json.Marshal(struct {
-		Namespace          string          `json:"namespace"`
-		AgentTemplateName  string          `json:"agentTemplateName"`
-		HarnessName        string          `json:"harnessName"`
-		Image              string          `json:"image"`
-		Command            []string        `json:"command,omitempty"`
-		Args               []string        `json:"args,omitempty"`
-		Environment        []corev1.EnvVar `json:"environment"`
-		ConfigJSON         json.RawMessage `json:"config"`
-		WorkerPoolName     string          `json:"workerPoolName"`
-		SnapshotLocation   string          `json:"snapshotLocation"`
-		Provenance         json.RawMessage `json:"provenance"`
-		EgressDestinations []string        `json:"egressDestinations"`
+		Namespace          string              `json:"namespace"`
+		AgentTemplateName  string              `json:"agentTemplateName"`
+		HarnessName        string              `json:"harnessName"`
+		Image              string              `json:"image"`
+		Command            []string            `json:"command,omitempty"`
+		Args               []string            `json:"args,omitempty"`
+		Environment        []corev1.EnvVar     `json:"environment"`
+		ConfigJSON         json.RawMessage     `json:"config"`
+		WorkerPoolName     string              `json:"workerPoolName"`
+		SnapshotLocation   string              `json:"snapshotLocation"`
+		Provenance         json.RawMessage     `json:"provenance"`
+		Credentials        []egress.Credential `json:"credentials,omitempty"`
+		EgressDestinations []string            `json:"egressDestinations"`
 	}{
 		Namespace: r.Namespace, AgentTemplateName: r.AgentTemplateName, HarnessName: r.HarnessName,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
-		EgressDestinations: r.EgressDestinations,
+		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

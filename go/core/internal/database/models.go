@@ -5,6 +5,7 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/pgvector/pgvector-go"
@@ -66,6 +67,7 @@ type RuntimeRevision struct {
 	HarnessUID            string
 	SourceSnapshot        json.RawMessage
 	AgentCard             *a2apb.AgentCard
+	Credentials           []egress.Credential
 	EgressDestinations    []string
 	ActorTemplateAtespace string
 	ActorTemplateName     string

@@ -467,3 +467,34 @@ func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectsNonLiteralHealthPath(t *testing.T) {
+	for _, path := range []string{"ping", "/", "/ping/", "/ping/{id}", "/ping {x}"} {
+		if _, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", HealthPaths: []string{path}}); err == nil {
+			t.Errorf("NewA2AServer accepted health path %q", path)
+		}
+	}
+}
+
+func TestConfiguredHealthPaths(t *testing.T) {
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", HealthPaths: []string{"/ping"}, HealthHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"Healthy"}`))
+	})})
+	if err != nil {
+		t.Fatalf("NewA2AServer: %v", err)
+	}
+	testServer := httptest.NewServer(srv.httpServer.Handler)
+	t.Cleanup(func() { srv.grpcServer.Stop(); testServer.Close() })
+	// The JSON-RPC handler owns "/", so an unregistered probe path never returns the probe body.
+	for path, want := range map[string]bool{"/ping": true, "/ping/child": false, "/healthz": false} {
+		resp, err := testServer.Client().Get(testServer.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if got := resp.StatusCode == http.StatusOK && string(body) == `{"status":"Healthy"}`; got != want {
+			t.Fatalf("GET %s = %d %q, want probe=%v", path, resp.StatusCode, body, want)
+		}
+	}
+}

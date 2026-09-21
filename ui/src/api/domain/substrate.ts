@@ -11,8 +11,7 @@ export interface SubstrateActorTemplateEntry {
   atespace: string;
   name: string;
   phase?: string;
-  goldenActorId?: string;
-  goldenSnapshot?: string;
+  goldenTag?: string;
   sandboxClass?: string;
   workerSelector?: string;
 }

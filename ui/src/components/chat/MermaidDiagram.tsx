@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { css, useTheme } from "@emotion/react";
 import type { Theme } from "@emotion/react";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 
 /**
  * A fenced ` ```mermaid ` block, rendered as a diagram.

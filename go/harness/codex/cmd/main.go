@@ -9,13 +9,10 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
-	"github.com/kagent-dev/kagent/go/harness/codex/internal/adapter"
-	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
-	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
+	"github.com/kagent-dev/kagent/go/harness/codex/executor"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -70,45 +67,18 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 			}
 		}()
 	}
-	runner, err := adapter.New(ctx, adapter.Input{
-		ConfigJSON: configJSON, Workspace: dataDir + "/workspace", DurableDir: dataDir, Environment: environment,
-	})
+	exec, err := executor.New(ctx, executor.Config{ConfigJSON: configJSON, DataDir: dataDir, Environment: environment})
 	if err != nil {
-		return fmt.Errorf("configure Codex Harness: %w", err)
-	}
-	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := runner.Validate(validateCtx); err != nil {
 		return err
 	}
 	if check {
 		return nil
 	}
-	store, err := continuation.New(dataDir+"/adapter", "codex", validateThreadID)
-	if err != nil {
-		return err
-	}
-	executor, err := runtimea2a.New(runner, store)
-	if err != nil {
-		return err
-	}
-	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, executor)
+	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, exec)
 	if err != nil {
 		return fmt.Errorf("construct private A2A app: %w", err)
 	}
 	return application.Run()
-}
-
-func validateThreadID(id string) error {
-	if id == "" || len(id) > 256 {
-		return fmt.Errorf("invalid Codex thread ID length")
-	}
-	for _, character := range id {
-		if unicode.IsControl(character) || unicode.IsSpace(character) {
-			return fmt.Errorf("invalid Codex thread ID")
-		}
-	}
-	return nil
 }
 
 func requiredEnvironment(getenv func(string) string, name string) ([]byte, error) {

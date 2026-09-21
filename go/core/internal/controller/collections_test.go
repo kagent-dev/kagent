@@ -117,7 +117,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 
 	observed := proto.CloneOf(state.DesiredActorTemplate)
 	observed.Metadata.Uid = "actor-template-uid"
-	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	store := &fakeRuntimeRevisionStore{}
 	reconciler := &Reconciler{
 		collections: collections, templates: &fakeActorTemplates{template: observed}, store: store,
@@ -233,7 +233,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
 	})
 	state := reconciliations.List()[0]
-	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != "secret" {
+	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
 		t.Fatalf("Claude revision environment = %#v", state.Revision)
 	}
 	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
@@ -289,7 +289,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
 	})
 	state := reconciliations.List()[0]
-	if state.Revision == nil || state.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Revision.Environment[0].Value != "secret" {
+	if state.Revision == nil || state.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
 		t.Fatalf("Codex revision environment = %#v", state.Revision)
 	}
 	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {

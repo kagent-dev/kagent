@@ -275,7 +275,6 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) error {
 				}
 				continue
 			}
-			// ponytail: fixed 30s lateness allowance; configure it if deployments need longer failover tolerance.
 			if now.Sub(*row.NextExecutionTime) <= 30*time.Second {
 				_, err := reserveScheduledRunExecution(ctx, tx, schedule, row.NextExecutionTime, nil)
 				if err != nil {

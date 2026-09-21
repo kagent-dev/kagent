@@ -14,11 +14,41 @@
 ipv6:
   enabled: false
 
+# Values under `global` are visible to this chart and to every subchart. A parent
+# chart or an operator sets one value here instead of one value per chart.
+global:
+  # -- Registry that overrides every per-image registry when set. This is the
+  # air-gap mirror knob: one value redirects all images. Repository and tag stay
+  # per-image. For per-image control, leave this unset and set the per-image
+  # registry keys. Covers this chart's own images: controller, ui, bundled
+  # postgres, grafana-mcp, and substrateWorkerPool.workerImage. The vendored
+  # subcharts (kagent-tools, kmcp, substrate) adopt it when their pinned
+  # versions bump.
+  imageRegistry: ""
+  # -- Pull secrets for every pod. The chart merges this list (union) into each
+  # pod's own imagePullSecrets, so a local secret is never removed. Coverage
+  # matches imageRegistry above.
+  imagePullSecrets: []
+  # -- Fallback imagePullPolicy where neither a component nor the top-level
+  # imagePullPolicy sets one.
+  imagePullPolicy: ""
+  # -- Namespace scope for the whole install. A non-empty list replaces
+  # ClusterRoles with Roles and scopes the controller's watch. Both derive from
+  # this one value, so they cannot disagree. Prefer this value over the
+  # per-surface keys. rbac.namespaces overrides it when the key is present. An
+  # explicit empty rbac.namespaces restores cluster-scoped RBAC. Mixing in
+  # controller.watchNamespaces is validated: the watch must stay inside the RBAC
+  # scope. A watched namespace without a Role is a permanent Forbidden loop at
+  # runtime.
+  watchNamespaces: []
+
 tag: ""
 registry: "ghcr.io"
 
 imagePullSecrets: []
-imagePullPolicy: IfNotPresent
+# -- Pull policy for all containers. Empty falls back to global.imagePullPolicy,
+# then IfNotPresent.
+imagePullPolicy: ""
 
 nameOverride: ""
 fullnameOverride: ""
@@ -115,8 +145,10 @@ database:
         name: postgres
         # -- Bundled PostgreSQL image tag
         tag: "18.6-alpine3.23"
-        # -- Bundled PostgreSQL image pull policy
-        pullPolicy: IfNotPresent
+        # -- Bundled PostgreSQL image pull policy. Empty falls back to the
+        # top-level imagePullPolicy, then global.imagePullPolicy, then
+        # IfNotPresent. A declared default here would shadow both fallbacks.
+        pullPolicy: ""
       # -- PersistentVolumeClaim size for demo PostgreSQL data
       storage: 500Mi
       # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
@@ -166,12 +198,18 @@ database:
 
 rbac:
   # -- Namespaces in which to create Role and RoleBinding resources.
-  # If empty (default), the chart creates cluster-scoped ClusterRole and ClusterRoleBinding
-  # resources and the controller watches all namespaces.
-  # If set, the chart creates a Role + RoleBinding per listed namespace and the controller's
-  # WATCH_NAMESPACES is derived from this list (unless controller.watchNamespaces is set
-  # explicitly, which always takes precedence).
-  namespaces: []
+  # Left unset (the default), the scope falls back to global.watchNamespaces.
+  # If that is also unset, the chart creates cluster-scoped ClusterRole and
+  # ClusterRoleBinding resources, and the controller watches all namespaces.
+  # If set, the chart creates a Role and a RoleBinding per listed namespace.
+  # The controller's WATCH_NAMESPACES derives from the same list, unless
+  # controller.watchNamespaces overrides it.
+  # An explicit empty list forces cluster-scoped RBAC, even under a parent that
+  # sets global.watchNamespaces. This is why the key ships commented out: a
+  # declared default [] would make every install look explicitly cluster-scoped,
+  # and the global fallback would be unreachable.
+  # namespaces: []
+  {}
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
@@ -747,6 +785,12 @@ substrate:
       enabled: false
       name: ""
       key: ddlConnectionString
+  # Grant each agent atespace access to its credential namespace explicitly.
+  # HTTPS also requires the egress-mitm-ca-pool Secret in Substrate's namespace.
+  credentialProvider:
+    namespacePolicies: []
+    # - atespace: kagent
+    #   allowedNamespaces: [kagent]
   ateApi:
     extraArgs:
       # Minimum supported interval for discovering and reconciling actor templates.

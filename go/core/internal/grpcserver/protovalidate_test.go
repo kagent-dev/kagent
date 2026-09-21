@@ -59,6 +59,9 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 		{"invalid template filter", &apiv1alpha1.ListAgentInstancesRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
 		{"valid rename", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
 		{"invalid rename id", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
+		{"valid checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},
+		{"empty checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111"}, true},
+		{"checkpoint rename control character", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)
@@ -88,6 +91,7 @@ func TestInvalidInstanceAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 		&apiv1alpha1.ListCheckpointsRequest{AgentInstanceId: "invalid"},
 		&apiv1alpha1.DeleteCheckpointRequest{CheckpointId: "invalid"},
 		&apiv1alpha1.ForkAgentInstanceRequest{CheckpointId: "invalid", RequestId: "request"},
+		&apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "invalid"},
 	}
 	for _, request := range requests {
 		t.Run(string(proto.MessageName(request)), func(t *testing.T) {

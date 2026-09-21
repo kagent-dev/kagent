@@ -1,3 +1,4 @@
+import { randomId } from "@/api/randomId";
 import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
@@ -150,7 +151,9 @@ import {
   saveToolServer,
   checkpointById,
   deleteCheckpoint,
+  generatedCheckpointName,
   readCheckpoints,
+  renameCheckpoint,
   saveCheckpoint,
 } from "./state";
 import type { MockCheckpoint } from "./state";
@@ -922,7 +925,7 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     // A UUID, because the controller parses one: `validateIdentity` rejects
     // anything else, so a fixture id shaped differently would pass here and fail
     // against a cluster — which is this codebase's most expensive recurring bug.
-    id: crypto.randomUUID(),
+    id: randomId(),
     name,
     creator: MOCK_INSTANCE_CREATOR,
     harness: `${namespace}/${input.harness?.name}`,
@@ -966,6 +969,7 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
 const checkpointMessage = (row: MockCheckpoint) => ({
   id: row.id,
   agentInstanceId: row.agentInstanceId,
+  name: row.name,
   headTaskId: row.headTaskId,
   state: PbCheckpointState.READY,
   createdAt: timestampFromDate(new Date(row.createdAt)),
@@ -973,13 +977,21 @@ const checkpointMessage = (row: MockCheckpoint) => ({
 
 on(CheckpointService.method.createCheckpoint, (input, call) => {
   const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const headTaskId = mockLatestTaskId(instance.id);
   const checkpoint = saveCheckpoint({
-    id: crypto.randomUUID(),
+    id: randomId(),
     agentInstanceId: instance.id,
-    headTaskId: mockLatestTaskId(instance.id),
+    name: generatedCheckpointName({ agentInstanceId: instance.id, headTaskId }),
+    headTaskId,
     createdAt: new Date().toISOString(),
   });
   return { checkpoint: checkpointMessage(checkpoint) };
+});
+
+on(CheckpointService.method.updateCheckpointName, (input) => {
+  const renamed = renameCheckpoint(input.checkpointId, input.name);
+  if (!renamed) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return { checkpoint: checkpointMessage(renamed) };
 });
 
 on(CheckpointService.method.deleteCheckpoint, (input) => {
@@ -993,9 +1005,10 @@ on(CheckpointService.method.listCheckpoints, (input, call) => {
 });
 
 /*
- * The fork copies the source's record under a new id, unnamed, exactly as the
- * controller's `InsertForkedAgentInstance` does — and copies the transcript up to the
- * checkpoint's turn, which is what makes forking an earlier boundary mean anything.
+ * The fork copies the source's record under a new id and takes the checkpoint's name,
+ * exactly as the controller's `InsertForkedAgentInstance` does — and copies the
+ * transcript up to the checkpoint's turn, which is what makes forking an earlier
+ * boundary mean anything.
  */
 on(CheckpointService.method.forkAgentInstance, (input, call) => {
   const checkpoint = checkpointById(input.checkpointId);
@@ -1004,8 +1017,8 @@ on(CheckpointService.method.forkAgentInstance, (input, call) => {
   const now = new Date().toISOString();
   const forked = saveAgentInstance({
     ...source,
-    id: crypto.randomUUID(),
-    name: "",
+    id: randomId(),
+    name: checkpoint.name,
     state: "ready",
     operation: "unspecified",
     createdAt: now,
@@ -1344,12 +1357,11 @@ function substrateActorTemplateMessage(
     metadata: {
       atespace: template.atespace,
       name: template.name,
-      uid: template.goldenActorId ?? "",
     },
     status: {
       goldenSnapshotStatus: {
-        goldenSnapshot: template.goldenSnapshot
-          ? { snapshotUri: template.goldenSnapshot }
+        goldenTag: template.goldenTag
+          ? { atespace: template.goldenTag.split("/")[0], name: template.goldenTag.split("/")[1] }
           : undefined,
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
@@ -1393,7 +1405,7 @@ function substrateActorMessage(
       externalSnapshot: actor.latestSnapshot
         ? { snapshotUri: actor.latestSnapshot }
         : undefined,
-      inProgressSnapshotName: actor.inProgressSnapshot ?? "",
+      inProgressLocalSnapshotName: actor.inProgressSnapshot ?? "",
     },
   };
 }
@@ -1638,7 +1650,7 @@ on(ScheduledRunService.method.createScheduledRun, (input) => {
     throw new ConnectError("A prompt, request ID and an agent in one namespace are required", Code.InvalidArgument);
   }
   const schedule = create(ScheduledRunSchema, {
-    id: crypto.randomUUID(), etag: crypto.randomUUID(), creator: MOCK_INSTANCE_CREATOR,
+    id: randomId(), etag: randomId(), creator: MOCK_INSTANCE_CREATOR,
     harness: input.harness, agentTemplate: input.agentTemplate, config: input.config,
     createdAt: timestampFromDate(new Date()),
   });
@@ -1651,7 +1663,7 @@ on(ScheduledRunService.method.updateScheduledRun, (input, call) => {
   if (schedule.deletedAt) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
   if (schedule.etag !== input.etag) throw new ConnectError("Schedule changed. Reopen the editor and retry.", Code.Aborted);
   schedule.config = input.config;
-  schedule.etag = crypto.randomUUID();
+  schedule.etag = randomId();
   return { scheduledRun: schedule };
 });
 on(ScheduledRunService.method.deleteScheduledRun, (input, call) => {
@@ -1666,7 +1678,7 @@ on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
   const prior = scheduleExecutions.find((row) => row.scheduledRunId === schedule.id && row.trigger.case === "manualRequestId" && row.trigger.value === input.requestId);
   if (prior) return { execution: prior };
   const execution = create(ScheduledRunExecutionSchema, {
-    id: crypto.randomUUID(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
+    id: randomId(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
     trigger: { case: "manualRequestId", value: input.requestId }, prompt: schedule.config?.prompt,
     state: ScheduledRunExecutionState.PENDING, createdAt: timestampFromDate(new Date()),
   });

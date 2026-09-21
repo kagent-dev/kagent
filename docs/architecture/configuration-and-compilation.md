@@ -63,8 +63,8 @@ application and readiness. The central entry points are
 
 ## Harness-specific output
 
-- **kagent** emits Go ADK configuration, Shared native subagents, and the kagent
-  HITL extension.
+- **kagent** emits Go ADK configuration, the Harness's memory and context
+  compaction policy, Shared native subagents, and the kagent HITL extension.
 - **Codex** emits native App Server configuration, OpenAI or Bedrock model setup,
   Streamable HTTP MCP servers, Shared agents, and skills. Approvals are currently
   disabled by policy.
@@ -75,3 +75,10 @@ application and readiness. The central entry points are
   supplied in the ADK-shaped format when requested.
 
 Dedicated agent bindings are not compiled yet.
+
+`spec.kagent.compaction` on the Harness is runtime policy, like `spec.kagent.memory`:
+it belongs to the runner that drives the root agent and is not part of the
+portable template. The kagent compiler applies it to every root agent the
+Harness runs. A summarizer `ModelConfig` other than the agent's own is resolved
+from the Harness namespace like the memory model and joins the revision's
+credentials, egress, and provenance.

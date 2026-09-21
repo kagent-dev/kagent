@@ -9,7 +9,7 @@ set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SUBSTRATE_VERSION=0.2.0-beta2
+SUBSTRATE_VERSION=0.2.0-beta4
 cd "$REPO"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
@@ -36,7 +36,9 @@ helm upgrade --install substrate \
   "oci://ghcr.io/kagent-dev/substrate/helm/substrate" --version "$SUBSTRATE_VERSION" \
   --namespace ate-system \
   --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
-  --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms'
+  --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms' \
+  --set 'credentialProvider.namespacePolicies[0].atespace=kagent' \
+  --set 'credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent'
 
 step "4/10  CA and JWT pools"
 kubectl create namespace podcertificate-controller-system --dry-run=client -o yaml | kubectl apply -f -
@@ -44,6 +46,7 @@ $ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=service-dns-ca-p
 $ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
 $ATE --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool   --secret-namespace=ate-system
 $ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=actor-id-ca-pool     --secret-namespace=ate-system
+$ATE --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
 
 # kubectl-ate prints "Successfully created" and exits 0 slightly BEFORE the secret is
 # readable, so wait on the secret rather than trusting the exit code. Found the hard

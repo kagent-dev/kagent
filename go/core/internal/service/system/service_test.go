@@ -305,7 +305,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
 				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-					GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
+					GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 				}},
 			}},
 			actors: []*ateapipb.Actor{
@@ -339,7 +339,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 		require.Len(t, result.ActorTemplates, 1)
 		template := result.ActorTemplates[0]
 		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
-		assert.Equal(t, "s3://snapshots/golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot().GetSnapshotUri())
+		assert.Equal(t, "golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag().GetName())
 		assert.Equal(t, ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, template.GetSandboxConfig().GetSandboxClass())
 		assert.Empty(t, template.GetContainers())
 		require.Len(t, ateClient.templates[0].GetContainers(), 1)
