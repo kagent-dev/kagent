@@ -190,10 +190,23 @@ bodies, which have their own settings.
 
 ## Rollout
 
-The compiled runtime configuration is versioned, and a runtime refuses a version
-it does not understand. Publish the controller and harness images from the same
-revision and move their pins together; a controller that is ahead of its pinned
-harness images compiles configurations those images reject.
+The controller hands each Claude Code and Codex Actor its compiled
+configuration as JSON, and that JSON carries a version number. The harness
+binary in the runtime image accepts only the version it was built with, and
+rejects anything else at startup with `unsupported config version N (want M)`.
+The telemetry section described above is one such change, since adding it moved
+the Claude version from 4 to 5 and the Codex version from 2 to 3.
+
+That makes upgrade order matter. A Harness selects its runtime image by digest
+in `spec.workload.image`. If the controller is upgraded to a build that includes
+a new version while a Harness still points at a harness image built before it,
+every new revision the controller compiles for that Harness carries the new
+version, the older binary refuses it, and the Actor exits before it can serve a
+request. The controller cannot catch this when it compiles, because it has no
+way to ask the pinned image which version it understands.
+
+Publish the controller image and the harness images from the same commit, and
+when one digest moves, move the others in the same change.
 
 ## Known limitations
 
