@@ -1,14 +1,12 @@
 # KAgent CrewAI Integration
 
-This package provides CrewAI integration for KAgent with A2A (Agent-to-Agent) server support and session-aware memory storage.
+This package provides CrewAI integration for KAgent with A2A (Agent-to-Agent) server support.
 
 ## Features
 
 - **A2A Server Integration**: Compatible with KAgent's Agent-to-Agent protocol
 - **Event Streaming**: Real-time streaming of crew execution events
 - **FastAPI Integration**: Ready-to-deploy web server for agent execution
-- **Session-aware Memory**: Store and retrieve agent memories scoped by session ID
-- **Flow State Persistence**: Save and restore CrewAI Flow states to KAgent backend
 
 ## Quick Start
 
@@ -49,19 +47,15 @@ research_task:
 
 This is equivalent of `crew.kickoff(inputs={"input": "your input text"})` when triggering agents manually.
 
-### Session-aware Memory
+### Memory and Flow State
 
 #### CrewAI Crews
 
-Session scoped memory is implemented using the `LongTermMemory` interface in CrewAI. If you wish to share memories between agents, you must interact with them in the same session to share long term memory so they can search and access the previous conversation history (because agent ID is volatile, we must use session ID). You can enable this by setting `memory=True` when creating your CrewAI crew. Note that this memory is also scoped by user ID so different users will not see each other's memories.
-
-Our KAgent backend is designed to handle long term memory saving and retrieval with the identical logic as `LTMSQLiteStorage` which is used by default for `LongTermMemory` in CrewAI, with the addition of session and user scoping. It will search the LTM items based on the task description and return the most relevant items (sorted and limited).
-
-> Note that when you set `memory=True`, you are responsible to ensure that short term and entity memory are configured properly (e.g. with `OPENAI_API_KEY` or set your own providers). The KAgent CrewAI integration only handles long term memory.
+`KAgentApp` does not configure or persist CrewAI memory. Configure CrewAI memory and its backing storage explicitly when your application needs it.
 
 #### CrewAI Flows
 
-In flow mode, we implement memory similar to checkpointing in LangGraph so that the flow state is persisted to the KAgent backend after each method finishes execution. We consider each session to be a single flow execution, so you can reuse state within the same session by enabling `@persist()` for flow or methods. We do not manage `LongTermMemory` for crews inside a flow since flow is designed to be very customizable. You are responsible for implementing your own memory management for all the crew you use in the flow.
+`KAgentApp` creates a Flow instance for each A2A request. It does not persist Flow state or restore it for later requests. Configure persistence in your Flow application when needed.
 
 ### Tracing
 
@@ -74,9 +68,9 @@ The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but use
 - **CrewAIAgentExecutor**: Executes CrewAI workflows within A2A protocol
 - **KAgentApp**: FastAPI application builder with A2A integration
 - **Event Converters**: Translates CrewAI events into A2A events for streaming.
-- **Task history**: The public A2A gateway persists client-visible task and event history.
+- **Task store**: Tracks A2A tasks in memory for the lifetime of the application process.
 
-For local development, configure the HTTP endpoint used by protocol traffic:
+`KAgentConfig` requires its configuration values, but this wrapper does not use `KAGENT_API_URL` or `KAGENT_GATEWAY_URL` for outbound connections. For local development, configure the required values:
 
 ```bash
 export KAGENT_API_URL=http://localhost:8083
@@ -87,4 +81,4 @@ export KAGENT_NAMESPACE=default
 
 ## Deployment
 
-The uses the same deployment approach as other KAgent A2A applications (ADK / LangGraph). You can refer to `samples/crewai/` for examples.
+Use the `samples/crewai/` applications as deployment examples. This package does not provide a Kagent-backed memory or Flow-persistence service.

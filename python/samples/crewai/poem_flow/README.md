@@ -4,7 +4,7 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 This example is generated directly from the `crewai create flow poem_flow` command.
 
-If you wish to use the memory persistence integration with KAgent, edit `poem_flow.py` and set `@persist()` on the flow or methods you want to persist.
+`KAgentApp` creates a Flow instance for each A2A request. It does not persist or restore Flow state. Configure Flow persistence in the application when needed.
 
 ## Quick Start
 
@@ -27,7 +27,8 @@ If you wish to use the memory persistence integration with KAgent, edit `poem_fl
    ```
 
 3. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   API v2 examples and E2E fixtures for the current resource shape.
+   API v2 examples and E2E fixtures for the current resource shape. The sample
+   does not configure Kagent-backed task history or Flow persistence.
 
 When interacting with the agent, you do not need to provide any input because the design of the flow does not take in user input for its tasks.
 
@@ -70,7 +71,7 @@ When interacting with the agent, you do not need to provide any input because th
 The agent can be configured via environment variables:
 
 - `GEMINI_API_KEY`: Required for LLM access
-- `KAGENT_API_URL`: Required. KAgent control-plane API URL (for local development, `http://localhost:8083`)
-- `KAGENT_GATEWAY_URL`: Required. KAgent A2A and MCP gateway URL (for local development, `http://localhost:8083`)
+- `KAGENT_API_URL`: Required by `KAgentConfig`; not used by this wrapper for outbound control-plane calls
+- `KAGENT_GATEWAY_URL`: Required by `KAgentConfig`; not used by this wrapper for outbound gateway calls
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
