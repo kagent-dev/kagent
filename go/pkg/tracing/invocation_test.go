@@ -35,8 +35,8 @@ func TestNilInvocationIsUsable(t *testing.T) {
 
 func TestInvocationEndsExactlyOnce(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "a2a.request", false,
-		attribute.String(AttributeHarnessKind, "codex"))
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false,
+		attribute.String(AttributeRuntime, "codex"))
 
 	ended, err := invocation.End(ctx, Result{TaskState: "TASK_STATE_COMPLETED"})
 	if !ended || err != nil {
@@ -56,7 +56,7 @@ func TestInvocationEndsExactlyOnce(t *testing.T) {
 
 func TestAdoptedInvocationIgnoresTheTransport(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 	invocation.Adopt()
 
 	if ended, _ := invocation.EndTransport(ctx, Result{TaskState: "TASK_STATE_COMPLETED"}); ended {
@@ -79,7 +79,7 @@ func TestAdoptedInvocationIgnoresTheTransport(t *testing.T) {
 
 func TestTransportEndsUnadoptedInvocation(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 
 	if ended, _ := invocation.EndTransport(ctx, Result{Error: "transport_error"}); !ended {
 		t.Fatal("transport could not end an invocation it still owned")
@@ -92,13 +92,13 @@ func TestTransportEndsUnadoptedInvocation(t *testing.T) {
 
 func TestInvocationRecordsDispositionAndLinks(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	originCtx, origin := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	originCtx, origin := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 	originContext := origin.SpanContext()
 	if _, err := origin.End(originCtx, Result{TaskState: "TASK_STATE_INPUT_REQUIRED"}); err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, invocation := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 	invocation.AddLink(trace.Link{
 		SpanContext: originContext,
 		Attributes:  []attribute.KeyValue{attribute.String(AttributeLinkRelationship, RelationshipResumeOrigin)},
@@ -125,17 +125,17 @@ func TestInvocationRecordsDispositionAndLinks(t *testing.T) {
 
 func TestFinishedInvocationIgnoresLateWrites(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 	if _, err := invocation.End(ctx, Result{}); err != nil {
 		t.Fatal(err)
 	}
-	invocation.SetAttributes(attribute.String(AttributeOutput, "late"))
+	invocation.SetAttributes(attribute.String(AttributeOutputMessages, "late"))
 
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("exported %d spans, want one", len(spans))
 	}
-	if got := attributeValue(spans[0].Attributes, AttributeOutput); got != "" {
+	if got := attributeValue(spans[0].Attributes, AttributeOutputMessages); got != "" {
 		t.Fatalf("output = %q, want nothing recorded after completion", got)
 	}
 }
@@ -155,12 +155,12 @@ func attributeValue(attributes []attribute.KeyValue, key string) string {
 // can no longer record any of it.
 func TestAdoptRefusesAFinishedInvocation(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 	if !invocation.Adopt() {
 		t.Fatal("Adopt() refused a live invocation")
 	}
 
-	_, transport := StartInvocation(t.Context(), tracer, "a2a.request", false)
+	_, transport := StartInvocation(t.Context(), tracer, "invoke_agent", false)
 	if _, err := transport.EndTransport(ctx, Result{Error: "transport_error"}); err != nil {
 		t.Fatal(err)
 	}

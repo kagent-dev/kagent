@@ -62,9 +62,8 @@ type AppConfig struct {
 	Agent adkagent.Agent
 
 	// Telemetry is the compiler-owned telemetry contract for this runtime. Its
-	// static identity is stamped on every A2A request span. The zero value
-	// leaves request spans without a harness marker, which is what ADK agents
-	// need.
+	// static identity is stamped on every invocation span. The zero value
+	// leaves invocation spans without a runtime or agent identity.
 	Telemetry tracing.RuntimeTelemetry
 }
 
@@ -144,12 +143,12 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	}
 
 	serverConfig := server.ServerConfig{
-		Host:                 cfg.Host,
-		Port:                 cfg.Port,
-		ShutdownTimeout:      cfg.ShutdownTimeout,
-		HealthPaths:          cfg.HealthPaths,
-		HealthHandler:        cfg.HealthHandler,
-		InvocationAttributes: cfg.Telemetry.Identity(),
+		Host:            cfg.Host,
+		Port:            cfg.Port,
+		ShutdownTimeout: cfg.ShutdownTimeout,
+		HealthPaths:     cfg.HealthPaths,
+		HealthHandler:   cfg.HealthHandler,
+		Telemetry:       cfg.Telemetry,
 	}
 
 	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)

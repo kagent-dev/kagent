@@ -109,3 +109,16 @@ func TestBoundedTextDoesNotRetainTheInput(t *testing.T) {
 		t.Fatal("bounded text shares the input's backing array")
 	}
 }
+
+func TestTextMessagesFollowsTheConventionsShape(t *testing.T) {
+	got := TextMessages(RoleUser, `say "hi"`)
+	want := `[{"role":"user","parts":[{"type":"text","content":"say \"hi\""}]}]`
+	if got != want {
+		t.Fatalf("TextMessages() = %s, want %s", got, want)
+	}
+	// Capture that produced no text still yields a message, so a consumer can
+	// tell an empty response from capture that is off.
+	if got := TextMessages(RoleAssistant, ""); got != `[{"role":"assistant","parts":[{"type":"text","content":""}]}]` {
+		t.Fatalf("TextMessages() = %s", got)
+	}
+}

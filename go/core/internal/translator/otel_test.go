@@ -37,6 +37,7 @@ func TestTelemetryConfigFromProcess(t *testing.T) {
 		{Name: "OTEL_TRACING_ENABLED", Value: "true"},
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: "http://traces:4317"},
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", Value: "grpc"},
+		{Name: "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", Value: "true"},
 	}; !reflect.DeepEqual(got.TraceEnvironment(), want) {
 		t.Errorf("trace environment = %#v, want %#v", got.TraceEnvironment(), want)
 	}
@@ -124,6 +125,7 @@ func TestOwnsTelemetryEnvironment(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_PROTOCOL",
 		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
 		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
 	} {
 		if !translator.OwnsTelemetryEnvironment(name) {
 			t.Errorf("OwnsTelemetryEnvironment(%q) = false", name)

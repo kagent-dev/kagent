@@ -124,8 +124,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	config.Agents = localAgents
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
-	config.RuntimeTelemetry = telemetryConfig.HarnessTelemetry(
-		tracing.HarnessKindClaude, template.Name+"-"+harness.Name, template.Namespace)
+	config.RuntimeTelemetry = telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeClaude, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
 	}

@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -91,12 +93,43 @@ func maxCaptureBytesFromProcess() (int, error) {
 	return value, nil
 }
 
-// HarnessTelemetry is the compiler-owned runtime telemetry contract for one
-// compiled agent. Identity is what the runtime reports on every span it starts.
-func (c TelemetryConfig) HarnessTelemetry(kind tracing.HarnessKind, agentName, namespace string) tracing.RuntimeTelemetry {
+// RuntimeTelemetry is the compiler-owned telemetry contract for one compiled
+// agent. Identity is what the runtime reports on every invocation span and on
+// its resource, including the model the agent is bound to, so usage a native
+// runtime reports without naming the model can still be attributed.
+func (c TelemetryConfig) RuntimeTelemetry(runtime tracing.Runtime, agentName, namespace string, model v1alpha3.ModelConfigSpec) tracing.RuntimeTelemetry {
 	return tracing.RuntimeTelemetry{
-		HarnessKind: kind, AgentName: agentName, AgentNamespace: namespace,
+		Runtime: runtime, AgentName: agentName, AgentNamespace: namespace,
+		Provider: ProviderName(model.Provider), Model: strings.TrimSpace(model.Model),
 		CaptureContent: c.CaptureSensitiveContent, MaxCaptureBytes: c.MaxCaptureBytes,
+	}
+}
+
+// ProviderName maps a ModelConfig provider onto the GenAI conventions'
+// provider vocabulary. Providers the conventions do not list get a lowercase
+// identifier of the same shape, which the conventions permit as a custom value.
+func ProviderName(provider v1alpha3.ModelProvider) string {
+	switch provider {
+	case v1alpha3.ModelProviderAnthropic:
+		return semconv.GenAIProviderNameAnthropic.Value.AsString()
+	case v1alpha3.ModelProviderOpenAI:
+		return semconv.GenAIProviderNameOpenAI.Value.AsString()
+	case v1alpha3.ModelProviderAzureOpenAI:
+		return semconv.GenAIProviderNameAzureAIOpenAI.Value.AsString()
+	case v1alpha3.ModelProviderBedrock:
+		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
+	case v1alpha3.ModelProviderGemini:
+		return semconv.GenAIProviderNameGCPGemini.Value.AsString()
+	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
+		return semconv.GenAIProviderNameGCPVertexAI.Value.AsString()
+	case v1alpha3.ModelProviderFoundry:
+		return semconv.GenAIProviderNameAzureAIInference.Value.AsString()
+	case v1alpha3.ModelProviderOllama:
+		return "ollama"
+	case v1alpha3.ModelProviderSAPAICore:
+		return "sap.ai_core"
+	default:
+		return strings.ToLower(string(provider))
 	}
 }
 
@@ -148,7 +181,8 @@ func OwnsTelemetryEnvironment(name string) bool {
 	switch name {
 	case otelTracingEnabled, otelLoggingEnabled,
 		otelExporterOTLPEndpoint, otelExporterOTLPTracesEndpoint, otelExporterOTLPLogsEndpoint,
-		otelExporterOTLPProtocol, otelExporterOTLPTracesProtocol, otelExporterOTLPLogsProtocol:
+		otelExporterOTLPProtocol, otelExporterOTLPTracesProtocol, otelExporterOTLPLogsProtocol,
+		tracing.CaptureContentEnvironmentVariable:
 		return true
 	default:
 		return false
@@ -156,8 +190,18 @@ func OwnsTelemetryEnvironment(name string) bool {
 }
 
 // TraceEnvironment renders the resolved trace settings for an agent runtime.
+// The content-capture switch rides with them, because the standard GenAI
+// instrumentation variable is how a runtime that instruments its own model
+// calls learns the decision, and a user-supplied value would let one runtime
+// record prompts that the controller's setting said to keep out of traces.
 func (c TelemetryConfig) TraceEnvironment() []corev1.EnvVar {
-	return signalEnvironment(c.Traces, otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol)
+	environment := signalEnvironment(c.Traces, otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol)
+	if environment == nil {
+		return nil
+	}
+	return append(environment, corev1.EnvVar{
+		Name: tracing.CaptureContentEnvironmentVariable, Value: strconv.FormatBool(c.CaptureSensitiveContent),
+	})
 }
 
 // LogEnvironment renders the resolved log settings for an agent runtime.

@@ -17,8 +17,16 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// Tracer returns the global tracer for an instrumentation scope, declaring the
+// semantic conventions version this contract follows. Every span kagent starts
+// goes through it, so no scope is left without a schema URL.
+func Tracer(scope string) trace.Tracer {
+	return otel.Tracer(scope, trace.WithSchemaURL(SchemaURL))
+}
 
 // Init configures the global tracer provider and W3C propagator from the
 // standard OTEL environment. It is intended to be called once by a process

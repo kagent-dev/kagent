@@ -341,7 +341,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 	// The compiled identity follows the Harness name, not the harness kind.
 	want := tracing.RuntimeTelemetry{
-		HarnessKind: tracing.HarnessKindCodex, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeCodex, AgentName: "assistant-fast", AgentNamespace: "test",
+		Provider: "openai", Model: "gpt-5.2-codex",
 	}
 	if config.RuntimeTelemetry != want {
 		t.Fatalf("runtime telemetry = %#v, want %#v", config.RuntimeTelemetry, want)

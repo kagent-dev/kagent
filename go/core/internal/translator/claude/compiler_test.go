@@ -154,6 +154,7 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "otlp",
 		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
+		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
 		"KAGENT_NAME":      "assistant-claude",
 		"KAGENT_NAMESPACE": "test", claudeconfig.PreResponseTraceFlushEnvName: "true",
 	} {
@@ -174,6 +175,9 @@ func TestCompileTracing(t *testing.T) {
 		if environment[name] != "1" {
 			t.Errorf("sensitive trace environment[%s] = %q, want 1", name, environment[name])
 		}
+	}
+	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != "true" {
+		t.Errorf("capture environment = %q, want true", got)
 	}
 }
 
@@ -643,7 +647,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 	// The compiled identity follows the Harness name, not the harness kind.
 	want := tracing.RuntimeTelemetry{
-		HarnessKind: tracing.HarnessKindClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Provider: "anthropic", Model: "claude-sonnet-4-5",
 	}
 	if config.RuntimeTelemetry != want {
 		t.Fatalf("runtime telemetry = %#v, want %#v", config.RuntimeTelemetry, want)

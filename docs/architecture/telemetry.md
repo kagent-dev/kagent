@@ -22,38 +22,87 @@ the result into each runtime revision.
 An unusable capture budget is reported as a compilation warning and replaced by
 the default, so an observability setting cannot invalidate an AgentTemplate.
 
+The capture decision reaches every runtime as the standard GenAI instrumentation
+variable, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, rendered `true`
+or `false` alongside the trace exporter settings. The ADK runtime reads it
+before recording model request and response payloads on its model spans, and
+the harness runtimes carry the same decision in their compiled configuration.
+It is controller-owned, so a `Harness.spec.env` entry with that name is
+rejected: one setting decides whether prompts enter traces, and no runtime can
+be talked into recording them by a user-supplied variable.
+
 Other `OTEL_*` variables remain available for per-Harness tuning through
 `Harness.spec.env`, including `OTEL_RESOURCE_ATTRIBUTES`.
 
+## Conventions
+
+Attribute names follow the OpenTelemetry GenAI semantic conventions at version
+1.41.0, and every tracer kagent creates declares that schema URL. The pin is
+deliberate: 1.41.0 is the last release of the main conventions to carry the
+GenAI registry, so it is the last one with a Go package of typed keys. The GenAI
+conventions now live in their own repository, and the pin moves when that
+repository publishes a release with a Go package. Names the conventions define
+are taken from that package rather than spelled out, so the constants in
+`go/pkg/tracing` cannot drift from the declared version. Only the `kagent.*` and
+`a2a.*` names are kagent's own, and they are listed below.
+
 ## The invocation span
 
-Each A2A `SendMessage` or `SendStreamingMessage` request opens one span named
-`a2a.request` in the instrumentation scope
-`github.com/kagent-dev/kagent/go/adk/pkg/a2a/server`. It represents one
-execution segment and is the anchor consumers should read. Model and tool spans
-come from the runtime itself and are descendants of it.
+Each A2A `SendMessage` or `SendStreamingMessage` request opens one span in the
+instrumentation scope `github.com/kagent-dev/kagent/go/adk/pkg/a2a/server`. It
+represents one execution segment, and what it is called depends on whether
+anything beneath it describes the agent invocation.
+
+For a native harness, Claude Code or Codex, nothing does: the native runtime
+emits model and tool spans but no agent invocation. The request span is
+therefore the GenAI conventions' `invoke_agent` operation, named
+`invoke_agent <gen_ai.agent.name>`, and it is the anchor consumers should read.
+
+For the ADK runtime the ADK emits exactly one `invoke_agent` of its own per
+turn, carrying `gen_ai.agent.name` and `gen_ai.conversation.id`, and that span
+is the invocation. The request span stays a transport span named `a2a.request`
+with the same identity attributes and no `gen_ai.operation.name`, so a consumer
+counting invocations by operation counts each ADK turn once. The ADK also keeps
+an `invocation` span of its own beneath the request span.
 
 | Attribute | Meaning |
 | --- | --- |
-| `a2a.method` | `SendMessage` or `SendStreamingMessage` |
-| `kagent.harness.kind` | `claude` or `codex`. Absent for ADK agents, which are not native harnesses |
+| `gen_ai.operation.name` | `invoke_agent` on a native harness request span. Absent on an ADK request span |
+| `kagent.runtime` | `adk-go`, `claude`, or `codex`: the runtime that produced the spans beneath this one. The Go ADK also carries it on its resource, so its own `invoke_agent` reports it |
 | `gen_ai.agent.name` | The compiled agent identity, `<template>-<harness>` |
+| `gen_ai.agent.id` | The same identity qualified by namespace, `<namespace>/<template>-<harness>` |
+| `gen_ai.provider.name` | The model provider the agent is compiled against, in the conventions' vocabulary. Harness runtimes only |
+| `gen_ai.request.model` | The model the agent is compiled against. Harness runtimes only; the ADK reports the model on each model span |
 | `gen_ai.conversation.id` | The A2A context ID the gateway assigned |
-| `gen_ai.task.id` | The A2A task ID the gateway assigned |
-| `kagent.user_id` | The authenticated user, when the gateway forwarded one |
+| `a2a.task.id` | The A2A task ID the gateway assigned |
+| `enduser.id` | The authenticated user, when the gateway forwarded one |
+| `a2a.method` | `SendMessage` or `SendStreamingMessage` |
 | `a2a.task.state` | The state execution actually reported. Its absence does not mean success |
 | `kagent.invocation.segment` | `initial` or `resumed` |
 | `kagent.invocation.disposition` | `canceled`, `abandoned`, or `interrupted`, when the task state does not say it. See below |
 | `error.type` | A safe failure category. Never a provider response, credential, or captured content |
-| `kagent.input`, `kagent.output` | Bounded turn content, present only under the capture opt-in |
-| `kagent.input_truncated`, `kagent.output_truncated` | Whether that content was shortened |
+| `gen_ai.input.messages`, `gen_ai.output.messages` | Bounded turn content in the conventions' message shape, present only under the capture opt-in |
+| `kagent.capture.input_truncated`, `kagent.capture.output_truncated` | Whether that content was shortened |
+
+The provider and model on this span stand in for what a native runtime does not
+report. Codex records token usage on a span that names no model, so without the
+compiled model a consumer cannot attribute that usage without walking the trace.
+The conventions allow the model on an agent span when the agent is bound to one
+model, which a compiled kagent agent is.
 
 The runtime resource carries `service.name` and `service.namespace` from the
-compiled agent identity, plus `kagent.harness.kind` and `gen_ai.agent.name`. The
-adapter merges those last two into `OTEL_RESOURCE_ATTRIBUTES` for the native
-child process, so its spans report the same agent while keeping its own
-`service.name`. Conversation, task, and user identity never appear on a
+compiled agent identity, plus the same `kagent.runtime`, `gen_ai.agent.name`,
+`gen_ai.agent.id`, `gen_ai.provider.name` and `gen_ai.request.model`. The
+harness adapters merge those into `OTEL_RESOURCE_ATTRIBUTES` for the native
+child process, so its spans report the same agent and model while keeping its
+own `service.name`. Conversation, task, and user identity never appear on a
 resource, since one runtime process serves many of each.
+
+The ADK runtime additionally stamps `kagent.user_id`, `gen_ai.task.id`,
+`gen_ai.conversation.id` and `kagent.app_name` on the spans beneath the
+invocation, as it always has; the Python runtimes stamp the same keys. Those
+descendant keys move to the names above together with a Python invocation span,
+so the two runtimes change in one step rather than diverging further.
 
 ## Completion and ownership
 
@@ -88,7 +137,7 @@ the native runtime does after an approval therefore stays under the originating
 trace.
 
 Kagent does not paper over this. Each execution segment gets its own
-`a2a.request` span carrying the same conversation and task identity, and a
+request span carrying the same conversation and task identity, and a
 resumed segment records an OpenTelemetry link back to the segment that parked
 it, with `kagent.invocation.relationship` set to `resume_origin`. A link states
 a relationship. It does not reparent spans and it does not transfer ownership of
@@ -98,14 +147,17 @@ several segments for one task and should not assume the last one owns the work.
 ## Content capture
 
 Capture is off unless a user turns it on. When it is on, a segment records
-the current turn's prompt and the text that segment produced, each bounded by
-the configured byte budget, preserving UTF-8 and reporting truncation. Tool
-arguments, tool results, approval structures, the rest of the conversation, and
-native stderr are never recorded in these attributes. An approval decision stays
-structured outcome metadata rather than prompt text.
+the current turn's prompt as `gen_ai.input.messages` and the text that segment
+produced as `gen_ai.output.messages`, each a JSON array holding one message with
+one text part, in the shape the conventions define for those attributes. The
+text is bounded by the configured byte budget, preserving UTF-8 and reporting
+truncation; the structure around it is not counted. Tool arguments, tool
+results, approval structures, the rest of the conversation, and native stderr
+are never recorded in these attributes.
 
-Absent `kagent.input` and `kagent.output` mean capture is disabled. Present but
-empty means the segment produced no text.
+Absent output messages mean capture is disabled; a message with empty text
+means the segment produced none. A resumed segment records no input messages,
+because its input is a structured approval or answer rather than prompt text.
 
 These attributes come from the Go wrapper, which is only one of the producers.
 Suppressing them does not establish privacy for native runtime events or log

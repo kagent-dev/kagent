@@ -146,11 +146,11 @@ func TestConfigValidatesRuntimeTelemetry(t *testing.T) {
 	}{
 		{name: "absent"},
 		{name: "claude identity", telemetry: tracing.RuntimeTelemetry{
-			HarnessKind: tracing.HarnessKindClaude, AgentName: "assistant-claude", AgentNamespace: "kagent",
+			Runtime: tracing.RuntimeClaude, AgentName: "assistant-claude", AgentNamespace: "kagent",
 		}},
-		{name: "another harness kind", telemetry: tracing.RuntimeTelemetry{HarnessKind: tracing.HarnessKindCodex}, wantError: true},
+		{name: "another runtime", telemetry: tracing.RuntimeTelemetry{Runtime: tracing.RuntimeCodex}, wantError: true},
 		{name: "capture above the ceiling", telemetry: tracing.RuntimeTelemetry{
-			HarnessKind: tracing.HarnessKindClaude, CaptureContent: true, MaxCaptureBytes: tracing.MaxCaptureBytes + 1,
+			Runtime: tracing.RuntimeClaude, CaptureContent: true, MaxCaptureBytes: tracing.MaxCaptureBytes + 1,
 		}, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -1,9 +1,37 @@
 package tracing
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 )
+
+// Message roles in the GenAI conventions' message shape.
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+)
+
+type messagePart struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+}
+
+type message struct {
+	Role  string        `json:"role"`
+	Parts []messagePart `json:"parts"`
+}
+
+// TextMessages renders one text message as the JSON document the GenAI
+// conventions define for gen_ai.input.messages and gen_ai.output.messages: an
+// array of messages, each with a role and text parts. The capture budget
+// bounds the text; the few dozen bytes of structure around it are not
+// counted, so a consumer that parses the document gets the whole bounded text.
+func TextMessages(role, text string) string {
+	// A message with a string role and a text part always marshals.
+	encoded, _ := json.Marshal([]message{{Role: role, Parts: []messagePart{{Type: "text", Content: text}}}})
+	return string(encoded)
+}
 
 // TextCapture accumulates the beginning of a text stream up to a byte limit.
 // Once the limit is reached it records that fact and discards further input

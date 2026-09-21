@@ -143,8 +143,11 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		// that yield no quiescent event at all, such as cancellation and an
 		// abandoned stream.
 		defer endInvocation()
+		// Identity is recorded before validation, so a rejected request still
+		// says which conversation and task it belonged to.
+		resuming := reqCtx != nil && reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
 		if reqCtx != nil {
-			invocation.SetAttributes(requestIdentity(reqCtx)...)
+			invocation.SetAttributes(tracing.RequestIdentity(reqCtx.ContextID, string(reqCtx.TaskID), resuming)...)
 		}
 
 		turn, err := validateRequest(reqCtx)
@@ -153,21 +156,18 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			yield(nil, err)
 			return
 		}
-		resuming := reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
-		segment := tracing.SegmentInitial
-		if resuming {
-			segment = tracing.SegmentResumed
-		}
-		invocation.SetAttributes(attribute.String(tracing.AttributeSegment, segment))
 		// Capture the current turn's prompt only. A segment that answers an
-		// approval or question carries a structured decision, not prompt text.
+		// approval or question carries a structured decision, not prompt text,
+		// so it records no input messages at all.
 		if limit := e.captureLimit(invocation); limit > 0 {
 			sink.capture = tracing.NewTextCapture(limit)
-			text, truncated := tracing.BoundedText(turn.Prompt, limit)
-			invocation.SetAttributes(
-				attribute.String(tracing.AttributeInput, text),
-				attribute.Bool(tracing.AttributeInputTruncated, truncated),
-			)
+			if turn.Prompt != "" {
+				text, truncated := tracing.BoundedText(turn.Prompt, limit)
+				invocation.SetAttributes(
+					attribute.String(tracing.AttributeInputMessages, tracing.TextMessages(tracing.RoleUser, text)),
+					attribute.Bool(tracing.AttributeInputTruncated, truncated),
+				)
+			}
 		}
 
 		continuationID, _, err := e.continuation.Load()
@@ -331,20 +331,6 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 	}
 }
 
-// requestIdentity is the resolved identity of one A2A request. It belongs on
-// the invocation span, never on the process-wide resource, because one runtime
-// process serves many conversations, tasks, and users.
-func requestIdentity(reqCtx *a2asrv.ExecutorContext) []attribute.KeyValue {
-	attributes := make([]attribute.KeyValue, 0, 2)
-	if reqCtx.ContextID != "" {
-		attributes = append(attributes, attribute.String(tracing.AttributeConversationID, reqCtx.ContextID))
-	}
-	if reqCtx.TaskID != "" {
-		attributes = append(attributes, attribute.String(tracing.AttributeTaskID, string(reqCtx.TaskID)))
-	}
-	return attributes
-}
-
 // captureLimit is the byte budget for this segment's content. It is zero unless
 // the compiler enabled capture and the invocation retains what it is given, so
 // a disabled or unsampled request allocates no collector at all.
@@ -356,13 +342,14 @@ func (e *Executor) captureLimit(invocation *tracing.Invocation) int {
 }
 
 // captureAttributes reports the text this segment produced. Absent attributes
-// mean capture is disabled; an empty value means the segment produced no text.
+// mean capture is disabled; a message with empty text means the segment
+// produced none.
 func (s *executionSink) captureAttributes() []attribute.KeyValue {
 	if s.capture == nil {
 		return nil
 	}
 	return []attribute.KeyValue{
-		attribute.String(tracing.AttributeOutput, s.capture.Text()),
+		attribute.String(tracing.AttributeOutputMessages, tracing.TextMessages(tracing.RoleAssistant, s.capture.Text())),
 		attribute.Bool(tracing.AttributeOutputTruncated, s.capture.Truncated()),
 	}
 }

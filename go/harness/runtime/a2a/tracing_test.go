@@ -33,7 +33,7 @@ func newTraceRecorder(t *testing.T) *traceRecorder {
 }
 
 func (r *traceRecorder) segment(ctx context.Context) context.Context {
-	ctx, _ = tracing.StartInvocation(ctx, r.tracer, "a2a.request", false)
+	ctx, _ = tracing.StartInvocation(ctx, r.tracer, "invoke_agent", false)
 	return ctx
 }
 
@@ -66,7 +66,7 @@ func stringAttribute(t *testing.T, span tracetest.SpanStub, key string) string {
 
 func captureTelemetry(limit int) tracing.RuntimeTelemetry {
 	return tracing.RuntimeTelemetry{
-		HarnessKind: tracing.HarnessKindClaude, AgentName: "reporter-claude",
+		Runtime: tracing.RuntimeClaude, AgentName: "reporter-claude",
 		AgentNamespace: "kagent", CaptureContent: true, MaxCaptureBytes: limit,
 	}
 }
@@ -96,10 +96,10 @@ func TestInvocationRecordsResolvedRequestIdentity(t *testing.T) {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
 	}
-	if _, ok := attributeOf(span, tracing.AttributeInput); ok {
+	if _, ok := attributeOf(span, tracing.AttributeInputMessages); ok {
 		t.Error("capture is disabled by default, so no input attribute should be recorded")
 	}
-	if _, ok := attributeOf(span, tracing.AttributeOutput); ok {
+	if _, ok := attributeOf(span, tracing.AttributeOutputMessages); ok {
 		t.Error("capture is disabled by default, so no output attribute should be recorded")
 	}
 }
@@ -208,14 +208,14 @@ func TestCaptureRecordsBoundedTurnContent(t *testing.T) {
 	collect(executor.Execute(recorder.segment(t.Context()), requestContext("task-capture", strings.Repeat("p", 32))))
 
 	span := recorder.spans(t, 1)[0]
-	if got := stringAttribute(t, span, tracing.AttributeInput); got != strings.Repeat("p", 10) {
-		t.Errorf("%s = %q, want the first ten bytes of the prompt", tracing.AttributeInput, got)
+	if got, want := stringAttribute(t, span, tracing.AttributeInputMessages), tracing.TextMessages(tracing.RoleUser, strings.Repeat("p", 10)); got != want {
+		t.Errorf("%s = %s, want the first ten bytes of the prompt as %s", tracing.AttributeInputMessages, got, want)
 	}
 	if !boolAttribute(t, span, tracing.AttributeInputTruncated) {
 		t.Error("an oversized prompt did not report truncation")
 	}
-	if got := stringAttribute(t, span, tracing.AttributeOutput); got != "日日日" {
-		t.Errorf("%s = %q, want three whole characters", tracing.AttributeOutput, got)
+	if got, want := stringAttribute(t, span, tracing.AttributeOutputMessages), tracing.TextMessages(tracing.RoleAssistant, "日日日"); got != want {
+		t.Errorf("%s = %s, want three whole characters as %s", tracing.AttributeOutputMessages, got, want)
 	}
 	if !boolAttribute(t, span, tracing.AttributeOutputTruncated) {
 		t.Error("an oversized response did not report truncation")
@@ -236,14 +236,14 @@ func TestCaptureRecordsEmptyOutput(t *testing.T) {
 	collect(executor.Execute(recorder.segment(t.Context()), requestContext("task-empty", "hello")))
 
 	span := recorder.spans(t, 1)[0]
-	if got := stringAttribute(t, span, tracing.AttributeOutput); got != "" {
-		t.Errorf("%s = %q, want an empty capture", tracing.AttributeOutput, got)
+	if got, want := stringAttribute(t, span, tracing.AttributeOutputMessages), tracing.TextMessages(tracing.RoleAssistant, ""); got != want {
+		t.Errorf("%s = %s, want an empty message %s", tracing.AttributeOutputMessages, got, want)
 	}
 	if boolAttribute(t, span, tracing.AttributeOutputTruncated) {
 		t.Error("an empty capture reported truncation")
 	}
-	if got := stringAttribute(t, span, tracing.AttributeInput); got != "hello" {
-		t.Errorf("%s = %q, want the prompt", tracing.AttributeInput, got)
+	if got, want := stringAttribute(t, span, tracing.AttributeInputMessages), tracing.TextMessages(tracing.RoleUser, "hello"); got != want {
+		t.Errorf("%s = %s, want the prompt as %s", tracing.AttributeInputMessages, got, want)
 	}
 }
 
@@ -264,8 +264,8 @@ func TestCaptureRecordsOutputOfAFailedTurn(t *testing.T) {
 	collect(executor.Execute(recorder.segment(t.Context()), requestContext("task-capture-failure", "hello")))
 
 	span := recorder.spans(t, 1)[0]
-	if got := stringAttribute(t, span, tracing.AttributeOutput); got != "partial answer" {
-		t.Errorf("%s = %q, want the text produced before the failure", tracing.AttributeOutput, got)
+	if got, want := stringAttribute(t, span, tracing.AttributeOutputMessages), tracing.TextMessages(tracing.RoleAssistant, "partial answer"); got != want {
+		t.Errorf("%s = %s, want the text produced before the failure as %s", tracing.AttributeOutputMessages, got, want)
 	}
 	if got := stringAttribute(t, span, tracing.AttributeErrorType); got != "runtime_failure" {
 		t.Errorf("%s = %q, want a safe category", tracing.AttributeErrorType, got)
@@ -340,15 +340,16 @@ func TestResumeLinksToTheOriginatingSegment(t *testing.T) {
 	if got := stringAttribute(t, resumed, tracing.AttributeTaskID); got != string(first.TaskID) {
 		t.Errorf("resumed %s = %q, want the same task", tracing.AttributeTaskID, got)
 	}
-	if got := stringAttribute(t, origin, tracing.AttributeOutput); got != "before" {
-		t.Errorf("origin %s = %q, want only the text that segment produced", tracing.AttributeOutput, got)
+	if got, want := stringAttribute(t, origin, tracing.AttributeOutputMessages), tracing.TextMessages(tracing.RoleAssistant, "before"); got != want {
+		t.Errorf("origin %s = %s, want only the text that segment produced", tracing.AttributeOutputMessages, got)
 	}
-	if got := stringAttribute(t, resumed, tracing.AttributeOutput); got != "after" {
-		t.Errorf("resumed %s = %q, want only the text that segment produced", tracing.AttributeOutput, got)
+	if got, want := stringAttribute(t, resumed, tracing.AttributeOutputMessages), tracing.TextMessages(tracing.RoleAssistant, "after"); got != want {
+		t.Errorf("resumed %s = %s, want only the text that segment produced", tracing.AttributeOutputMessages, got)
 	}
-	// An approval decision is structured outcome metadata, not prompt text.
-	if got := stringAttribute(t, resumed, tracing.AttributeInput); got != "" {
-		t.Errorf("resumed %s = %q, want no captured prompt", tracing.AttributeInput, got)
+	// An approval decision is structured outcome metadata, not prompt text, so
+	// the resumed segment records no input messages at all.
+	if got, ok := attributeOf(resumed, tracing.AttributeInputMessages); ok {
+		t.Errorf("resumed %s = %s, want no captured prompt", tracing.AttributeInputMessages, got.AsString())
 	}
 }
 

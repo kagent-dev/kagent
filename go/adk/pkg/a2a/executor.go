@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -134,6 +135,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
+		// The invocation span started before this executor ran, so the request
+		// identity the span processor stamps on descendant spans has to be
+		// recorded on it directly.
+		resumed := reqCtx.StoredTask != nil &&
+			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
+		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
 		spanAttributes := map[string]string{
 			"kagent.user_id":         userID,
 			"gen_ai.task.id":         string(reqCtx.TaskID),

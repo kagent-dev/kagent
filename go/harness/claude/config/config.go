@@ -141,8 +141,8 @@ func (c Config) Validate() error {
 	if err := c.RuntimeTelemetry.Validate(); err != nil {
 		return err
 	}
-	if kind := c.RuntimeTelemetry.HarnessKind; kind != "" && kind != tracing.HarnessKindClaude {
-		return fmt.Errorf("claude runtime telemetry has harness kind %q", kind)
+	if runtime := c.RuntimeTelemetry.Runtime; runtime != "" && runtime != tracing.RuntimeClaude {
+		return fmt.Errorf("claude runtime telemetry names runtime %q", runtime)
 	}
 	for name, agent := range c.Agents {
 		if !agentNamePattern.MatchString(name) {

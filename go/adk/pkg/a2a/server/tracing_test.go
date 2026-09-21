@@ -114,16 +114,22 @@ func sendMessage(t *testing.T, server *A2AServer, request *a2atype.SendMessageRe
 	}
 }
 
+// isRequestSpan recognizes the span the interceptor opens by the A2A method
+// only it records, whichever name the runtime gives it.
+func isRequestSpan(span tracetest.SpanStub) bool {
+	return spanAttribute(span, tracing.AttributeMethod) != ""
+}
+
 func requestSpan(t *testing.T, exporter *tracetest.InMemoryExporter) tracetest.SpanStub {
 	t.Helper()
 	var found []tracetest.SpanStub
 	for _, span := range exporter.GetSpans() {
-		if span.Name == "a2a.request" {
+		if isRequestSpan(span) {
 			found = append(found, span)
 		}
 	}
 	if len(found) != 1 {
-		t.Fatalf("exported %d a2a.request spans, want exactly one", len(found))
+		t.Fatalf("exported %d request spans, want exactly one", len(found))
 	}
 	return found[0]
 }
@@ -140,9 +146,10 @@ func spanAttribute(span tracetest.SpanStub, key string) string {
 func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 	exporter := syncExporter(t)
 	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
-		ServerConfig{Port: "0", InvocationAttributes: tracing.RuntimeTelemetry{
-			HarnessKind: tracing.HarnessKindCodex, AgentName: "reporter-codex",
-		}.Identity()},
+		ServerConfig{Port: "0", Telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team",
+			Provider: "openai", Model: "gpt-5.2-codex",
+		}},
 		a2asrv.WithCallInterceptors(staticUserInterceptor{userID: "person-1"}))
 	if err != nil {
 		t.Fatal(err)
@@ -153,12 +160,23 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 	})
 
 	span := requestSpan(t, exporter)
+	// The conventions name an invoke_agent span after the agent it invokes.
+	if span.Name != "invoke_agent reporter-codex" {
+		t.Errorf("span name = %q, want %q", span.Name, "invoke_agent reporter-codex")
+	}
+	if span.InstrumentationScope.SchemaURL != tracing.SchemaURL {
+		t.Errorf("schema URL = %q, want %q", span.InstrumentationScope.SchemaURL, tracing.SchemaURL)
+	}
 	for key, want := range map[string]string{
-		"a2a.method":                 "SendMessage",
-		tracing.AttributeHarnessKind: "codex",
-		tracing.AttributeAgentName:   "reporter-codex",
-		tracing.AttributeUserID:      "person-1",
-		tracing.AttributeTaskState:   string(a2atype.TaskStateCompleted),
+		tracing.AttributeOperationName: tracing.OperationInvokeAgent,
+		tracing.AttributeMethod:        "SendMessage",
+		tracing.AttributeRuntime:       "codex",
+		tracing.AttributeAgentName:     "reporter-codex",
+		tracing.AttributeAgentID:       "team/reporter-codex",
+		tracing.AttributeProviderName:  "openai",
+		tracing.AttributeRequestModel:  "gpt-5.2-codex",
+		tracing.AttributeUserID:        "person-1",
+		tracing.AttributeTaskState:     string(a2atype.TaskStateCompleted),
 	} {
 		if got := spanAttribute(span, key); got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
@@ -166,11 +184,14 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 	}
 }
 
-// An ADK runtime must not receive a harness marker, and it keeps exactly one
-// counted invocation of its own beneath the request span.
-func TestRequestSpanOmitsHarnessMarkerWithoutTelemetry(t *testing.T) {
+// An ADK runtime emits exactly one invoke_agent of its own, so its request
+// span stays a transport span that carries the identity but no operation.
+func TestRequestSpanStaysATransportSpanForTheADK(t *testing.T) {
 	exporter := syncExporter(t)
-	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
+	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
+		ServerConfig{Port: "0", Telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeADKGo, AgentName: "assistant-kagent", AgentNamespace: "team",
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,8 +201,20 @@ func TestRequestSpanOmitsHarnessMarkerWithoutTelemetry(t *testing.T) {
 	})
 
 	span := requestSpan(t, exporter)
-	if got := spanAttribute(span, tracing.AttributeHarnessKind); got != "" {
-		t.Errorf("%s = %q, want none", tracing.AttributeHarnessKind, got)
+	if span.Name != tracing.TransportSpanName {
+		t.Errorf("span name = %q, want %q", span.Name, tracing.TransportSpanName)
+	}
+	if got := spanAttribute(span, tracing.AttributeOperationName); got != "" {
+		t.Errorf("%s = %q, want none on an ADK request span", tracing.AttributeOperationName, got)
+	}
+	for key, want := range map[string]string{
+		tracing.AttributeRuntime:   "adk-go",
+		tracing.AttributeAgentName: "assistant-kagent",
+		tracing.AttributeAgentID:   "team/assistant-kagent",
+	} {
+		if got := spanAttribute(span, key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
 	invocations := 0
 	for _, exported := range exporter.GetSpans() {
@@ -197,9 +230,9 @@ func TestRequestSpanOmitsHarnessMarkerWithoutTelemetry(t *testing.T) {
 func TestRequestSpanRecordsEarlyFailure(t *testing.T) {
 	exporter := syncExporter(t)
 	server, err := NewA2AServer(a2atype.AgentCard{}, failingExecutor{}, slog.New(slog.DiscardHandler),
-		ServerConfig{Port: "0", InvocationAttributes: tracing.RuntimeTelemetry{
-			HarnessKind: tracing.HarnessKindClaude, AgentName: "reporter-claude",
-		}.Identity()})
+		ServerConfig{Port: "0", Telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team",
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,8 +249,8 @@ func TestRequestSpanRecordsEarlyFailure(t *testing.T) {
 	if got := spanAttribute(span, tracing.AttributeErrorType); got != "transport_error" {
 		t.Errorf("%s = %q, want %q", tracing.AttributeErrorType, got, "transport_error")
 	}
-	if got := spanAttribute(span, tracing.AttributeHarnessKind); got != "claude" {
-		t.Errorf("a rejected request lost its harness identity: %s = %q", tracing.AttributeHarnessKind, got)
+	if got := spanAttribute(span, tracing.AttributeRuntime); got != "claude" {
+		t.Errorf("a rejected request lost its runtime identity: %s = %q", tracing.AttributeRuntime, got)
 	}
 }
 
@@ -239,7 +272,7 @@ func TestAdoptedInvocationOutlivesTheUnaryResponse(t *testing.T) {
 	})
 
 	for _, span := range exporter.GetSpans() {
-		if span.Name == "a2a.request" {
+		if isRequestSpan(span) {
 			t.Fatal("the unary response completed an invocation that execution still owned")
 		}
 	}

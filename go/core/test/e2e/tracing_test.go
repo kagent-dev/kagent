@@ -148,7 +148,7 @@ func (r *otlpTraceReceiver) clear() {
 }
 
 // diagnostic summarizes only the spans useful for explaining a failed
-// assertion: a2a.request spans and spans correlated by the injected trace ID.
+// assertion: A2A request spans and spans correlated by the injected trace ID.
 // Codex can emit hundreds of native spans, so cap the detail included in logs.
 func (r *otlpTraceReceiver) diagnostic(expectedTraceID []byte) string {
 	r.mu.Lock()
@@ -162,17 +162,18 @@ func (r *otlpTraceReceiver) diagnostic(expectedTraceID []byte) string {
 		for _, scopeSpans := range resourceSpans.GetScopeSpans() {
 			for _, span := range scopeSpans.GetSpans() {
 				totalSpans++
-				if len(details) == detailLimit || !bytes.Equal(span.GetTraceId(), expectedTraceID) && span.GetName() != "a2a.request" {
+				requestSpan := stringAttribute(span.GetAttributes(), tracing.AttributeMethod) != ""
+				if len(details) == detailLimit || !bytes.Equal(span.GetTraceId(), expectedTraceID) && !requestSpan {
 					continue
 				}
 				details = append(details, fmt.Sprintf(
-					"service=%q scope=%q name=%q trace_id=%x a2a.method=%q a2a.task.state=%q",
+					"service=%q scope=%q name=%q trace_id=%x %s=%q %s=%q",
 					serviceName,
 					scopeSpans.GetScope().GetName(),
 					span.GetName(),
 					span.GetTraceId(),
-					stringAttribute(span.GetAttributes(), "a2a.method"),
-					stringAttribute(span.GetAttributes(), "a2a.task.state"),
+					tracing.AttributeMethod, stringAttribute(span.GetAttributes(), tracing.AttributeMethod),
+					tracing.AttributeTaskState, stringAttribute(span.GetAttributes(), tracing.AttributeTaskState),
 				))
 			}
 		}
@@ -236,21 +237,22 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		harness       string
-		harnessKind   string
+		runtime       tracing.Runtime
+		provider      string
 		templateLabel string
 		modelURL      func(*testing.T) string
-		createModel   func(*testing.T, string) string
+		createModel   func(*testing.T, string) *v1alpha3.ModelConfig
 		prompt        string
 		assertNative  func(*testing.T, *otlpTraceReceiver, []byte)
 	}{
 		{
 			name: "claude", harness: claudeTracingE2EHarness, templateLabel: "claude-tracing",
-			harnessKind: string(tracing.HarnessKindClaude),
+			runtime: tracing.RuntimeClaude, provider: "anthropic",
 			modelURL: func(t *testing.T) string {
 				return reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
 			},
-			createModel: func(t *testing.T, baseURL string) string {
-				return createClaudeMockModel(t, interactionKubeClient(t), baseURL).Name
+			createModel: func(t *testing.T, baseURL string) *v1alpha3.ModelConfig {
+				return createClaudeMockModel(t, interactionKubeClient(t), baseURL)
 			},
 			prompt: "Return exactly CLAUDE_MOCK_FIRST.",
 			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
@@ -265,12 +267,12 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 		},
 		{
 			name: "codex", harness: codexTracingE2EHarness, templateLabel: "codex-tracing",
-			harnessKind: string(tracing.HarnessKindCodex),
+			runtime: tracing.RuntimeCodex, provider: "openai",
 			modelURL: func(t *testing.T) string {
 				return reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 			},
-			createModel: func(t *testing.T, baseURL string) string {
-				return createCodexMockModel(t, interactionKubeClient(t), baseURL).Name
+			createModel: func(t *testing.T, baseURL string) *v1alpha3.ModelConfig {
+				return createCodexMockModel(t, interactionKubeClient(t), baseURL)
 			},
 			prompt: "Return exactly CODEX_MOCK_FIRST.",
 			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
@@ -289,8 +291,8 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			// the injected trace ID remains the authoritative correlation key because
 			// unrelated controller exports can reach the same listener concurrently.
 			receiver.clear()
-			modelName := test.createModel(t, test.modelURL(t))
-			template := createTracingTemplate(t, test.harness, test.templateLabel, modelName)
+			model := test.createModel(t, test.modelURL(t))
+			template := createTracingTemplate(t, test.harness, test.templateLabel, model.Name)
 			fixture := newInteractionFixtureForHarnessTemplate(t, target, test.harness, template)
 			traceID, traceparent := sampledTraceparent(t)
 			fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, "traceparent", traceparent)
@@ -299,32 +301,43 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			if streamed.state != a2atype.TaskStateCompleted {
 				t.Fatalf("streamed task state = %s, want COMPLETED", streamed.state)
 			}
-			// Wait for the Actor to suspend then assert that the completed a2a.request span was exported.
+			// Wait for the Actor to suspend then assert that the completed invocation span was exported.
 			assertActorSuspended(t, fixture)
 			// The compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
-			spans := receiver.selectSpans(traceID, "", "", "a2a.request", map[string]string{
-				"a2a.method":                    "SendStreamingMessage",
+			agentName := template + "-" + test.harness
+			spans := receiver.selectSpans(traceID, "", "", "invoke_agent "+agentName, map[string]string{
+				tracing.AttributeOperationName:  tracing.OperationInvokeAgent,
+				tracing.AttributeMethod:         "SendStreamingMessage",
 				tracing.AttributeTaskState:      string(a2atype.TaskStateCompleted),
-				tracing.AttributeHarnessKind:    test.harnessKind,
-				tracing.AttributeAgentName:      template + "-" + test.harness,
+				tracing.AttributeRuntime:        string(test.runtime),
+				tracing.AttributeAgentName:      agentName,
+				tracing.AttributeAgentID:        "kagent/" + agentName,
+				tracing.AttributeProviderName:   test.provider,
+				tracing.AttributeRequestModel:   model.Spec.Model,
 				tracing.AttributeConversationID: streamed.contextID,
 				tracing.AttributeTaskID:         string(streamed.taskID),
 				tracing.AttributeUserID:         "e2e",
 				tracing.AttributeSegment:        tracing.SegmentInitial,
 			})
 			if len(spans) != 1 {
-				t.Fatalf("identified a2a.request spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
+				t.Fatalf("identified invocation spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
 			}
 			// Capture stays off unless a user enables it, so a turn must not
 			// export its prompt or response.
-			for _, key := range []string{tracing.AttributeInput, tracing.AttributeOutput} {
+			for _, key := range []string{tracing.AttributeInputMessages, tracing.AttributeOutputMessages} {
 				if value := stringAttribute(spans[0].span.GetAttributes(), key); value != "" {
 					t.Errorf("%s = %q with capture disabled", key, value)
 				}
 			}
-			if namespace := stringAttribute(spans[0].resource.GetAttributes(), "service.namespace"); namespace != "kagent" {
-				t.Errorf("service.namespace = %q, want the AgentTemplate namespace", namespace)
+			for key, want := range map[string]string{
+				"service.namespace":        "kagent",
+				tracing.AttributeRuntime:   string(test.runtime),
+				tracing.AttributeAgentName: agentName,
+			} {
+				if got := stringAttribute(spans[0].resource.GetAttributes(), key); got != want {
+					t.Errorf("resource %s = %q, want %q", key, got, want)
+				}
 			}
 			test.assertNative(t, receiver, traceID)
 		})

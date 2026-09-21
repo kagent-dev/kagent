@@ -106,8 +106,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
-	cfg.RuntimeTelemetry = telemetryConfig.HarnessTelemetry(
-		tracing.HarnessKindCodex, template.Name+"-"+harness.Name, template.Namespace)
+	cfg.RuntimeTelemetry = telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeCodex, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
 		if traceConfig.Enabled {

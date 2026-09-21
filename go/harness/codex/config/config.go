@@ -120,8 +120,8 @@ func (c Config) Validate() error {
 	if err := c.RuntimeTelemetry.Validate(); err != nil {
 		return err
 	}
-	if kind := c.RuntimeTelemetry.HarnessKind; kind != "" && kind != tracing.HarnessKindCodex {
-		return fmt.Errorf("codex runtime telemetry has harness kind %q", kind)
+	if runtime := c.RuntimeTelemetry.Runtime; runtime != "" && runtime != tracing.RuntimeCodex {
+		return fmt.Errorf("codex runtime telemetry names runtime %q", runtime)
 	}
 	if c.Telemetry != nil {
 		if c.Telemetry.Traces == nil && c.Telemetry.Logs == nil {

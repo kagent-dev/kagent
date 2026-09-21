@@ -8,18 +8,21 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// invocationScope is the instrumentation scope of the request span. Consumers
-// normalize on it, so it and the span name stay stable.
+// invocationScope is the instrumentation scope of the invocation span.
+// Consumers may key on it, so it stays stable.
 const invocationScope = "github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 
-// invocationInterceptor anchors one A2A execution segment on a request span. It
-// starts the span with the identity the runtime knows before execution begins,
-// so a request rejected during validation still reports which agent rejected
-// it, and it completes the span for failures that never reach an executor.
+// invocationInterceptor anchors one A2A execution segment on a request span.
+// For a native harness that span is the GenAI conventions' invoke_agent
+// operation, since nothing beneath it describes the agent invocation; the ADK
+// emits its own invoke_agent, so its request span stays a transport span with
+// the same identity and no operation of its own. The interceptor starts the
+// span with the identity the runtime knows before execution begins, so a
+// request rejected during validation still reports which agent rejected it,
+// and it completes the span for failures that never reach an executor.
 //
 // Execution adopts the invocation when it starts. From that point this
 // interceptor stops completing it, because a unary response can return while
@@ -32,9 +35,18 @@ const invocationScope = "github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 // attributes before ending it.
 type invocationInterceptor struct {
 	a2asrv.PassthroughCallInterceptor
-	logger   *slog.Logger
-	identity []attribute.KeyValue
-	flush    bool
+	logger    *slog.Logger
+	telemetry tracing.RuntimeTelemetry
+	flush     bool
+}
+
+// spanName follows the conventions for a native harness: the operation, then
+// the agent name. Any other runtime keeps the transport span name.
+func (i *invocationInterceptor) spanName() string {
+	if !i.telemetry.Runtime.NativeHarness() {
+		return tracing.TransportSpanName
+	}
+	return tracing.OperationInvokeAgent + " " + i.telemetry.AgentName
 }
 
 func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
@@ -42,15 +54,19 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 	if method != "SendMessage" && method != "SendStreamingMessage" {
 		return ctx, nil, nil
 	}
-	attributes := make([]attribute.KeyValue, 0, len(i.identity)+2)
-	attributes = append(attributes, attribute.String("a2a.method", method))
-	attributes = append(attributes, i.identity...)
+	identity := i.telemetry.Identity()
+	attributes := make([]attribute.KeyValue, 0, len(identity)+3)
+	if i.telemetry.Runtime.NativeHarness() {
+		attributes = append(attributes, attribute.String(tracing.AttributeOperationName, tracing.OperationInvokeAgent))
+	}
+	attributes = append(attributes, attribute.String(tracing.AttributeMethod, method))
+	attributes = append(attributes, identity...)
 	// The gateway authenticates the caller and replaces x-user-id before
 	// forwarding, so this is the only trusted identity on the private path.
 	if userID := auth.UserIDFromContext(ctx); userID != "" {
 		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
 	}
-	ctx, _ = tracing.StartInvocation(ctx, otel.Tracer(invocationScope), "a2a.request", i.flush, attributes...)
+	ctx, _ = tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.spanName(), i.flush, attributes...)
 	return ctx, nil, nil
 }
 
