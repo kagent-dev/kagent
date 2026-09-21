@@ -78,6 +78,8 @@ database:
     # Mutually exclusive with `secretRef.name`.
     url: ""
     # -- Source the external PostgreSQL connection string from an existing Secret.
+    # The Secret is mounted and reread for each new physical connection. Configure
+    # pool.maxConnLifetime to bound how long old credentials remain in use.
     # To share it with embedded Substrate, set the same name and key under
     # `substrate.postgres.connectionStringSecretRef`.
     secretRef:
@@ -97,6 +99,7 @@ database:
       maxConns: null
       minConns: null
       maxConnIdleTime: ""
+      # -- Maximum physical connection lifetime. This bounds Secret credential turnover.
       maxConnLifetime: ""
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed whenever enabled is true.

@@ -170,7 +170,11 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	dbURL := env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres")
+	dbSource := env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres")
+	dbURL, err := database.ResolveURL(dbSource)
+	if err != nil {
+		return fmt.Errorf("resolve database connection: %w", err)
+	}
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
@@ -182,7 +186,7 @@ func Run(ctx context.Context, opts Options) error {
 	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL, VectorEnabled: vectorEnabled})
+	db, err := database.Connect(ctx, postgresConfigFromEnv(dbSource, vectorEnabled))
 	if err != nil {
 		return err
 	}
@@ -364,6 +368,25 @@ func env(name, fallback string) string {
 func envBool(name string) bool {
 	value, _ := strconv.ParseBool(os.Getenv(name))
 	return value
+}
+
+func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
+	config := &database.PostgresConfig{URL: source, VectorEnabled: vectorEnabled}
+	if value := kagentenv.DatabaseMaxConns.Get(); value > 0 {
+		maxConns := int32(value)
+		config.MaxConns = &maxConns
+	}
+	if value := kagentenv.DatabaseMinConns.Get(); value >= 0 {
+		minConns := int32(value)
+		config.MinConns = &minConns
+	}
+	if value := kagentenv.DatabaseMaxConnIdleTime.Get(); value > 0 {
+		config.MaxConnIdleTime = &value
+	}
+	if value := kagentenv.DatabaseMaxConnLifetime.Get(); value > 0 {
+		config.MaxConnLifetime = &value
+	}
+	return config
 }
 
 func namespaces(value string) []string {

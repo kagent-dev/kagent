@@ -1,4 +1,7 @@
 {{- $databaseConnectionStringSecretRef := .Values.database.postgres.secretRef | default dict -}}
+{{- $databaseSecretVolumeName := "postgres-connection" -}}
+{{- $databaseSecretMountPath := "/var/run/secrets/kagent/postgres" -}}
+{{- $databaseSecretFileName := "connection-string" -}}
 {{- if hasKey .Values.database.postgres "urlFile" -}}
 {{- fail "database.postgres.urlFile has been removed; use database.postgres.secretRef.{name,key}" -}}
 {{- end -}}
@@ -45,8 +48,16 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
-      {{- if or (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
+      {{- if or (get $databaseConnectionStringSecretRef "name") (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
       volumes:
+      {{- if get $databaseConnectionStringSecretRef "name" }}
+      - name: {{ $databaseSecretVolumeName }}
+        secret:
+          secretName: {{ get $databaseConnectionStringSecretRef "name" }}
+          items:
+          - key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
+            path: {{ $databaseSecretFileName }}
+      {{- end }}
       {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
       - name: substrate-servicedns
         projected:
@@ -110,10 +121,7 @@ spec:
             {{- end }}
             {{- if get $databaseConnectionStringSecretRef "name" }}
             - name: POSTGRES_DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ get $databaseConnectionStringSecretRef "name" }}
-                  key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
+              value: {{ printf "@file:%s/%s" $databaseSecretMountPath $databaseSecretFileName | quote }}
             {{- else if .Values.database.postgres.url }}
             - name: POSTGRES_DATABASE_URL
               value: {{ .Values.database.postgres.url | quote }}
@@ -207,8 +215,13 @@ spec:
               port: http
             periodSeconds: 30
           {{- end }}
-          {{- if or (gt (len .Values.controller.volumeMounts) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
+          {{- if or (get $databaseConnectionStringSecretRef "name") (gt (len .Values.controller.volumeMounts) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
           volumeMounts:
+            {{- if get $databaseConnectionStringSecretRef "name" }}
+            - name: {{ $databaseSecretVolumeName }}
+              mountPath: {{ $databaseSecretMountPath }}
+              readOnly: true
+            {{- end }}
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: substrate-servicedns
               mountPath: /run/substrate-servicedns

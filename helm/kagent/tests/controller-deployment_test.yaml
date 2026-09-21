@@ -528,10 +528,24 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_DATABASE_URL
-            valueFrom:
-              secretKeyRef:
-                name: shared-db
-                key: url
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: shared-db
+              items:
+                - key: url
+                  path: connection-string
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgres-connection
+            mountPath: /var/run/secrets/kagent/postgres
+            readOnly: true
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[0].subPath
 
   - it: should keep an explicitly separate Substrate database Secret separate
     template: controller-deployment.yaml
@@ -573,14 +587,80 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_DATABASE_URL
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
             valueFrom:
               secretKeyRef:
                 name: external-postgres
                 key: url
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: external-postgres
+              items:
+                - key: url
+                  path: connection-string
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgres-connection
+            mountPath: /var/run/secrets/kagent/postgres
+            readOnly: true
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[0].subPath
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
+
+  - it: should keep Kagent separate from Substrate runtime and DDL Secrets
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          bundled:
+            enabled: false
+          secretRef:
+            name: kagent-db
+            key: kagent-url
+      substrate:
+        enabled: true
+        postgres:
+          connectionStringSecretRef:
+            enabled: true
+            name: substrate-runtime-db
+            key: runtime-url
+          ddlConnectionStringSecretRef:
+            enabled: true
+            name: substrate-ddl-db
+            key: ddl-url
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: kagent-db
+              items:
+                - key: kagent-url
+                  path: connection-string
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: substrate-runtime-db
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: substrate-ddl-db
 
   - it: should set DATABASE_VECTOR_ENABLED to false by default
     template: controller-configmap.yaml

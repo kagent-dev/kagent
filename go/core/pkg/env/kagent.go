@@ -119,4 +119,32 @@ var (
 		"Verify required database migrations at startup without applying them.",
 		ComponentDatabase,
 	)
+
+	DatabaseMaxConns = RegisterIntVar(
+		"DB_MAX_CONNS",
+		0,
+		"Maximum number of PostgreSQL pool connections. Zero keeps the pgx default.",
+		ComponentDatabase,
+	)
+
+	DatabaseMinConns = RegisterIntVar(
+		"DB_MIN_CONNS",
+		-1,
+		"Minimum number of PostgreSQL pool connections. Negative keeps the pgx default.",
+		ComponentDatabase,
+	)
+
+	DatabaseMaxConnIdleTime = RegisterDurationVar(
+		"DB_MAX_CONN_IDLE_TIME",
+		0,
+		"Maximum idle time for a PostgreSQL pool connection. Zero keeps the pgx default.",
+		ComponentDatabase,
+	)
+
+	DatabaseMaxConnLifetime = RegisterDurationVar(
+		"DB_MAX_CONN_LIFETIME",
+		0,
+		"Maximum lifetime of a PostgreSQL pool connection. This bounds credential rotation time.",
+		ComponentDatabase,
+	)
 )

@@ -23,28 +23,19 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 
 ### Substrate PostgreSQL
 
-Enabling Substrate uses Kagent's bundled PostgreSQL by default. Kagent and
-Substrate share the database and connection but use separate schemas.
+Kagent supports three PostgreSQL layouts with embedded Substrate.
+
+1. Share Kagent's bundled PostgreSQL. Kagent and Substrate use the same
+   database with separate schemas; the parent chart creates Substrate's
+   release-scoped connection Secret.
 
 ```yaml
 substrate:
   enabled: true
 ```
 
-To share an external PostgreSQL connection, configure it once for Kagent:
-
-```yaml
-database:
-  postgres:
-    url: postgresql://user:password@database:5432/kagent
-    bundled:
-      enabled: false
-substrate:
-  enabled: true
-```
-
-To share an existing Secret, configure both charts to reference the same
-name and key:
+2. Share one external Secret. Helm cannot dynamically copy a parent Secret
+   reference into a dependency, so repeat the same name and key explicitly.
 
 ```yaml
 database:
@@ -57,49 +48,85 @@ database:
 substrate:
   enabled: true
   postgres:
+    enabled: false
     connectionStringSecretRef:
+      enabled: true
       name: shared-postgres
       key: connectionString
 ```
 
-To give Substrate a separate PostgreSQL connection, disable sharing and set
-the Substrate connection directly:
+3. Use separate Kagent, Substrate runtime/DML, and Substrate DDL/maintenance
+   Secrets.
 
 ```yaml
-substrate:
-  enabled: true
+database:
   postgres:
-    connectionString: postgresql://user:password@substrate-db:5432/substrate
-    connectionStringSecretRef:
+    secretRef:
+      name: kagent-postgres
+      key: connectionString
+    bundled:
       enabled: false
-```
-
-For a separate Secret-backed connection, leave `enabled: false` and set
-`connectionStringSecretRef.name` and `key`.
-
-For least privilege, give Substrate separate runtime/DML and DDL roles. Both
-connections can point to Kagent's PostgreSQL server and database; the
-`substrate` schema keeps their objects separate from Kagent's:
-
-```yaml
 substrate:
   enabled: true
   postgres:
+    enabled: false
     schema: substrate
     connectionStringSecretRef:
-      name: substrate-postgres
-      key: runtimeConnectionString
+      enabled: true
+      name: substrate-runtime-postgres
+      key: connectionString
     ddlConnectionStringSecretRef:
-      name: substrate-postgres
-      key: ddlConnectionString
+      enabled: true
+      name: substrate-ddl-postgres
+      key: connectionString
 ```
 
 The DDL role owns the Substrate schema and performs migrations and partition
-maintenance. After migrations, Substrate gives the runtime role access to the
-tables and sequences created by the DDL role. Without this step, the runtime
-connection would fail with permission-denied errors. When both connections use
-the same role, no grant is needed. Omitting the DDL connection preserves
-single-connection operation.
+maintenance. Substrate grants its runtime role access to migrated tables and
+sequences. Omitting the DDL connection preserves single-connection operation.
+
+An inline `database.postgres.url` remains supported, but is fixed for the life
+of the controller process. When embedded Substrate is enabled, the parent chart
+can copy that inline value into its release-scoped Substrate Secret.
+
+#### Credential rotation
+
+`database.postgres.secretRef` is mounted through a Secret volume. Kagent
+rereads the connection string before opening each new physical connection;
+existing sessions remain valid until pgx retires them. Set
+`database.postgres.pool.maxConnLifetime` to bound Kagent's turnover time. When
+embedded Substrate shares the Secret, set
+`substrate.postgres.pool.maxConnLifetime` as well to bound its runtime, watch,
+and DDL pools. Keep old and new credentials valid long enough for Kubernetes
+Secret projection and connection turnover.
+
+Rotation may change passwords and referenced TLS material. Host, port,
+fallback targets, database, and username identify the pool and require a
+controller restart when changed. Direct binary deployments use
+`POSTGRES_DATABASE_URL=@file:/absolute/path`; there is no separate `_FILE`
+environment variable.
+
+Kagent 1.x removes `database.postgres.urlFile`. Replace:
+
+```yaml
+database:
+  postgres:
+    urlFile: /user-managed/path
+```
+
+with:
+
+```yaml
+database:
+  postgres:
+    secretRef:
+      name: postgres-connection
+      key: connectionString
+```
+
+This supports externally rotated Secret values. Minting an RDS IAM token in
+process on every connection is separate work and requires equivalent hooks in
+both Kagent and Substrate.
 
 ### Using Make
 
