@@ -3,7 +3,9 @@ package a2a
 import (
 	"context"
 	"iter"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"log/slog"
@@ -12,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -204,6 +207,86 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	}
 }
 
+func TestTransformStructuredOutput(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
+		SHA256:     "schema-digest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author: "root",
+		LLMResponse: model.LLMResponse{
+			Content: genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+		},
+		Output: map[string]any{"answer": float64(4)},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(`{"answer":4}`))
+	err = transformStructuredOutput(output, "root", event, update)
+	if err != nil {
+		t.Fatalf("transformStructuredOutput() error = %v", err)
+	}
+	if len(update.Artifact.Parts) != 1 || update.Artifact.Parts[0].MediaType != "application/json" {
+		t.Fatalf("structured artifact = %#v", update.Artifact)
+	}
+	if got := update.Artifact.Parts[0].Data(); !maps.Equal(got.(map[string]any), event.Output.(map[string]any)) {
+		t.Fatalf("structured data = %#v, want %#v", got, event.Output)
+	}
+	if got := update.Artifact.Parts[0].Metadata[OutputSchemaSHA256MetadataKey]; got != "schema-digest" {
+		t.Fatalf("schema digest = %#v", got)
+	}
+}
+
+func TestNewKAgentExecutorRejectsInvalidOutputSchema(t *testing.T) {
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		Logger: slog.New(slog.DiscardHandler),
+		Output: &apiadk.OutputConfig{JSONSchema: []byte(`{`)},
+	})
+	if err == nil || executor != nil {
+		t.Fatalf("NewKAgentExecutor() = %#v, %v; want a construction error", executor, err)
+	}
+}
+
+func TestStructuredOutputPartConverterDropsOnlyRootPartials(t *testing.T) {
+	converter := structuredOutputPartConverter(&structuredOutput{}, "root")
+	partial := &adksession.Event{
+		Author:      "root",
+		LLMResponse: model.LLMResponse{Partial: true},
+	}
+	got, err := converter(context.Background(), partial, genai.NewPartFromText("partial JSON"))
+	if err != nil || got != nil {
+		t.Fatalf("root partial conversion = %#v, error %v; want nil", got, err)
+	}
+
+	partial.Author = "tool-agent"
+	got, err = converter(context.Background(), partial, genai.NewPartFromText("tool progress"))
+	if err != nil || got == nil || got.Text() != "tool progress" {
+		t.Fatalf("non-root partial conversion = %#v, error %v", got, err)
+	}
+}
+
+func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"secret":{"type":"integer"}},"required":["secret"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author: "root",
+		LLMResponse: model.LLMResponse{
+			Content: genai.NewContentFromText(`{"secret":"do-not-log"}`, genai.RoleModel),
+		},
+		Output: map[string]any{"secret": "do-not-log"},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"})
+	err = transformStructuredOutput(output, "root", event, update)
+	if err == nil || strings.Contains(err.Error(), "do-not-log") {
+		t.Fatalf("validation error = %v", err)
+	}
+}
+
 func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	const (
 		appName   = "test-app"
@@ -244,7 +327,7 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	}
 
 	sessionService := adksession.InMemoryService()
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName:        appName,
 		SessionService: sessionService,
 		Logger:         slog.New(slog.DiscardHandler),
@@ -253,6 +336,9 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 			Agent:   agent,
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 	reqCtx := &a2asrv.ExecutorContext{
 		TaskID:    "task-1",
 		ContextID: contextID,
@@ -329,10 +415,13 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 		t.Fatalf("agent.New() error = %v", err)
 	}
 	sessionService := adksession.InMemoryService()
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName: appName, SessionService: sessionService, Logger: slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
 	}))

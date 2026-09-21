@@ -195,13 +195,18 @@ func main() {
 	}
 
 	stream := agentConfig.GetStream()
-	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
+	executor, err := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
 		RunnerConfig:   runnerConfig,
 		SessionService: sessionService,
 		Stream:         stream,
 		AppName:        appName,
 		Logger:         logger,
+		Output:         agentConfig.Output,
 	})
+	if err != nil {
+		logger.Error("failed to create A2A executor", "error", err)
+		os.Exit(1)
+	}
 
 	// Build the agent card.
 	if agentCard == nil {

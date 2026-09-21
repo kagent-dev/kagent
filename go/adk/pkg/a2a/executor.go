@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"strings"
@@ -11,10 +12,12 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -22,6 +25,7 @@ import (
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
 )
 
 const (
@@ -35,6 +39,7 @@ type KAgentExecutorConfig struct {
 	Stream         bool
 	AppName        string
 	Logger         *slog.Logger
+	Output         *apiadk.OutputConfig
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -46,10 +51,20 @@ type KAgentExecutor struct {
 	logger         *slog.Logger
 }
 
+type structuredOutput struct {
+	schema *jsonschema.Resolved
+	sha256 string
+}
+
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
 
-// NewKAgentExecutor creates a KAgentExecutor from config.
-func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
+// NewKAgentExecutor creates a KAgentExecutor from config. It returns an error if
+// the configured output schema cannot be prepared for runtime validation.
+func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
+	output, err := resolveStructuredOutput(cfg.Output)
+	if err != nil {
+		return nil, err
+	}
 	var runConfig adkagent.RunConfig
 	if cfg.Stream {
 		runConfig.StreamingMode = adkagent.StreamingModeSSE
@@ -58,12 +73,19 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	if cfg.SessionService != nil {
 		runnerConfig.SessionService = cfg.SessionService
 	}
+	rootName := ""
+	if runnerConfig.Agent != nil {
+		rootName = runnerConfig.Agent.Name()
+	}
 	builtin := adka2a.NewExecutor(adka2a.ExecutorConfig{
 		RunnerConfig:       runnerConfig,
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
-		GenAIPartConverter: genAIPartConverter,
+		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
+			if processed == nil {
+				return nil
+			}
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
 			}
@@ -77,7 +99,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 				}
 				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
-			return nil
+			return transformStructuredOutput(output, rootName, event, processed)
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
 	})
@@ -87,7 +109,60 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		sessionService: runnerConfig.SessionService,
 		appName:        cfg.AppName,
 		logger:         cfg.Logger.With("component", "kagent-executor"),
+	}, nil
+}
+
+// structuredOutputPartConverter drops partial root output before upstream ADK
+// creates an A2A artifact. A structured response is not useful until it is a
+// complete JSON value, and publishing fragments could persist invalid JSON.
+// Events from tools and sub-agents retain the normal converter behavior.
+func structuredOutputPartConverter(output *structuredOutput, rootName string) adka2a.GenAIPartConverter {
+	return func(ctx context.Context, event *adksession.Event, part *genai.Part) (*a2atype.Part, error) {
+		if output != nil && event != nil && event.Author == rootName && event.Partial {
+			return nil, nil
+		}
+		return genAIPartConverter(ctx, event, part)
 	}
+}
+
+func transformStructuredOutput(output *structuredOutput, rootName string, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
+	if output == nil || event.Author != rootName {
+		return nil
+	}
+	if !event.IsFinalResponse() {
+		return nil
+	}
+	if event.Output == nil {
+		return fmt.Errorf("output_validation_failed: root agent produced no structured value")
+	}
+	if err := output.schema.Validate(event.Output); err != nil {
+		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
+	}
+	if processed == nil || processed.Artifact == nil {
+		return fmt.Errorf("output_validation_failed: root agent produced no result artifact")
+	}
+	part := a2atype.NewDataPart(event.Output)
+	part.MediaType = "application/json"
+	part.SetMeta(OutputSchemaSHA256MetadataKey, output.sha256)
+	processed.Artifact.Parts = a2atype.ContentParts{part}
+	return nil
+}
+
+// resolveStructuredOutput compiles the configured JSON Schema once so every
+// execution can validate its final value with the same immutable validator.
+func resolveStructuredOutput(config *apiadk.OutputConfig) (*structuredOutput, error) {
+	if config == nil {
+		return nil, nil
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(config.JSONSchema, &schema); err != nil {
+		return nil, fmt.Errorf("decode output schema: %w", err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output schema: %w", err)
+	}
+	return &structuredOutput{schema: resolved, sha256: config.SHA256}, nil
 }
 
 // UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the
