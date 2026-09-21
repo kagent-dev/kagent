@@ -11,6 +11,21 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
+// Substrate credential provider names, the authority of an ate-secret:// URI.
+const (
+	// KubernetesSecretAuthority injects a Secret value unchanged.
+	KubernetesSecretAuthority = "kubernetes.io"
+	// GoogleAccessTokenAuthority reads a Google service account key Secret and
+	// injects a short-lived access token minted from it, so the key itself never
+	// reaches the gateway or the runtime.
+	GoogleAccessTokenAuthority = "google-access-token.kubernetes.io"
+)
+
+// CredentialURI names one Secret data entry for a Substrate credential provider.
+func CredentialURI(authority, namespace, name, key string) string {
+	return "ate-secret://" + authority + "/" + namespace + "/" + name + "/" + key
+}
+
 // Credential binds a Secret reference to an exact destination and HTTP header.
 // Values are fetched by the gateway and never enter a runtime revision.
 type Credential struct {
@@ -36,8 +51,8 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 			return nil, fmt.Errorf("invalid credential injection header %q", c.Header)
 		}
 		u, err := url.Parse(c.URI)
-		if err != nil || u.Scheme != "ate-secret" || u.Host != "kubernetes.io" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return nil, fmt.Errorf("invalid Kubernetes credential URI")
+		if err != nil || u.Scheme != "ate-secret" || (u.Host != KubernetesSecretAuthority && u.Host != GoogleAccessTokenAuthority) || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return nil, fmt.Errorf("invalid credential URI")
 		}
 		parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
 		if len(parts) != 3 || len(validation.IsDNS1123Label(parts[0])) != 0 || len(validation.IsDNS1123Subdomain(parts[1])) != 0 || parts[2] == "" || len(validation.IsConfigMapKey(parts[2])) != 0 {

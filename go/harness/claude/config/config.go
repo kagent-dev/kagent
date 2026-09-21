@@ -21,9 +21,9 @@ const (
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
 	GoogleApplicationCredentialsEnvName = "GOOGLE_APPLICATION_CREDENTIALS"
-	GoogleCredentialsJSONEnvName        = "KAGENT_CLAUDE_GOOGLE_CREDENTIALS_JSON"
 	UseBedrockEnvName                   = "CLAUDE_CODE_USE_BEDROCK"
 	UseVertexEnvName                    = "CLAUDE_CODE_USE_VERTEX"
+	SkipVertexAuthEnvName               = "CLAUDE_CODE_SKIP_VERTEX_AUTH"
 	AWSRegionEnvName                    = "AWS_REGION"
 	AWSAccessKeyEnvName                 = "AWS_ACCESS_KEY_ID"
 	AWSSecretKeyEnvName                 = "AWS_SECRET_ACCESS_KEY"
@@ -46,7 +46,7 @@ func OwnsEnvironment(name string) bool {
 	}
 	switch name {
 	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, GoogleApplicationCredentialsEnvName,
-		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
+		UseBedrockEnvName, UseVertexEnvName, SkipVertexAuthEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
 		SandboxEnvName, PreResponseTraceFlushEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",

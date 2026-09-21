@@ -21,6 +21,7 @@ func TestCanonicalCredentials(t *testing.T) {
 		{"header", func(c *Credential) { c.Header = "Authorization\r\nInjected" }},
 		{"prefix", func(c *Credential) { c.Prefix = "Bearer\n" }},
 		{"provider", func(c *Credential) { c.URI = "https://example.com/secret" }},
+		{"unknown authority", func(c *Credential) { c.URI = "ate-secret://vault.kubernetes.io/team/auth/token" }},
 		{"missing key", func(c *Credential) { c.URI = "ate-secret://kubernetes.io/team/auth" }},
 		{"query", func(c *Credential) { c.URI += "?key=other" }},
 	} {
@@ -35,4 +36,9 @@ func TestCanonicalCredentials(t *testing.T) {
 	other.URI = "ate-secret://kubernetes.io/team/other/token"
 	_, err = CanonicalCredentials([]Credential{base, other})
 	require.ErrorContains(t, err, "conflicting credentials")
+
+	google := Credential{Hostname: "us-east5-aiplatform.googleapis.com", Header: "authorization", Prefix: "Bearer ", URI: CredentialURI(GoogleAccessTokenAuthority, "team", "vertex", "credentials.json")}
+	got, err = CanonicalCredentials([]Credential{google})
+	require.NoError(t, err)
+	require.Equal(t, "ate-secret://google-access-token.kubernetes.io/team/vertex/credentials.json", got[0].URI)
 }
