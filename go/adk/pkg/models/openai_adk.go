@@ -269,11 +269,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, 0, len(functionCalls))
 			var toolResponseMessages []openai.ChatCompletionMessageParamUnion
 			for _, fc := range functionCalls {
-				args := fc.Args
-				if args == nil {
-					args = map[string]any{}
-				}
-				argsJSON, _ := json.Marshal(args)
+				argsJSON, _ := json.Marshal(nonNilFunctionCallArgs(fc.Args))
 				toolCall := openai.ChatCompletionMessageFunctionToolCallParam{
 					ID:   fc.ID,
 					Type: constant.Function(openAIToolTypeFunction),

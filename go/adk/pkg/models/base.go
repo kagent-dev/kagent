@@ -116,6 +116,19 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
+// nonNilFunctionCallArgs returns args, substituting an empty map for nil.
+// A no-argument FunctionCall reloads from the session store with nil Args
+// (omitempty drops the empty map), and some providers reject null or "null".
+//
+// TODO: remove once the pinned go-genai fixes
+// https://github.com/googleapis/go-genai/issues/920.
+func nonNilFunctionCallArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
 // parametersJsonSchemaToMap converts a genai.FunctionDeclaration.ParametersJsonSchema value
 // to map[string]any. ParametersJsonSchema is typed as `any` and can hold:
 //   - map[string]any (rare — only if someone constructs it manually)

@@ -211,11 +211,7 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 			toolCalls := make([]map[string]any, 0, len(functionCalls))
 			var toolResponses []map[string]any
 			for _, fc := range functionCalls {
-				args := fc.Args
-				if args == nil {
-					args = map[string]any{}
-				}
-				argsJSON, _ := json.Marshal(args)
+				argsJSON, _ := json.Marshal(nonNilFunctionCallArgs(fc.Args))
 				tc := map[string]any{
 					"type": "function",
 					"function": map[string]any{
