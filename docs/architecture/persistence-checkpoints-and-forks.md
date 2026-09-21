@@ -12,6 +12,10 @@ retains its unique originating `instance_id` after compute is deleted, so that I
 still resolves the complete checkpoint lineage. Multiple fork authorities may use
 the same wire context.
 
+Deleting an instance leaves a hidden tombstone for its owner and creation-request
+identity, while releasing its runtime references and shares. A retry of that
+creation request cannot recreate the deleted instance.
+
 The core PostgreSQL records are:
 
 | Record | Purpose |
@@ -101,8 +105,8 @@ failure rolls back the new history and instance. There is no reverse foreign key
 from history to an event. Events remain retained with their history; future event
 garbage collection must preserve inherited boundaries and coordinate with forks.
 Each new history points to an existing parent; ancestry traversal needs no
-checkpoint rows. `agent_instance.source_checkpoint_id`
-separately retains fork-request identity and runtime provenance while the instance exists.
+checkpoint rows. `agent_instance.source_checkpoint_id` separately retains
+fork-request identity and runtime provenance, including on deletion tombstones.
 
 Checkpoint listing follows parent histories and their cutoffs, returning owned
 ready checkpoints with their original source provenance. Membership depends on the

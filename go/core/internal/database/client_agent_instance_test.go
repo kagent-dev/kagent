@@ -424,7 +424,7 @@ func TestReserveAgentInstanceCheckpointRejectsCorruptSource(t *testing.T) {
 	client := NewClient(db)
 	instanceID := "99999999-9999-4999-8999-999999999999"
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)
+		INSERT INTO agent_history (id, instance_id, user_id, context_id) VALUES ($1, $1, 'alice', $1)
 	`, instanceID); err != nil {
 		t.Fatal(err)
 	}
@@ -596,11 +596,10 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}
-	// Deleting a fork releases its checkpoint pin but preserves its original
-	// request identity, even after that checkpoint itself has been removed.
+	// Deleting a fork preserves its original request identity. Its retained
+	// history still protects the inherited checkpoint after compute is removed.
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
-	require.NoError(t, err)
-	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"))
+	require.ErrorIs(t, err, ErrNotFound)
 	_, _, err = client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	_, _, err = client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-1", uuid.NewString())
