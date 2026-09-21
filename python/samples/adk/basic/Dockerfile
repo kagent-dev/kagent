@@ -4,13 +4,8 @@ ARG VERSION=latest
 FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$VERSION
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
-COPY  basic/ basic/
-COPY  pyproject.toml pyproject.toml
-COPY  README.md README.md
-COPY  .python-version .python-version
-COPY  uv.lock uv.lock
+COPY  samples/adk/basic/basic/ basic/
 
-RUN uv sync --locked --refresh
-
-CMD ["kagent-adk", "run", "basic", "--working-dir", "/app", "--host", "0.0.0.0"]
+CMD ["basic", "--working-dir", "/app"]
