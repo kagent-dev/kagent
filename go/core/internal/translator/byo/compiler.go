@@ -13,6 +13,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
@@ -39,6 +40,12 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 	environment := adkconfig.DedupeEnv(append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...))
+	// Inject PORT=80 to match the agent card, which advertises the A2A endpoint on
+	// :80. The kagent and claude compilers do the same. A BYO image built on
+	// go/adk/pkg/app defaults its listener to 8080 otherwise, so it reports READY
+	// while every invoke fails on the mismatched port (#2758). Placed last so it
+	// wins DedupeEnv's last-wins precedence and stays authoritative.
+	environment = append(environment, corev1.EnvVar{Name: "PORT", Value: "80"})
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
