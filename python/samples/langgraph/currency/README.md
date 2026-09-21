@@ -1,16 +1,15 @@
 # Currency LangGraph Agent
 
-This is a currency LangGraph agent that demonstrates KAgent integration with session persistence via REST API.
+This sample serves a currency-conversion LangGraph agent over A2A. LangGraph conversation state is checkpointed to a local SQLite file.
 
 ## Features
 
-- Currency conversion agent using OpenAI
-- LangGraph state management with KAgent checkpointer
-- A2A protocol compatibility
-- Session persistence via KAgent REST API
+- Currency conversion using OpenAI and the Frankfurter API
+- LangGraph state checkpointing with `SqliteSaver`
+- A2A protocol support
 - Streaming responses
 
-## Quick Start
+## Deployment
 
 1. Build the agent image:
 
@@ -64,22 +63,25 @@ uv run currency
 uv run currency test
 ```
 
+The startup regression test invokes `main()` with the server runner mocked and
+checks `GET /health`. It does not cover port binding, container startup,
+OpenAI-backed execution, A2A requests, or checkpoint reuse after restart.
+
 ## Architecture
 
 This agent demonstrates:
 
-- **StateGraph**: Simple conversation flow with one node
-- **SqliteSaver**: Stores conversation state in a local SQLite file
-- **A2A Integration**: Compatible with KAgent's agent-to-agent protocol
-- **Streaming**: Real-time response streaming via A2A events
+- **StateGraph**: A ReAct conversation graph with a currency tool
+- **SqliteSaver**: Stores LangGraph conversation state in a local SQLite file
+- **A2A Integration**: Serves the graph through KAgent's A2A application wrapper
+- **Streaming**: Emits graph execution updates as A2A events
 
-The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). Mount a persistent volume and point the variable there for persistence across pod replacement.
+The agent stores LangGraph checkpoints in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). Mount a persistent volume and point the variable there to retain checkpoints across pod replacement. A2A task tracking inside the agent process remains in memory.
 
 ## Configuration
 
-The agent can be configured via environment variables:
-
 - `OPENAI_API_KEY`: Required for OpenAI API access
+- `KAGENT_CHECKPOINT_DB`: SQLite checkpoint path (default: `/tmp/currency-checkpoints.sqlite`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
 

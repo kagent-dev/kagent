@@ -22,8 +22,8 @@ class PoemState(BaseModel):
     poem: str = ""
 
 
-# The persist decorator will persist all the flow method states to KAgent backend
-# Alternatively, you can persist only certain methods by adding @persist to those methods
+# CrewAI's persist decorator manages Flow state; KAgentApp does not persist it.
+# Alternatively, persist only selected methods by adding @persist to those methods.
 @persist(verbose=True)
 class PoemFlow(Flow[PoemState]):
     @start()
@@ -86,7 +86,6 @@ def build_app():
 def main():
     """Main entry point to run the KAgent CrewAI server."""
     server = build_app()
-
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
