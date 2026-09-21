@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union, cast
 
 import httpx
 from google.adk.memory import BaseMemoryService
@@ -135,50 +135,55 @@ class KagentMemoryService(BaseMemoryService):
         *,
         app_name: str,
         user_id: str,
-        content: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        memories: Sequence[MemoryEntry],
+        custom_metadata: Optional[Mapping[str, object]] = None,
     ) -> None:
-        """Add a specific text content to memory.
+        """Add explicit memory entries to Kagent's text memory store.
 
         Args:
             app_name: The application name
             user_id: The user ID
-            content: The text content to save
-            metadata: Optional additional metadata
+            memories: Memory entries to save
+            custom_metadata: Metadata shared by every memory entry
         """
-        if not content:
+        entries_with_text = [
+            (memory, "\n".join(part.text for part in memory.content.parts or [] if part.text)) for memory in memories
+        ]
+        entries_with_text = [(memory, text) for memory, text in entries_with_text if text]
+        if not entries_with_text:
             return
 
-        logger.debug("Adding specific content to memory for user %s", user_id)
+        logger.debug("Adding %d explicit memory items for user %s", len(entries_with_text), user_id)
 
-        # Generate embedding
         if not self._embedding_client:
             logger.warning("No embedding client available")
             return
-        vector = await self._embedding_client.generate(content)
-        if not vector:
-            logger.warning("Failed to generate embedding for memory content")
+
+        contents = [text for _, text in entries_with_text]
+        generated_vectors = await self._embedding_client.generate(contents)
+        vectors = cast(List[List[float]], generated_vectors)
+        if not vectors or len(vectors) != len(entries_with_text):
+            logger.warning("Failed to generate embeddings for explicit memories")
             return
 
-        # Send to Kagent API
-        payload: Dict[str, Any] = {
-            "agent_name": self.agent_name,
-            "user_id": user_id,
-            "content": content,
-            "vector": vector,
-        }
-        if self.ttl_days > 0:
-            payload["ttl_days"] = self.ttl_days
+        for (memory, content), vector in zip(entries_with_text, vectors, strict=True):
+            metadata = dict(custom_metadata or {})
+            metadata.update(memory.custom_metadata)
+            payload: Dict[str, Any] = {
+                "agent_name": self.agent_name,
+                "user_id": user_id,
+                "content": content,
+                "vector": vector,
+                "metadata": metadata,
+            }
+            if self.ttl_days > 0:
+                payload["ttl_days"] = self.ttl_days
 
-        try:
             response = await self.client.post("/api/memories/sessions", json=payload)
             if response.status_code >= 400:
                 logger.error("Response body: %s", response.text)
             response.raise_for_status()
-            memory_id = response.json().get("id")
-            logger.info("Successfully saved memory item (id=%s)", memory_id)
-        except Exception as e:
-            logger.error("Failed to save memory: %s", e)
+            logger.info("Successfully saved memory item (id=%s)", response.json().get("id"))
 
     async def search_memory(
         self,

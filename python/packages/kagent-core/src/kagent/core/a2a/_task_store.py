@@ -1,12 +1,15 @@
 import asyncio
 
 import httpx
+from a2a.server.context import ServerCallContext
 from a2a.server.tasks import TaskStore
 from a2a.types import Message, Task
 from pydantic import BaseModel
 from typing_extensions import override
 
 from kagent.core.a2a import read_metadata_value
+
+from ._context import get_call_context_user_id, scoped_request_user_id
 
 
 class KAgentTaskResponse(BaseModel):
@@ -47,7 +50,7 @@ class KAgentTaskStore(TaskStore):
         return [item for item in history if not self._is_partial_event(item)]
 
     @override
-    async def save(self, task: Task, context=None) -> None:
+    async def save(self, task: Task, context: ServerCallContext | None = None) -> None:
         """Save a task to KAgent.
 
         Skips saving if the current event is a partial streaming chunk.
@@ -56,7 +59,7 @@ class KAgentTaskStore(TaskStore):
 
         Args:
             task: The task to save
-            context: Server call context (unused, for a2a-sdk 0.3+ compatibility)
+            context: Server call context supplying the effective user, when available
 
         Raises:
             httpx.HTTPStatusError: If the API request fails
@@ -65,7 +68,8 @@ class KAgentTaskStore(TaskStore):
         history = task.history or []
         task.history = self._clean_partial_events(history)
 
-        response = await self.client.post("/api/tasks", json=task.model_dump(mode="json"))
+        with scoped_request_user_id(get_call_context_user_id(context)):
+            response = await self.client.post("/api/tasks", json=task.model_dump(mode="json"))
         response.raise_for_status()
 
         # Signal that save completed (event-based sync)
@@ -73,12 +77,12 @@ class KAgentTaskStore(TaskStore):
             self._save_events[task.id].set()
 
     @override
-    async def get(self, task_id: str, context=None) -> Task | None:
+    async def get(self, task_id: str, context: ServerCallContext | None = None) -> Task | None:
         """Retrieve a task from KAgent.
 
         Args:
             task_id: The ID of the task to retrieve
-            context: Server call context (unused, for a2a-sdk 0.3+ compatibility)
+            context: Server call context supplying the effective user, when available
 
         Returns:
             The task if found, None otherwise
@@ -86,7 +90,8 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails (except 404)
         """
-        response = await self.client.get(f"/api/tasks/{task_id}")
+        with scoped_request_user_id(get_call_context_user_id(context)):
+            response = await self.client.get(f"/api/tasks/{task_id}")
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -96,17 +101,18 @@ class KAgentTaskStore(TaskStore):
         return wrapped.data
 
     @override
-    async def delete(self, task_id: str, context=None) -> None:
+    async def delete(self, task_id: str, context: ServerCallContext | None = None) -> None:
         """Delete a task from KAgent.
 
         Args:
             task_id: The ID of the task to delete
-            context: Server call context (unused, for a2a-sdk 0.3+ compatibility)
+            context: Server call context supplying the effective user, when available
 
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        response = await self.client.delete(f"/api/tasks/{task_id}")
+        with scoped_request_user_id(get_call_context_user_id(context)):
+            response = await self.client.delete(f"/api/tasks/{task_id}")
         response.raise_for_status()
 
     async def wait_for_save(self, task_id: str, timeout: float = 5.0) -> None:

@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from google.adk.memory.memory_entry import MemoryEntry
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
@@ -77,8 +78,12 @@ class SaveMemoryTool(BaseTool):
             await memory_service.add_memory(
                 app_name=tool_context.session.app_name,
                 user_id=tool_context.session.user_id,
-                content=content,
-                metadata={"session_id": tool_context.session.id, "source": "explicit_save"},
+                memories=[
+                    MemoryEntry(
+                        content=types.Content(role="user", parts=[types.Part(text=content)]),
+                        custom_metadata={"session_id": tool_context.session.id, "source": "explicit_save"},
+                    )
+                ],
             )
             return "Successfully saved information to long-term memory."
 
