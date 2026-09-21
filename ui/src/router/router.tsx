@@ -1,8 +1,12 @@
+import { ScheduledRunsPage, ScheduledRunPage } from "@/pages/ScheduledRunsPage";
+import { ScheduledRunNewPage } from "@/pages/ScheduledRunNewPage";
+import { ScheduledRunEditPage } from "@/pages/ScheduledRunEditPage";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
 import { coreNavItems } from "@/components/Structure/navItems";
 import { paths } from "./routes";
+import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import type { AppExtensionConfig } from "@/appExtensions";
 import {
   applyNavOverrides,
@@ -82,6 +86,12 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "promptNew", path: paths.promptNew, element: <PromptNewPage /> },
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },
   { key: "promptEdit", path: paths.promptEdit, element: <PromptEditPage /> },
+  { key: "scheduledRuns", path: paths.scheduledRuns, element: <ScheduledRunsPage /> },
+  { key: "scheduledRunNew", path: paths.scheduledRunNew, element: <ScheduledRunNewPage /> },
+  /* `/schedules/new` outranks this pattern on specificity, not on position, so the
+     order here is only for reading. */
+  { key: "scheduledRun", path: paths.scheduledRun, element: <ScheduledRunPage /> },
+  { key: "scheduledRunEdit", path: paths.scheduledRunEdit, element: <ScheduledRunEditPage /> },
   { key: "substrate", path: paths.substrate, element: <SubstratePage /> },
   { key: "appDetail", path: paths.appDetail, element: <AppDetailPage /> },
   { key: "sharedAgent", path: paths.sharedAgent, element: <SharedAgentPage /> },
@@ -147,22 +157,34 @@ export function createAppRouter(extensions: readonly AppExtensionConfig[]) {
   );
 
   return createBrowserRouter([
-    { path: paths.login, element: <LoginPage /> },
+    { path: paths.login, element: <LoginPage />, errorElement: <RouteErrorBoundary /> },
     ...contributedRoutes
       .filter((route) => route.standalone)
-      .map(({ path, element }) => ({ path, element })),
+      .map(({ path, element }) => ({
+        path,
+        element,
+        errorElement: <RouteErrorBoundary />,
+      })),
     {
       element: shell,
+      errorElement: <RouteErrorBoundary />,
       children: [
-        ...remainingCoreRoutes,
-        ...contributedRoutes
-          .filter((route) => !route.standalone)
-          .map(({ path, element, handle }) => ({
-            path,
-            element,
-            ...(handle ? { handle } : {}),
-          })),
-        { path: "*", element: <NotFoundPage /> },
+        {
+          // Its own errorElement, nested inside the shell route rather than on it:
+          // a page crash then replaces only this outlet, so the nav/sidebar stay up.
+          errorElement: <RouteErrorBoundary />,
+          children: [
+            ...remainingCoreRoutes,
+            ...contributedRoutes
+              .filter((route) => !route.standalone)
+              .map(({ path, element, handle }) => ({
+                path,
+                element,
+                ...(handle ? { handle } : {}),
+              })),
+            { path: "*", element: <NotFoundPage /> },
+          ],
+        },
       ],
     },
   ]);

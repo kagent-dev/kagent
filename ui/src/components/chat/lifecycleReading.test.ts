@@ -14,7 +14,7 @@ import { isLifecycleBusy, lifecycleReading } from "./lifecycleReading";
 function instance(overrides: Partial<AgentInstance> = {}): AgentInstance {
   return {
     id: "instance-1",
-    namespace: "kagent",
+
     // Empty rather than absent, which is what the API returns: the column was added
     // after the table existed, so an unnamed conversation reads back as "" and never
     // as undefined. A fixture that omitted it would let a component get away with
@@ -25,7 +25,6 @@ function instance(overrides: Partial<AgentInstance> = {}): AgentInstance {
     operation: "unspecified",
     createdAt: "2026-08-24T10:00:00Z",
     updatedAt: "2026-08-24T10:00:00Z",
-    labels: {},
     ...overrides,
   };
 }

@@ -60,12 +60,12 @@ func runInvoke(
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	a2aClient, err := session.Gateway.A2A.ForAgentInstance(ctx, session.Namespace, instanceID.String())
+	a2aClient, err := session.Gateway.A2A.ForAgentInstance(ctx, instanceID.String())
 	if err != nil {
 		return fmt.Errorf("create AgentInstance A2A client: %w", err)
 	}
 
-	request := newInvokeRequest(task, instanceID.String())
+	request := newInvokeRequest(task)
 	ctx = withModelToken(ctx, cfg.Token)
 
 	if cfg.Stream {
@@ -74,9 +74,8 @@ func runInvoke(
 	return invokeNonStreaming(ctx, a2aClient, request, format, out)
 }
 
-func newInvokeRequest(task, instanceID string) *a2atype.SendMessageRequest {
+func newInvokeRequest(task string) *a2atype.SendMessageRequest {
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(task))
-	message.ContextID = instanceID
 	return &a2atype.SendMessageRequest{Message: message}
 }
 

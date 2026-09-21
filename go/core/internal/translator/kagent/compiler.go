@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -17,8 +15,6 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 )
-
-const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
 
 // Compiler translates resolved inputs into a kagent runtime revision.
 type Compiler struct {
@@ -35,19 +31,24 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err := requireModels(input.Root); err != nil {
 		return nil, err
 	}
+	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
+	if err := c.config.ApplyCompaction(compiled, harness, template); err != nil {
+		return nil, err
+	}
 	if memory := harness.Spec.Kagent.Memory; memory != nil {
 		name := memory.ModelConfigRef.Name
-		model, err := c.config.BuildModel(ctx, harness.Namespace, name)
+		model, err := c.config.BuildModel(harness.Namespace, name)
 		if err != nil {
 			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 		}
 		compiled.Config.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model.Model)}
-		compiled.Models = append(compiled.Models, model.Config)
+		compiled.Models = append(compiled.Models, model.Resolved)
 		compiled.Environment = append(compiled.Environment, model.Environment...)
 		compiled.Egress = append(compiled.Egress, model.Egress...)
 	}
@@ -58,9 +59,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	cardJSON, err := json.Marshal(agentTemplateCard(template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(template))
 	if err != nil {
-		return nil, fmt.Errorf("marshal agent card: %w", err)
+		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
 	environment := append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...)
@@ -78,22 +79,31 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// any inherited entry before applying the operator's value is what makes that
 	// hold when the operator has configured nothing at all.
 	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
+	environment = append(environment, telemetryConfig.TraceEnvironment()...)
+	environment = append(environment, telemetryConfig.LogEnvironment()...)
 	environment = append(environment, v2translator.OtelEnvFromProcess()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, err = c.config.ResolveEnvironment(ctx, template.Namespace, environment)
+	environment, credentials, err := v2translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
-		return nil, fmt.Errorf("resolve runtime environment: %w", err)
+		return nil, err
+	}
+	if traceConfig.Enabled {
+		compiled.Egress = append(compiled.Egress, traceConfig.Hostname)
+	}
+	if logConfig.Enabled {
+		compiled.Egress = append(compiled.Egress, logConfig.Hostname)
 	}
 	slices.Sort(compiled.Egress)
+	compiled.Egress = slices.Compact(compiled.Egress)
 	return &v2translator.CompileResult{Revision: v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
 }
 
@@ -107,17 +117,6 @@ func requireModels(input *v2translator.AgentInput) error {
 		}
 	}
 	return nil
-}
-
-func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
-	return &a2atype.AgentCard{
-		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
-		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
-		Capabilities: a2atype.AgentCapabilities{Streaming: true, Extensions: []a2atype.AgentExtension{{
-			URI: hitlExtensionURI, Description: "Human in the loop for tool approval, ask user, and nested subagents",
-		}}},
-		Skills: []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
-	}
 }
 
 func applyOperatorOnlyEnv(values []corev1.EnvVar, variable env.StringVar) []corev1.EnvVar {

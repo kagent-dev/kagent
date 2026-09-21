@@ -79,8 +79,7 @@ export interface AgentInstanceFailure {
 /**
  * One conversation with an agent. Mirrors the `AgentInstance` proto message.
  *
- * An instance is a *conversation*, not an agent. The A2A gateway files every task
- * under the instance as the task's `contextId`, so an instance holds exactly one
+ * An instance owns one A2A context and an isolated history, so it holds exactly one
  * thread of turns and a second conversation with the same agent is a second
  * instance. The durable, runnable agent is the `(AgentTemplate, Harness)` pair it
  * was cut from — see `domain/agentPairs`.
@@ -88,7 +87,8 @@ export interface AgentInstanceFailure {
 export interface AgentInstance {
   /** A UUID. The controller rejects anything else — `validateIdentity` parses it. */
   id: string;
-  namespace: string;
+  /** A2A context within this instance authority; retained by forks. */
+  contextId?: string;
   /**
    * The reader's own title for this conversation. Empty means unnamed.
    *
@@ -122,7 +122,6 @@ export interface AgentInstance {
   createdAt: string;
   /** RFC3339, or empty when the record carried no timestamp. */
   updatedAt: string;
-  labels: Record<string, string>;
 }
 
 /**
@@ -229,7 +228,6 @@ export type AgentInstanceSharePermission = "readOnly" | "readWrite";
 /** One share link over one instance. The token itself is returned only on create. */
 export interface AgentInstanceShare {
   id: string;
-  namespace: string;
   agentInstanceId: string;
   permission: AgentInstanceSharePermission;
   /** RFC3339, or empty when the record carried no timestamp. */

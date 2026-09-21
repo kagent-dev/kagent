@@ -17,8 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// provenanceEntry records one Kubernetes input to a compiled revision. Secret
-// entries identify a single key and hash its value; secret values are never stored.
+// provenanceEntry records a non-secret Kubernetes input to a compiled revision.
 type provenanceEntry struct {
 	APIVersion string    `json:"apiVersion"`
 	Kind       string    `json:"kind"`
@@ -42,7 +41,7 @@ func NewBuilder(ctx krt.HandlerContext, collections v2translator.Collections) *B
 
 type Result struct {
 	Config      *adk.AgentConfig
-	Models      []*v1alpha3.ModelConfig
+	Models      []*v2translator.ResolvedModelConfig
 	Templates   []*v1alpha3.AgentTemplate
 	Environment []corev1.EnvVar
 	Egress      []string
@@ -50,14 +49,14 @@ type Result struct {
 
 // ModelResult is the runtime configuration contributed by one ModelConfig.
 type ModelResult struct {
-	Config      *v1alpha3.ModelConfig
+	Resolved    *v2translator.ResolvedModelConfig
 	Model       adk.Model
 	Environment []corev1.EnvVar
 	Egress      []string
 }
 
 // BuildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*ModelResult, error) {
+func (c *Builder) BuildModel(namespace, name string) (*ModelResult, error) {
 	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
 	if resolved == nil {
 		return nil, fmt.Errorf("model config %q not found", name)
@@ -68,7 +67,7 @@ func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*Mode
 	if failures := resolved.ReferenceFailures; len(failures) > 0 {
 		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
 	}
-	runtime, err := c.resolveModel(ctx, resolved)
+	runtime, err := resolveModel(resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +75,7 @@ func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*Mode
 		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	return &ModelResult{
-		Config: resolved.Config, Model: runtime.Model, Environment: runtime.Environment,
+		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
 		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
 	}, nil
 }
@@ -100,13 +99,55 @@ func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*R
 	return c.compileAgent(ctx, input)
 }
 
+// ApplyCompaction translates the Harness's kagent compaction policy into the
+// ADK context configuration of a compiled root agent. Compaction is a property
+// of the runner that drives the root agent, so it is runtime policy on the
+// Harness rather than portable behavior on the AgentTemplate.
+//
+// A summarizer ModelConfig other than the agent's own is resolved like the
+// agent model: its runtime configuration lands in config.json, its credentials
+// and egress join the revision, and it joins the provenance so a change to it
+// compiles a new revision. The agent's own model is left out because the
+// runtime already summarizes with it by default.
+func (c *Builder) ApplyCompaction(result *Result, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
+	spec := harness.Spec.Kagent.Compaction
+	if spec == nil {
+		return nil
+	}
+	compaction := &adk.AgentCompressionConfig{
+		CompactionInterval: spec.CompactionInterval,
+		OverlapSize:        spec.OverlapSize,
+		TokenThreshold:     spec.TokenThreshold,
+		EventRetentionSize: spec.EventRetentionSize,
+	}
+	if summarizer := spec.Summarizer; summarizer != nil {
+		compaction.PromptTemplate = summarizer.PromptTemplate
+		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
+			model, err := c.BuildModel(harness.Namespace, ref.Name)
+			if err != nil {
+				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
+			}
+			compaction.SummarizerModel = model.Model
+			result.Models = append(result.Models, model.Resolved)
+			result.Environment = append(result.Environment, model.Environment...)
+			result.Egress = append(result.Egress, model.Egress...)
+		}
+	}
+	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
+	return nil
+}
+
+func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
+	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
+}
+
 func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
 	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
 		modelConfig = input.ResolvedModelConfig.Config
 		var err error
-		modelRuntime, err = c.resolveModel(ctx, input.ResolvedModelConfig)
+		modelRuntime, err = resolveModel(input.ResolvedModelConfig)
 		if err != nil {
 			return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 		}
@@ -130,7 +171,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, headers); err != nil {
+		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
@@ -144,7 +185,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
 	if modelConfig != nil {
-		result.Models = []*v1alpha3.ModelConfig{modelConfig}
+		result.Models = []*v2translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)
@@ -161,36 +202,9 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 	return result, nil
 }
 
-// ResolveEnvironment replaces Kubernetes Secret references with literals
-// because Substrate ActorTemplates accept only literal environment values.
-func (c *Builder) ResolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
-	resolved := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range resolved {
-		if variable.ValueFrom == nil {
-			continue
-		}
-		if variable.ValueFrom.SecretKeyRef == nil {
-			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
-		if fetched == nil {
-			return nil, fmt.Errorf("secret %q not found", ref.Name)
-		}
-		secret := *fetched
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		resolved[i].Value = string(value)
-		resolved[i].ValueFrom = nil
-	}
-	return resolved, nil
-}
-
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
 	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
@@ -204,7 +218,8 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			}
 		}
 	}
-	for _, model := range models {
+	for _, resolved := range models {
+		model := resolved.Config
 		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
@@ -231,8 +246,7 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			}
 		}
 	}
-	// Secret provenance contains only UID and value hash. Name+key deduplication
-	// keeps repeated references from changing the digest.
+	// Validate Secret references without making rotation part of revision identity.
 	seenSecrets := map[string]struct{}{}
 	for _, variable := range environment {
 		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
@@ -249,12 +263,10 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			return nil, fmt.Errorf("secret %q not found", ref.Name)
 		}
 		secret := *fetched
-		value, ok := secret.Data[ref.Key]
+		_, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
-		hash := sha256.Sum256(value)
-		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ import (
 
 const credentialValue = "credential-must-not-be-serialized"
 
-func TestCompileSupportedProviders(t *testing.T) {
+func TestCompileProviderCredentials(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	tests := []struct {
 		name        string
@@ -30,28 +31,35 @@ func TestCompileSupportedProviders(t *testing.T) {
 		provider    string
 		environment map[string]string
 		egress      []string
+		wantErr     string
 	}{
 		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: credentialValue}, egress: []string{"api.openai.com"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"api.openai.com"},
 		},
 		{
 			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: credentialValue}, egress: []string{"gateway.example.com"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"gateway.example.com"},
 		},
 		{
 			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: credentialValue}, egress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
+			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: v2translator.CredentialPlaceholder}, egress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
-			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-west-2", awsAccessKeyEnv: "access", awsSecretKeyEnv: credentialValue, awsSessionTokenEnv: "session"}, egress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
+			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, wantErr: "cannot use gateway header injection",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input, reader := testInput(t, test.model, test.secret)
 			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("expected unsupported credential error, got %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,6 +96,104 @@ func TestCompileSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestCompileTracing(t *testing.T) {
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg codexconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Telemetry == nil || cfg.Telemetry.Traces == nil || cfg.Telemetry.Traces.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Traces.Protocol != "http/protobuf" || cfg.Telemetry.Logs == nil || cfg.Telemetry.Logs.Endpoint != "http://logs:4317" || cfg.Telemetry.Logs.Protocol != "grpc" || cfg.Telemetry.CaptureContent {
+		t.Fatalf("telemetry = %#v", cfg.Telemetry)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector", "logs"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf",
+		"OTEL_LOGGING_ENABLED":               "true",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT":   "http://logs:4317",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL":   "grpc",
+		"KAGENT_NAME":                        "assistant-codex",
+		"KAGENT_NAMESPACE":                   "test", preResponseTraceFlushEnv: "true",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Telemetry == nil || !cfg.Telemetry.CaptureContent {
+		t.Fatalf("sensitive-content telemetry = %#v", cfg.Telemetry)
+	}
+}
+
+func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	value := "http://other-collector:4317"
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	var validation *v2translator.ValidationError
+	if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
+		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
+	}
+}
+
+func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	value := "x-tenant=team-a"
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: &value}}
+
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(revision.Environment, corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}) {
+		t.Fatalf("unmanaged OTEL environment missing from revision: %#v", revision.Environment)
+	}
+}
+
 func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	responses, chat := v1alpha3.OpenAIAPIFormatResponses, v1alpha3.OpenAIAPIFormatChatCompletions
 	tests := []v1alpha3.ModelConfigSpec{
@@ -113,7 +219,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", UID: "mcp"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
 	}}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}}, Server: server}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}, RequireApproval: true}, Server: server}}
 	childModel := model
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []v2translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &v2translator.AgentInput{
@@ -134,7 +240,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Agents["reviewer"].Model != "gpt-child" || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
+	if cfg.Agents["reviewer"].Model != "gpt-child" || !cfg.MCPServers["tools"].RequireApproval || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
 		t.Fatalf("config = %#v", cfg)
 	}
 	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
@@ -164,7 +270,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 			TerminateOnClose: &terminateOnClose,
 		},
 	}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Server: server}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
 
 	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -182,7 +288,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	if err := json.Unmarshal(compilation.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := cfg.MCPServers[server.Name]; !exists {
+	if configured, exists := cfg.MCPServers[server.Name]; !exists || !configured.RequireApproval || len(configured.EnabledTools) != 0 {
 		t.Fatalf("config omits MCP server after compatibility warning: %#v", cfg.MCPServers)
 	}
 

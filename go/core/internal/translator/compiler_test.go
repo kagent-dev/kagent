@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
@@ -111,6 +112,7 @@ func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
 	ctx := krt.TestingDummyContext{}
 	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
+		v2translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
 	})
 }
 
@@ -135,26 +137,55 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	return collections
 }
 
-func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
-	model := &v1alpha3.ModelConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
-		Spec: v1alpha3.ModelConfigSpec{
-			Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry,
-			Foundry: &v1alpha3.FoundryConfig{Deployment: "chat", APIVersion: "2024-10-21", EndpointFrom: &corev1.ConfigMapKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
-			}},
-		},
+func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
+	ref := &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint"}
+	const endpoint = "https://example.services.ai.azure.com"
+	for _, tt := range []struct {
+		name      string
+		foundry   *v1alpha3.FoundryConfig
+		data      map[string]string
+		endpoint  string
+		failure   string
+		reference bool
+	}{
+		{name: "inline", foundry: &v1alpha3.FoundryConfig{Endpoint: endpoint}, endpoint: endpoint},
+		{name: "inline takes precedence", foundry: &v1alpha3.FoundryConfig{Endpoint: endpoint, EndpointFrom: ref}, endpoint: endpoint},
+		{name: "ConfigMap", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, data: map[string]string{"endpoint": endpoint}, endpoint: endpoint, reference: true},
+		{name: "missing ConfigMap", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, failure: "EndpointConfigMapNotFound", reference: true},
+		{name: "missing key", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, data: map[string]string{}, failure: "EndpointConfigMapKeyNotFound", reference: true},
+		{name: "empty endpoint", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, data: map[string]string{"endpoint": ""}, failure: "EndpointConfigMapKeyEmpty", reference: true},
+		{name: "missing endpoint", foundry: &v1alpha3.FoundryConfig{}, failure: "InvalidProviderConfig"},
+		{name: "missing provider config", failure: "InvalidProviderConfig"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
+				Spec:       v1alpha3.ModelConfigSpec{Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry, Foundry: tt.foundry},
+			}
+			original := model.DeepCopy()
+			objects := []any{model}
+			if tt.data != nil {
+				objects = append(objects, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: ref.Name, Namespace: "test"}, Data: tt.data})
+			}
+			resolved := mockCollections(t, objects...).ResolvedModelConfigs.List()[0]
+			require.Equal(t, original, model, "resolution must not mutate its input")
+			require.Equal(t, original, resolved.Config, "retain the source configuration separately")
+			require.Equal(t, tt.endpoint, resolved.FoundryEndpoint)
+			if tt.failure == "" {
+				require.True(t, resolved.Usable())
+			} else {
+				require.False(t, resolved.Usable())
+				require.Equal(t, tt.failure, resolved.Failure().Reason)
+			}
+			if tt.reference {
+				require.Equal(t, []v2translator.ModelConfigReference{{
+					NamespacedName: types.NamespacedName{Namespace: "test", Name: ref.Name}, Kind: "ConfigMap", Key: ref.Key,
+				}}, resolved.References)
+			} else {
+				require.Empty(t, resolved.References)
+			}
+		})
 	}
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
-		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
-	}
-	collections := mockCollections(t, model, configMap)
-	resolved := collections.ResolvedModelConfigs.List()[0]
-	require.Equal(t, model.Spec, resolved.Config.Spec)
-	require.Equal(t, []v2translator.ModelConfigReference{{
-		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
-	}}, resolved.References)
 }
 
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
@@ -215,7 +246,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
 }
 
-func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
+func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mcp-auth", Namespace: "test"},
 		Data:       map[string][]byte{"token": []byte("Bearer top-secret")},
@@ -272,8 +303,8 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	if bytes.Contains(spec.ConfigJSON, secret.Data["token"]) || bytes.Contains(spec.Provenance, secret.Data["token"]) {
 		t.Fatal("runtime revision contains credential value")
 	}
-	if count := bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)); count != 2 {
-		t.Fatalf("provenance contains %d Secret entries, want 2: %s", count, spec.Provenance)
+	if count := bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)); count != 0 {
+		t.Fatalf("provenance contains %d Secret entries, want 0: %s", count, spec.Provenance)
 	}
 	if !bytes.Contains(spec.ConfigJSON, []byte("__KAGENT_ENV[KAGENT_CREDENTIAL_")) {
 		t.Fatalf("config does not contain credential placeholder: %s", spec.ConfigJSON)
@@ -285,9 +316,24 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 		}
 		foundSecretValues[variable.Value] = true
 	}
-	if !foundSecretValues[string(secret.Data["token"])] || !foundSecretValues[string(secondSecret.Data["token"])] {
-		t.Fatalf("runtime revision environment does not contain resolved credentials")
+	if foundSecretValues[string(secret.Data["token"])] || foundSecretValues[string(secondSecret.Data["token"])] {
+		t.Fatal("credential leaked into runtime environment")
 	}
+	require.True(t, foundSecretValues[v2translator.CredentialPlaceholder])
+	require.Len(t, spec.Credentials, 2)
+	firstDigest, err := spec.Digest()
+	require.NoError(t, err)
+	rotated := secret.DeepCopy()
+	rotated.UID = "replacement-secret"
+	rotated.Data["token"] = []byte("rotated-token")
+	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
+	})
+	next, err := rotatedCompiler.CompileAgentTemplate(t.Context(), harness, template)
+	require.NoError(t, err)
+	nextDigest, err := next.Digest()
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, nextDigest, "gateway credential rotation must not change runtime revision")
 	if len(spec.EgressDestinations) != 3 || spec.EgressDestinations[0] != "api.openai.com" || spec.EgressDestinations[1] != "mcp.example.com" || spec.EgressDestinations[2] != "second-mcp.example.com" {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
 	}
@@ -296,6 +342,10 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
 	t.Setenv("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", "256")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4318/v1/logs")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
@@ -319,17 +369,24 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]string{}
+	found := map[string]string{}
 	for _, variable := range spec.Environment {
-		if variable.Name == "OTEL_TRACING_ENABLED" || variable.Name == "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT" {
-			got[variable.Name] = variable.Value
+		found[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
+		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
+		"OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "256",
+	} {
+		if found[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)
 		}
 	}
-	if got["OTEL_TRACING_ENABLED"] != "true" {
-		t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q (env: %+v)", got["OTEL_TRACING_ENABLED"], "true", spec.Environment)
-	}
-	if got["OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT"] != "256" {
-		t.Fatalf("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT = %q, want %q (env: %+v)", got["OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT"], "256", spec.Environment)
+	for _, hostname := range []string{"collector", "logs"} {
+		if !slices.Contains(spec.EgressDestinations, hostname) {
+			t.Errorf("%s missing from egress destinations: %v", hostname, spec.EgressDestinations)
+		}
 	}
 }
 

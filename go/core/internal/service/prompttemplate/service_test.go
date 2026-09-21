@@ -39,7 +39,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	}
 
 	t.Run("list filters labels and sorts summaries", func(t *testing.T) {
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{},
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{},
 			&corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "z-last", Labels: map[string]string{"kagent.dev/prompt-library": "true"}},
 				Data:       map[string]string{"z": "last", "a": "first"},
@@ -70,7 +70,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	})
 
 	t.Run("create get update and delete", func(t *testing.T) {
-		service, kubeClient, ctx := newService(&authimpl.NoopAuthorizer{})
+		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{})
 		created, err := service.Create(ctx, prompttemplate.CreateRequest{
 			Namespace: "team",
 			Name:      "library",
@@ -98,7 +98,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 
 	t.Run("canonical errors", func(t *testing.T) {
 		existing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "library"}}
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{}, existing)
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{}, existing)
 
 		_, err := service.Create(ctx, prompttemplate.CreateRequest{Namespace: "team", Name: "library", Data: map[string]string{"key": "value"}})
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeAlreadyExists), err)
@@ -114,7 +114,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	})
 
 	t.Run("validates create and update inputs", func(t *testing.T) {
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{})
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{})
 		createTests := []prompttemplate.CreateRequest{
 			{Name: "library", Data: map[string]string{"key": "value"}},
 			{Namespace: "INVALID", Name: "library", Data: map[string]string{"key": "value"}},
@@ -139,7 +139,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		_, err := service.List(ctx, "team")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 
-		service, _, _ = newService(&authimpl.NoopAuthorizer{})
+		service, _, _ = newService(&pkgauth.NoopAuthorizer{})
 		_, err = service.List(context.Background(), "team")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated), err)
 	})

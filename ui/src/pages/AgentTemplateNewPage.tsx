@@ -12,7 +12,7 @@ import {
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { agentTemplatesTab } from "@/router/routes";
-import { apiClient, useAgentTemplates, useNamespaces } from "@/api";
+import { apiClient, useInvalidateAgentTemplates, useNamespaces } from "@/api";
 
 const { Text } = Typography;
 
@@ -36,15 +36,7 @@ export function AgentTemplateNewPage() {
   }, [namespaces.data]);
 
   const namespace = searchParams.get("namespace") ?? fallbackNamespace;
-  /*
-   * The list this page is about to navigate to.
-   *
-   * Held only so it can be re-read after a create: the list is cached, so landing on
-   * it without invalidating shows a page that does not contain the thing just made —
-   * which reads as a create that silently failed. The same defect exists on three
-   * other create pages and is recorded in `playwright/DEFERRED.md`.
-   */
-  const templates = useAgentTemplates(namespace);
+  const invalidateTemplates = useInvalidateAgentTemplates();
   const [draft, setDraft] = useState(() => emptyDraft(namespace));
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -70,7 +62,9 @@ export function AgentTemplateNewPage() {
           spec: specFromDraft(draft),
         },
       });
-      await templates.refresh();
+      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
+      await invalidateTemplates().catch(() => {});
       toast.success(`Agent template ${created.name} created`);
       // The address the reader ends up at, with the parameter the list reads. Through
       // `paths.agentTemplates` this was lost twice over: that route is a redirect and

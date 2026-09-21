@@ -13,7 +13,6 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
@@ -22,6 +21,7 @@ import (
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -58,6 +58,7 @@ type Config struct {
 	MemoryService         *memoryservice.Service
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
+	ScheduledRunService   *scheduledrun.Service
 	A2AHandler            a2asrv.RequestHandler
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
@@ -126,7 +127,7 @@ func New(config Config) (*Server, error) {
 	grpcServer := grpc.NewServer(serverOptions...)
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService))
+	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
 	if config.AgentTemplateService != nil {
 		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
 	}
@@ -147,6 +148,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.AgentInstanceService != nil {
 		apiv1alpha1.RegisterAgentInstanceServiceServer(grpcServer, &agentInstanceServer{service: config.AgentInstanceService})
+	}
+	if config.ScheduledRunService != nil {
+		apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
 	}
 	if config.CheckpointService != nil {
 		apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
@@ -172,7 +176,7 @@ func New(config Config) (*Server, error) {
 }
 
 type ShareStore interface {
-	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error)
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {

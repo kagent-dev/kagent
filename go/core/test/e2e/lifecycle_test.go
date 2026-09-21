@@ -45,7 +45,7 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	client := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 
 	created, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace: "kagent", AgentTemplate: "smoke", Harness: "kagent", RequestId: uuid.NewString(),
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"}, RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		t.Fatalf("create AgentInstance: %v", err)
@@ -56,7 +56,7 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	}
 
 	deleted, err := client.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-		Namespace: "kagent", AgentInstanceId: instance.GetId(),
+		AgentInstanceId: instance.GetId(),
 	})
 	if err != nil {
 		t.Fatalf("delete AgentInstance: %v", err)
@@ -66,7 +66,7 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	}
 
 	_, err = client.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{
-		Namespace: "kagent", AgentInstanceId: instance.GetId(),
+		AgentInstanceId: instance.GetId(),
 	})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("get deleted AgentInstance error = %v, want NotFound", err)

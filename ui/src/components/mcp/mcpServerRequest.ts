@@ -105,7 +105,8 @@ export function emptyMcpServerForm(): McpServerFormValues {
     url: "",
     tlsEnabled: false,
     caCertPem: "",
-    streamableHttp: false,
+    // Matches the CRD's own default, and the only protocol Codex accepts.
+    streamableHttp: true,
     headersJson: "",
     timeout: "5s",
     sseReadTimeout: "300s",

@@ -4,16 +4,18 @@ import { expectNoLoadFailure, liveRoutes, loadLive } from "./helpers/live";
 /**
  * The substrate page, against what the controller actually sends.
  *
- * This page reads `GetSubstrateStatus` and nothing else. It briefly read three RPCs
- * instead — a summary and a page each of actors and workers — and those were removed
- * again, so `api/grpc/operations.ts` answers all four of its operations from that one
- * response and does the narrowing in memory.
+ * This page reads three RPCs: `GetSubstrateSummary` for the tiles and the two lists
+ * that are inherently small, and a page each from `ListSubstrateActors` and
+ * `ListSubstrateWorkers`. It briefly read `GetSubstrateStatus` alone instead, which
+ * cannot survive a large cluster — one message of every actor and worker — and that
+ * is what this spec exists to keep it away from.
  *
  * Worth a live spec rather than trusting the mock one. The fixtures were written for
  * whichever shape was current, and on this project every defect found by pointing the
  * app at a real backend was a place where a fixture taught a shape the controller does
- * not use. A single-message read that the mock serves happily is exactly the kind of
- * thing that can come back empty from a cluster with the tiles still drawing zeros.
+ * not use. Paging is exactly that kind of thing: the mock pages an array it holds in
+ * memory, while the controller passes a token through to ate-api, and only a cluster
+ * says whether the token it hands back means what the page thinks it means.
  */
 test("live: the substrate page renders the cluster's own inventory", async ({ page }) => {
   await loadLive(page, liveRoutes.substrate);

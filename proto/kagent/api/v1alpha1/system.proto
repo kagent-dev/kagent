@@ -2,7 +2,11 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "ateapi.proto";
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
@@ -10,7 +14,9 @@ service SystemService {
   rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
   rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
-  rpc GetSubstrateStatus(GetSubstrateStatusRequest) returns (GetSubstrateStatusResponse);
+  rpc GetSubstrateSummary(GetSubstrateSummaryRequest) returns (GetSubstrateSummaryResponse);
+  rpc ListSubstrateActors(ListSubstrateActorsRequest) returns (ListSubstrateActorsResponse);
+  rpc ListSubstrateWorkers(ListSubstrateWorkersRequest) returns (ListSubstrateWorkersResponse);
 }
 
 message GetVersionRequest {}
@@ -38,60 +44,89 @@ message ListNamespacesResponse {
   repeated Namespace namespaces = 1;
 }
 
-message GetSubstrateStatusRequest {
-  string namespace = 1;
+message SubstrateWorkerPool {
+  ResourceReference ref = 5;
+  // The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+  StructuredObject resource = 6;
 }
 
-message GetSubstrateStatusResponse {
-  bool enabled = 1;
+// The inventory as counts, plus the two lists whose length is set by configuration
+// rather than by the cluster.
+//
+// ate-api reports no totals, so these cost a walk of every one of its pages. Only the
+// counts cross the wire, so there is no message-size ceiling — but a caller polling
+// this as often as it pages will spend most of its time here.
+message GetSubstrateSummaryRequest {
+  // Kubernetes namespace for workers and pools. Empty uses watched namespaces.
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+  // ATE atespace for actors and templates. Empty lists all atespaces.
+  string atespace = 2 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+}
+
+message SubstrateActorStatusCount {
+  int64 count = 2;
+  ateapi.ActorState state = 3;
+}
+
+message GetSubstrateSummaryResponse {
+  // Set when one of the three ate-api reads behind this answer failed. They do not gate
+  // each other, so the counts here may be short while the Kubernetes-derived lists are
+  // complete: a warning to show beside the data rather than a failed call.
   string ate_api_error = 2;
   repeated SubstrateWorkerPool worker_pools = 3;
-  repeated SubstrateActorTemplate actor_templates = 4;
-  repeated SubstrateActor actors = 5;
-  repeated SubstrateWorker workers = 6;
+  int64 actor_count = 5;
+  int64 worker_count = 6;
+  int64 running_actor_count = 7;
+  // A worker is busy when its reported allocated actor count is positive.
+  int64 busy_worker_count = 8;
+  // Every actor status present, with how many hold it: knowing 12 of 410,110 are
+  // running says nothing about the other 410,098.
+  repeated SubstrateActorStatusCount actor_status_counts = 9;
+  // When this answer was computed, which is not when it was received.
+  google.protobuf.Timestamp computed_at = 10;
+  // Inventory metadata and status only; runtime configuration may contain credentials.
+  repeated ateapi.ActorTemplate actor_templates = 11;
 }
 
-message SubstrateWorkerPool {
-  string namespace = 1;
-  string name = 2;
-  int32 replicas = 3;
-  string ateom_image = 4;
+// One upstream page of actors, in Substrate order.
+message ListSubstrateActorsRequest {
+  // ATE atespace of the actor itself. Empty lists all atespaces.
+  string atespace = 6 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+  // `limit` is capped at 100 in common.proto and zero means the server's default;
+  // above the cap is refused rather than clamped.
+  PageRequest page = 2;
 }
 
-message SubstrateActorTemplate {
-  string namespace = 1;
-  string name = 2;
-  string phase = 3;
-  string golden_actor_id = 4;
-  string golden_snapshot = 5;
-  string sandbox_class = 6;
-  string worker_selector = 7;
-  string harness_name = 8;
-  bool managed_by_kagent = 9;
+message ListSubstrateActorsResponse {
+  string ate_api_error = 2;
+  repeated ateapi.Actor actors = 3;
+  // Upstream continuation token. A page can be empty even when another page exists.
+  PageResponse page = 4;
+  google.protobuf.Timestamp computed_at = 5;
 }
 
-message SubstrateActor {
-  string actor_id = 1;
-  string atespace = 2;
-  string status = 3;
-  string actor_template_namespace = 4;
-  string actor_template_name = 5;
-  string ateom_pod_namespace = 6;
-  string ateom_pod_name = 7;
-  string ateom_pod_ip = 8;
-  string latest_snapshot = 9;
-  string worker_pool_name = 10;
-  string in_progress_snapshot = 11;
-  int64 version = 12;
+// One upstream page of workers, in Substrate order.
+// Namespace filtering applies to this page only; it may be empty and still have a next token.
+message ListSubstrateWorkersRequest {
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+  PageRequest page = 2;
 }
 
-message SubstrateWorker {
-  string worker_namespace = 1;
-  string worker_pool = 2;
-  string worker_pod = 3;
-  string actor_namespace = 4;
-  string actor_template = 5;
-  string actor_id = 6;
-  string ip = 7;
-  int64 version = 8;
+message ListSubstrateWorkersResponse {
+  string ate_api_error = 2;
+  repeated ateapi.Worker workers = 3;
+  PageResponse page = 4;
+  google.protobuf.Timestamp computed_at = 5;
 }

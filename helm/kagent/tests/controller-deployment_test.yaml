@@ -192,6 +192,58 @@ tests:
           path: data.PROXY_URL
           value: "http://proxy.kagent.svc.cluster.local:8080"
 
+  - it: should preserve signal protocols when traces and logs share an endpoint
+    template: controller-configmap.yaml
+    set:
+      otel:
+        tracing:
+          enabled: true
+          exporter:
+            otlp:
+              endpoint: "http://collector:4317"
+              protocol: "grpc"
+        logging:
+          enabled: true
+          exporter:
+            otlp:
+              endpoint: "http://collector:4317"
+              protocol: "http/protobuf"
+    asserts:
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://collector:4317"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+          value: "grpc"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL
+          value: "http/protobuf"
+
+  - it: should disable sensitive telemetry capture by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT
+          value: "false"
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
+          value: "false"
+
+  - it: should configure sensitive telemetry capture independently
+    template: controller-configmap.yaml
+    set:
+      otel:
+        captureSensitiveContent: true
+        logging:
+          captureRawApiBodies: true
+    asserts:
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT
+          value: "true"
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
+          value: "true"
+
   - it: should not set PROXY_URL when not set
     template: controller-configmap.yaml
     asserts:
@@ -261,6 +313,30 @@ tests:
       - equal:
           path: data.WATCH_NAMESPACES
           value: "explicit-ns"
+
+  - it: should derive watch namespaces from global.watchNamespaces, install namespace included
+    template: controller-configmap.yaml
+    set:
+      global:
+        watchNamespaces:
+          - team-a
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "NAMESPACE,team-a"
+
+  - it: should watch all namespaces when an explicit empty rbac.namespaces overrides the global
+    template: controller-configmap.yaml
+    set:
+      rbac:
+        namespaces: []
+      global:
+        watchNamespaces:
+          - team-a
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: ""
 
   - it: should set podAnnotations
     template: controller-deployment.yaml
@@ -665,6 +741,7 @@ tests:
           path: spec.template.spec.containers[0].ports
           content:
             name: metrics
+          any: true
 
   - it: should not set metrics env vars by default
     template: controller-deployment.yaml
@@ -784,6 +861,29 @@ tests:
           path: spec.template.spec.containers[0].ports
           content:
             name: metrics
+          any: true
+
+  - it: should not gain metrics wiring when bindAddress is empty
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+          any: true
 
   - it: should let controller.env override the chart-supplied metrics env
     template: controller-deployment.yaml

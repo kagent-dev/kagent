@@ -32,6 +32,7 @@ const codexE2EHarness = "codex-e2e"
 var codexInteractionMocks embed.FS
 
 func TestE2ECodexMockInteractionResumeAndPersistence(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -63,6 +64,7 @@ func TestE2ECodexMockInteractionResumeAndPersistence(t *testing.T) {
 }
 
 func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -74,7 +76,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 	}
 
 	created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
-		Namespace: "kagent", AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+		AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		t.Fatalf("create Codex checkpoint: %v", err)
@@ -84,7 +86,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
 		_, cleanupErr := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{
-			Namespace: "kagent", CheckpointId: checkpointID,
+			CheckpointId: checkpointID,
 		})
 		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
 			t.Errorf("delete Codex checkpoint: %v", cleanupErr)
@@ -92,7 +94,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 	})
 
 	forked, err := fixture.checkpoints.ForkAgentInstance(fixture.ctx, &apiv1alpha1.ForkAgentInstanceRequest{
-		Namespace: "kagent", CheckpointId: checkpointID, RequestId: uuid.NewString(),
+		CheckpointId: checkpointID, RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		t.Fatalf("fork Codex AgentInstance: %v", err)
@@ -106,7 +108,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
 		_, cleanupErr := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			Namespace: "kagent", AgentInstanceId: forkID,
+			AgentInstanceId: forkID,
 		})
 		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
 			t.Errorf("delete forked Codex AgentInstance: %v", cleanupErr)
@@ -115,11 +117,10 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 
 	forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
 		"x-user-id", "e2e",
-		"x-kagent-agent-instance-namespace", "kagent",
 		"x-kagent-agent-instance-id", forkID,
 	), 4*time.Minute)
 	t.Cleanup(forkCancel)
-	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: forkID, PageSize: 10})
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: forked.GetAgentInstance().GetContextId(), PageSize: 10})
 	if err != nil {
 		t.Fatalf("build forked Codex task list request: %v", err)
 	}
@@ -128,7 +129,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 		t.Fatalf("list forked Codex tasks: %v", err)
 	}
 	listed, err := pbconv.FromProtoListTasksResponse(listedResponse)
-	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ContextID != forkID || listed.Tasks[0].Status.State != a2atype.TaskStateCompleted {
+	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ContextID != forked.GetAgentInstance().GetContextId() || listed.Tasks[0].Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("forked Codex tasks = %+v, error %v; want one copied task in context %s", listed, err, forkID)
 	}
 
@@ -140,6 +141,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 }
 
 func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_builtin_tools.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -154,6 +156,7 @@ func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {
 }
 
 func TestE2ECodexMockWholeServerMCP(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	mcpURL, mcpMock := startMCPMock(t)
 
@@ -162,7 +165,7 @@ func TestE2ECodexMockWholeServerMCP(t *testing.T) {
 	modelToolNamespace := codexMCPToolNamespace(mcpServer.Name)
 	modelURL := startCodexResourceMockLLM(t, modelToolNamespace)
 	model := createCodexMockModel(t, kube, modelURL)
-	template := createCodexMCPTemplate(t, kube, model.Name, mcpServer.Name)
+	template := createCodexMCPTemplate(t, kube, model.Name, mcpServer.Name, false)
 	fixture := newInteractionFixtureForHarnessTemplate(t, target, codexE2EHarness, template)
 
 	streamed := sendCodexStreaming(t, fixture, "Add 3 and 5 using the configured MCP server.")
@@ -182,6 +185,24 @@ func TestE2ECodexMockWholeServerMCP(t *testing.T) {
 	toolName := mcpServer.Name + ".add_numbers"
 	assertCodexToolEvents(t, streamed.toolEvents, toolName)
 	assertCodexToolEvents(t, codexTaskToolEvents(getCodexTask(t, fixture, streamed.taskID)), toolName)
+}
+
+func TestE2ECodexMockMCPToolApproval(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	mcpURL, _ := startMCPMock(t)
+
+	kube := interactionKubeClient(t)
+	mcpServer := createCodexMCPServer(t, kube, mcpURL)
+	modelURL := startCodexResourceMockLLM(t, codexMCPToolNamespace(mcpServer.Name))
+	model := createCodexMockModel(t, kube, modelURL)
+	template := createCodexMCPTemplate(t, kube, model.Name, mcpServer.Name, true)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, codexE2EHarness, template)
+
+	completed := sendApprovedToolRequest(t, fixture, "Add 3 and 5 using the configured MCP server.", mcpServer.Name+".add_numbers")
+	if completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "CODEX_MCP_DONE result is 8") {
+		t.Fatalf("approved MCP task state = %s, text = %q", completed.Status.State, taskText(completed))
+	}
 }
 
 type codexStreamResult struct {
@@ -353,7 +374,7 @@ func getCodexTask(t *testing.T, fixture *interactionFixture, taskID a2atype.Task
 
 func assertCodexTaskHistory(t *testing.T, fixture *interactionFixture, taskIDs ...a2atype.TaskID) {
 	t.Helper()
-	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.instanceID})
+	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
 	if err != nil {
 		t.Fatalf("build ListTasks request: %v", err)
 	}
@@ -457,7 +478,7 @@ func createCodexMCPServer(t *testing.T, kube ctrlclient.Client, mcpURL string) *
 	return server
 }
 
-func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string) string {
+func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string, requireApproval bool) string {
 	t.Helper()
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
@@ -469,7 +490,8 @@ func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, m
 			Description:  "Codex direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				RequireApproval: requireApproval,
 			}}},
 		},
 	}

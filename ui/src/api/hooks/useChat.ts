@@ -41,6 +41,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getChatClient } from "../chat";
 import { runtimeConfig } from "../runtimeConfig";
+import { randomId } from "../randomId";
 import { conversationKey } from "../chat/types";
 import {
   IDLE_TURN,
@@ -51,8 +52,20 @@ import {
   type TurnEvent,
   type TurnState,
 } from "../chat/turnMachine";
-import { askUserAnswer, answerText, type PendingRequest } from "../chat/hitl";
-import type { ChatConversationRef, ChatMessage, ChatTurnState } from "../chat/types";
+import {
+  askUserAnswer,
+  answerText,
+  toolApprovalAnswer,
+  toolApprovalText,
+  type PendingRequest,
+  type ToolApprovalDecision,
+} from "../chat/hitl";
+import type {
+  ChatConversationRef,
+  ChatMessage,
+  ChatPart,
+  ChatTurnState,
+} from "../chat/types";
 
 /** What the conversation is doing, from the UI's point of view. */
 export type ChatPhase = "idle" | "streaming";
@@ -119,6 +132,8 @@ export interface ChatController {
    * one that did not still gets an array of one.
    */
   answerQuestion: (answers: readonly string[][]) => Promise<void>;
+  /** Approves or rejects every tool invocation in the pending request. */
+  answerToolApproval: (decisions: readonly ToolApprovalDecision[]) => Promise<void>;
   /** Re-sends the message whose turn failed. */
   retry: () => Promise<void>;
 }
@@ -242,7 +257,7 @@ export function useChat(
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const run = useCallback(
-    async (text: string, hitl?: Record<string, unknown>) => {
+    async (text: string, hitl?: Record<string, unknown>, displayParts?: ChatPart[]) => {
       if (!conversation || !key || !text.trim()) return;
 
       // Before anything is dispatched: a failure here means the turn never began,
@@ -271,7 +286,7 @@ export function useChat(
 
       // Minted here so the transport can send it and the optimistic message can be
       // filed under it — see this file's header for why that matters.
-      const messageId = newMessageId();
+      const messageId = randomId();
 
       /*
        * The question this message answers, if the conversation is holding one.
@@ -293,7 +308,10 @@ export function useChat(
         appendLocal(current, key, {
           id: messageId,
           role: "user",
-          parts: [{ kind: "text", text }],
+          // HITL decisions still carry fallback prose on the wire, but the transcript
+          // renders the structured decision instead of showing protocol text as if it
+          // were a new chat message.
+          parts: displayParts ?? [{ kind: "text", text }],
           createdAt: new Date().toISOString(),
         }),
       );
@@ -507,16 +525,50 @@ export function useChat(
   /**
    * Sends a structured answer to the question this conversation is holding.
    *
-   * The prose and the payload are written from the same choices: `parts` is what the
-   * transcript shows and the metadata is what the agent acts on, and a message that
-   * carried only one of them would either read as empty or read as an answer the
-   * agent never received.
+   * The semantic transcript record and wire payload are written from the same
+   * choices. The runtime still receives fallback prose, but the reader sees the
+   * question and answer as one compact record rather than a protocol message.
    */
   const answerQuestion = useCallback(
     async (answers: readonly string[][]) => {
       const parked = pendingRef.current;
       if (!parked || parked.key !== key || parked.request.kind !== "ask_user") return;
-      await run(answerText(answers), askUserAnswer(parked.request.requestId, answers));
+      await run(
+        answerText(answers),
+        askUserAnswer(parked.request.requestId, answers),
+        [
+          {
+            kind: "ask_user",
+            interaction: {
+              questions: parked.request.questions,
+              answers: answers.map((answer) => [...answer]),
+              askedBy: parked.request.askedBy,
+            },
+          },
+        ],
+      );
+    },
+    [key, run],
+  );
+
+  const answerToolApproval = useCallback(
+    async (decisions: readonly ToolApprovalDecision[]) => {
+      const parked = pendingRef.current;
+      if (!parked || parked.key !== key || parked.request.kind !== "tool_approval") return;
+      await run(
+        toolApprovalText(parked.request.tools, decisions),
+        toolApprovalAnswer(decisions),
+        [
+          {
+            kind: "tool_approval",
+            approval: {
+              tools: parked.request.tools,
+              decisions: [...decisions],
+              askedBy: parked.request.askedBy,
+            },
+          },
+        ],
+      );
     },
     [key, run],
   );
@@ -540,6 +592,7 @@ export function useChat(
       cancel,
       dismissQuestion,
       answerQuestion,
+      answerToolApproval,
       retry,
     }),
     [
@@ -552,26 +605,10 @@ export function useChat(
       cancel,
       dismissQuestion,
       answerQuestion,
+      answerToolApproval,
       retry,
     ],
   );
-}
-
-/**
- * An id for a message this client is about to send.
- *
- * `crypto.randomUUID` where it exists, which is every browser this app supports
- * over HTTPS or localhost — and a counter where it does not, because an id that
- * throws would take the whole send with it. Uniqueness is all that is asked of
- * it: the gateway accepts any string as a `message_id`.
- */
-let fallbackCounter = 0;
-function newMessageId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  fallbackCounter += 1;
-  return `local-${Date.now()}-${fallbackCounter}`;
 }
 
 /** Applies an update to the transcript, but only if it is still the right one. */

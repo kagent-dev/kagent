@@ -240,10 +240,10 @@ const file_kagent_api_v1alpha1_common_proto_rawDesc = "" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12-\n" +
-	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\"E\n" +
-	"\x11ResourceReference\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"M\n" +
+	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\"\xc1\x01\n" +
+	"\x11ResourceReference\x12H\n" +
+	"\tnamespace\x18\x01 \x01(\tB*\xbaH'r%\x10\x01\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\x12b\n" +
+	"\x04name\x18\x02 \x01(\tBN\xbaHKrI\x10\x01\x18\xfd\x012B^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$R\x04name\"M\n" +
 	"\vPageRequest\x12\x1f\n" +
 	"\x05limit\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\x05limit\x12\x1d\n" +
 	"\n" +

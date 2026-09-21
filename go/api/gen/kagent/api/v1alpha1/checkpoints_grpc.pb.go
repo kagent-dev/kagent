@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CheckpointService_CreateCheckpoint_FullMethodName  = "/kagent.api.v1alpha1.CheckpointService/CreateCheckpoint"
-	CheckpointService_GetCheckpoint_FullMethodName     = "/kagent.api.v1alpha1.CheckpointService/GetCheckpoint"
-	CheckpointService_ListCheckpoints_FullMethodName   = "/kagent.api.v1alpha1.CheckpointService/ListCheckpoints"
-	CheckpointService_DeleteCheckpoint_FullMethodName  = "/kagent.api.v1alpha1.CheckpointService/DeleteCheckpoint"
-	CheckpointService_ForkAgentInstance_FullMethodName = "/kagent.api.v1alpha1.CheckpointService/ForkAgentInstance"
+	CheckpointService_CreateCheckpoint_FullMethodName     = "/kagent.api.v1alpha1.CheckpointService/CreateCheckpoint"
+	CheckpointService_GetCheckpoint_FullMethodName        = "/kagent.api.v1alpha1.CheckpointService/GetCheckpoint"
+	CheckpointService_ListCheckpoints_FullMethodName      = "/kagent.api.v1alpha1.CheckpointService/ListCheckpoints"
+	CheckpointService_DeleteCheckpoint_FullMethodName     = "/kagent.api.v1alpha1.CheckpointService/DeleteCheckpoint"
+	CheckpointService_ForkAgentInstance_FullMethodName    = "/kagent.api.v1alpha1.CheckpointService/ForkAgentInstance"
+	CheckpointService_UpdateCheckpointName_FullMethodName = "/kagent.api.v1alpha1.CheckpointService/UpdateCheckpointName"
 )
 
 // CheckpointServiceClient is the client API for CheckpointService service.
@@ -35,6 +36,7 @@ type CheckpointServiceClient interface {
 	ListCheckpoints(ctx context.Context, in *ListCheckpointsRequest, opts ...grpc.CallOption) (*ListCheckpointsResponse, error)
 	DeleteCheckpoint(ctx context.Context, in *DeleteCheckpointRequest, opts ...grpc.CallOption) (*DeleteCheckpointResponse, error)
 	ForkAgentInstance(ctx context.Context, in *ForkAgentInstanceRequest, opts ...grpc.CallOption) (*ForkAgentInstanceResponse, error)
+	UpdateCheckpointName(ctx context.Context, in *UpdateCheckpointNameRequest, opts ...grpc.CallOption) (*UpdateCheckpointNameResponse, error)
 }
 
 type checkpointServiceClient struct {
@@ -95,6 +97,16 @@ func (c *checkpointServiceClient) ForkAgentInstance(ctx context.Context, in *For
 	return out, nil
 }
 
+func (c *checkpointServiceClient) UpdateCheckpointName(ctx context.Context, in *UpdateCheckpointNameRequest, opts ...grpc.CallOption) (*UpdateCheckpointNameResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateCheckpointNameResponse)
+	err := c.cc.Invoke(ctx, CheckpointService_UpdateCheckpointName_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CheckpointServiceServer is the server API for CheckpointService service.
 // All implementations must embed UnimplementedCheckpointServiceServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type CheckpointServiceServer interface {
 	ListCheckpoints(context.Context, *ListCheckpointsRequest) (*ListCheckpointsResponse, error)
 	DeleteCheckpoint(context.Context, *DeleteCheckpointRequest) (*DeleteCheckpointResponse, error)
 	ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*ForkAgentInstanceResponse, error)
+	UpdateCheckpointName(context.Context, *UpdateCheckpointNameRequest) (*UpdateCheckpointNameResponse, error)
 	mustEmbedUnimplementedCheckpointServiceServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedCheckpointServiceServer) DeleteCheckpoint(context.Context, *D
 }
 func (UnimplementedCheckpointServiceServer) ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*ForkAgentInstanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForkAgentInstance not implemented")
+}
+func (UnimplementedCheckpointServiceServer) UpdateCheckpointName(context.Context, *UpdateCheckpointNameRequest) (*UpdateCheckpointNameResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateCheckpointName not implemented")
 }
 func (UnimplementedCheckpointServiceServer) mustEmbedUnimplementedCheckpointServiceServer() {}
 func (UnimplementedCheckpointServiceServer) testEmbeddedByValue()                           {}
@@ -240,6 +256,24 @@ func _CheckpointService_ForkAgentInstance_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CheckpointService_UpdateCheckpointName_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateCheckpointNameRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CheckpointServiceServer).UpdateCheckpointName(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CheckpointService_UpdateCheckpointName_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CheckpointServiceServer).UpdateCheckpointName(ctx, req.(*UpdateCheckpointNameRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CheckpointService_ServiceDesc is the grpc.ServiceDesc for CheckpointService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var CheckpointService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForkAgentInstance",
 			Handler:    _CheckpointService_ForkAgentInstance_Handler,
+		},
+		{
+			MethodName: "UpdateCheckpointName",
+			Handler:    _CheckpointService_UpdateCheckpointName_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

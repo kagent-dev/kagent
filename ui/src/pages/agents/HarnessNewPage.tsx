@@ -3,7 +3,7 @@ import { Alert, Button, Card, Form, Input, Select, Space, Typography } from "ant
 import { useTheme } from "@emotion/react";
 import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { apiClient, useNamespaces } from "@/api";
+import { apiClient, useInvalidateHarnesses, useNamespaces } from "@/api";
 import {
   HARNESS_ADAPTERS,
   HARNESS_IMAGE_PATTERN,
@@ -36,6 +36,7 @@ export function HarnessNewPage() {
   const theme = useTheme();
   const navigate = useNavigate();
   const namespaces = useNamespaces();
+  const invalidateHarnesses = useInvalidateHarnesses();
 
   const [namespace, setNamespace] = useState<string>();
   const [name, setName] = useState("");
@@ -88,6 +89,9 @@ export function HarnessNewPage() {
           },
         },
       });
+      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
+      await invalidateHarnesses().catch(() => {});
       navigate(`${paths.agents}?tab=harnesses`);
     } catch (cause: unknown) {
       // The controller's own words: its CEL messages name the field that was wrong,

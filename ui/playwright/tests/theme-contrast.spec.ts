@@ -13,6 +13,14 @@ import { test, expect } from "../fixtures/test";
  * down to an opaque colour. Reading the first non-transparent background and treating it
  * as opaque reports a *tinted* panel as a solid brand fill and fails a colour that is
  * fine — which happened while investigating this, and cost a wrong conclusion.
+ *
+ * **This cannot be moved to a unit test over the theme tokens, and the reason is that
+ * compositing.** It has been proposed twice on the grounds that contrast is arithmetic
+ * over two colours, which is true and is not what this measures: `solidBehind` walks the
+ * *rendered* ancestor chain, and which translucent panels a piece of text ends up inside
+ * is a fact about the page rather than about the palette. A token-level test would
+ * compare two token values and confidently produce the wrong answer this file exists to
+ * avoid. Sixteen browser runs cost seventeen seconds; leave them here.
  */
 
 const AA_SMALL_TEXT = 4.5;
@@ -250,3 +258,37 @@ test.describe("dark theme: control edges", () => {
     for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
   });
 });
+
+/*
+ * The danger section is plain text on the page's own ground, which is the easy case —
+ * and exactly why it is worth pinning. It got here from a red ink on a red tint, and the
+ * ratio is the claim being made about the quieter version. Both themes, because muted
+ * secondary ink is where a body-text failure hides on one page and not the other.
+ */
+for (const mode of ["light", "dark"] as const) {
+  test.describe(`${mode} theme: the schedule's danger section`, () => {
+    test.use({ colorScheme: mode });
+
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((m) => window.localStorage.setItem("kagent.themeMode", m), mode);
+      await page.addInitScript(PROBE);
+      await page.goto("/schedules/c686bd1d-9124-4e96-8df7-000000000001?mock=ok");
+      await expect(page.getByTestId("schedule-danger")).toBeVisible();
+    });
+
+    test("its heading and its one line of copy are readable on the page", async ({ page }) => {
+      const ratios = await page.evaluate(() =>
+        [
+          ...document.querySelectorAll(
+            '[data-testid="schedule-danger"] .ant-typography',
+          ),
+        ].map((el) =>
+          (window as unknown as { __contrast: (el: Element) => number }).__contrast(el),
+        ),
+      );
+      expect(ratios.length).toBeGreaterThan(0);
+      for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+    });
+
+  });
+}

@@ -109,7 +109,7 @@ Services:
 Semantics:
 
 - IDs are opaque and server-generated.
-- Creation requires namespace, Harness, AgentTemplate, and caller-scoped `request_id`.
+- Creation requires namespaced Harness and AgentTemplate references and caller-scoped `request_id`. Database objects are identified by UUID and ownership, without a namespace.
 - Listing defaults to creator ownership; audited operators may request all creators.
 - Labels are copied immutably from the root AgentTemplate.
 - Share creation returns the secret token once; listing returns share IDs and metadata; revocation uses share ID.
@@ -124,7 +124,7 @@ Implement the single-boundary compiler using existing SandboxAgent compilation c
 - Resolve bilateral Harness/AgentTemplate attachment.
 - Render prompts and ConfigMap `include` sources.
 - Extract reusable prompt, model, and MCP helpers instead of synthesizing a SandboxAgent or duplicating its compiler.
-- Resolve Harness, ModelConfig, and MCP credential references for validation and hashing. Preserve Kubernetes credentials as `SecretKeyRef` entries in the generated workload; never persist or report their values.
+- Resolve Harness, ModelConfig, and MCP references for validation. Compile model and MCP Secret references into gateway header-injection bindings; never persist or report their values or include credential rotation in revision identity.
 - Initially reject standalone skills, plugin bundles, and AgentTemplate-backed tools with precise unsupported-field conditions.
 - Create one immutable `ate.dev/v1alpha1` Kubernetes ActorTemplate per prepared revision, using a deterministic revision-hashed name. Do not emulate the future stable ActorTemplate/ActorTemplateVersion split.
 - Build the Kubernetes ActorTemplate directly: pinned Harness image, environment/config values and `SecretKeyRef`s, worker-pool selector, `/data` DurableDir, snapshot policy, gRPC port 80, and HTTP readiness on `/readyz:8081`. Do not create a PodTemplate or Kubernetes config Secret.
@@ -133,7 +133,7 @@ Implement the single-boundary compiler using existing SandboxAgent compilation c
 - Record sanitized prepared revisions in PostgreSQL, including source identities and hashes, resolved egress destinations, Kubernetes ActorTemplate namespace/name/UID, phase, and golden-snapshot identity.
 - Keep the last successful revision usable while a newer revision prepares.
 - Retain revisions through direct database foreign keys from attachments and, later, instances and checkpoints. Do not add generic artifacts or reference counters.
-- Retire attachments without blocking Harness or AgentTemplate deletion; delete unreferenced versions immediately and let the last instance/checkpoint release trigger deferred cleanup.
+- Retire attachments without blocking Harness or AgentTemplate deletion; collect unreferenced revisions asynchronously after the last pair, instance, or checkpoint reference is released.
 
 Compile resolved model and MCP destinations into the revision for K5 to materialize as actor-scoped egress policy. K3 does not create EgressPolicy or Credential resources.
 
@@ -165,14 +165,14 @@ Add PostgreSQL tables and the registered service implementation:
 Creation:
 
 - Select the latest successful prepared revision.
-- Reserve caller/namespace/request ID transactionally.
+- Reserve caller/request ID transactionally.
 - Execute AgentInstance create and delete synchronously within their RPCs.
 - Create the deterministic Substrate Actor in its initial suspended state; Substrate establishes runtime readiness while preparing the ActorTemplate.
 - Publish the logical A2A authority and transition to `READY`.
 - Retrying a canceled create with the same request ID re-enters the same deterministic workflow.
 - Never duplicate a member while creation outcome is unknown.
 
-Deletion fences interaction, deletes owned Actors, releases its prepared-revision foreign key, triggers cleanup when that was the final reference, and leaves an indefinitely retained V1 tombstone. No retention configuration is added until scale requires one.
+Deletion fences interaction, deletes owned Actors, releases its prepared-revision foreign key, makes the revision eligible for cleanup when that was the final reference, and leaves an indefinitely retained V1 tombstone. No retention configuration is added until scale requires one.
 
 Start with single-member prepared revisions; K9 extends the same state machine to multiple members without changing the public API.
 
@@ -182,14 +182,16 @@ Substrate models each immutable prepared runtime as one uniquely named, Atespace
 
 - Preserve the compiler, prepared-revision digest and deterministic template name. Translate each revision directly into one ate-api `ActorTemplate`.
 - Use the Kubernetes namespace as the Atespace, ensure that Atespace exists before template creation, and select the fixed `gvisor-default` SandboxConfig.
-- Resolve credentials before this boundary and send literal environment values. Do not grant ate-api access to kagent Secret or ConfigMap sources.
+- Substrate v0.2.0-beta4 resolves credential URIs at its egress gateway. Persist destination-scoped header bindings and use only inert SDK placeholders in runtime environments. Grant the credential provider explicit atespace-to-namespace access and project the gateway trust bundle into runtimes.
 - Replace the Kubernetes ActorTemplate informer and write client with ate-api create/get/delete calls. Since ate-api has no template watch, poll only non-terminal templates until `golden_snapshot` is present or `error_message` reports failure.
 - Store the stable template Atespace, name, and server-assigned UID on the prepared revision. Do not persist Substrate's mutable resource version or duplicate golden-snapshot status.
 - Create Actors with `Actor.actor_template` set to the exact prepared template `ObjectRef`; stop populating the legacy Kubernetes template namespace/name fields.
 - Keep prepared-revision retention, latest-successful selection, AgentInstance/checkpoint/fork behavior, and public APIs unchanged.
 - Require existing AgentInstances to be recreated. Do not add dual-write, backfill, or a legacy compatibility path.
 - Delete the Kubernetes ActorTemplate construction, collection, reconciliation, diagnostics, and RBAC bridge in the same cutover. WorkerPool remains a Kubernetes resource.
-- Delete each unreferenced template and its golden Actor. Until Substrate implements that documented behavior, the kagent adapter deletes `ate-golden/<template UID>` explicitly; snapshot reclamation remains Substrate GC's responsibility.
+- Run runtime revision GC as a leader-elected manager runnable with startup and one-minute periodic sweeps. Enable election even with one replica because rolling updates overlap controllers. Mark deletion durably before calling Substrate, retain the database row until cleanup succeeds, and isolate candidate failures from other cleanup and pair preparation. Each candidate has a one-minute deadline; preparation polls while its desired digest is being deleted. The pair reconciler alone owns KRT readiness observations, keyed by pair and tagged with their revision, and releases them when preparation changes or is retired; GC only accesses PostgreSQL and Substrate.
+- Use ten queue attempts with exponential backoff from one to thirty seconds. Pending preparation still polls; retirement of a removed pair depends on its queued event. An outage that exhausts retirement retries, or a restart that loses that event, can leave an active database pair retaining revisions. Until the system doctor in [#2768](https://github.com/kagent-dev/kagent/issues/2768) compares persisted identities against the synced Kubernetes graph, this requires operator repair; private reconciler maps cannot recover it.
+- Delete each unreferenced template through Substrate. Beta3 owns cleanup of its golden Actor and Tag; readiness is represented by `goldenTag`.
 
 Completion requires clean-install preparation, lifecycle, checkpoint, fork, conflict, failed-golden, and unreferenced-revision cleanup coverage against ate-api resources.
 
@@ -438,9 +440,9 @@ Checkpoint contents exclude external MCP-owned mutable state.
 
 Implement `ForkAgentInstance`:
 
-- Require same-namespace target ownership.
+- Require checkpoint ownership; retain the checkpoint's prepared target references.
 - Create a new Actor identity from the checkpoint's retained snapshot tag.
-- Create a new AgentInstance, A2A authority, creator ownership, and labels.
+- Create a new AgentInstance, A2A authority, and creator ownership.
 - Keep source instance, history, and snapshots immutable.
 - Represent inherited history through copy-on-write projections: deterministic fork-local Task IDs and the new context ID reference immutable source payloads and lineage without duplicating content.
 - New Tasks append only to the fork.
@@ -501,7 +503,7 @@ After K0:
 High-conflict integration files should have one owner at a time:
 
 - Protobuf/Buf configuration: K2, then K10/K17.
-- Database migrations/sqlc: K3, then K5/K10/K17.
+- Database migrations/store: K3, then K5/K10/K17.
 - Controller application wiring: K5, K10, then K19.
 - Generated CRDs/RBAC: K1, then K19.
 

@@ -1,16 +1,12 @@
 package adkconfig
 
 import (
-	"context"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
-	"istio.io/istio/pkg/kube/krt"
-	"istio.io/istio/pkg/kube/krt/krttest"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -49,7 +45,7 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 				},
 				References: tt.references,
 			}
-			_, data, err := (&Builder{}).translateModel(context.Background(), resolved)
+			_, data, err := translateModel(resolved)
 			require.NoError(t, err)
 			names := make([]string, 0, len(data.EnvVars))
 			for _, variable := range data.EnvVars {
@@ -58,24 +54,4 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 			require.ElementsMatch(t, tt.want, names)
 		})
 	}
-}
-
-func TestResolveFoundryEndpointFromConfigMap(t *testing.T) {
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
-		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
-	}
-	mock := krttest.NewMock(t, []any{configMap})
-	compiler := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{
-		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
-	})
-
-	endpoint, err := compiler.resolveFoundryEndpoint(context.Background(), "test", &v1alpha3.FoundryConfig{
-		EndpointFrom: &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "account"},
-			Key:                  "endpoint",
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, configMap.Data["endpoint"], endpoint)
 }

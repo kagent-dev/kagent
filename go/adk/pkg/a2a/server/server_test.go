@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"log/slog"
 
@@ -31,9 +32,9 @@ import (
 // invocation span from the request-derived context. It does not flush —
 // exporting everything (including the otelhttp server span, still open
 // until the mux handler returns) is the server's flushing handler's job.
-type substrateExecutor struct{}
+type substrateExecutor struct{ finalState a2atype.TaskState }
 
-func (substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+func (e substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		_, span := telemetry.StartInvocationSpan(ctx)
 		defer span.End()
@@ -48,7 +49,11 @@ func (substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("done"))
 		msg.ContextID = reqCtx.ContextID
 		msg.TaskID = reqCtx.TaskID
-		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, msg), nil)
+		state := e.finalState
+		if state == a2atype.TaskStateUnspecified {
+			state = a2atype.TaskStateCompleted
+		}
+		yield(a2atype.NewStatusUpdateEvent(reqCtx, state, msg), nil)
 	}
 }
 
@@ -166,11 +171,9 @@ func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 	}
 }
 
-// runA2ARequest builds a server against an in-memory batch exporter, serves
-// one message/send, and returns the span names exported by the time ServeHTTP
-// returned — the last instant before net/http closes the response body (on
-// Agent Substrate, the checkpoint instant).
-func runA2ARequest(t *testing.T) map[string]bool {
+// runA2ARequest builds a server against an in-memory batch exporter and serves
+// one message/send.
+func runA2ARequest(t *testing.T) tracetest.SpanStubs {
 	t.Helper()
 
 	exporter := tracetest.NewInMemoryExporter()
@@ -208,36 +211,56 @@ func runA2ARequest(t *testing.T) map[string]bool {
 		t.Fatalf("unexpected status %d: %s", rec.Code, rec.Body.String())
 	}
 
-	exported := map[string]bool{}
-	for _, s := range exporter.GetSpans() {
-		exported[s.Name] = true
-	}
-	return exported
+	return exporter.GetSpans()
 }
 
 // With KAGENT_PRE_RESPONSE_TRACE_FLUSH (set by the controller on Agent
-// Substrate actors), every span of a request's trace — including the otelhttp
-// server span, which only ends after the inner handler returns — must be
-// exported before the response body closes: substrate checkpoints the actor at
-// body close, freezing any still-buffered spans into the snapshot.
+// Substrate actors), the interceptor-owned request span and its invocation
+// descendants are ended and flushed at the quiescent event. The otelhttp span
+// remains open until its handler returns so it can retain response attributes.
 func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
 	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
 
-	exported := runA2ARequest(t)
-	if !exported["invocation"] {
+	spans := runA2ARequest(t)
+	exported := map[string]tracetest.SpanStub{}
+	for _, span := range spans {
+		exported[span.Name] = span
+	}
+	if _, ok := exported["invocation"]; !ok {
 		t.Errorf("invocation span not exported before body close, got %v", exported)
 	}
-	if !exported["POST /"] {
-		t.Errorf("server span not exported before body close, got %v", exported)
+	if _, ok := exported["a2a.request"]; !ok {
+		t.Errorf("A2A request span not exported before body close, got %v", exported)
+	}
+	requestSpan := exported["a2a.request"]
+	httpSpan, ok := exported["POST /"]
+	if !ok {
+		t.Errorf("HTTP server span not exported after handler return, got %v", exported)
+		return
+	}
+	var statusCode int64
+	for _, attr := range httpSpan.Attributes {
+		if attr.Key == "http.response.status_code" {
+			statusCode = attr.Value.AsInt64()
+		}
+	}
+	if statusCode != http.StatusOK {
+		t.Errorf("HTTP server span response status = %d, want %d", statusCode, http.StatusOK)
+	}
+	if requestSpan.Parent.SpanID() != httpSpan.SpanContext.SpanID() {
+		t.Errorf("A2A request parent = %s, want HTTP span %s", requestSpan.Parent.SpanID(), httpSpan.SpanContext.SpanID())
+	}
+	if invocation := exported["invocation"]; invocation.Parent.SpanID() != requestSpan.SpanContext.SpanID() {
+		t.Errorf("invocation parent = %s, want A2A request span %s", invocation.Parent.SpanID(), requestSpan.SpanContext.SpanID())
 	}
 }
 
 // Without the opt-in, spans stay in the batch processor for its timer to
 // export — no per-request flush.
 func TestNoPreResponseFlushByDefault(t *testing.T) {
-	exported := runA2ARequest(t)
-	if len(exported) != 0 {
-		t.Errorf("spans exported at handler return without opt-in, got %v", exported)
+	spans := runA2ARequest(t)
+	if len(spans) != 0 {
+		t.Errorf("spans exported at handler return without opt-in, got %v", spans)
 	}
 }
 
@@ -352,5 +375,126 @@ func TestGetMaxContentLength(t *testing.T) {
 				t.Errorf("unexpected request size limit %d, want %d", *got, tt.want)
 			}
 		})
+	}
+}
+
+// This interceptor observes the last boundary before an event is handed to the
+// transport. The controller can suspend the actor as soon as it receives it.
+type exportBoundaryObserver struct {
+	a2asrv.PassthroughCallInterceptor
+	exporter *tracetest.InMemoryExporter
+	observed chan bool
+}
+
+func (o *exportBoundaryObserver) After(_ context.Context, _ *a2asrv.CallContext, response *a2asrv.Response) error {
+	update, ok := response.Payload.(*a2atype.TaskStatusUpdateEvent)
+	if !ok {
+		return nil
+	}
+	if !update.Status.State.Terminal() && update.Status.State != a2atype.TaskStateInputRequired && update.Status.State != a2atype.TaskStateAuthRequired {
+		return nil
+	}
+	exported := false
+	for _, span := range o.exporter.GetSpans() {
+		if span.Name == "a2a.request" {
+			exported = true
+		}
+	}
+	o.observed <- exported
+	return nil
+}
+
+func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
+	for _, state := range []a2atype.TaskState{a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateCanceled, a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired} {
+		t.Run(string(state), func(t *testing.T) {
+			t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
+			exporter := tracetest.NewInMemoryExporter()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
+			previous := otel.GetTracerProvider()
+			otel.SetTracerProvider(provider)
+			t.Cleanup(func() {
+				otel.SetTracerProvider(previous)
+				_ = provider.Shutdown(context.Background())
+			})
+			observer := &exportBoundaryObserver{exporter: exporter, observed: make(chan bool, 1)}
+			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{finalState: state}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"}, a2asrv.WithCallInterceptors(observer))
+			if err != nil {
+				t.Fatal(err)
+			}
+			testServer := httptest.NewUnstartedServer(srv.httpServer.Handler)
+			testServer.Config.Protocols = srv.httpServer.Protocols
+			testServer.Start()
+			defer testServer.Close()
+			defer srv.grpcServer.Stop()
+			conn, err := grpc.NewClient(testServer.Listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi"))})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for {
+				event, err := stream.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				domainEvent, err := pbconv.FromProtoStreamResponse(event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if update, ok := domainEvent.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State == state {
+					break
+				}
+			}
+			select {
+			case exported := <-observer.observed:
+				if !exported {
+					t.Fatal("A2A request span was not exported before the quiescent event was sent")
+				}
+			default:
+				t.Fatal("quiescent event was not observed")
+			}
+		})
+	}
+}
+
+func TestRejectsNonLiteralHealthPath(t *testing.T) {
+	for _, path := range []string{"ping", "/", "/ping/", "/ping/{id}", "/ping {x}"} {
+		if _, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", HealthPaths: []string{path}}); err == nil {
+			t.Errorf("NewA2AServer accepted health path %q", path)
+		}
+	}
+}
+
+func TestConfiguredHealthPaths(t *testing.T) {
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", HealthPaths: []string{"/ping"}, HealthHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"Healthy"}`))
+	})})
+	if err != nil {
+		t.Fatalf("NewA2AServer: %v", err)
+	}
+	testServer := httptest.NewServer(srv.httpServer.Handler)
+	t.Cleanup(func() { srv.grpcServer.Stop(); testServer.Close() })
+	// The JSON-RPC handler owns "/", so an unregistered probe path never returns the probe body.
+	for path, want := range map[string]bool{"/ping": true, "/ping/child": false, "/healthz": false} {
+		resp, err := testServer.Client().Get(testServer.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if got := resp.StatusCode == http.StatusOK && string(body) == `{"status":"Healthy"}`; got != want {
+			t.Fatalf("GET %s = %d %q, want probe=%v", path, resp.StatusCode, body, want)
+		}
 	}
 }

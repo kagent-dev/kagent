@@ -20,6 +20,7 @@ export const routes = {
   mcpServerNew: "/mcp/new",
   prompts: "/prompts",
   promptNew: "/prompts/new",
+  snapshots: "/snapshots",
   substrate: "/substrate",
   /* The templates list is a tab of the agents page now. The old address still
      resolves — it redirects here — but a test should go where the reader goes. */
@@ -98,12 +99,12 @@ export const agentNewChat = (
 export const SIBLING_OF_READY = instances.suspended;
 
 /** Where one agent's conversation lives. */
-export const agentChat = (id: string, namespace = "kagent") =>
-  `/agents/${namespace}/${id}/chat`;
+export const agentChat = (id: string) =>
+  `/agents/${id}/chat`;
 
 /** Where one agent's record lives. */
-export const agentDetail = (id: string, namespace = "kagent") =>
-  `/agents/${namespace}/${id}`;
+export const agentDetail = (id: string) =>
+  `/agents/${id}`;
 
 /**
  * How the mock backend should behave for a navigation.
@@ -156,7 +157,17 @@ export function dataRows(page: Page): Locator {
   return page.locator("tbody tr.ant-table-row");
 }
 
-/** Resolves once no loading indicator is left on the page. */
+/** A navigation-sized budget, for the app booting rather than for what it rendered. */
+const APP_BOOT_TIMEOUT = 15_000;
+
+/**
+ * Resolves once the app is on screen and no loading indicator is left on it.
+ *
+ * Waiting for a spinner to be absent is also true of a page that has not started
+ * rendering, so after a `goto` or a `reload` this returned at once and the next
+ * assertion's own five seconds became the app's boot budget.
+ */
 export async function expectSettled(page: Page): Promise<void> {
+  await expect(page.locator("#root")).not.toBeEmpty({ timeout: APP_BOOT_TIMEOUT });
   await expect(page.locator(".ant-spin-spinning")).toHaveCount(0);
 }

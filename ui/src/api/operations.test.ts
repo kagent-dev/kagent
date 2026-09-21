@@ -1,3 +1,4 @@
+import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -24,12 +25,15 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -369,26 +373,145 @@ describe("the cluster", () => {
   it("returns the substrate inventory, and a partial-data warning as a warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: () => ({
-          enabled: true,
+        getSubstrateSummary: () => ({
           ateApiError: "ate-api list calls failed",
           workerPools: [
-            { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
+            {
+              ref: { namespace: "kagent", name: "pool" },
+              resource: {
+                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                value: {
+                  metadata: { namespace: "kagent", name: "pool" },
+                  spec: { replicas: 2, workerImage: "ateom:1" },
+                  status: { replicas: 1, readyReplicas: 1 },
+                },
+              },
+            },
           ],
-          actorTemplates: [{ namespace: "kagent", name: "tpl", phase: "Ready" }],
-          actors: [{ actorId: "a1", atespace: "kagent", status: "Running", version: 3n }],
-          workers: [],
+          actorTemplates: [
+            {
+              metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+              status: {
+                goldenSnapshotStatus: {
+                  goldenTag: { atespace: "ate-golden", name: "golden" },
+                },
+              },
+              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+              workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
+            },
+          ],
+        }),
+        listSubstrateActors: () => ({
+          actors: [{
+            metadata: { name: "a1", atespace: "kagent", version: 3n },
+            actorTemplate: { atespace: "team", name: "tpl", uid: "template-uid" },
+            status: {
+              state: ActorState.RUNNING,
+              workerAssignment: {
+                workerNamespace: "kagent",
+                workerPod: "worker-0",
+                workerPool: "pool",
+                workerPodIp: "10.0.0.1",
+              },
+              externalSnapshot: { snapshotUri: "s3://snapshot" },
+              inProgressLocalSnapshotName: "next-snapshot",
+            },
+          }],
         }),
       });
     });
 
-    const status = await apiClient.substrate.status();
-    expect(status.enabled).toBe(true);
+    const [summary, actors] = await Promise.all([apiClient.substrate.summary(), apiClient.substrate.actors({})]);
+    expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
+    expect(summary.actorTemplates[0]).toEqual({
+      atespace: "kagent",
+      name: "tpl",
+      phase: "Ready",
+      goldenTag: "ate-golden/golden",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=agents,zone=east",
+    });
     // The request succeeded; the runtime halves may be incomplete. That is a
     // message to put beside the data, not an error to throw.
-    expect(status.ateApiError).toMatch(/ate-api/);
-    expect(status.actors[0].atespace).toBe("kagent");
-    expect(status.actors[0].version).toBe(3);
+    expect(summary.ateApiError).toMatch(/ate-api/);
+    expect(actors.actors[0]).toEqual({
+      actorId: "a1",
+      atespace: "kagent",
+      status: "Running",
+      actorTemplateAtespace: "team",
+      actorTemplateName: "tpl",
+      ateomPodNamespace: "kagent",
+      ateomPodName: "worker-0",
+      ateomPodIp: "10.0.0.1",
+      latestSnapshot: "s3://snapshot",
+      workerPoolName: "pool",
+      inProgressSnapshot: "next-snapshot",
+      version: 3,
+    });
+  });
+
+  it.each([
+    { goldenSnapshotStatus: undefined, phase: "Pending" },
+    { goldenSnapshotStatus: { errorMessage: "warmup failed" }, phase: "Failed" },
+    {
+      goldenSnapshotStatus: {
+        errorMessage: "warmup failed",
+        goldenTag: { atespace: "ate-golden", name: "golden" },
+      },
+      phase: "Failed",
+    },
+  ])(
+    "derives template phase $phase from upstream status",
+    async ({ goldenSnapshotStatus, phase }) => {
+      serve(({ service }) => {
+        service(SystemService, {
+          getSubstrateSummary: () => ({
+            actorTemplates: [
+              {
+                metadata: { atespace: "kagent", name: "tpl" },
+                status: { goldenSnapshotStatus },
+              },
+            ],
+          }),
+        });
+      });
+      const { actorTemplates } = await apiClient.substrate.summary();
+      expect(actorTemplates[0].phase).toBe(phase);
+      expect(actorTemplates[0].workerSelector).toBeUndefined();
+    },
+  );
+
+  it.each([
+    [ActorState.UNSPECIFIED, "Unknown"],
+    [ActorState.RESUMING, "Resuming"],
+    [ActorState.RUNNING, "Running"],
+    [ActorState.SUSPENDING, "Suspending"],
+    [ActorState.SUSPENDED, "Suspended"],
+    [ActorState.PAUSING, "Pausing"],
+    [ActorState.PAUSED, "Paused"],
+    [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
+    [ActorState.DELETING, "ACTOR_STATE_DELETING"],
+    [99 as ActorState, "99"],
+  ])("preserves the actor status label for state %s", async (state, label) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: () => ({
+          actors: [{ metadata: { name: "a1" }, status: { state } }],
+        }),
+      });
+    });
+    const page = await apiClient.substrate.actors({});
+    expect(page.actors[0].status).toBe(label);
+  });
+
+  it("rejects worker pools without a resource instead of displaying empty columns", async () => {
+    const inventory = () => ({
+      workerPools: [{ ref: { namespace: "kagent", name: "pool" } }],
+    });
+    serve(({ service }) => {
+      service(SystemService, { getSubstrateSummary: inventory });
+    });
+    await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
@@ -396,26 +519,145 @@ describe("the cluster", () => {
   it("reads an empty warning as no warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: () => ({ enabled: false, ateApiError: "" }),
+        getSubstrateSummary: () => ({ ateApiError: "" }),
       });
     });
-    expect((await apiClient.substrate.status()).ateApiError).toBeUndefined();
+    expect((await apiClient.substrate.summary()).ateApiError).toBeUndefined();
   });
 
-  it("passes the namespace filter through", async () => {
-    const asked: string[] = [];
+  it("passes independent namespace and atespace filters through", async () => {
+    const asked: { namespace: string; atespace: string }[] = [];
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: (request) => {
-          asked.push(request.namespace);
-          return { enabled: true };
+        getSubstrateSummary: (request) => {
+          asked.push({ namespace: request.namespace, atespace: request.atespace });
+          return {};
         },
       });
     });
 
-    await apiClient.substrate.status("kagent");
-    await apiClient.substrate.status();
-    expect(asked).toEqual(["kagent", ""]);
+    await apiClient.substrate.summary({ namespace: "kagent", atespace: "team-a" });
+    await apiClient.substrate.summary();
+    expect(asked).toEqual([{ namespace: "kagent", atespace: "team-a" }, { namespace: "", atespace: "" }]);
+  });
+
+  it("reads the summary's counts rather than counting rows", async () => {
+    serve(({ service }) => {
+      service(SystemService, {
+        getSubstrateSummary: () => ({
+          workerPools: [
+            {
+              ref: { namespace: "kagent", name: "pool" },
+              resource: {
+                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                value: {
+                  metadata: { namespace: "kagent", name: "pool" },
+                  spec: { replicas: 2, workerImage: "ateom:1" },
+                  status: { replicas: 1, readyReplicas: 1 },
+                },
+              },
+            },
+          ],
+          actorTemplates: [
+            {
+              metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+              status: {
+                goldenSnapshotStatus: {
+                  goldenTag: { atespace: "ate-golden", name: "golden" },
+                },
+              },
+              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+              workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
+            },
+          ],
+          actorCount: 410110n,
+          workerCount: 900n,
+          runningActorCount: 12n,
+          busyWorkerCount: 11n,
+          actorStatusCounts: [
+            { state: ActorState.CRASHED, count: 410098n },
+            { state: ActorState.RUNNING, count: 12n },
+          ],
+          computedAt: timestampFromDate(new Date("2026-09-04T12:00:00Z")),
+        }),
+      });
+    });
+
+    const summary = await apiClient.substrate.summary();
+    // `int64` on the wire: a count that stayed a bigint formats as "410110n" and
+    // arithmetic against it throws.
+    expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
+    expect(summary.actorTemplates[0].phase).toBe("Ready");
+    expect(summary.actorCount).toBe(410110);
+    expect(summary.runningActorCount).toBe(12);
+    expect(summary.busyWorkerCount).toBe(11);
+    expect(summary.actorStatusCounts).toEqual([
+      { status: "ACTOR_STATE_CRASHED", count: 410098 },
+      { status: "Running", count: 12 },
+    ]);
+    expect(summary.computedAt).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  // `PageRequest`/`PageResponse`, the shape every other paged read on this API uses.
+  it("sends the page size and token, and reads the next token back", async () => {
+    const asked: {
+      atespace: string;
+      limit: number;
+      pageToken: string;
+    }[] = [];
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: (request) => {
+          asked.push({
+            atespace: request.atespace,
+            limit: request.page?.limit ?? 0,
+            pageToken: request.page?.pageToken ?? "",
+          });
+          return {
+            actors: [{
+              metadata: { name: "a1", version: 3n },
+              status: { state: ActorState.RUNNING },
+            }],
+            page: { nextPageToken: "cursor-2" },
+          };
+        },
+      });
+    });
+
+    const page = await apiClient.substrate.actors({
+      atespace: "kagent",
+      limit: 100,
+      pageToken: "cursor-1",
+    });
+    expect(asked).toEqual([
+      {
+        atespace: "kagent",
+        limit: 100,
+        pageToken: "cursor-1",
+      },
+    ]);
+    expect(page.actors[0].actorId).toBe("a1");
+    expect(page.actors[0].status).toBe("Running");
+    expect(page.actors[0].version).toBe(3);
+    expect(page.actors[0].ateomPodName).toBeUndefined();
+    expect(page.nextPageToken).toBe("cursor-2");
+  });
+
+  // Absent rather than empty, so "there is more" is a question about presence: an
+  // empty token sent back as the next page would re-read page one for ever.
+  it("reads the last page's empty token as no next page", async () => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateWorkers: () => ({
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
+          page: { nextPageToken: "" },
+        }),
+      });
+    });
+
+    const page = await apiClient.substrate.workers({ limit: 100 });
+    expect(page.nextPageToken).toBeUndefined();
+    expect(page.workers).toHaveLength(1);
   });
 });
 
@@ -489,8 +731,7 @@ describe("transforms reaching the wire", () => {
  * Agent instances differ from everything above in one structural way: an instance
  * is a row in the controller's own database rather than a custom resource, so
  * nothing arrives inside a `StructuredObject` and there is no envelope to unwrap.
- * What there *is* instead — two enums, a paged list, and a namespace that is part
- * of the address rather than a filter — is what these cover.
+ * These cover enum decoding, pagination, and ID-based addressing.
  */
 describe("agent instances", () => {
   const INSTANCE_ID = "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44";
@@ -498,7 +739,7 @@ describe("agent instances", () => {
   function instanceMessage(overrides: Record<string, unknown> = {}) {
     return {
       id: INSTANCE_ID,
-      namespace: "kagent",
+      contextId: "distinct-a2a-context",
       creator: "alice@example.com",
       harness: { namespace: "kagent", name: "k8s-agent" },
       agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
@@ -508,7 +749,6 @@ describe("agent instances", () => {
       operation: PbAgentInstanceOperation.UNSPECIFIED,
       createdAt: { seconds: 1767225600n, nanos: 0 },
       updatedAt: { seconds: 1767225600n, nanos: 0 },
-      labels: { team: "platform" },
       ...overrides,
     };
   }
@@ -530,19 +770,17 @@ describe("agent instances", () => {
       });
     });
 
-    const rows = await apiClient.agentInstances.list("kagent");
-    // Sorted by namespace then id descending, like every other list here — so the
-    // `b28e…` row comes first. Asserted by looking each one up rather than by index,
-    // because the order is not what this test is about.
+    const rows = await apiClient.agentInstances.list();
+    // Look up each row by ID because this test covers decoding, not ordering.
     const ready = rows.find((row) => row.id === INSTANCE_ID);
     const suspended = rows.find((row) => row.id.startsWith("b28e"));
 
+    expect(ready?.contextId).toBe("distinct-a2a-context");
     expect(ready?.state).toBe("ready");
     expect(ready?.operation).toBe("unspecified");
     expect(ready?.harness).toBe("kagent/k8s-agent");
     expect(ready?.agentTemplate).toBe("kagent/k8s-agent-7f3a91c");
     expect(ready?.createdAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(ready?.labels).toEqual({ team: "platform" });
 
     expect(suspended?.state).toBe("suspended");
     expect(suspended?.operation).toBe("resume");
@@ -569,7 +807,7 @@ describe("agent instances", () => {
       });
     });
 
-    const [row] = await apiClient.agentInstances.list("kagent");
+    const [row] = await apiClient.agentInstances.list();
     expect(row.state).toBe("unknown");
     expect(row.operation).toBe("unknown");
   });
@@ -599,7 +837,7 @@ describe("agent instances", () => {
       });
     });
 
-    const [row] = await apiClient.agentInstances.list("kagent");
+    const [row] = await apiClient.agentInstances.list();
     expect(row.harness).toBeUndefined();
     expect(row.agentTemplate).toBeUndefined();
     expect(row.preparedRevision).toBeUndefined();
@@ -626,7 +864,7 @@ describe("agent instances", () => {
       });
     });
 
-    const [row] = await apiClient.agentInstances.list("kagent");
+    const [row] = await apiClient.agentInstances.list();
     expect(row.failure).toEqual({ reason: undefined, message: undefined });
   });
 
@@ -658,7 +896,7 @@ describe("agent instances", () => {
       });
     });
 
-    const rows = await apiClient.agentInstances.list("kagent");
+    const rows = await apiClient.agentInstances.list();
     expect(rows).toHaveLength(2);
     expect(tokensSeen).toEqual(["", "page-2"]);
   });
@@ -678,7 +916,7 @@ describe("agent instances", () => {
       });
     });
 
-    await expect(apiClient.agentInstances.list("kagent")).rejects.toThrow(
+    await expect(apiClient.agentInstances.list()).rejects.toThrow(
       /repeated the same page/,
     );
   });
@@ -694,17 +932,17 @@ describe("agent instances", () => {
       });
     });
 
-    await apiClient.agentInstances.list("kagent");
-    await apiClient.agentInstances.list("kagent", { allCreators: true });
+    await apiClient.agentInstances.list();
+    await apiClient.agentInstances.list({ allCreators: true });
     expect(asked).toEqual([false, true]);
   });
 
-  it("addresses one instance by namespace and id, and reports a missing one as a 404", async () => {
-    const asked: { namespace: string; id: string }[] = [];
+  it("addresses one instance by id, and reports a missing one as a 404", async () => {
+    const asked: { id: string }[] = [];
     serve(({ service }) => {
       service(AgentInstanceService, {
         getAgentInstance: (request) => {
-          asked.push({ namespace: request.namespace, id: request.agentInstanceId });
+          asked.push({ id: request.agentInstanceId });
           if (request.agentInstanceId !== INSTANCE_ID) {
             throw new ConnectError("no such instance", Code.NotFound);
           }
@@ -713,12 +951,12 @@ describe("agent instances", () => {
       });
     });
 
-    const instance = await apiClient.agentInstances.get("kagent", INSTANCE_ID);
+    const instance = await apiClient.agentInstances.get(INSTANCE_ID);
     expect(instance.id).toBe(INSTANCE_ID);
-    expect(asked[0]).toEqual({ namespace: "kagent", id: INSTANCE_ID });
+    expect(asked[0]).toEqual({ id: INSTANCE_ID });
 
     const missing = await apiClient.agentInstances
-      .get("kagent", "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05")
+      .get("b28e4f13-5c66-4d90-8f2b-77a1e9c34d05")
       .catch((error: unknown) => error);
     expect(isNotFound(missing)).toBe(true);
   });
@@ -733,27 +971,27 @@ describe("agent instances", () => {
     serve(({ service }) => {
       service(AgentInstanceService, {
         suspendAgentInstance: (request) => {
-          called.push(`suspend ${request.namespace}/${request.agentInstanceId}`);
+          called.push(`suspend ${request.agentInstanceId}`);
           return {
             agentInstance: instanceMessage({ state: PbAgentInstanceState.SUSPENDED }),
           };
         },
         resumeAgentInstance: (request) => {
-          called.push(`resume ${request.namespace}/${request.agentInstanceId}`);
+          called.push(`resume ${request.agentInstanceId}`);
           return { agentInstance: instanceMessage({ state: PbAgentInstanceState.READY }) };
         },
       });
     });
 
-    const suspended = await apiClient.agentInstances.suspend("kagent", INSTANCE_ID);
+    const suspended = await apiClient.agentInstances.suspend(INSTANCE_ID);
     expect(suspended.state).toBe("suspended");
 
-    const resumed = await apiClient.agentInstances.resume("kagent", INSTANCE_ID);
+    const resumed = await apiClient.agentInstances.resume(INSTANCE_ID);
     expect(resumed.state).toBe("ready");
 
     expect(called).toEqual([
-      `suspend kagent/${INSTANCE_ID}`,
-      `resume kagent/${INSTANCE_ID}`,
+      `suspend ${INSTANCE_ID}`,
+      `resume ${INSTANCE_ID}`,
     ]);
   });
 
@@ -776,7 +1014,7 @@ describe("agent instances", () => {
     });
 
     const failure = await apiClient.agentInstances
-      .suspend("kagent", INSTANCE_ID)
+      .suspend(INSTANCE_ID)
       .catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(ApiError);

@@ -46,7 +46,7 @@ func TestCreateAgentInstanceExplicitReplayIDAndOutput(t *testing.T) {
 
 			require.NoError(t, create(t.Context(), client, "kagent", cfg, tt.format, &output))
 			assert.Equal(t, &apiv1alpha1.CreateAgentInstanceRequest{
-				Namespace: "kagent", Harness: "kagent", AgentTemplate: "smoke", RequestId: "replay-1",
+				Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"}, RequestId: "replay-1",
 			}, client.createRequest)
 			assert.Contains(t, output.String(), testInstanceID)
 			if tt.format == clioutput.FormatJSON {
@@ -65,9 +65,9 @@ func TestDeleteAgentInstance(t *testing.T) {
 	cfg := &DeleteCfg{InstanceID: testInstanceID}
 	var output bytes.Buffer
 
-	require.NoError(t, deleteAgentInstance(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &output))
+	require.NoError(t, deleteAgentInstance(t.Context(), client, cfg, clioutput.FormatTable, &output))
 	assert.Equal(t, &apiv1alpha1.DeleteAgentInstanceRequest{
-		Namespace: "kagent", AgentInstanceId: testInstanceID,
+		AgentInstanceId: testInstanceID,
 	}, client.deleteRequest)
 	assert.Contains(t, output.String(), testInstanceID)
 	assert.Contains(t, output.String(), "DELETED")
@@ -77,7 +77,7 @@ func TestDeleteAgentInstanceAborted(t *testing.T) {
 	client := &lifecycleAgentInstanceClient{deleteErr: status.Error(codes.Aborted, "conflict")}
 	cfg := &DeleteCfg{InstanceID: testInstanceID}
 
-	err := deleteAgentInstance(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &bytes.Buffer{})
+	err := deleteAgentInstance(t.Context(), client, cfg, clioutput.FormatTable, &bytes.Buffer{})
 	require.ErrorContains(t, err, "another lifecycle operation is in progress; retry after it completes")
 	assert.Equal(t, codes.Aborted, status.Code(err))
 }

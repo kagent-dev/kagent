@@ -48,7 +48,7 @@ export function AgentContextPanel({
 }) {
   const theme = useTheme();
 
-  const namespace = agent?.namespace ?? pair?.namespace ?? "";
+  const namespace = agent?.agentTemplate?.split("/")[0] ?? pair?.namespace ?? "";
   const templateRef = agent?.agentTemplate ?? pair?.agentTemplate;
   const harnessRef = agent?.harness ?? pair?.harness;
 

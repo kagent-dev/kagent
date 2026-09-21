@@ -17,15 +17,31 @@ import (
 )
 
 func TestEmbeddingHTTPClientTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	// Without the TLS override the self-signed server must be rejected.
+	strict, err := embeddingHTTPClient(&adk.EmbeddingConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := strict.Get(srv.URL); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected TLS verification failure against self-signed server")
+	}
+
 	insecure := true
 	client, err := embeddingHTTPClient(&adk.EmbeddingConfig{TLSInsecureSkipVerify: &insecure})
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, ok := client.Transport.(*http.Transport)
-	if !ok || transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
-		t.Fatalf("transport TLS config = %#v", client.Transport)
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("expected TLSInsecureSkipVerify to be applied to the embedding client: %v", err)
 	}
+	_ = resp.Body.Close()
 }
 
 func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
