@@ -234,6 +234,44 @@ func TestSetMessageMetadataAttributes_SkipsAllowlistedSources(t *testing.T) {
 	}
 }
 
+// The executor stamps leftover A2A metadata via SetMessageMetadataAttributes.
+// A rejected leftover {hash:...} mapping must still suppress its source so
+// the raw value cannot appear as a2a.message.metadata.<from>.
+func TestSetMessageMetadataAttributes_SkipsRejectedHashSources(t *testing.T) {
+	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
+
+	attrs := recordMessageMetadata(t, map[string]any{
+		"email":   "person@example.test",
+		"channel": "C0AB1",
+	})
+
+	if _, exists := attrs["a2a.message.metadata.email"]; exists {
+		t.Fatal("rejected hash mapping source must not be stamped as a2a.message.metadata.email")
+	}
+	if _, exists := attrs["user.hash"]; exists {
+		t.Fatal("rejected hash mappings must not emit user.hash")
+	}
+	if got := attrs["a2a.message.metadata.channel"].AsString(); got != "C0AB1" {
+		t.Errorf("non-allowlisted channel = %q, want C0AB1", got)
+	}
+}
+
+func TestSetMessageMetadataAttributes_SkipsInvalidMappingSources(t *testing.T) {
+	setAllowlist(t, `[{"from":"email","to":"bad key"}]`)
+
+	attrs := recordMessageMetadata(t, map[string]any{
+		"email":   "person@example.test",
+		"channel": "C0AB1",
+	})
+
+	if _, exists := attrs["a2a.message.metadata.email"]; exists {
+		t.Fatal("invalid mapping source must not be stamped as a2a.message.metadata.email")
+	}
+	if got := attrs["a2a.message.metadata.channel"].AsString(); got != "C0AB1" {
+		t.Errorf("non-allowlisted channel = %q, want C0AB1", got)
+	}
+}
+
 func recordMessageMetadata(t *testing.T, metadata map[string]any) map[string]attribute.Value {
 	t.Helper()
 	exporter := tracetest.NewInMemoryExporter()

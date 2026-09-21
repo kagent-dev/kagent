@@ -33,7 +33,9 @@ type contextMapping struct {
 
 // contextPolicy is the parsed allowlist plus every source key named in it.
 // Source keys are skipped by SetMessageMetadataAttributes so allowlisted
-// values are not also stamped as a2a.message.metadata.<from>.
+// values are not also stamped as a2a.message.metadata.<from>. Rejected
+// leftover {hash:...} mappings still contribute their from key so the
+// raw source cannot leak on that generic metadata path.
 type contextPolicy struct {
 	mappings []contextMapping
 	sources  map[string]struct{}
@@ -57,8 +59,8 @@ func policyCoveredContextSources() map[string]struct{} {
 }
 
 func parseContextPolicy() contextPolicy {
-	mappings := parseAllowedContextMappings()
-	sources := make(map[string]struct{}, len(mappings))
+	sources := map[string]struct{}{}
+	mappings := parseAllowedContextMappings(sources)
 	for _, mapping := range mappings {
 		sources[mapping.source] = struct{}{}
 	}
@@ -128,13 +130,13 @@ func AllowedBaggageCopyFilter() baggagecopy.Filter {
 	}
 }
 
-func parseAllowedContextMappings() []contextMapping {
+func parseAllowedContextMappings(sources map[string]struct{}) []contextMapping {
 	raw := strings.TrimSpace(os.Getenv(traceContextKeysEnvVar))
 	if raw == "" {
 		return nil
 	}
 	if strings.HasPrefix(raw, "[") {
-		return capMappings(parseJSONAllowlist(raw))
+		return capMappings(parseJSONAllowlist(raw, sources))
 	}
 	return capMappings(parseCommaAllowlist(raw))
 }
@@ -149,7 +151,7 @@ func parseCommaAllowlist(raw string) []contextMapping {
 	return mappings
 }
 
-func parseJSONAllowlist(raw string) []contextMapping {
+func parseJSONAllowlist(raw string, sources map[string]struct{}) []contextMapping {
 	var items []json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &items); err != nil {
 		return nil
@@ -173,14 +175,29 @@ func parseJSONAllowlist(raw string) []contextMapping {
 		}
 		// Leftover {hash:...} config is no longer supported. Drop the
 		// mapping rather than stamping the raw source value onto `to`.
+		// Keep `from` in the metadata-suppression set so the executor
+		// cannot write a2a.message.metadata.<from> either.
 		if spec.Hash != nil {
+			coverContextSource(sources, spec.From)
 			continue
 		}
 		if mapping, ok := newContextMapping(spec.From, spec.To); ok {
 			mappings = append(mappings, mapping)
+			continue
 		}
+		coverContextSource(sources, spec.From)
 	}
 	return mappings
+}
+
+// coverContextSource records a named from key so SetMessageMetadataAttributes
+// skips it, even when the mapping itself was rejected.
+func coverContextSource(sources map[string]struct{}, from string) {
+	from = strings.TrimSpace(from)
+	if from == "" || len([]rune(from)) > maxContextKeyLength || !isAttributeKey(from) {
+		return
+	}
+	sources[from] = struct{}{}
 }
 
 func newContextMapping(from, to string) (contextMapping, bool) {
