@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	logglobal "go.opentelemetry.io/otel/log/global"
 	lognoop "go.opentelemetry.io/otel/log/noop"
@@ -68,7 +69,7 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			_, span := StartInvocationSpan(ctx)
 			span.End()
 			var record log.Record
-			record.SetBody(log.StringValue("test log"))
+			record.SetBody(attribute.StringValue("test log"))
 			logglobal.GetLoggerProvider().Logger("test").Emit(t.Context(), record)
 			if err := shutdown(t.Context()); err != nil {
 				t.Fatal(err)

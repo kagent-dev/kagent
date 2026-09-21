@@ -90,9 +90,6 @@ func (c *Controller) tick(ctx context.Context) error {
 			}
 		})
 	}
-	// ponytail: each batch waits for its slowest reconciliation. We'll likely
-	// need a custom work queue that leases more work as capacity becomes available,
-	// without blocking on the whole batch's results.
 	wg.Wait()
 	return nil
 }
@@ -189,26 +186,23 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 
 // executionTask only reads persisted history; the live subscription ingests
 // running work. Once linked, the stored task ID is the sole execution identity.
-// ponytail: scan the instance's task list; add protocol filtering if long-lived
-// scheduled conversations make pagination costly.
+// Unlinked executions are recovered by finding their original message in history.
 func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
-	request := &a2atype.ListTasksRequest{PageSize: 100}
-	if execution.GetTaskId() != "" {
+	if taskID := execution.GetTaskId(); taskID != "" {
 		zero := 0
-		request.HistoryLength = &zero
+		task, err := c.gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: a2atype.TaskID(taskID), HistoryLength: &zero})
+		if errors.Is(err, a2atype.ErrTaskNotFound) {
+			return nil, nil
+		}
+		return task, err
 	}
+	request := &a2atype.ListTasksRequest{PageSize: 100}
 	for {
 		page, err := c.gateway.ListTasks(ctx, request)
 		if err != nil {
 			return nil, err
 		}
 		for _, task := range page.Tasks {
-			if string(task.ID) == execution.GetTaskId() {
-				return task, nil
-			}
-			if execution.GetTaskId() != "" {
-				continue
-			}
 			for _, message := range task.History {
 				if message.ID == "scheduled-run/"+execution.GetId() {
 					return task, nil

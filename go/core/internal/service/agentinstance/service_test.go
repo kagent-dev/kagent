@@ -139,6 +139,7 @@ func TestServiceCreateMapsStoreErrors(t *testing.T) {
 		code serviceerrors.Code
 	}{
 		{name: "idempotency conflict", err: database.ErrIdempotencyConflict, code: serviceerrors.CodeAlreadyExists},
+		{name: "deleted request", err: database.ErrFailedPrecondition, code: serviceerrors.CodeFailedPrecondition},
 		{name: "missing revision", err: database.ErrNotFound, code: serviceerrors.CodeFailedPrecondition},
 		{name: "deleting revision", err: database.ErrObjectDeleting, code: serviceerrors.CodeFailedPrecondition},
 		{name: "database failure", err: errors.New("database unavailable"), code: serviceerrors.CodeInternal},

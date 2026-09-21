@@ -59,6 +59,14 @@ func CreateRunnerConfig(
 		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}
 
+	// Context compaction is a runner concern: the runner summarizes older
+	// session events on the strategies the agent configures. Nil keeps the
+	// runner exactly as it is without the feature.
+	compactionConfig, err := agent.CompactionConfig(ctx, agentConfig)
+	if err != nil {
+		return runner.Config{}, fmt.Errorf("failed to configure context compaction: %w", err)
+	}
+
 	adkSessionService := sessionService
 	if adkSessionService == nil {
 		adkSessionService = adksession.InMemoryService()
@@ -92,6 +100,7 @@ func CreateRunnerConfig(
 		PluginConfig: runner.PluginConfig{
 			Plugins: adkPlugins,
 		},
+		Compaction: compactionConfig,
 	}
 
 	return cfg, nil
