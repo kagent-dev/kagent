@@ -69,6 +69,7 @@ spec:
                 description: |-
                   OutputSchema constrains successful terminal output when this template is
                   compiled as the root agent.
+                type: object
                 x-kubernetes-preserve-unknown-fields: true
               outputSchemaFrom:
                 description: |-

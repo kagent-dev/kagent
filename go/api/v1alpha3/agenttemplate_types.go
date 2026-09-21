@@ -204,6 +204,7 @@ type AgentTemplateSpec struct {
 	// OutputSchema constrains successful terminal output when this template is
 	// compiled as the root agent.
 	// +optional
+	// +kubebuilder:validation:Type=object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	OutputSchema *apiextensionsv1.JSON `json:"outputSchema,omitempty"`
 	// OutputSchemaFrom references a JSON Schema stored as JSON in a
