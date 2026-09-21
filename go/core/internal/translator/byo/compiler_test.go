@@ -3,6 +3,7 @@ package byo
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -37,6 +38,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.Equal(t, []string{"http://kagent-controller.kagent:8083"}, revision.EgressDestinations)
 	require.Equal(t, []corev1.EnvVar{
 		{Name: "MODE", Value: "production"},
+		{Name: "PORT", Value: "80"},
 		{Name: "KAGENT_API_URL", Value: "http://kagent-controller.kagent:8083"},
 	}, revision.Environment)
 
@@ -77,4 +79,39 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	require.Equal(t, "https://otlp.example.com", environment["OTEL_EXPORTER_OTLP_ENDPOINT"])
 	require.Equal(t, "otlp", environment["OTEL_TRACES_EXPORTER"])
 	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.agent.name=runnable-agent")
+}
+
+// TestCompileInjectsPort aligns the injected PORT with the agent card, which
+// advertises the A2A endpoint on :80. Without it a go/adk/pkg/app image falls
+// back to its 8080 default while the card points at :80 (#2758).
+func TestCompileInjectsPort(t *testing.T) {
+	harness := &v2translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		BYO:      &v1alpha3.BYOHarness{},
+		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{
+			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+		},
+	}}
+	template := &v2translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+		Description: "custom A2A agent", SystemPrompt: "be helpful",
+	}}
+
+	revision, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
+		AgentName: "port-agent",
+		Harness:   harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
+	})
+	require.NoError(t, err)
+
+	cardURL := revision.AgentCard.GetSupportedInterfaces()[0].GetUrl()
+	require.Contains(t, cardURL, ":80")
+	cardPort := cardURL[strings.LastIndex(cardURL, ":")+1:]
+
+	var port *string
+	for i := range revision.Environment {
+		if revision.Environment[i].Name == "PORT" {
+			port = &revision.Environment[i].Value
+		}
+	}
+	require.NotNil(t, port, "agent card advertises %s but the harness injects no PORT env var", cardURL)
+	require.Equal(t, cardPort, *port, "agent card advertises port %s but the harness injects PORT=%q", cardPort, *port)
 }

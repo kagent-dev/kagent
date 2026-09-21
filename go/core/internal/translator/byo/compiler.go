@@ -51,6 +51,12 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		}, "")...)
 		compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
 	}
+	// Inject PORT=80 to match the agent card, which advertises the A2A endpoint on
+	// :80. The kagent and claude compilers do the same. A BYO image built on
+	// go/adk/pkg/app defaults its listener to 8080 otherwise, so it reports READY
+	// while every invoke fails on the mismatched port (#2758). Appended after the
+	// harness env so it wins DedupeEnv's last-wins precedence and stays authoritative.
+	environment = append(environment, corev1.EnvVar{Name: "PORT", Value: "80"})
 	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
 	environment = adkconfig.DedupeEnv(append(environment,
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
