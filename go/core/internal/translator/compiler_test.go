@@ -16,6 +16,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -136,6 +137,52 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	return collections
 }
 
+func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent: &v1alpha3.KagentHarness{},
+			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"runtime": "kagent"},
+			}},
+		},
+	}
+	schema := `{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "schemas", Namespace: "test", UID: "schemas-uid"},
+		Data:       map[string]string{"answer.json": schema},
+	}
+	child := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
+			// A child contract is intentionally not resolved while this template is nested.
+			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(`{"type":"object","oneOf":[]}`)},
+		},
+	}
+	root := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
+			OutputSchemaFrom: &v1alpha3.AgentTemplateConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
+			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+			}}},
+		},
+	}
+
+	revision, err := compiler(t, modelConfig(), configMap, child).CompileAgentTemplate(t.Context(), harness, root)
+	require.NoError(t, err)
+	var config adk.AgentConfig
+	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+	require.JSONEq(t, schema, string(config.Output.JSONSchema))
+	require.Len(t, config.Output.SHA256, 64)
+	require.Len(t, config.SubAgents, 1)
+	require.Nil(t, config.SubAgents[0].Output)
+	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
+	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
+}
+
 func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
 	ref := &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint"}
 	const endpoint = "https://example.services.ai.azure.com"
@@ -210,6 +257,28 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
 	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
+}
+
+func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
+	collections := mockCollections(t, modelConfig())
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
+			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)},
+		},
+	}
+
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.ErrorContains(t, err, `Harness "codex" does not support structured output`)
+	require.Nil(t, adapter.input)
 }
 
 func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {

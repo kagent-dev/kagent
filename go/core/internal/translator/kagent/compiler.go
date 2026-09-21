@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
@@ -35,6 +36,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
+		return nil, err
+	}
+	if err := applyOutputSchema(compiled.Config, input.OutputSchema); err != nil {
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
@@ -100,6 +104,24 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
+}
+
+// applyOutputSchema verifies the portable schema by performing the same
+// genai.Schema projection used by the Go runtime, then records the canonical
+// schema for both Go and Python ADK runtimes. This keeps compatibility
+// failures at Harness compilation instead of actor startup.
+func applyOutputSchema(config *adk.AgentConfig, output *v2translator.ResolvedOutputSchema) error {
+	if output == nil {
+		return nil
+	}
+	if _, err := adkoutputschema.Project(output.Schema); err != nil {
+		return v2translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
+	}
+	config.Output = &adk.OutputConfig{
+		JSONSchema: append(json.RawMessage(nil), output.Schema...),
+		SHA256:     output.SHA256,
+	}
+	return nil
 }
 
 func requireModels(input *v2translator.AgentInput) error {
