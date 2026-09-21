@@ -172,6 +172,16 @@ func generateContentChatCompletions(
 		}, params.Messages...)
 	}
 	applyOpenAIConfig(&params, m.Config)
+	if schema, err := structuredOutputSchema(req.Config); err != nil {
+		yield(nil, err)
+		return
+	} else if schema != nil {
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name: "kagent_output", Schema: schema, Strict: param.NewOpt(true),
+			}},
+		}
+	}
 
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToOpenAITools(req.Config.Tools)

@@ -36,6 +36,14 @@ func generateContentResponses(
 		params.Instructions = param.NewOpt(instructions)
 	}
 	applyOpenAIResponsesConfig(&params, m.Config)
+	if schema, err := structuredOutputSchema(req.Config); err != nil {
+		yield(nil, err)
+		return
+	} else if schema != nil {
+		format := responses.ResponseFormatTextConfigParamOfJSONSchema("kagent_output", schema)
+		format.OfJSONSchema.Strict = param.NewOpt(true)
+		params.Text.Format = format
+	}
 
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToResponsesTools(req.Config.Tools)
