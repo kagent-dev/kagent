@@ -40,6 +40,7 @@ import (
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -48,8 +49,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json
+//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json
 var interactionMocks embed.FS
+
+const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string"}},"required":["answer","explanation"],"additionalProperties":false}`
 
 // TestAgentInstanceInteraction verifies the complete public interaction path:
 // gateway routing, Substrate Actor transport, Go ADK execution, and the model call.
@@ -68,6 +71,56 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	_, _, task = fixture.send(t, "What is 2+2?")
 	if task.Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("second A2A task state = %s, want COMPLETED", task.Status.State)
+	}
+}
+
+func TestAgentInstanceStructuredOutput(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	kube := interactionKubeClient(t)
+	mcpURL, mcpServer := startMCPMock(t)
+	template := createStructuredOutputInteractionTemplate(t, kube, startMockLLM(t, "mocks/invoke_structured_output.json"), mcpURL)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, "kagent", template.Name)
+	_, _, task := fixture.send(t, "Add 3 and 5 and return the structured result.")
+	assertStructuredOutputTask(t, task, 8, "three plus five equals eight")
+
+	for _, request := range mcpServer.Requests() {
+		if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
+			return
+		}
+	}
+	t.Fatal("mock MCP server did not receive the add_numbers call used by the structured response")
+}
+
+func assertStructuredOutputTask(t *testing.T, task *a2atype.Task, answer float64, explanation string) {
+	t.Helper()
+	if task.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("A2A task state = %s, want COMPLETED", task.Status.State)
+	}
+	if len(task.Artifacts) == 0 {
+		t.Fatal("structured task has no result artifact")
+	}
+	assertStructuredOutputArtifact(t, task.Artifacts[len(task.Artifacts)-1], answer, explanation)
+}
+
+func assertStructuredOutputArtifact(t *testing.T, artifact *a2atype.Artifact, answer float64, explanation string) {
+	t.Helper()
+	if artifact == nil {
+		t.Fatal("structured result artifact is nil")
+	}
+	if len(artifact.Parts) != 1 {
+		t.Fatalf("structured result has %d parts, want 1", len(artifact.Parts))
+	}
+	part := artifact.Parts[0]
+	data, ok := part.Data().(map[string]any)
+	if !ok || data["answer"] != answer || data["explanation"] != explanation {
+		t.Fatalf("structured result data = %#v", part.Data())
+	}
+	if part.MediaType != "application/json" {
+		t.Fatalf("structured result media type = %q", part.MediaType)
+	}
+	if got, _ := part.Metadata[adka2a.OutputSchemaSHA256MetadataKey].(string); len(got) != 64 {
+		t.Fatalf("structured result schema digest = %#v", got)
 	}
 }
 
@@ -839,6 +892,44 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 	}
 	createAndWaitInteractionTemplate(t, kube, template)
 	return template.Name
+}
+
+func createStructuredOutputInteractionTemplate(t *testing.T, kube ctrlclient.Client, modelURL, mcpURL string) *v1alpha3.AgentTemplate {
+	t.Helper()
+	model := createInteractionModel(t, kube, modelURL, nil)
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "structured-output-mcp-", Namespace: "kagent"},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Description: "Structured output interaction E2E fixture",
+			Protocol:    v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			URL:         mcpURL,
+		},
+	}
+	if err := kube.Create(t.Context(), server); err != nil {
+		t.Fatalf("create structured-output RemoteMCPServer: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), server); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete structured-output RemoteMCPServer: %v", err)
+		}
+	})
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "structured-output-", Namespace: "kagent",
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
+		},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
+			SystemPrompt: "Use available tools when needed, then return the arithmetic answer and a short explanation.",
+			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Tools:  []string{"add_numbers"},
+			}}},
+		},
+	}
+	createAndWaitInteractionTemplate(t, kube, template)
+	return template
 }
 
 func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string {
