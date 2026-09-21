@@ -176,8 +176,8 @@ func TestCompileTracing(t *testing.T) {
 			t.Errorf("sensitive trace environment[%s] = %q, want 1", name, environment[name])
 		}
 	}
-	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != "true" {
-		t.Errorf("capture environment = %q, want true", got)
+	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != tracing.CaptureContentSpanOnly {
+		t.Errorf("capture environment = %q, want %q", got, tracing.CaptureContentSpanOnly)
 	}
 }
 

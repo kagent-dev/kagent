@@ -69,7 +69,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
 	// The native runtime inherits the compiled identity through the standard
 	// resource variable, so no user-supplied marker is required.
-	environment = tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.Identity())
+	environment = tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.ChildResource())
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {

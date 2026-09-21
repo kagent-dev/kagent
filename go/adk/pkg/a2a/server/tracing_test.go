@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"log/slog"
 
@@ -184,8 +185,8 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 	}
 }
 
-// An ADK runtime emits exactly one invoke_agent of its own, so its request
-// span stays a transport span that carries the identity but no operation.
+// An ADK runtime emits its own invoke_agent spans, so its request span stays a
+// transport span that carries the identity but no operation.
 func TestRequestSpanStaysATransportSpanForTheADK(t *testing.T) {
 	exporter := syncExporter(t)
 	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
@@ -218,12 +219,108 @@ func TestRequestSpanStaysATransportSpanForTheADK(t *testing.T) {
 	}
 	invocations := 0
 	for _, exported := range exporter.GetSpans() {
-		if exported.Name == "invocation" {
-			invocations++
+		if exported.Name != "invocation" {
+			continue
+		}
+		invocations++
+		// The kagent-owned invocation span keeps the ADK scope name but declares
+		// the contract's schema, like every other tracer kagent creates.
+		if exported.InstrumentationScope.SchemaURL != tracing.SchemaURL {
+			t.Errorf("invocation schema URL = %q, want %q", exported.InstrumentationScope.SchemaURL, tracing.SchemaURL)
 		}
 	}
 	if invocations != 1 {
 		t.Errorf("exported %d invocation spans, want exactly one", invocations)
+	}
+}
+
+// blockingExecutor never adopts the invocation and holds the task in the
+// working state until released, the way an ADK turn does while a model call
+// is in flight.
+type blockingExecutor struct {
+	release <-chan struct{}
+}
+
+func (e blockingExecutor) Execute(_ context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		if !yield(a2atype.NewSubmittedTask(reqCtx, reqCtx.Message), nil) {
+			return
+		}
+		if !yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil), nil) {
+			return
+		}
+		<-e.release
+		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
+	}
+}
+
+func (blockingExecutor) Cancel(context.Context, *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {}
+}
+
+// A streaming client that goes away before the task quiesces gets no final
+// After callback from a2a-go, while execution continues detached. The request
+// span must still complete and export, recording the abandonment, rather than
+// stay open for ever.
+func TestRequestSpanCompletesWhenAStreamingClientDisconnects(t *testing.T) {
+	exporter := syncExporter(t)
+	release := make(chan struct{})
+	defer close(release)
+	server, err := NewA2AServer(a2atype.AgentCard{}, blockingExecutor{release: release}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testServer := httptest.NewUnstartedServer(server.httpServer.Handler)
+	testServer.Config.Protocols = server.httpServer.Protocols
+	testServer.Start()
+	defer testServer.Close()
+	defer server.grpcServer.Stop()
+	conn, err := grpc.NewClient(testServer.Listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	stream, err := a2apb.NewA2AServiceClient(conn).SendStreamingMessage(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var found []tracetest.SpanStub
+		for _, span := range exporter.GetSpans() {
+			if isRequestSpan(span) {
+				found = append(found, span)
+			}
+		}
+		if len(found) == 1 {
+			if got := spanAttribute(found[0], tracing.AttributeDisposition); got != tracing.DispositionAbandoned {
+				t.Fatalf("%s = %q, want %q", tracing.AttributeDisposition, got, tracing.DispositionAbandoned)
+			}
+			if got := spanAttribute(found[0], tracing.AttributeErrorType); got != "" {
+				t.Fatalf("a disconnected client was reported as %s=%q", tracing.AttributeErrorType, got)
+			}
+			return
+		}
+		if len(found) > 1 {
+			t.Fatalf("exported %d request spans, want exactly one", len(found))
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("request span was not exported after the client disconnected")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

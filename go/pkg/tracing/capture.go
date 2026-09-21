@@ -12,25 +12,54 @@ const (
 	RoleAssistant = "assistant"
 )
 
+// Finish reasons the GenAI conventions define for an output message. An
+// outcome the enumeration does not describe is recorded under its own name,
+// which the conventions permit.
+const (
+	FinishReasonStop     = "stop"
+	FinishReasonToolCall = "tool_call"
+	FinishReasonError    = "error"
+)
+
 type messagePart struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
 }
 
-type message struct {
+type inputMessage struct {
 	Role  string        `json:"role"`
 	Parts []messagePart `json:"parts"`
 }
 
-// TextMessages renders one text message as the JSON document the GenAI
-// conventions define for gen_ai.input.messages and gen_ai.output.messages: an
-// array of messages, each with a role and text parts. The capture budget
-// bounds the text; the few dozen bytes of structure around it are not
-// counted, so a consumer that parses the document gets the whole bounded text.
-func TextMessages(role, text string) string {
-	// A message with a string role and a text part always marshals.
-	encoded, _ := json.Marshal([]message{{Role: role, Parts: []messagePart{{Type: "text", Content: text}}}})
+// outputMessage carries the finish reason the conventions require on every
+// output message, so one cannot be rendered without it.
+type outputMessage struct {
+	Role         string        `json:"role"`
+	Parts        []messagePart `json:"parts"`
+	FinishReason string        `json:"finish_reason"`
+}
+
+// InputMessages renders one user text message as the JSON document the GenAI
+// conventions define for gen_ai.input.messages: an array of messages, each
+// with a role and parts. The capture budget bounds the text; the few dozen
+// bytes of structure around it are not counted, so a consumer that parses the
+// document gets the whole bounded text.
+func InputMessages(text string) string {
+	// A message of strings always marshals.
+	encoded, _ := json.Marshal([]inputMessage{{Role: RoleUser, Parts: textParts(text)}})
 	return string(encoded)
+}
+
+// OutputMessages renders one assistant text message as the JSON document the
+// conventions define for gen_ai.output.messages, with the reason the segment
+// finished. The same budget rule as InputMessages applies.
+func OutputMessages(text, finishReason string) string {
+	encoded, _ := json.Marshal([]outputMessage{{Role: RoleAssistant, Parts: textParts(text), FinishReason: finishReason}})
+	return string(encoded)
+}
+
+func textParts(text string) []messagePart {
+	return []messagePart{{Type: "text", Content: text}}
 }
 
 // TextCapture accumulates the beginning of a text stream up to a byte limit.

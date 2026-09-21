@@ -23,13 +23,20 @@ An unusable capture budget is reported as a compilation warning and replaced by
 the default, so an observability setting cannot invalidate an AgentTemplate.
 
 The capture decision reaches every runtime as the standard GenAI instrumentation
-variable, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, rendered `true`
-or `false` alongside the trace exporter settings. The ADK runtime reads it
-before recording model request and response payloads on its model spans, and
-the harness runtimes carry the same decision in their compiled configuration.
-It is controller-owned, so a `Harness.spec.env` entry with that name is
-rejected: one setting decides whether prompts enter traces, and no runtime can
-be talked into recording them by a user-supplied variable.
+variable, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, rendered
+`SPAN_ONLY` when capture is on and `false` when it is off. It is rendered
+whether or not the controller exports traces, so a runtime that reaches a
+collector through settings the controller did not render still follows it. The
+ADK runtimes read the variable as a mode and treat a plain `true` as log records
+only, so the span form is what puts `gen_ai.input.messages` and
+`gen_ai.output.messages` on their model spans; the ADK Go runtime's older
+`gcp.vertex.agent.llm_request` and `llm_response` payload attributes follow the
+same value. The harness runtimes carry the same decision in their compiled
+configuration. The variable is controller-owned: the Claude and Codex compilers
+reject a `Harness.spec.env` entry with that name, and the kagent compiler
+replaces one with the controller's value. One setting decides whether prompts
+enter traces, and no runtime can be talked into recording them by a
+user-supplied variable.
 
 Other `OTEL_*` variables remain available for per-Harness tuning through
 `Harness.spec.env`, including `OTEL_RESOURCE_ATTRIBUTES`.
@@ -58,12 +65,15 @@ emits model and tool spans but no agent invocation. The request span is
 therefore the GenAI conventions' `invoke_agent` operation, named
 `invoke_agent <gen_ai.agent.name>`, and it is the anchor consumers should read.
 
-For the ADK runtime the ADK emits exactly one `invoke_agent` of its own per
-turn, carrying `gen_ai.agent.name` and `gen_ai.conversation.id`, and that span
-is the invocation. The request span stays a transport span named `a2a.request`
-with the same identity attributes and no `gen_ai.operation.name`, so a consumer
-counting invocations by operation counts each ADK turn once. The ADK also keeps
-an `invocation` span of its own beneath the request span.
+For the ADK runtime the ADK emits `invoke_agent` spans of its own, carrying
+`gen_ai.agent.name` and `gen_ai.conversation.id`: one for the root agent and
+one for each sub-agent it transfers to within the turn. The root one is the
+invocation. The request span stays a transport span named `a2a.request` with
+the same identity attributes and no `gen_ai.operation.name`, so the wrapper
+never adds an invocation of its own to what the ADK reports. A consumer that
+counts turns rather than agent invocations counts `kagent.invocation.segment`,
+which only the request span carries, whichever runtime produced the trace. The
+ADK also keeps an `invocation` span of its own beneath the request span.
 
 | Attribute | Meaning |
 | --- | --- |
@@ -81,7 +91,7 @@ an `invocation` span of its own beneath the request span.
 | `kagent.invocation.segment` | `initial` or `resumed` |
 | `kagent.invocation.disposition` | `canceled`, `abandoned`, or `interrupted`, when the task state does not say it. See below |
 | `error.type` | A safe failure category. Never a provider response, credential, or captured content |
-| `gen_ai.input.messages`, `gen_ai.output.messages` | Bounded turn content in the conventions' message shape, present only under the capture opt-in |
+| `gen_ai.input.messages`, `gen_ai.output.messages` | Bounded turn content in the conventions' message shape, present only under the capture opt-in. Each output message carries the `finish_reason` the conventions require |
 | `kagent.capture.input_truncated`, `kagent.capture.output_truncated` | Whether that content was shortened |
 
 The provider and model on this span stand in for what a native runtime does not
@@ -93,9 +103,9 @@ model, which a compiled kagent agent is.
 The runtime resource carries `service.name` and `service.namespace` from the
 compiled agent identity, plus the same `kagent.runtime`, `gen_ai.agent.name`,
 `gen_ai.agent.id`, `gen_ai.provider.name` and `gen_ai.request.model`. The
-harness adapters merge those into `OTEL_RESOURCE_ATTRIBUTES` for the native
-child process, so its spans report the same agent and model while keeping its
-own `service.name`. Conversation, task, and user identity never appear on a
+harness adapters merge those, with `service.namespace`, into
+`OTEL_RESOURCE_ATTRIBUTES` for the native child process, so its spans report the
+same agent, model and namespace while keeping its own `service.name`. Conversation, task, and user identity never appear on a
 resource, since one runtime process serves many of each.
 
 The ADK runtime additionally stamps `kagent.user_id`, `gen_ai.task.id`,
@@ -108,9 +118,12 @@ so the two runtimes change in one step rather than diverging further.
 
 The transport interceptor opens the span with the identity the runtime knows
 before execution begins, so a request rejected during validation still reports
-which agent rejected it. Execution then takes ownership, because a2a-go runs an
-executor detached from the caller and a unary response can be delivered while
-the turn is still working. Completion runs exactly once.
+which agent rejected it. The harness executor then takes ownership, because
+a2a-go runs an executor detached from the caller and a unary response can be
+delivered while the turn is still working. The ADK executor does not: its
+request span is a transport span, completed when the response it describes is
+delivered, and the ADK's own `invoke_agent` describes the turn. Completion runs
+exactly once.
 
 For runtimes whose Actor may be suspended as soon as a quiescent event leaves
 the process, completion exports before that event is yielded. The export is
@@ -120,10 +133,17 @@ unreachable collector costs at most that budget once per segment.
 A segment records `abandoned` when the A2A event consumer stopped accepting
 events before execution finished, and `interrupted` when the execution context
 ended without a cancellation request. Neither is reported as cancellation, which
-is recorded only when a client asked for it. The consumer a runtime can observe
-is the A2A event pipe rather than the network client, so a client that merely
-closes a streaming subscription leaves execution running and is not visible
-here.
+is recorded only when a client asked for it. A harness segment observes the A2A
+event pipe rather than the network client, so a client that closes a streaming
+subscription leaves that execution running and is not visible to it. A request
+span the transport still owns is completed as `abandoned` when the request
+context ends without a quiescent event, which is how a2a-go surfaces a caller
+that stopped waiting; otherwise the span would never end and never export.
+
+A failure that never publishes a task event, such as a rejected request, is
+recorded with its `error.type` and exported before the error leaves the
+process. A panic in a harness runner is recorded as `error.type=runtime_panic`
+without the panic value and then propagates.
 
 Cancellation completes and exports the segment before the canceled event is
 published, since that event is what releases the gateway to suspend the Actor.
@@ -136,10 +156,11 @@ native protocol offers a supported way to replace it when the turn resumes. Work
 the native runtime does after an approval therefore stays under the originating
 trace.
 
-Kagent does not paper over this. Each execution segment gets its own
-request span carrying the same conversation and task identity, and a
-resumed segment records an OpenTelemetry link back to the segment that parked
-it, with `kagent.invocation.relationship` set to `resume_origin`. A link states
+Kagent does not paper over this. Each execution segment gets its own request
+span carrying the same conversation and task identity, and a resumed segment
+records an OpenTelemetry link back to the segment that started the native turn,
+however many times the turn has paused since, with
+`kagent.invocation.relationship` set to `resume_origin`. A link states
 a relationship. It does not reparent spans and it does not transfer ownership of
 the token usage recorded under the originating segment. Consumers should expect
 several segments for one task and should not assume the last one owns the work.
@@ -149,7 +170,11 @@ several segments for one task and should not assume the last one owns the work.
 Capture is off unless a user turns it on. When it is on, a segment records
 the current turn's prompt as `gen_ai.input.messages` and the text that segment
 produced as `gen_ai.output.messages`, each a JSON array holding one message with
-one text part, in the shape the conventions define for those attributes. The
+one text part, in the shape the conventions define for those attributes. Each
+output message carries the `finish_reason` the conventions require: `stop` for
+a completed segment, `tool_call` for a segment parked for an approval or a
+question, since both harnesses park only at a tool call, `error` for a failure,
+and the disposition name for a canceled, abandoned or interrupted segment. The
 text is bounded by the configured byte budget, preserving UTF-8 and reporting
 truncation; the structure around it is not counted. Tool arguments, tool
 results, approval structures, the rest of the conversation, and native stderr
@@ -178,7 +203,7 @@ harness images compiles configurations those images reject.
   construction and is expressed as a link rather than asserted as a parent.
 - a2a-go dispatches execution before it reads the caller's subscription. A
   caller that disconnects inside that window completes the invocation from the
-  transport side, so that request's span reports a transport error without
+  transport side, so that request's span is recorded as abandoned without
   conversation or task identity while execution continues untraced.
 - A request rejected by a transport interceptor before execution begins has no
   invocation span. Such a request never reaches an agent.

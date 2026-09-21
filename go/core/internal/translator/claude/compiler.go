@@ -83,6 +83,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	)
 	environment = append(environment, telemetryConfig.TraceEnvironment()...)
 	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.CaptureEnvironment())
 	if traceConfig.Enabled || logConfig.Enabled {
 		tracesExporter := "none"
 		if traceConfig.Enabled {

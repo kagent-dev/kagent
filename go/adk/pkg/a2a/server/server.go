@@ -62,9 +62,8 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	flushBeforeResponse := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
 	// The invocation span anchors identity whether or not the deployment needs
 	// a pre-response flush. It is a no-op span when tracing is disabled.
-	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(&invocationInterceptor{
-		logger: logger, telemetry: config.Telemetry, flush: flushBeforeResponse,
-	}))
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
+		newInvocationInterceptor(logger, config.Telemetry, flushBeforeResponse)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {

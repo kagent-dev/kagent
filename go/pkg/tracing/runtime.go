@@ -120,9 +120,9 @@ const (
 
 // NativeHarness reports whether the runtime wraps a native coding agent whose
 // model and tool spans carry no agent invocation of their own. The wrapper is
-// the invoke_agent span for such a runtime. The ADK emits exactly one
-// invoke_agent per turn itself, so its wrapper stays a transport span rather
-// than a second invocation a consumer would count twice.
+// the invoke_agent span for such a runtime. The ADK emits invoke_agent spans
+// itself, for the root agent and any sub-agent it transfers to, so its wrapper
+// stays a transport span rather than adding an invocation of its own.
 func (r Runtime) NativeHarness() bool {
 	return r == RuntimeClaude || r == RuntimeCodex
 }
@@ -132,6 +132,15 @@ func (r Runtime) NativeHarness() bool {
 // every runtime from one setting, so the runtimes that read it directly and
 // the ones that carry the decision in their compiled configuration agree.
 const CaptureContentEnvironmentVariable = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+
+// Values the controller renders for CaptureContentEnvironmentVariable. The ADK
+// runtimes read the variable as a mode and treat a plain true as log records
+// only, so the span form is spelled out; false is what every runtime,
+// including kagent's own ADK payload capture, reads as off.
+const (
+	CaptureContentSpanOnly = "SPAN_ONLY"
+	CaptureContentDisabled = "false"
+)
 
 // DefaultCaptureBytes bounds captured input and output when a configuration
 // enables capture without choosing a limit.
@@ -215,6 +224,18 @@ func (t RuntimeTelemetry) Identity() []attribute.KeyValue {
 		if entry.value != "" {
 			attributes = append(attributes, attribute.String(entry.key, entry.value))
 		}
+	}
+	return attributes
+}
+
+// ChildResource returns the resource attributes a native child process shares
+// with the wrapper that supervises it: the identity plus the compiled
+// namespace, so both producers group under one service.namespace. The child
+// keeps its own service.name.
+func (t RuntimeTelemetry) ChildResource() []attribute.KeyValue {
+	attributes := t.Identity()
+	if t.AgentNamespace != "" {
+		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
 	}
 	return attributes
 }

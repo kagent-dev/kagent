@@ -142,9 +142,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
 		spanAttributes := map[string]string{
-			"kagent.user_id":         userID,
-			"gen_ai.task.id":         string(reqCtx.TaskID),
-			"gen_ai.conversation.id": sessionID,
+			"kagent.user_id":                userID,
+			"gen_ai.task.id":                string(reqCtx.TaskID),
+			tracing.AttributeConversationID: sessionID,
 		}
 		if e.appName != "" {
 			spanAttributes["kagent.app_name"] = e.appName

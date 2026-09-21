@@ -64,8 +64,8 @@ type activeTask struct {
 }
 
 // parkedTask owns the PendingTurn while its A2A task is waiting for input.
-// origin is the invocation that parked it, so a later segment can record where
-// the work it continues began.
+// origin is the invocation that started the native turn, so every later
+// segment can record where the work it continues began.
 type parkedTask struct {
 	taskRef
 	pending runtime.PendingTurn
@@ -133,7 +133,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
 		result := tracing.Result{}
 		endInvocation := func() {
-			invocation.SetAttributes(sink.captureAttributes()...)
+			invocation.SetAttributes(sink.captureAttributes(result)...)
 			if _, err := invocation.End(ctx, result); err != nil {
 				a2alog.Error(ctx, "failed to export A2A invocation traces", err)
 			}
@@ -143,6 +143,23 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		// that yield no quiescent event at all, such as cancellation and an
 		// abandoned stream.
 		defer endInvocation()
+		// A panic in the runner is a defect, not an outcome. Record a fixed
+		// category before the span is exported, never the recovered value, which
+		// could carry provider content, then let the panic continue.
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				result = tracing.Result{Error: "runtime_panic"}
+				endInvocation()
+				panic(recovered)
+			}
+		}()
+		// Failures that never publish a task event still export before the error
+		// leaves the process, for the same reason the quiescent paths do.
+		fail := func(category string, err error) {
+			result.Error = category
+			endInvocation()
+			yield(nil, err)
+		}
 		// Identity is recorded before validation, so a rejected request still
 		// says which conversation and task it belonged to.
 		resuming := reqCtx != nil && reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
@@ -152,8 +169,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 
 		turn, err := validateRequest(reqCtx)
 		if err != nil {
-			result.Error = "invalid_request"
-			yield(nil, err)
+			fail("invalid_request", err)
 			return
 		}
 		// Capture the current turn's prompt only. A segment that answers an
@@ -164,7 +180,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			if turn.Prompt != "" {
 				text, truncated := tracing.BoundedText(turn.Prompt, limit)
 				invocation.SetAttributes(
-					attribute.String(tracing.AttributeInputMessages, tracing.TextMessages(tracing.RoleUser, text)),
+					attribute.String(tracing.AttributeInputMessages, tracing.InputMessages(text)),
 					attribute.Bool(tracing.AttributeInputTruncated, truncated),
 				)
 			}
@@ -172,8 +188,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 
 		continuationID, _, err := e.continuation.Load()
 		if err != nil {
-			result.Error = "continuation_unavailable"
-			yield(nil, err)
+			fail("continuation_unavailable", err)
 			return
 		}
 		runCtx, cancel := context.WithCancel(ctx)
@@ -185,8 +200,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		continued, err := e.activate(active, resuming)
 		if err != nil {
 			cancel()
-			result.Error = "actor_unavailable"
-			yield(nil, err)
+			fail("actor_unavailable", err)
 			return
 		}
 		if continued != nil {
@@ -197,6 +211,13 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 				SpanContext: continued.origin,
 				Attributes:  []attribute.KeyValue{attribute.String(tracing.AttributeLinkRelationship, tracing.RelationshipResumeOrigin)},
 			})
+		}
+		// The native process, and the trace it emits under, belong to the
+		// segment that started the turn. A later pause keeps pointing at that
+		// origin rather than at whichever segment paused most recently.
+		origin := invocation.SpanContext()
+		if continued != nil && continued.origin.IsValid() {
+			origin = continued.origin
 		}
 		var finishOnce sync.Once
 		finishedCanceled := false
@@ -226,7 +247,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			parked := false
 			finishOnce.Do(func() {
 				cancel()
-				parked = e.park(active, pending, invocation.SpanContext())
+				parked = e.park(active, pending, origin)
 				if !parked {
 					_ = pending.Cancel(context.Background())
 					if e.deactivate(active) {
@@ -287,8 +308,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			if finish() {
 				return
 			}
-			result.Error = "invalid_runtime_outcome"
-			yield(nil, fmt.Errorf("runtime returned both a failure and a pending turn"))
+			fail("invalid_runtime_outcome", fmt.Errorf("runtime returned both a failure and a pending turn"))
 			return
 		}
 
@@ -296,8 +316,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			message, err := inputRequiredMessage(reqCtx, outcome.Pending.Request())
 			if err != nil {
 				_ = outcome.Pending.Cancel(context.Background())
-				result.Error = "invalid_input_request"
-				yield(nil, err)
+				fail("invalid_input_request", err)
 				return
 			}
 			// Transfer the live native turn into executor state before telling the
@@ -341,16 +360,34 @@ func (e *Executor) captureLimit(invocation *tracing.Invocation) int {
 	return e.telemetry.CaptureLimit()
 }
 
-// captureAttributes reports the text this segment produced. Absent attributes
-// mean capture is disabled; a message with empty text means the segment
-// produced none.
-func (s *executionSink) captureAttributes() []attribute.KeyValue {
+// captureAttributes reports the text this segment produced, with the finish
+// reason the conventions require on an output message. Absent attributes mean
+// capture is disabled; a message with empty text means the segment produced
+// none.
+func (s *executionSink) captureAttributes(result tracing.Result) []attribute.KeyValue {
 	if s.capture == nil {
 		return nil
 	}
 	return []attribute.KeyValue{
-		attribute.String(tracing.AttributeOutputMessages, tracing.TextMessages(tracing.RoleAssistant, s.capture.Text())),
+		attribute.String(tracing.AttributeOutputMessages, tracing.OutputMessages(s.capture.Text(), finishReason(result))),
 		attribute.Bool(tracing.AttributeOutputTruncated, s.capture.Truncated()),
+	}
+}
+
+// finishReason maps a segment outcome onto the GenAI conventions' finish
+// reason. Both harnesses park only at a tool call that needs a decision or an
+// answer, so a segment waiting for input finished at a tool call. A
+// disposition the conventions do not enumerate is recorded under its own name.
+func finishReason(result tracing.Result) string {
+	switch {
+	case result.Error != "":
+		return tracing.FinishReasonError
+	case result.Disposition != "":
+		return result.Disposition
+	case result.TaskState == string(a2atype.TaskStateInputRequired):
+		return tracing.FinishReasonToolCall
+	default:
+		return tracing.FinishReasonStop
 	}
 }
 

@@ -190,18 +190,24 @@ func OwnsTelemetryEnvironment(name string) bool {
 }
 
 // TraceEnvironment renders the resolved trace settings for an agent runtime.
-// The content-capture switch rides with them, because the standard GenAI
-// instrumentation variable is how a runtime that instruments its own model
-// calls learns the decision, and a user-supplied value would let one runtime
-// record prompts that the controller's setting said to keep out of traces.
 func (c TelemetryConfig) TraceEnvironment() []corev1.EnvVar {
-	environment := signalEnvironment(c.Traces, otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol)
-	if environment == nil {
-		return nil
+	return signalEnvironment(c.Traces, otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol)
+}
+
+// CaptureEnvironment renders the content-capture decision as the standard
+// GenAI instrumentation variable, which is how a runtime that instruments its
+// own model calls learns it. It is rendered whether or not the controller
+// exports traces, so a runtime reaching a collector through settings the
+// controller did not render still follows the controller's decision, and a
+// user-supplied value cannot let one runtime record prompts the setting said
+// to keep out of traces. The ADK runtimes read the variable as a mode and
+// treat a plain true as log records only, so the span form is rendered.
+func (c TelemetryConfig) CaptureEnvironment() corev1.EnvVar {
+	value := tracing.CaptureContentDisabled
+	if c.CaptureSensitiveContent {
+		value = tracing.CaptureContentSpanOnly
 	}
-	return append(environment, corev1.EnvVar{
-		Name: tracing.CaptureContentEnvironmentVariable, Value: strconv.FormatBool(c.CaptureSensitiveContent),
-	})
+	return corev1.EnvVar{Name: tracing.CaptureContentEnvironmentVariable, Value: value}
 }
 
 // LogEnvironment renders the resolved log settings for an agent runtime.

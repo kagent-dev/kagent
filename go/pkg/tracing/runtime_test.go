@@ -90,6 +90,17 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 	}
 }
 
+func TestChildResourceAddsTheCompiledNamespace(t *testing.T) {
+	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}
+	want := append(telemetry.Identity(), attribute.String("service.namespace", "team"))
+	if got := telemetry.ChildResource(); !slices.Equal(got, want) {
+		t.Fatalf("ChildResource() = %v, want %v", got, want)
+	}
+	if got := (RuntimeTelemetry{}).ChildResource(); len(got) != 0 {
+		t.Fatalf("ChildResource() = %v, want none without an identity", got)
+	}
+}
+
 func TestRequestIdentity(t *testing.T) {
 	got := RequestIdentity("ctx-1", "task-1", false)
 	want := []attribute.KeyValue{

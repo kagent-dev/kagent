@@ -98,6 +98,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	)
 	environment = append(environment, telemetryConfig.TraceEnvironment()...)
 	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.CaptureEnvironment())
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err

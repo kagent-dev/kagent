@@ -44,6 +44,7 @@ const (
 type capturedSpan struct {
 	serviceName string
 	scopeName   string
+	schemaURL   string
 	resource    *resourcepb.Resource
 	span        *tracepb.Span
 }
@@ -210,7 +211,7 @@ func (r *otlpTraceReceiver) selectSpans(traceID []byte, serviceName, scopeName, 
 				}
 				if matches {
 					selected = append(selected, capturedSpan{
-						serviceName: resourceServiceName, scopeName: currentScopeName,
+						serviceName: resourceServiceName, scopeName: currentScopeName, schemaURL: scopeSpans.GetSchemaUrl(),
 						resource: resourceSpans.GetResource(), span: span,
 					})
 				}
@@ -303,11 +304,24 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			}
 			// Wait for the Actor to suspend then assert that the completed invocation span was exported.
 			assertActorSuspended(t, fixture)
-			// The compiler owns this identity, so the assertion holds without any
+			// Invocations are selected by operation alone, the way a consumer
+			// counts them, so a second invoke_agent span in the trace or one
+			// missing an attribute fails the test rather than going unseen. The
+			// compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
 			agentName := template + "-" + test.harness
-			spans := receiver.selectSpans(traceID, "", "", "invoke_agent "+agentName, map[string]string{
-				tracing.AttributeOperationName:  tracing.OperationInvokeAgent,
+			spans := receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent})
+			if len(spans) != 1 {
+				t.Fatalf("invoke_agent spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
+			}
+			invocation := spans[0]
+			if got, want := invocation.span.GetName(), "invoke_agent "+agentName; got != want {
+				t.Errorf("invocation span name = %q, want %q", got, want)
+			}
+			if invocation.schemaURL != tracing.SchemaURL {
+				t.Errorf("invocation schema URL = %q, want %q", invocation.schemaURL, tracing.SchemaURL)
+			}
+			for key, want := range map[string]string{
 				tracing.AttributeMethod:         "SendStreamingMessage",
 				tracing.AttributeTaskState:      string(a2atype.TaskStateCompleted),
 				tracing.AttributeRuntime:        string(test.runtime),
@@ -319,14 +333,15 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				tracing.AttributeTaskID:         string(streamed.taskID),
 				tracing.AttributeUserID:         "e2e",
 				tracing.AttributeSegment:        tracing.SegmentInitial,
-			})
-			if len(spans) != 1 {
-				t.Fatalf("identified invocation spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
+			} {
+				if got := stringAttribute(invocation.span.GetAttributes(), key); got != want {
+					t.Errorf("invocation %s = %q, want %q", key, got, want)
+				}
 			}
 			// Capture stays off unless a user enables it, so a turn must not
 			// export its prompt or response.
 			for _, key := range []string{tracing.AttributeInputMessages, tracing.AttributeOutputMessages} {
-				if value := stringAttribute(spans[0].span.GetAttributes(), key); value != "" {
+				if value := stringAttribute(invocation.span.GetAttributes(), key); value != "" {
 					t.Errorf("%s = %q with capture disabled", key, value)
 				}
 			}
@@ -335,7 +350,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				tracing.AttributeRuntime:   string(test.runtime),
 				tracing.AttributeAgentName: agentName,
 			} {
-				if got := stringAttribute(spans[0].resource.GetAttributes(), key); got != want {
+				if got := stringAttribute(invocation.resource.GetAttributes(), key); got != want {
 					t.Errorf("resource %s = %q, want %q", key, got, want)
 				}
 			}

@@ -110,15 +110,24 @@ func TestBoundedTextDoesNotRetainTheInput(t *testing.T) {
 	}
 }
 
-func TestTextMessagesFollowsTheConventionsShape(t *testing.T) {
-	got := TextMessages(RoleUser, `say "hi"`)
+func TestInputMessagesFollowsTheConventionsShape(t *testing.T) {
+	got := InputMessages(`say "hi"`)
 	want := `[{"role":"user","parts":[{"type":"text","content":"say \"hi\""}]}]`
 	if got != want {
-		t.Fatalf("TextMessages() = %s, want %s", got, want)
+		t.Fatalf("InputMessages() = %s, want %s", got, want)
 	}
-	// Capture that produced no text still yields a message, so a consumer can
-	// tell an empty response from capture that is off.
-	if got := TextMessages(RoleAssistant, ""); got != `[{"role":"assistant","parts":[{"type":"text","content":""}]}]` {
-		t.Fatalf("TextMessages() = %s", got)
+}
+
+// The conventions require a finish reason on every output message. Capture
+// that produced no text still yields a message, so a consumer can tell an
+// empty response from capture that is off.
+func TestOutputMessagesFollowsTheConventionsShape(t *testing.T) {
+	got := OutputMessages("done", FinishReasonStop)
+	want := `[{"role":"assistant","parts":[{"type":"text","content":"done"}],"finish_reason":"stop"}]`
+	if got != want {
+		t.Fatalf("OutputMessages() = %s, want %s", got, want)
+	}
+	if got := OutputMessages("", FinishReasonError); got != `[{"role":"assistant","parts":[{"type":"text","content":""}],"finish_reason":"error"}]` {
+		t.Fatalf("OutputMessages() = %s", got)
 	}
 }

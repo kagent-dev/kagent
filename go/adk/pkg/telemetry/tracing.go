@@ -32,7 +32,7 @@ func SetKAgentSpanAttributes(ctx context.Context, attributes map[string]string) 
 // beneath the invocation span the A2A server opened. Descendant spans inherit
 // request-scoped attributes via the span processor.
 func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
-	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
+	return tracing.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
 }
 
 // PreResponseFlushEnabled reports whether spans must be exported before a turn's

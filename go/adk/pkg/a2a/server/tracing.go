@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -35,18 +36,25 @@ const invocationScope = "github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 // attributes before ending it.
 type invocationInterceptor struct {
 	a2asrv.PassthroughCallInterceptor
-	logger    *slog.Logger
-	telemetry tracing.RuntimeTelemetry
-	flush     bool
+	logger *slog.Logger
+	flush  bool
+	// name and static are fixed for the life of the runtime, so they are built
+	// once rather than on every request.
+	name   string
+	static []attribute.KeyValue
 }
 
-// spanName follows the conventions for a native harness: the operation, then
-// the agent name. Any other runtime keeps the transport span name.
-func (i *invocationInterceptor) spanName() string {
-	if !i.telemetry.Runtime.NativeHarness() {
-		return tracing.TransportSpanName
+// newInvocationInterceptor prepares the span name and static attributes. A
+// native harness gets the conventions' invoke_agent operation and span name;
+// any other runtime keeps the transport span name and no operation.
+func newInvocationInterceptor(logger *slog.Logger, telemetry tracing.RuntimeTelemetry, flush bool) *invocationInterceptor {
+	interceptor := &invocationInterceptor{logger: logger, flush: flush, name: tracing.TransportSpanName}
+	if telemetry.Runtime.NativeHarness() {
+		interceptor.name = tracing.OperationInvokeAgent + " " + telemetry.AgentName
+		interceptor.static = append(interceptor.static, attribute.String(tracing.AttributeOperationName, tracing.OperationInvokeAgent))
 	}
-	return tracing.OperationInvokeAgent + " " + i.telemetry.AgentName
+	interceptor.static = append(interceptor.static, telemetry.Identity()...)
+	return interceptor
 }
 
 func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
@@ -54,19 +62,27 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 	if method != "SendMessage" && method != "SendStreamingMessage" {
 		return ctx, nil, nil
 	}
-	identity := i.telemetry.Identity()
-	attributes := make([]attribute.KeyValue, 0, len(identity)+3)
-	if i.telemetry.Runtime.NativeHarness() {
-		attributes = append(attributes, attribute.String(tracing.AttributeOperationName, tracing.OperationInvokeAgent))
-	}
+	attributes := make([]attribute.KeyValue, 0, len(i.static)+2)
 	attributes = append(attributes, attribute.String(tracing.AttributeMethod, method))
-	attributes = append(attributes, identity...)
+	attributes = append(attributes, i.static...)
 	// The gateway authenticates the caller and replaces x-user-id before
 	// forwarding, so this is the only trusted identity on the private path.
 	if userID := auth.UserIDFromContext(ctx); userID != "" {
 		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
 	}
-	ctx, _ = tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.spanName(), i.flush, attributes...)
+	ctx, invocation := tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.name, i.flush, attributes...)
+	// a2a-go runs no final After callback when a streaming consumer stops
+	// reading, so an invocation the transport still owns would otherwise never
+	// end and never export. The request context ends in that case, and
+	// completing there records the abandonment. An adopted invocation, or one
+	// After already completed, is left as it is.
+	context.AfterFunc(ctx, func() {
+		detached := context.WithoutCancel(ctx)
+		if _, err := invocation.EndTransport(detached, tracing.Result{Disposition: tracing.DispositionAbandoned}); err != nil {
+			i.logger.ErrorContext(detached, "failed to flush traces for an abandoned A2A request", "error", err,
+				"trace_id", invocation.SpanContext().TraceID().String())
+		}
+	})
 	return ctx, nil, nil
 }
 
@@ -98,7 +114,13 @@ func (i *invocationInterceptor) After(ctx context.Context, callCtx *a2asrv.CallC
 		return nil
 	}
 	result := tracing.Result{TaskState: string(state)}
-	if response.Err != nil {
+	switch {
+	case response.Err == nil:
+	case errors.Is(response.Err, context.Canceled), errors.Is(response.Err, context.DeadlineExceeded):
+		// The caller stopped waiting. The turn itself did not fail, and a2a-go
+		// keeps running it detached from the caller.
+		result.Disposition = tracing.DispositionAbandoned
+	default:
 		result.Error = "transport_error"
 	}
 	if _, err := invocation.EndTransport(ctx, result); err != nil {
