@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -319,10 +320,15 @@ func Run(ctx context.Context, opts Options) error {
 	})
 	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
 	server, err := grpcserver.New(grpcserver.Config{
-		MethodPolicies:        policies,
-		RegisterServices:      opts.GRPCServices,
-		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
-		Reflection:            envBool("GRPC_REFLECTION"),
+		MethodPolicies:   policies,
+		RegisterServices: opts.GRPCServices,
+		BindAddress:      env("HTTP_BIND_ADDRESS", ":8083"),
+		Reflection:       envBool("GRPC_REFLECTION"),
+		// controller-runtime's registry, which the manager's metrics server
+		// serves. Left nil, newServerMetrics builds the interceptors' counters
+		// and registers them nowhere, so every gRPC call is measured and the
+		// measurement reaches no scrape.
+		Registerer:            crmetrics.Registry,
 		Authenticator:         authenticator,
 		ShareStore:            store,
 		ModelService:          models,
