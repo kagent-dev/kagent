@@ -152,7 +152,8 @@ test("agents: a conversation is named by the reader, and never renders as a bare
       "cannot start or end with a space",
     );
     await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    // Same arriving-box case as the Save below: the rename modal animates in.
+    await pressOnce(page.getByRole("button", { name: "Cancel" }));
   });
 
   await test.step("5. clearing a name puts it back to being untitled", async () => {
