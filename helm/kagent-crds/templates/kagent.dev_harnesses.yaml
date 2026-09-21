@@ -385,6 +385,11 @@ spec:
                     type: boolean
                   streaming:
                     type: boolean
+                  structuredOutput:
+                    description: |-
+                      StructuredOutput reports whether the pinned adapter can enforce a root
+                      JSON output contract and emit it as an A2A DataPart.
+                    type: boolean
                   version:
                     description: Version identifies the controller capability catalog
                       entry.
@@ -401,6 +406,7 @@ spec:
                 - nativeAgentTools
                 - resume
                 - streaming
+                - structuredOutput
                 - version
                 type: object
               conditions:

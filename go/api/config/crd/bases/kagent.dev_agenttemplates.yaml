@@ -65,6 +65,26 @@ spec:
                 x-kubernetes-validations:
                 - message: name must not be empty
                   rule: has(self.name) && self.name != ''
+              outputSchema:
+                description: |-
+                  OutputSchema constrains successful terminal output when this template is
+                  compiled as the root agent.
+                x-kubernetes-preserve-unknown-fields: true
+              outputSchemaFrom:
+                description: |-
+                  OutputSchemaFrom references a JSON Schema stored as JSON in a
+                  same-namespace ConfigMap key.
+                properties:
+                  key:
+                    minLength: 1
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - key
+                - name
+                type: object
               plugins:
                 items:
                   description: PluginBundle selects Agent Skills from one immutable
@@ -394,6 +414,8 @@ spec:
             x-kubernetes-validations:
             - message: systemPrompt and systemPromptFrom are mutually exclusive
               rule: '!(has(self.systemPrompt) && has(self.systemPromptFrom))'
+            - message: outputSchema and outputSchemaFrom are mutually exclusive
+              rule: '!(has(self.outputSchema) && has(self.outputSchemaFrom))'
           status:
             description: AgentTemplateStatus is the controller-observed state for
               each admitting Harness.

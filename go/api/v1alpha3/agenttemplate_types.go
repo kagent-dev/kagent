@@ -18,6 +18,7 @@ package v1alpha3
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -187,6 +188,7 @@ type PluginBundle struct {
 
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.outputSchema) && has(self.outputSchemaFrom))",message="outputSchema and outputSchemaFrom are mutually exclusive"
 type AgentTemplateSpec struct {
 	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
@@ -199,6 +201,15 @@ type AgentTemplateSpec struct {
 	// SystemPromptFrom references prompt text in a same-namespace ConfigMap.
 	// +optional
 	SystemPromptFrom *AgentTemplateConfigMapKeyReference `json:"systemPromptFrom,omitempty"`
+	// OutputSchema constrains successful terminal output when this template is
+	// compiled as the root agent.
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	OutputSchema *apiextensionsv1.JSON `json:"outputSchema,omitempty"`
+	// OutputSchemaFrom references a JSON Schema stored as JSON in a
+	// same-namespace ConfigMap key.
+	// +optional
+	OutputSchemaFrom *AgentTemplateConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
 	// +optional
 	PromptTemplate *AgentTemplatePromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// +kubebuilder:validation:MaxItems=50

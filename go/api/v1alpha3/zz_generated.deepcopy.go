@@ -192,6 +192,16 @@ func (in *AgentTemplateSpec) DeepCopyInto(out *AgentTemplateSpec) {
 		*out = new(AgentTemplateConfigMapKeyReference)
 		**out = **in
 	}
+	if in.OutputSchema != nil {
+		in, out := &in.OutputSchema, &out.OutputSchema
+		*out = new(apiextensionsv1.JSON)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.OutputSchemaFrom != nil {
+		in, out := &in.OutputSchemaFrom, &out.OutputSchemaFrom
+		*out = new(AgentTemplateConfigMapKeyReference)
+		**out = **in
+	}
 	if in.PromptTemplate != nil {
 		in, out := &in.PromptTemplate, &out.PromptTemplate
 		*out = new(AgentTemplatePromptTemplateSpec)
