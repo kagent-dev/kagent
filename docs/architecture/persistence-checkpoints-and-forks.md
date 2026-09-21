@@ -95,7 +95,11 @@ History ancestry is recorded directly on `agent_history`: `parent_history_id` an
 `parent_history_sequence` identify the source history and the cutoff copied from
 it. Roots have neither field. Fork creation sets both fields atomically with the
 new instance and never changes them. Foreign keys require the parent to share the
-child's owner and context, and the cutoff to identify an event in that parent.
+child's owner and context. The fork transaction reads only parent-history events
+and verifies the exact cutoff and its task/snapshot boundary before committing;
+failure rolls back the new history and instance. There is no reverse foreign key
+from history to an event. Events remain retained with their history; future event
+garbage collection must preserve inherited boundaries and coordinate with forks.
 Each new history points to an existing parent; ancestry traversal needs no
 checkpoint rows. `agent_instance.source_checkpoint_id`
 separately retains fork-request identity and runtime provenance while the instance exists.

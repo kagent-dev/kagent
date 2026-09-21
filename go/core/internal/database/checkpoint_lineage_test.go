@@ -40,41 +40,31 @@ func TestAgentHistoryConstraints(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	newSource := func() (*apiv1alpha1.AgentInstance, agentInstanceCheckpointRow) {
-		t.Helper()
-		instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "source"), uuid.NewString())
-		require.NoError(t, err)
-		instance, err = markAgentInstanceReady(ctx, client, instance.Id, "source.example")
-		require.NoError(t, err)
-		checkpoint := checkpointNextTurn(t, client, instance)
-		row, err := readCheckpoint(ctx, client.db, checkpoint.Id, "alice", nil)
-		require.NoError(t, err)
-		return instance, row
-	}
-	source, boundary := newSource()
-	_, otherBoundary := newSource()
+	source, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "source"), uuid.NewString())
+	require.NoError(t, err)
+	source, err = markAgentInstanceReady(ctx, client, source.Id, "source.example")
+	require.NoError(t, err)
+	checkpoint := checkpointNextTurn(t, client, source)
+	boundary, err := readCheckpoint(ctx, client.db, checkpoint.Id, "alice", nil)
+	require.NoError(t, err)
 	for _, tt := range []struct {
-		name       string
-		owner      string
-		contextID  string
-		sequence   int64
-		constraint string
+		name      string
+		owner     string
+		contextID string
 	}{
-		{"different owner", "mallory", source.ContextId, boundary.HistorySequence, "agent_history_parent_binding_fkey"},
-		{"different context", "alice", uuid.NewString(), boundary.HistorySequence, "agent_history_parent_binding_fkey"},
-		{"missing event", "alice", source.ContextId, math.MaxInt64, "agent_history_parent_event_fkey"},
-		{"another history event", "alice", source.ContextId, otherBoundary.HistorySequence, "agent_history_parent_event_fkey"},
+		{"different owner", "mallory", source.ContextId},
+		{"different context", "alice", uuid.NewString()},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Deliberately bypass the store to prove PostgreSQL rejects invalid ancestry.
 			_, err := client.db.Exec(ctx, `
 				INSERT INTO agent_history (id, instance_id, user_id, context_id, parent_history_id, parent_history_sequence)
 				VALUES ($1, $2, $3, $4, $5, $6)
-			`, uuid.New(), uuid.New(), tt.owner, tt.contextID, boundary.SourceHistoryID, tt.sequence)
+			`, uuid.New(), uuid.New(), tt.owner, tt.contextID, boundary.SourceHistoryID, boundary.HistorySequence)
 			var pgErr *pgconn.PgError
 			require.ErrorAs(t, err, &pgErr)
 			require.Equal(t, "23503", pgErr.Code)
-			require.Equal(t, tt.constraint, pgErr.ConstraintName)
+			require.Equal(t, "agent_history_parent_binding_fkey", pgErr.ConstraintName)
 		})
 	}
 	for _, column := range []string{"id", "user_id", "context_id"} {
@@ -87,10 +77,74 @@ func TestAgentHistoryConstraints(t *testing.T) {
 		})
 	}
 	require.NoError(t, client.DeleteAgentInstance(ctx, source.Id))
-	_, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(source.Id, "assistant", "kagent", "replacement"), uuid.NewString())
+	_, _, err = client.CreateAgentInstance(ctx, newAgentInstanceRequest(source.Id, "assistant", "kagent", "replacement"), uuid.NewString())
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "23505", pgErr.Code, "a deleted instance ID must not be rebound to another history")
+}
+
+func TestForkAgentInstanceRejectsInvalidBoundary(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	newCheckpoint := func() *apiv1alpha1.Checkpoint {
+		t.Helper()
+		instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "source"), uuid.NewString())
+		require.NoError(t, err)
+		instance, err = markAgentInstanceReady(ctx, client, instance.Id, "source.example")
+		require.NoError(t, err)
+		return checkpointNextTurn(t, client, instance)
+	}
+	source, other := newCheckpoint(), newCheckpoint()
+	for _, tt := range []struct {
+		name     string
+		sequence uint64
+		headTask string
+		wantErr  string
+	}{
+		{"missing event", math.MaxInt64, source.HeadTaskId, "checkpoint history boundary is missing"},
+		{"another history event", other.HistorySequence, other.HeadTaskId, "checkpoint history boundary is missing"},
+		{"wrong head task", source.HistorySequence, uuid.NewString(), "checkpoint runtime boundary is inconsistent"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Corrupt both the payload and indexes so the test reaches event validation,
+			// rather than failing the independent protobuf/index consistency check.
+			invalid := proto.Clone(source).(*apiv1alpha1.Checkpoint)
+			invalid.HistorySequence, invalid.HeadTaskId = tt.sequence, tt.headTask
+			data, err := proto.Marshal(invalid)
+			require.NoError(t, err)
+			_, err = client.db.Exec(ctx, `
+				UPDATE agent_instance_checkpoint SET history_sequence = $2, head_task_id = $3, data = $4 WHERE id = $1
+			`, source.Id, int64(invalid.HistorySequence), invalid.HeadTaskId, data)
+			require.NoError(t, err)
+			forkID, requestID := uuid.NewString(), uuid.NewString()
+			fork, created, err := client.ForkAgentInstance(ctx, source.Id, "alice", requestID, forkID)
+			require.ErrorContains(t, err, tt.wantErr)
+			require.Nil(t, fork)
+			require.False(t, created)
+			_, err = client.GetAgentInstance(ctx, forkID, "alice")
+			require.ErrorIs(t, err, ErrNotFound)
+			var historyExists bool
+			require.NoError(t, client.db.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM agent_history WHERE instance_id = $1)", forkID).Scan(&historyExists))
+			require.False(t, historyExists, "failed validation must roll back the durable lineage")
+
+			// Repair the boundary and retry the same request/instance IDs: no failed
+			// reservation or history may prevent the valid fork from being created.
+			data, err = proto.Marshal(source)
+			require.NoError(t, err)
+			_, err = client.db.Exec(ctx, `
+				UPDATE agent_instance_checkpoint SET history_sequence = $2, head_task_id = $3, data = $4 WHERE id = $1
+			`, source.Id, int64(source.HistorySequence), source.HeadTaskId, data)
+			require.NoError(t, err)
+			fork, created, err = client.ForkAgentInstance(ctx, source.Id, "alice", requestID, forkID)
+			require.NoError(t, err)
+			require.True(t, created)
+			require.Equal(t, forkID, fork.Id)
+			listed, err := client.ListAgentInstanceCheckpoints(ctx, forkID, "alice", "", 100)
+			require.NoError(t, err)
+			require.Equal(t, []string{source.Id}, listedCheckpointIDs(listed))
+		})
+	}
 }
 
 func TestCheckpointDeletionSerializesWithFork(t *testing.T) {

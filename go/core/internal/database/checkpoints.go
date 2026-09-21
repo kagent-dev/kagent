@@ -91,6 +91,9 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err != nil {
 			return fmt.Errorf("list checkpoint events: %w", err)
 		}
+		// The query is scoped to the parent history. Validate the exact cutoff here
+		// rather than creating a reverse history-to-event foreign key. A failure
+		// rolls back the new instance and history along with the rest of the fork.
 		if len(events) == 0 || events[len(events)-1].Sequence != checkpoint.HistorySequence {
 			return fmt.Errorf("checkpoint history boundary is missing")
 		}
