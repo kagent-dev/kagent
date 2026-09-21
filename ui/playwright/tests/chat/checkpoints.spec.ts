@@ -115,6 +115,8 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
     // `pressOnce`, not a raw click: the popconfirm is still animating in here,
     // and a click lands on the backdrop while it moves.
     await pressOnce(page.getByTestId(`chat-checkpoint-delete-cancel-${id}`));
+    // The popconfirm is gone: a cancel press that missed would leave it up.
+    await expect(page.getByText("Delete this snapshot?")).toBeHidden();
     await expect(dividers(page)).toHaveCount(1);
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();

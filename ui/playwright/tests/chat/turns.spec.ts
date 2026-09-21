@@ -1,5 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { agentChat, instances } from "../../helpers/app";
+import { pressOnce } from "../../helpers/resource";
 
 /**
  * A turn that does not finish the way it should.
@@ -56,7 +57,9 @@ test("chat: a failed turn is reported and can be retried", async ({ page }) => {
      * `useChat` and never passes through the composer, so a page that resumed only
      * around `send` would leave this one button broken while every other path worked.
      */
-    await page.getByRole("button", { name: "Retry" }).click();
+    // The retry button can still be arriving from the error render; press it
+    // once it has stopped moving rather than gambling on a raw click.
+    await pressOnce(page.getByRole("button", { name: "Retry" }));
     // Still the failing scenario, so it fails again — the point is that the
     // retry ran at all, and that the page did not double up the user's message.
     await expect(page.getByTestId("chat-turn-error")).toBeVisible();
