@@ -33,13 +33,17 @@ message CheckAccessRequest {
     message: "Harness supports only CREATE and DELETE access reviews"
     expression: "this.resource_type != 2 || this.verbs.all(verb, verb == 2 || verb == 4)"
   };
+  option (buf.validate.message).cel = {
+    id: "get_targets"
+    message: "GET access reviews require named targets"
+    expression: "this.verbs.all(verb, verb != 1) || this.targets.all(target, has(target.name))"
+  };
   AuthorizationResourceType resource_type = 1 [(buf.validate.field).enum = {
     defined_only: true
     not_in: 0
   }];
   repeated AuthorizationVerb verbs = 2 [(buf.validate.field).repeated = {
     min_items: 1
-    max_items: 4
     unique: true
     items: {
       enum: {
@@ -60,8 +64,8 @@ message AccessTarget {
     max_len: 63
     pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
   }];
-  // When present, the review checks this exact resource identity. When omitted,
-  // it checks whether any valid resource name in the namespace is permitted.
+  // A name checks this exact resource identity; omitting it asks whether any name is permitted.
+  // GET requires a name.
   optional string name = 2 [(buf.validate.field).string = {
     min_len: 1
     max_len: 253

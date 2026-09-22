@@ -31,6 +31,7 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 		return nil, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	principal := session.Principal()
+	share, shared := auth.ShareContextFrom(ctx)
 
 	results := make([]ReviewResult, len(targets))
 	for i, target := range targets {
@@ -38,6 +39,13 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 	}
 
 	for _, verb := range verbs {
+		access := auth.AccessMode(verb)
+		if verb == auth.VerbGet || verb == auth.VerbList {
+			access = auth.AccessRead
+		}
+		if shared && !share.AllowsAccess(access) {
+			continue
+		}
 		var matcher *Matcher
 		for i, target := range targets {
 			var allowed bool

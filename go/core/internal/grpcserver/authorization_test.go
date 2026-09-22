@@ -37,6 +37,29 @@ func (a *accessReviewAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, v
 	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, nil
 }
 
+func TestAuthorizationMappingsComplete(t *testing.T) {
+	for name, number := range apiv1alpha1.AuthorizationResourceType_value {
+		if number == 0 {
+			continue
+		}
+		resourceType, ok := authorizationResourceTypes[apiv1alpha1.AuthorizationResourceType(number)]
+		require.True(t, ok, name)
+		assert.NotEmpty(t, resourceType, name)
+	}
+
+	domainVerbs := make(map[pkgauth.Verb]struct{}, len(apiv1alpha1.AuthorizationVerb_value)-1)
+	for name, number := range apiv1alpha1.AuthorizationVerb_value {
+		if number == 0 {
+			continue
+		}
+		domainVerb, ok := authorizationVerbs[apiv1alpha1.AuthorizationVerb(number)]
+		require.True(t, ok, name)
+		assert.NotEmpty(t, domainVerb, name)
+		assert.NotContains(t, domainVerbs, domainVerb, name)
+		domainVerbs[domainVerb] = struct{}{}
+	}
+}
+
 func TestAuthorizationServiceGeneratedClient(t *testing.T) {
 	authorizer := &accessReviewAuthorizer{}
 	listener := bufconn.Listen(DefaultMaxMessageSize)

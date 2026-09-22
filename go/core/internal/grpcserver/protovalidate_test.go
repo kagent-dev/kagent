@@ -140,6 +140,10 @@ func TestCheckAccessRequestValidation(t *testing.T) {
 			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a", Name: &emptyName}}},
 		},
 		{
+			name:    "get without named target",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}}},
+		},
+		{
 			name:    "unsupported harness verb",
 			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_HARNESS, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_UPDATE}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a", Name: &name}}},
 		},

@@ -19,6 +19,11 @@ type ShareContext struct {
 	AgentInstanceID string
 }
 
+// AllowsAccess reports whether this share permits an RPC with the requested access.
+func (s *ShareContext) AllowsAccess(access AccessMode) bool {
+	return s == nil || !s.ReadOnly || access == AccessPublic || access == AccessRead
+}
+
 // IsForAgentInstance reports whether this share grants access to the named instance.
 //
 // Asked rather than assumed: a session share reaching the A2A gateway must not be
