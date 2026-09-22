@@ -1,16 +1,22 @@
 # Deferred specs
 
-Coverage this suite does not have, and what each one is waiting on. Kept as prose
+Coverage this suite does not have, and what each gap is waiting on. Kept as prose
 rather than as skipped tests, because a skipped spec reads as coverage and this list
 does not.
 
-Two rules for editing it, both learned the hard way here:
+An entry is in one of three states, and saying which is most of the value here:
+**deferred** (blocked on something nameable), **not planned** (a decision, so it is not
+re-argued every time somebody notices the gap), or **closed**.
+
+Three rules for editing it, all learned the hard way here:
 
 - **A stale entry costs more than no entry.** Several entries were once listed as
   blocked on pages that already existed, which stops somebody porting work that is
   already possible. When something lands, close it in the same change.
 - **Close, do not archive.** An entry describing a page that no longer exists, or a
   gap since covered, belongs in *Closed* below as one line — or deleted.
+- **Do not defer a decision.** If the suite is not going to cover something, say so and
+  say why. An entry that reads as queued is one somebody will pick up.
 
 ## Closed
 
@@ -86,28 +92,38 @@ Worth recording for its own sake: the fixtures cannot show this class of bug at 
 answer from the page's own memory and are therefore always immediately consistent, so a
 mock backend has no write that is not yet a read. Only a cluster has one.
 
-## Deferred: the two chat gaps that need a model which answers
+## Not planned: the `resuming` and `suspending` lifecycle stages
 
-Both belong in one `playwright/live/` spec, and neither cluster this suite runs against
-can host it: CI installs with `OPENAI_API_KEY: fake`, and `setup-cluster.sh` sets no key
-at all. An `AgentInstance` exists only once a message has been sent, so a turn that never
-gets a reply produces neither state. Reachable today only by a developer with their own
-key.
+A decision rather than a queue entry, recorded so it is not re-argued each time
+somebody notices the gap.
 
-**The `resuming` and `suspending` stages of the lifecycle indicator.** `chat.spec.ts`
-drives the indicator at rest and through `running`, because a turn produces both. The
-other two come from `AgentInstance.operation`, which the controller claims and clears as
-it works; the mock backend serves a static record, and faking one would prove only that a
-fixture can hold a string. The reading itself is covered exhaustively in
-`src/components/chat/lifecycleReading.test.ts` — including the case worth guarding
-hardest, that **no stage is claimed when a turn ends**, since a substrate agent really
-does suspend itself then and nothing in the API reports it. What is missing is the
-journey: suspend an instance from the agents list with a chat page open on it, and watch
-the indicator follow.
+`chat.spec.ts` drives the lifecycle indicator at rest and through `running`, because a
+turn produces both. The other two stages come from `AgentInstance.operation`, which the
+controller claims and clears as it works. The mock backend serves a static record, and
+faking one would prove only that a fixture can hold a string; a live journey — suspend an
+instance from the agents list with a chat page open on it, and watch the indicator follow
+— needs a model that can answer, which neither cluster this suite runs against has.
 
-**Streaming, end to end.** The client honours an artifact's `append` flag, which is how
-this runtime streams: one `artifactId` for the reply, one frame per token, `append` on
-every frame after the first, then a closing frame repeating the whole answer. That shape
+**What tips it from deferred to not planned** is that the part with the logic in it is
+already covered, and it is covered where the logic lives:
+`src/components/chat/lifecycleReading.test.ts` exercises every reading exhaustively,
+including the case worth guarding hardest — that **no stage is claimed when a turn ends**,
+since a substrate agent really does suspend itself then and nothing in the API reports it.
+What a browser test would add is that a string the controller sets reaches an element,
+for two stages out of four, at the cost of the only spec in this suite needing its own
+API key.
+
+Revisit if the indicator grows behaviour of its own, rather than reading a field.
+
+## Deferred: streaming, end to end
+
+The one chat gap still worth a spec, and it needs a cluster with a model that answers:
+CI installs with `OPENAI_API_KEY: fake` and `setup-cluster.sh` sets no key at all, so it
+is reachable today only by a developer with their own.
+
+The client honours an artifact's `append` flag, which is how this runtime streams: one
+`artifactId` for the reply, one frame per token, `append` on every frame after the
+first, then a closing frame repeating the whole answer. That shape
 is pinned in `src/api/chat/a2aGrpcChatClient.test.ts` against frames captured from the
 controller on 2026-08-24. The mock chat client streams `delta` events — the port's
 vocabulary rather than the wire's — so no browser test exercises the artifact path.
@@ -116,10 +132,11 @@ Teaching the fixture to emit artifact frames would make it an A2A server rather 
 The gap is a live spec that sends a message and watches the reply grow before the turn
 completes.
 
-**Open, but a product decision rather than coverage:** the `ask_user` payload still
-renders as JSON in the transcript beside the answerable prompt. That is duplication
-rather than a defect, and collapsing it needs a decision about whether a tool call with
-an interactive rendering should show its raw form at all.
+## Open, but a product decision rather than coverage
+
+The `ask_user` payload still renders as JSON in the transcript beside the answerable
+prompt. That is duplication rather than a defect, and collapsing it needs a decision
+about whether a tool call with an interactive rendering should show its raw form at all.
 
 ## Deferred: proving a share token actually travels
 
@@ -269,22 +286,3 @@ template no harness admits says so.
 **What would close it:** a fixture scenario with a single harness. Worth doing when
 something else needs one; a scenario knob added for one assertion is a second fixture
 backend to keep honest.
-
-## A broken create takes that resource's failure states with it
-
-Each resource spec runs its empty, failure and retry states after the lifecycle, and a
-journey is ordered — so a create that breaks aborts the three steps least likely to be
-broken by the same change. `agent-templates` did exactly that during this port: step 10
-failed and steps 11 to 14 never ran.
-
-The README justifies the position by the fixture reset — reaching those states needs
-`?mock=`, which is per-navigation and discards what the lifecycle created. That is a
-reason they cannot sit in the *middle*; it does not choose an end, because the reload
-starts a fresh backend whichever end they are at.
-
-Moving them first is not the fix either: they would then run against a pristine backend,
-which is not the state they are about, and the lifecycle would start from one a
-navigation had just reset. What actually removes the coupling is a second `test` in the
-same file — one recording for the lifecycle, one for the states, neither able to abort
-the other. That costs `conventions.test.ts` its "one spec, one test" rule, so it is an
-amendment to the convention rather than a reshuffle, and belongs in its own change.
