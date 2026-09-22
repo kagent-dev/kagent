@@ -120,8 +120,15 @@ export function AppDetailPage() {
           />
         ) : null}
 
-        {/* Absence is only meaningful once the read finished and succeeded. */}
-        {appName && !servers.error && !servers.isLoading && matches.length === 0 ? (
+        {/* Absence is only meaningful once the read finished and succeeded — and
+            `!isLoading` alone does not mean that. SWR runs its fetcher in an effect,
+            so the first paint reports "not loading" with nothing read, and this
+            announced "No such app" about a server list it had not yet asked for. */}
+        {appName &&
+        !servers.error &&
+        !servers.isLoading &&
+        servers.data !== undefined &&
+        matches.length === 0 ? (
           <Alert
             type="warning"
             showIcon
