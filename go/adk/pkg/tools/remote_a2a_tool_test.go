@@ -199,9 +199,7 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 	})
 
 	t.Run("completed Task structured result", func(t *testing.T) {
-		part := a2atype.NewDataPart(map[string]any{"answer": float64(4)})
-		part.MediaType = "application/json"
-		part.SetMeta(apia2a.OutputSchemaSHA256MetadataKey, "digest")
+		part := apia2a.NewStructuredOutputPart(map[string]any{"answer": float64(4)}, "digest")
 		task := &a2atype.Task{
 			Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 			Artifacts: []*a2atype.Artifact{{Parts: a2atype.ContentParts{part}}},

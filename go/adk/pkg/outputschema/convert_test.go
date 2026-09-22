@@ -34,6 +34,20 @@ func TestToGenAISchemaRejectsRecursiveReference(t *testing.T) {
 	require.ErrorContains(t, err, "recursive output schema")
 }
 
+func TestToGenAISchemaDoesNotNarrowUnsupportedConstraints(t *testing.T) {
+	schema, err := ToGenAISchema(json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"mixed":{"enum":["a",1]},
+			"numeric":{"type":"integer","const":1}
+		},
+		"additionalProperties":false
+	}`))
+	require.NoError(t, err)
+	require.Empty(t, schema.Properties["mixed"].Enum)
+	require.Empty(t, schema.Properties["numeric"].Enum)
+}
+
 func TestToGenAISchemaBoundsReferenceExpansion(t *testing.T) {
 	leafProperties := make(map[string]any, 30)
 	for i := range 30 {

@@ -132,10 +132,14 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	if output == nil || event.Author != rootName {
 		return nil
 	}
-	if !event.IsFinalResponse() {
+	// ADK treats interruption and skip-summarization events as final responses so
+	// the current agent loop stops. They are not final structured results.
+	if !event.IsFinalResponse() || len(event.LongRunningToolIDs) > 0 || event.Actions.SkipSummarization {
 		return nil
 	}
-	if event.FinishReason != genai.FinishReasonStop {
+	switch event.FinishReason {
+	case "", genai.FinishReasonUnspecified, genai.FinishReasonStop:
+	default:
 		return fmt.Errorf("output_validation_failed: root agent did not complete structured output")
 	}
 	value, err := finalStructuredOutput(event)
@@ -148,9 +152,7 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	if processed == nil || processed.Artifact == nil {
 		return fmt.Errorf("output_validation_failed: root agent produced no result artifact")
 	}
-	part := a2atype.NewDataPart(value)
-	part.MediaType = "application/json"
-	part.SetMeta(apia2a.OutputSchemaSHA256MetadataKey, output.sha256)
+	part := apia2a.NewStructuredOutputPart(value, output.sha256)
 	processed.Artifact.Parts = a2atype.ContentParts{part}
 	return nil
 }

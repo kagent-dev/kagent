@@ -28,6 +28,8 @@ const portableOutputSchemaMetaSchema = `{
 		"schema":{
 			"type":"object",
 			"properties":{
+				"$id":{"type":"string"},
+				"$schema":{"type":"string"},
 				"$defs":{"type":"object","additionalProperties":{"$ref":"#/$defs/schema"}},
 				"$ref":{"type":"string","pattern":"^#/\\$defs/[^/]*$"},
 				"additionalProperties":{"anyOf":[{"type":"boolean"},{"$ref":"#/$defs/schema"}]},

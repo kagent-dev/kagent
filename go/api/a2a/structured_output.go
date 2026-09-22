@@ -8,24 +8,38 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
-// OutputSchemaSHA256MetadataKey identifies the canonical schema enforced for a
-// structured terminal result.
-const OutputSchemaSHA256MetadataKey = "kagent.dev/output-schema-sha256"
+const outputSchemaSHA256MetadataKey = "kagent.dev/a2a/output-schema-sha256"
+
+// NewStructuredOutputPart constructs a structured terminal result with its
+// complete wire signature: JSON data and the digest of the enforced schema.
+func NewStructuredOutputPart(value any, schemaSHA256 string) *a2atype.Part {
+	part := a2atype.NewDataPart(value)
+	part.MediaType = "application/json"
+	part.SetMeta(outputSchemaSHA256MetadataKey, schemaSHA256)
+	return part
+}
+
+// StructuredOutputSchemaSHA256 returns the digest carried by a structured
+// terminal result. Ordinary data parts and incomplete signatures are rejected.
+func StructuredOutputSchemaSHA256(part *a2atype.Part) (string, bool) {
+	if part == nil {
+		return "", false
+	}
+	if _, ok := part.Content.(a2atype.Data); !ok {
+		return "", false
+	}
+	mediaType, _, _ := strings.Cut(part.MediaType, ";")
+	if !strings.EqualFold(strings.TrimSpace(mediaType), "application/json") {
+		return "", false
+	}
+	digest, ok := part.Metadata[outputSchemaSHA256MetadataKey].(string)
+	return digest, ok
+}
 
 // IsStructuredOutputPart reports whether a part carries kagent's structured
 // terminal-result signature.
 func IsStructuredOutputPart(part *a2atype.Part) bool {
-	if part == nil {
-		return false
-	}
-	if _, ok := part.Content.(a2atype.Data); !ok {
-		return false
-	}
-	mediaType, _, _ := strings.Cut(part.MediaType, ";")
-	if !strings.EqualFold(strings.TrimSpace(mediaType), "application/json") {
-		return false
-	}
-	_, ok := part.Metadata[OutputSchemaSHA256MetadataKey].(string)
+	_, ok := StructuredOutputSchemaSHA256(part)
 	return ok
 }
 

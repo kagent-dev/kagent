@@ -24,6 +24,10 @@ func TestValidateOutputSchema(t *testing.T) {
 			}`,
 		},
 		{
+			name:   "standard schema identity keywords",
+			schema: `{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://example.com/result.schema.json","type":"object"}`,
+		},
+		{
 			name: "all portable schema forms",
 			schema: `{
 				"type":"object",

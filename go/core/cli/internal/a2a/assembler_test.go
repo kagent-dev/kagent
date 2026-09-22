@@ -59,9 +59,7 @@ func TestAssemblerAcceptsMessageResult(t *testing.T) {
 }
 
 func TestPartsTextSerializesStructuredOutput(t *testing.T) {
-	structured := a2atype.NewDataPart(map[string]any{"answer": float64(4)})
-	structured.MediaType = "application/json"
-	structured.SetMeta(kagenta2a.OutputSchemaSHA256MetadataKey, "digest")
+	structured := kagenta2a.NewStructuredOutputPart(map[string]any{"answer": float64(4)}, "digest")
 	toolResult := a2atype.NewDataPart(map[string]any{"name": "tool", "response": "ignored"})
 
 	text, err := PartsText(a2atype.ContentParts{toolResult, structured})

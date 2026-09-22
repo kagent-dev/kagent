@@ -124,13 +124,19 @@ func (c *schemaConverter) convert(schema *jsonschema.Schema, stack map[*jsonsche
 		}
 		converted.AnyOf = append(converted.AnyOf, value)
 	}
+	convertedEnum := make([]string, 0, len(schema.Enum))
 	for _, value := range schema.Enum {
 		text, ok := value.(string)
 		if !ok {
-			continue
+			// genai.Schema can only express string enums. Omitting a mixed or
+			// non-string enum keeps the provider schema broader than the canonical
+			// contract; final response validation still enforces the full enum.
+			convertedEnum = nil
+			break
 		}
-		converted.Enum = append(converted.Enum, text)
+		convertedEnum = append(convertedEnum, text)
 	}
+	converted.Enum = convertedEnum
 	if schema.Const != nil {
 		if value, ok := (*schema.Const).(string); ok {
 			converted.Enum = []string{value}

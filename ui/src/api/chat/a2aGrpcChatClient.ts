@@ -111,7 +111,7 @@ const HISTORY_PAGE_LIMIT = 50;
  * https://github.com/a2aproject/A2A/pull/2129
  */
 const TIMELINE_POSITION_METADATA_KEY = "kagent.dev/timeline-position";
-const OUTPUT_SCHEMA_SHA256_METADATA_KEY = "kagent.dev/output-schema-sha256";
+const OUTPUT_SCHEMA_SHA256_METADATA_KEY = "kagent.dev/a2a/output-schema-sha256";
 
 /** Ids for the messages the wire did not name. */
 let counter = 0;

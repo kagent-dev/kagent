@@ -19,7 +19,7 @@ describe("ChatMessageItem interaction layout", () => {
                 dataKind: "structured_output",
                 data: { status: "success", payload: { customerId: "12345" } },
                 mediaType: "application/json",
-                metadata: { "kagent.dev/output-schema-sha256": "abc123456789" },
+                metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123456789" },
               },
             ],
           }}

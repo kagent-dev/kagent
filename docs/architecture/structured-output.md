@@ -9,7 +9,7 @@ two fields are mutually exclusive.
 apiVersion: kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
-  name: data-extractor`
+  name: data-extractor
 spec:
   modelConfig:
     name: default-model-config
@@ -39,7 +39,7 @@ root agent, its own schema applies to that independent revision.
 The runtime suppresses partial root-answer fragments, validates the complete
 value, and publishes the successful result as one A2A `DataPart` with media
 type `application/json`. The part also carries the canonical schema digest in
-`kagent.dev/output-schema-sha256`. The generated Agent Card advertises
+`kagent.dev/a2a/output-schema-sha256`. The generated Agent Card advertises
 `application/json` as its default output mode.
 
 Progress updates, tool events, approval requests, and input-required messages
@@ -71,8 +71,7 @@ fail compilation.
 
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).
-Runtime validation and A2A conversion are owned by the Go and Python kagent ADK
-executors.
+Runtime validation and A2A conversion are owned by the Go kagent ADK executor.
 
 ## References
 

@@ -8,9 +8,13 @@ import (
 )
 
 func TestStructuredOutputJSON(t *testing.T) {
-	part := a2atype.NewDataPart(map[string]any{"answer": float64(4)})
+	part := NewStructuredOutputPart(map[string]any{"answer": float64(4)}, "digest")
+	require.Equal(t, "application/json", part.MediaType)
+	digest, ok := StructuredOutputSchemaSHA256(part)
+	require.True(t, ok)
+	require.Equal(t, "digest", digest)
+
 	part.MediaType = "application/json; charset=utf-8"
-	part.SetMeta(OutputSchemaSHA256MetadataKey, "digest")
 
 	text, err := StructuredOutputJSON(part)
 	require.NoError(t, err)

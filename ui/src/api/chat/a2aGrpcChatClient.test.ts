@@ -680,7 +680,7 @@ describe("A2AGrpcChatClient.send", () => {
       { payload: { customerId: "12345" }, status: "success" },
       {
         mediaType: "application/json",
-        metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+        metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
       },
     );
     const events = await turn([
@@ -706,7 +706,7 @@ describe("A2AGrpcChatClient.send", () => {
       dataKind: "structured_output",
       data: { payload: { customerId: "12345" }, status: "success" },
       mediaType: "application/json",
-      metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+      metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
     });
   });
 
@@ -715,7 +715,7 @@ describe("A2AGrpcChatClient.send", () => {
       { name: "ask_user", answer: 4 },
       {
         mediaType: "application/json",
-        metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+        metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
       },
     );
     const events = await turn([
@@ -1260,7 +1260,7 @@ describe("A2AGrpcChatClient.history", () => {
                 { status: "success" },
                 {
                   mediaType: "application/json",
-                  metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+                  metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
                 },
               ),
             ],
@@ -1275,7 +1275,7 @@ describe("A2AGrpcChatClient.history", () => {
       dataKind: "structured_output",
       data: { status: "success" },
       mediaType: "application/json",
-      metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+      metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
     });
   });
 

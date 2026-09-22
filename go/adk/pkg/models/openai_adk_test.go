@@ -48,10 +48,8 @@ func TestOpenAIModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) 
 		Logger: slog.New(slog.DiscardHandler),
 	}
 	schema := map[string]any{
-		"type":                 "object",
-		"properties":           map[string]any{"answer": map[string]any{"type": "integer"}},
-		"required":             []any{"answer"},
-		"additionalProperties": false,
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "integer"}},
 	}
 	request := &model.LLMRequest{
 		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "calculate"}}}},
@@ -73,10 +71,13 @@ func TestOpenAIModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) 
 		t.Fatalf("response_format = %#v", body["response_format"])
 	}
 	jsonSchema, ok := responseFormat["json_schema"].(map[string]any)
-	if !ok || jsonSchema["strict"] != true {
+	if !ok {
 		t.Fatalf("response_format.json_schema = %#v", responseFormat["json_schema"])
 	}
-	if gotSchema, ok := jsonSchema["schema"].(map[string]any); !ok || gotSchema["additionalProperties"] != false {
+	if _, present := jsonSchema["strict"]; present {
+		t.Fatalf("response_format.json_schema.strict must be omitted: %#v", jsonSchema)
+	}
+	if gotSchema, ok := jsonSchema["schema"].(map[string]any); !ok || gotSchema["type"] != "object" {
 		t.Fatalf("response_format.json_schema.schema = %#v", jsonSchema["schema"])
 	}
 	if tools, ok := body["tools"].([]any); !ok || len(tools) != 1 {
