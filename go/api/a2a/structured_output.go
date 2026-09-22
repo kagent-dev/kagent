@@ -31,13 +31,13 @@ func IsStructuredOutputPart(part *a2atype.Part) bool {
 
 // StructuredOutputJSON serializes a structured terminal result for consumers
 // whose output contract is text, such as the CLI and remote-agent tools.
-func StructuredOutputJSON(part *a2atype.Part) (string, bool, error) {
+func StructuredOutputJSON(part *a2atype.Part) (string, error) {
 	if !IsStructuredOutputPart(part) {
-		return "", false, nil
+		return "", fmt.Errorf("part is not structured output")
 	}
 	encoded, err := json.Marshal(part.Data())
 	if err != nil {
-		return "", true, fmt.Errorf("marshal structured output: %w", err)
+		return "", fmt.Errorf("marshal structured output: %w", err)
 	}
-	return string(encoded), true, nil
+	return string(encoded), nil
 }

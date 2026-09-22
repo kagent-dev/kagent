@@ -538,13 +538,14 @@ func extractTextFromTask(task *a2atype.Task) (string, error) {
 					texts = append(texts, text)
 					continue
 				}
-				text, ok, err := kagenta2a.StructuredOutputJSON(part)
+				if !kagenta2a.IsStructuredOutputPart(part) {
+					continue
+				}
+				text, err := kagenta2a.StructuredOutputJSON(part)
 				if err != nil {
 					return "", err
 				}
-				if ok {
-					texts = append(texts, text)
-				}
+				texts = append(texts, text)
 			}
 		}
 		if len(texts) > 0 {
@@ -572,13 +573,14 @@ func extractTextFromMessage(message *a2atype.Message) (string, error) {
 			texts = append(texts, text)
 			continue
 		}
-		text, ok, err := kagenta2a.StructuredOutputJSON(part)
+		if !kagenta2a.IsStructuredOutputPart(part) {
+			continue
+		}
+		text, err := kagenta2a.StructuredOutputJSON(part)
 		if err != nil {
 			return "", err
 		}
-		if ok {
-			texts = append(texts, text)
-		}
+		texts = append(texts, text)
 	}
 	return strings.Join(texts, "\n"), nil
 }

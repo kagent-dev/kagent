@@ -86,13 +86,14 @@ func PartsText(parts a2atype.ContentParts) (string, error) {
 			text.WriteString(value)
 			continue
 		}
-		value, ok, err := kagenta2a.StructuredOutputJSON(part)
+		if !kagenta2a.IsStructuredOutputPart(part) {
+			continue
+		}
+		value, err := kagenta2a.StructuredOutputJSON(part)
 		if err != nil {
 			return "", err
 		}
-		if ok {
-			text.WriteString(value)
-		}
+		text.WriteString(value)
 	}
 	return text.String(), nil
 }
