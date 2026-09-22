@@ -209,7 +209,12 @@ pages, and none of their totals is `rows.length`. Counting what arrived and call
 total is the lie a separate summary read exists to prevent, which is what
 `GetSubstrateSummary` is for.
 
-## Auto-titling costs a read per row, so the table still does not do it
+## Not deferred coverage: auto-titling costs a read per row
+
+A cost decision with a server-side fix, rather than a spec somebody owes. What the
+table renders today is pinned by `agents/agent-page.spec.ts` — that it is never a bare
+UUID, and that the derived title appears where the transcript is in hand — so the
+behaviour is covered; what is open is making a better behaviour possible.
 
 A conversation is named by the reader, and an unnamed one can be titled from its first
 message — `ListTasks{ContextID: instanceId}` returns the history. That is **free on the
@@ -232,17 +237,22 @@ Two ways it could stop being a trade-off, both server-side and neither invented 
 - **`ListAgentInstances` gains a field mask** for it, so callers that want it pay and
   callers that do not are unaffected.
 
-Until then, what a list renders for an unnamed conversation is pinned by
-`agents/agent-page.spec.ts` — both that it is never a bare UUID, and that the derived
-title appears where the transcript is in hand.
+Neither has landed, checked at the source rather than here: `AgentInstance` in
+`proto/kagent/api/v1alpha1/agent_instances.proto` gained `name` (field 13, the
+reader-supplied title) and `context_id`, and carries nothing derived from the
+transcript.
 
-## An agent's conversation search is over what was fetched, and the page-following is why
+## Not a defect yet: an agent's conversation search is over what was fetched
+
+A tripwire rather than a gap, and the distinction is the whole entry: the search is
+honest today and stops being honest on a change somebody will make for other reasons.
 
 `ListAgentInstances` narrows to one agent **on the server**: it takes `agent_template`
 and `harness` and resolves them through the prepared revision. That is the narrowing
 that matters, because it is the one the paging is applied after. What the request does
-**not** carry is a search term or a sort field, so the agent page's search box and column
-sorts run in the browser.
+**not** carry is a search term or a sort field — `ListAgentInstancesRequest` is
+`all_creators`, `page`, `agent_template` and `harness`, and nothing else — so the agent
+page's search box and column sorts run in the browser.
 
 That is honest here for a reason worth stating, because it is the one read on the list
 above that is paged at all: the client follows every page token before rendering anything
