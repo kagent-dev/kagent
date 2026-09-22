@@ -10,6 +10,8 @@ import asyncio
 import concurrent.futures
 import functools
 import logging
+import multiprocessing
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Dict
 
@@ -30,6 +32,81 @@ from kagent.skills import (
 )
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+
+def _kill_workers(executor: concurrent.futures.ProcessPoolExecutor) -> None:
+    """Terminate the pool's worker processes.
+
+    ProcessPoolExecutor has no public way to stop a worker that is mid-call:
+    shutdown() waits for it rather than ending it, and cancelling the future
+    does nothing to code that never checks for cancellation. So a runaway
+    match has to be killed through the private _processes mapping.
+
+    If a future Python removes that attribute this must be *loud*. Silently
+    skipping the kill would restore the original defect -- a pathological
+    pattern spinning a core until the pod restarts -- with no signal at all.
+    """
+    processes = getattr(executor, "_processes", None)
+    if processes is None:
+        logger.warning(
+            "ProcessPoolExecutor._processes is unavailable; a timed-out grep "
+            "worker cannot be killed and may spin until the process exits"
+        )
+        return
+    for proc in list(processes.values()):
+        try:
+            proc.kill()
+        except OSError:
+            # ProcessLookupError when the worker already exited -- expected
+            # on the success path. Deliberately narrow: an AttributeError
+            # here would mean kill() changed shape, and that must surface
+            # rather than be swallowed, same as a missing _processes above.
+            logger.debug("grep_file: worker already gone", exc_info=True)
+
+
+async def _run_with_deadline(call: Callable[[], str], timeout_seconds: float) -> str:
+    """Run call in a worker process, abandoning and killing it past the deadline.
+
+    A process rather than a thread, and that is load-bearing rather than a
+    tuning choice. `re` does not release the GIL while matching, so a
+    catastrophic pattern run in a *thread* freezes every thread in the
+    interpreter -- the event loop included. asyncio.wait_for then cannot fire,
+    because the coroutine that would fire it never gets scheduled: the timeout
+    silently becomes unenforceable exactly when it is needed. Reproduced with
+    `(a+)+$` against 32 "a"s plus "!": a 0.5s timeout did not fire and an
+    independent 50ms heartbeat stopped dead until the process was killed.
+
+    A worker process has its own GIL, so the loop stays responsive, the
+    deadline is honored, and -- unlike a thread -- the runaway can be killed.
+
+    The pool is per-call and single-worker. A shared pool would save ~100ms of
+    spawn per call, but then a timeout has to recycle shared state: killing
+    workers belonging to unrelated in-flight greps and surfacing
+    BrokenProcessPool to callers that did nothing wrong. At ~100ms on a tool
+    call inside a multi-second model turn, that complexity is not worth
+    buying; one call owning one process keeps the failure story trivial.
+
+    "spawn" rather than the Linux default "fork": this server is threaded, and
+    forking a threaded process can deadlock a child that inherits a lock held
+    by a thread that does not exist in it. Callers pass a callable defined in
+    kagent.skills, so the spawned child imports only that light module, never
+    this one's google.adk dependency chain.
+    """
+    loop = asyncio.get_running_loop()
+    executor = concurrent.futures.ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=multiprocessing.get_context("spawn"),
+    )
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(executor, call), timeout=timeout_seconds)
+    finally:
+        # Unconditional, and not only for the timeout path: a pool worker stays
+        # alive after finishing a task, so on success there is still an idle
+        # process here. Killing it is how a single-use pool is reclaimed --
+        # shutdown() below signals the worker but does not end one that is
+        # mid-match, which is the case that matters.
+        _kill_workers(executor)
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _resolve_working_path(tool_context: ToolContext, path_str: str) -> tuple[Path, Path]:
@@ -189,22 +266,10 @@ class GrepFileTool(BaseTool):
 
     # Bounds regex execution time: the pattern is agent-controlled, and Python's
     # backtracking `re` engine can take catastrophically long on adversarial
-    # patterns (unlike Go's RE2-based regexp, which is linear-time). Note this
-    # only bounds the *caller's* wait -- CPython can't forcibly stop a running
-    # thread, so a pathological match keeps running in the background after
-    # the timeout fires.
+    # patterns (unlike Go's RE2-based regexp, which is linear-time). The match
+    # runs in a worker process so this deadline can actually be enforced -- see
+    # _run_with_deadline for why that is required rather than merely tidy.
     _TIMEOUT_SECONDS = 30
-
-    # A small dedicated pool, rather than asyncio's shared default executor,
-    # so a hung or catastrophically slow match can only ever starve other
-    # grep_file calls -- not unrelated to_thread-based work elsewhere in the
-    # process (token counting, embeddings, other provider clients). Note
-    # ThreadPoolExecutor workers are non-daemon threads that CPython's atexit
-    # hook joins before the interpreter exits, so a permanently-stuck worker
-    # (e.g. from a pathological pattern) also blocks a clean process shutdown,
-    # not just steady-state grep_file availability -- bounded in practice by
-    # Kubernetes' terminationGracePeriodSeconds before SIGKILL.
-    _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="grep-file")
 
     def __init__(self, skills_directory: str | Path):
         super().__init__(
@@ -245,12 +310,16 @@ class GrepFileTool(BaseTool):
 
     async def run_async(self, *, args: Dict[str, Any], tool_context: ToolContext) -> str:
         """Search a file or directory for a pattern."""
-        pattern = args.get("pattern", "").strip()
+        # Deliberately not stripped: whitespace is meaningful in a regex, and
+        # trimming turns "foo " into "foo", which then matches text the
+        # caller's pattern excludes. Trim only to decide emptiness, and search
+        # with what was actually asked for -- the same split skills.go makes.
+        pattern = args.get("pattern", "")
         path_str = args.get("path", "").strip()
         recursive = args.get("recursive", False)
         ignore_case = args.get("ignore_case", False)
 
-        if not pattern:
+        if not pattern.strip():
             return "Error: No pattern provided"
         if not path_str:
             return "Error: No file path provided"
@@ -258,20 +327,16 @@ class GrepFileTool(BaseTool):
         try:
             path, working_dir = _resolve_working_path(tool_context, path_str)
 
-            loop = asyncio.get_running_loop()
-            return await asyncio.wait_for(
-                loop.run_in_executor(
-                    self._EXECUTOR,
-                    functools.partial(
-                        grep_content,
-                        path,
-                        pattern,
-                        recursive=recursive,
-                        ignore_case=ignore_case,
-                        allowed_root=[working_dir, Path(self.skills_directory)],
-                    ),
+            return await _run_with_deadline(
+                functools.partial(
+                    grep_content,
+                    path,
+                    pattern,
+                    recursive=recursive,
+                    ignore_case=ignore_case,
+                    allowed_root=[working_dir, Path(self.skills_directory)],
                 ),
-                timeout=self._TIMEOUT_SECONDS,
+                self._TIMEOUT_SECONDS,
             )
         except (TimeoutError, asyncio.TimeoutError):
             # asyncio.TimeoutError is TimeoutError on Python >=3.11, but this
