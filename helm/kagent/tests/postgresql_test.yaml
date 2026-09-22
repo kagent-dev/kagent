@@ -601,3 +601,34 @@ tests:
       - equal:
           path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
           value: topology.kubernetes.io/zone
+
+  # ===========================================================================
+  # Substrate DDL connection Secret
+  # ===========================================================================
+
+  - it: should fail when the Substrate DDL secret ref is enabled without a name
+    template: postgresql-secret.yaml
+    set:
+      substrate:
+        enabled: true
+        postgres:
+          ddlConnectionStringSecretRef:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "substrate.postgres.ddlConnectionStringSecretRef.name is required when ddlConnectionStringSecretRef.enabled is set"
+
+  - it: should render when the Substrate DDL secret ref names an existing Secret
+    template: postgresql-secret.yaml
+    set:
+      substrate:
+        enabled: true
+        postgres:
+          connectionStringSecretRef:
+            enabled: true
+            name: shared-dml-secret
+          ddlConnectionStringSecretRef:
+            enabled: true
+            name: shared-ddl-secret
+    asserts:
+      - notFailedTemplate: {}

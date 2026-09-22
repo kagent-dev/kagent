@@ -785,6 +785,13 @@ substrate:
       enabled: false
       name: ""
       key: ddlConnectionString
+    pool:
+      # -- Maximum physical connection lifetime for Substrate's pools.
+      # Bounds how long a rotated credential stays in use. Set it longer than the
+      # delay before the platform publishes an updated Secret, or connections
+      # retire before the new credential arrives. Empty keeps the pgx default,
+      # which never retires a connection and so never picks up a rotation.
+      maxConnLifetime: ""
   # Grant each agent atespace access to its credential namespace explicitly.
   # HTTPS also requires the egress-mitm-ca-pool Secret in Substrate's namespace.
   credentialProvider:
