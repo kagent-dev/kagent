@@ -6,8 +6,8 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
-// AuthorizationService answers advisory access checks for catalog UI actions.
-// The resource operation remains authoritative.
+// AuthorizationService answers advisory access checks for catalog operations.
+// Catalog operations remain authoritative.
 service AuthorizationService {
   rpc CheckAccess(CheckAccessRequest) returns (CheckAccessResponse);
 }
@@ -60,8 +60,8 @@ message AccessTarget {
     max_len: 63
     pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
   }];
-  // When omitted, the review checks whether any valid resource name in the
-  // namespace is permitted.
+  // When present, the review checks this exact resource identity. When omitted,
+  // it checks whether any valid resource name in the namespace is permitted.
   optional string name = 2 [(buf.validate.field).string = {
     min_len: 1
     max_len: 253

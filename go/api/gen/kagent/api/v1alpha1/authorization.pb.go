@@ -192,8 +192,8 @@ func (x *CheckAccessRequest) GetTargets() []*AccessTarget {
 type AccessTarget struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// When omitted, the review checks whether any valid resource name in the
-	// namespace is permitted.
+	// When present, the review checks this exact resource identity. When omitted,
+	// it checks whether any valid resource name in the namespace is permitted.
 	Name          *string `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
