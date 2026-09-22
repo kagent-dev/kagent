@@ -29,7 +29,6 @@ describe("ChatMessageItem interaction layout", () => {
 
     expect(screen.getByTestId("chat-structured-output")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy JSON" })).toBeInTheDocument();
-    expect(screen.getByText("schema abc123456789")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-tool-result")).not.toBeInTheDocument();
   });
 

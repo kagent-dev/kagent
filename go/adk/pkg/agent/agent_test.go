@@ -7,7 +7,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/stretchr/testify/require"
 )
 
@@ -469,18 +468,18 @@ func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 func TestUsesRawOutputSchema(t *testing.T) {
 	tests := []struct {
 		name  string
-		model apiadk.Model
+		model adk.Model
 		want  bool
 	}{
-		{name: "OpenAI", model: &apiadk.OpenAI{}, want: true},
-		{name: "Azure OpenAI", model: &apiadk.AzureOpenAI{}, want: true},
-		{name: "Anthropic", model: &apiadk.Anthropic{}, want: true},
-		{name: "Anthropic on Vertex", model: &apiadk.GeminiAnthropic{}, want: true},
-		{name: "Bedrock Converse", model: &apiadk.Bedrock{}, want: true},
-		{name: "Foundry OpenAI", model: &apiadk.Foundry{}, want: true},
-		{name: "Foundry Anthropic", model: &apiadk.Foundry{APIFormat: apiadk.FoundryAPIFormatAnthropic}, want: true},
-		{name: "Gemini", model: &apiadk.Gemini{}, want: false},
-		{name: "Ollama", model: &apiadk.Ollama{}, want: false},
+		{name: "OpenAI", model: &adk.OpenAI{}, want: true},
+		{name: "Azure OpenAI", model: &adk.AzureOpenAI{}, want: true},
+		{name: "Anthropic", model: &adk.Anthropic{}, want: true},
+		{name: "Anthropic on Vertex", model: &adk.GeminiAnthropic{}, want: true},
+		{name: "Bedrock Converse", model: &adk.Bedrock{}, want: true},
+		{name: "Foundry OpenAI", model: &adk.Foundry{}, want: true},
+		{name: "Foundry Anthropic", model: &adk.Foundry{APIFormat: adk.FoundryAPIFormatAnthropic}, want: true},
+		{name: "Gemini", model: &adk.Gemini{}, want: false},
+		{name: "Ollama", model: &adk.Ollama{}, want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
