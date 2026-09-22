@@ -125,6 +125,23 @@ func TestCheckAccessNamedTargetsDoNotReadScope(t *testing.T) {
 	assert.Empty(t, authorizer.scopeCalls)
 }
 
+func TestCheckAccessHonorsReadOnlyShare(t *testing.T) {
+	authorizer := &testAuthorizer{}
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{ReadOnly: true})
+	target := kubeauth.ReviewTarget{Namespace: "team-a", Name: "assistant"}
+
+	results, err := kubeauth.NewAccessReviewer(authorizer).Review(
+		ctx,
+		auth.ResourceAgentTemplate,
+		[]auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbUpdate, auth.VerbDelete},
+		[]kubeauth.ReviewTarget{target},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []kubeauth.ReviewResult{{Target: target, AllowedVerbs: []auth.Verb{auth.VerbGet}}}, results)
+	assert.Equal(t, []checkCall{{verb: auth.VerbGet, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "assistant"}}}, authorizer.checkCalls)
+}
+
 func TestCheckAccessScopeFailures(t *testing.T) {
 	tests := []struct {
 		name       string

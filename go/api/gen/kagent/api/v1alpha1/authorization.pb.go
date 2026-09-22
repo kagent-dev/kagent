@@ -192,8 +192,8 @@ func (x *CheckAccessRequest) GetTargets() []*AccessTarget {
 type AccessTarget struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// When present, the review checks this exact resource identity. When omitted,
-	// it checks whether any valid resource name in the namespace is permitted.
+	// A name checks this exact resource identity; omitting it asks whether any name is permitted.
+	// GET requires a name.
 	Name          *string `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -343,14 +343,15 @@ var File_kagent_api_v1alpha1_authorization_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_authorization_proto_rawDesc = "" +
 	"\n" +
-	"'kagent/api/v1alpha1/authorization.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\"\xb8\x03\n" +
+	"'kagent/api/v1alpha1/authorization.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\"\xbf\x04\n" +
 	"\x12CheckAccessRequest\x12_\n" +
 	"\rresource_type\x18\x01 \x01(\x0e2..kagent.api.v1alpha1.AuthorizationResourceTypeB\n" +
-	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\fresourceType\x12S\n" +
-	"\x05verbs\x18\x02 \x03(\x0e2&.kagent.api.v1alpha1.AuthorizationVerbB\x15\xbaH\x12\x92\x01\x0f\b\x01\x10\x04\x18\x01\"\a\x82\x01\x04\x10\x01 \x00R\x05verbs\x12G\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\fresourceType\x12Q\n" +
+	"\x05verbs\x18\x02 \x03(\x0e2&.kagent.api.v1alpha1.AuthorizationVerbB\x13\xbaH\x10\x92\x01\r\b\x01\x18\x01\"\a\x82\x01\x04\x10\x01 \x00R\x05verbs\x12G\n" +
 	"\atargets\x18\x03 \x03(\v2!.kagent.api.v1alpha1.AccessTargetB\n" +
-	"\xbaH\a\x92\x01\x04\b\x01\x10dR\atargets:\xa2\x01\xbaH\x9e\x01\x1a\x9b\x01\n" +
-	"\x18supported_resource_verbs\x126Harness supports only CREATE and DELETE access reviews\x1aGthis.resource_type != 2 || this.verbs.all(verb, verb == 2 || verb == 4)\"\xca\x01\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10dR\atargets:\xab\x02\xbaH\xa7\x02\x1a\x9b\x01\n" +
+	"\x18supported_resource_verbs\x126Harness supports only CREATE and DELETE access reviews\x1aGthis.resource_type != 2 || this.verbs.all(verb, verb == 2 || verb == 4)\x1a\x86\x01\n" +
+	"\vget_targets\x12(GET access reviews require named targets\x1aMthis.verbs.all(verb, verb != 1) || this.targets.all(target, has(target.name))\"\xca\x01\n" +
 	"\fAccessTarget\x12H\n" +
 	"\tnamespace\x18\x01 \x01(\tB*\xbaH'r%\x10\x01\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\x12g\n" +
 	"\x04name\x18\x02 \x01(\tBN\xbaHKrI\x10\x01\x18\xfd\x012B^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x04name\x88\x01\x01B\a\n" +
