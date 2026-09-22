@@ -145,6 +145,11 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 
 			refreshed := fresh.ConnConfig.Config.Copy()
 			if fileBacked {
+				// A rotation that issues a new user each cycle, keeping the
+				// previous one able to log in until the cycle after, needs new
+				// connections to dial as the incoming user while older ones
+				// finish on the outgoing one. Only the endpoint is fenced above.
+				connConfig.User = refreshed.User
 				connConfig.Password = refreshed.Password
 			}
 			connConfig.TLSConfig = refreshed.TLSConfig
@@ -162,7 +167,7 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 }
 
 func sameConnectionIdentity(a, b *pgx.ConnConfig) bool {
-	if a.Host != b.Host || a.Port != b.Port || a.Database != b.Database || a.User != b.User {
+	if a.Host != b.Host || a.Port != b.Port || a.Database != b.Database {
 		return false
 	}
 	return slices.EqualFunc(a.Fallbacks, b.Fallbacks, func(a, b *pgconn.FallbackConfig) bool {

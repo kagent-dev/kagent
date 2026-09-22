@@ -112,10 +112,13 @@ func TestPoolConfigRefreshesFileCredentials(t *testing.T) {
 
 	connConfig := config.ConnConfig.Copy()
 	initialTLS := connConfig.TLSConfig
-	writeDatabaseURL(t, path, "postgres://user:password-b@database:5432/app?sslmode=require&application_name=changed")
+	writeDatabaseURL(t, path, "postgres://user_v2:password-b@database:5432/app?sslmode=require&application_name=changed")
 	require.NoError(t, config.BeforeConnect(context.Background(), connConfig))
 
 	assert.Equal(t, "password-b", connConfig.Password)
+	// The user rotates with the password; only the endpoint is fenced.
+	assert.Equal(t, "user_v2", connConfig.User)
+	assert.Equal(t, "user", config.ConnConfig.User, "refresh must not mutate the pinned config")
 	assert.Equal(t, "kagent", connConfig.RuntimeParams["application_name"])
 	assert.NotSame(t, initialTLS, connConfig.TLSConfig)
 }
@@ -147,7 +150,6 @@ func TestPoolConfigRejectsRotatedIdentity(t *testing.T) {
 		{name: "host", url: "host=changed,secondary port=5432,5433 user=runtime password=password-b dbname=app sslmode=disable"},
 		{name: "port", url: "host=primary,secondary port=6432,5433 user=runtime password=password-b dbname=app sslmode=disable"},
 		{name: "database", url: "host=primary,secondary port=5432,5433 user=runtime password=password-b dbname=changed sslmode=disable"},
-		{name: "user", url: "host=primary,secondary port=5432,5433 user=changed password=password-b dbname=app sslmode=disable"},
 		{name: "fallback", url: "host=primary,changed port=5432,5433 user=runtime password=password-b dbname=app sslmode=disable"},
 	}
 
