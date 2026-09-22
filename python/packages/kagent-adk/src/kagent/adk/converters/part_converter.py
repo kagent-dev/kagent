@@ -66,34 +66,22 @@ def convert_a2a_part_to_genai_part(
         data_value = MessageToDict(a2a_part.data)
         metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
         if metadata and A2A_PART_TYPE_METADATA_KEY in metadata:
-            if (
-                metadata[A2A_PART_TYPE_METADATA_KEY]
-                == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-            ):
+            if metadata[A2A_PART_TYPE_METADATA_KEY] == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL:
                 if isinstance(data_value, dict):
                     return genai_types.Part(
                         function_call=genai_types.FunctionCall.model_validate(data_value, by_alias=True)
                     )
-            if (
-                metadata[A2A_PART_TYPE_METADATA_KEY]
-                == A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE
-            ):
+            if metadata[A2A_PART_TYPE_METADATA_KEY] == A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE:
                 if isinstance(data_value, dict):
                     return genai_types.Part(
                         function_response=genai_types.FunctionResponse.model_validate(data_value, by_alias=True)
                     )
-            if (
-                metadata[A2A_PART_TYPE_METADATA_KEY]
-                == A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT
-            ):
+            if metadata[A2A_PART_TYPE_METADATA_KEY] == A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT:
                 if isinstance(data_value, dict):
                     return genai_types.Part(
                         code_execution_result=genai_types.CodeExecutionResult.model_validate(data_value, by_alias=True)
                     )
-            if (
-                metadata[A2A_PART_TYPE_METADATA_KEY]
-                == A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE
-            ):
+            if metadata[A2A_PART_TYPE_METADATA_KEY] == A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE:
                 if isinstance(data_value, dict):
                     return genai_types.Part(
                         executable_code=genai_types.ExecutableCode.model_validate(data_value, by_alias=True)
