@@ -56,29 +56,44 @@ def _classify_walk_entry(root: Path, entry: Path) -> tuple[_WalkEntryAction, Pat
     "exists, resolves, and is a regular file" into one call. The outcomes
     agree; the number of branches reaching them does not.
 
-    One known divergence, not reachable through any case we could construct:
-    Go counts a failed Stat on a non-symlink as UNREADABLE, while
-    Path.is_file() swallows the OSError and lands here on SKIP. Reaching it
-    needs a stat that fails on an entry os.walk just listed -- EIO, a stale
-    NFS handle, a misbehaving FUSE mount. Symlink loops and broken links are
-    unaffected; both are UNREADABLE in either runtime.
+    One divergence remains, and it is narrower than a stat failure in general:
+    Path.is_file() swallows ENOENT, ENOTDIR, EBADF and ELOOP, so on a
+    non-symlink those return False and land on SKIP where Go's failed Stat
+    gives UNREADABLE. Reaching it needs the entry to vanish between os.walk
+    listing it and the stat below. EACCES is *not* in that set -- it raises,
+    and is caught below as UNREADABLE, so the two runtimes agree there.
+    Symlink loops and broken links are unaffected; both are UNREADABLE in
+    either runtime.
 
     Returns the resolved path alongside GREP so the caller reads what was
     just checked rather than re-resolving the symlink separately.
     """
-    # is_file() follows symlinks and checks S_ISREG, so a False covers two
-    # cases that deserve different treatment.
-    if not entry.is_file():
-        # A broken symlink (or a symlink loop) is a genuine read failure.
-        # Counting it is what stops a tree of dangling links from reporting a
-        # confidently empty "no matches found".
-        if entry.is_symlink() and not entry.exists():
-            return _WalkEntryAction.UNREADABLE, None
-        # A FIFO/socket/device is excluded by policy, not failure: opening one
-        # can block indefinitely, and grep has no business reading it.
-        return _WalkEntryAction.SKIP, None
+    try:
+        # is_file() follows symlinks and checks S_ISREG, so a False covers two
+        # cases that deserve different treatment.
+        if not entry.is_file():
+            # A broken symlink (or a symlink loop) is a genuine read failure.
+            # Counting it is what stops a tree of dangling links from reporting
+            # a confidently empty "no matches found".
+            if entry.is_symlink() and not entry.exists():
+                return _WalkEntryAction.UNREADABLE, None
+            # A FIFO/socket/device is excluded by policy, not failure: opening
+            # one can block indefinitely, and grep has no business reading it.
+            return _WalkEntryAction.SKIP, None
 
-    resolved = entry.resolve()
+        resolved = entry.resolve()
+    except OSError:
+        # Every stat above is on an entry os.walk has already listed, so a
+        # raise here means the entry became unreadable in between -- most often
+        # because its directory is readable but not searchable (mode 0o444),
+        # which lists names while denying stat on the children.
+        #
+        # This must be an outcome rather than an exception: the caller counts
+        # UNREADABLE and keeps walking, so letting it propagate would discard
+        # every match already found elsewhere in the tree. Go reaches the same
+        # answer by mapping each EvalSymlinks/Stat failure to unreadable.
+        return _WalkEntryAction.UNREADABLE, None
+
     # Bound each entry by the directory actually being searched. The caller's
     # allowed_root is the whole session plus the skills dir, so it alone would
     # let a symlink here pull in a file from a sibling directory nobody asked

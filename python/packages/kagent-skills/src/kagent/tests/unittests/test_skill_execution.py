@@ -503,6 +503,34 @@ def test_classify_walk_entry_covers_each_outcome(tmp_path):
     assert _classify_walk_entry(root, loop) == (_WalkEntryAction.UNREADABLE, None)
 
 
+def test_classify_walk_entry_counts_a_permission_error_as_unreadable(tmp_path):
+    """A stat that fails with EACCES is a read failure, not a policy skip.
+
+    Path.is_file() swallows ENOENT/ENOTDIR/EBADF/ELOOP but *raises* on EACCES,
+    so without an explicit guard this escapes the classifier entirely rather
+    than returning an outcome. Go's classifyWalkEntry maps every EvalSymlinks
+    or Stat failure to walkEntryUnreadable; this pins Python to the same answer.
+
+    Mode 0o444 is the case that matters: dropping only the execute bit leaves
+    the directory listable, so os.walk succeeds and hands us an entry we then
+    cannot stat. The suite's other permission tests use 0o000, where os.walk
+    itself fails and the error is caught by the walk_errors path instead.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    locked_dir = tmp_path / "locked"
+    locked_dir.mkdir()
+    entry = locked_dir / "unreachable.txt"
+    entry.write_text("foo\n")
+    locked_dir.chmod(0o444)
+
+    try:
+        assert _classify_walk_entry(tmp_path, entry) == (_WalkEntryAction.UNREADABLE, None)
+    finally:
+        locked_dir.chmod(0o755)
+
+
 def test_classify_walk_entry_treats_a_fifo_as_a_silent_skip(tmp_path):
     """A FIFO is excluded by policy, not failure, so it must not be counted."""
     fifo_path = tmp_path / "pipe"
@@ -616,6 +644,36 @@ def test_grep_content_recursive_does_not_abort_or_discard_matches_on_an_unreadab
         noperm_sub.chmod(0o755)
 
     assert "match.txt:1:foo readable" in result
+
+
+def test_grep_content_keeps_sibling_matches_when_an_entry_cannot_be_statted(tmp_path):
+    """An unstattable entry must be counted, not allowed to abort the search.
+
+    This is the 0o444 sibling of the 0o000 test above, and it reaches a
+    different code path: os.walk *succeeds* here and lists the entry, so the
+    failure surfaces from the classifier's stat rather than from walk_errors.
+    Letting it propagate discards matches already found elsewhere in the tree.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    ok_sub = tmp_path / "aaa_ok"
+    ok_sub.mkdir()
+    (ok_sub / "match.txt").write_text("foo readable\n")
+
+    # Readable but not searchable: listable, but its children cannot be stat'ed.
+    locked_sub = tmp_path / "mmm_locked"
+    locked_sub.mkdir()
+    (locked_sub / "hidden.txt").write_text("foo hidden\n")
+    locked_sub.chmod(0o444)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        locked_sub.chmod(0o755)
+
+    assert "match.txt:1:foo readable" in result
+    assert "could not be read" in result
 
 
 def test_grep_content_annotates_skip_count_alongside_real_matches(tmp_path):
