@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -152,6 +153,23 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		if spec.Bedrock != nil {
 			endpoint = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", spec.Bedrock.Region)
 		}
+	case v1alpha3.ModelProviderOllama:
+		// Ollama Cloud is the only keyed Ollama endpoint. A local daemon needs no
+		// credential, so there is no binding to declare unless a cloud model is
+		// actually reachable: a cloud-tagged model with a key, and no explicit
+		// host that would win over it. Without the key this returns empty and the
+		// env var is treated as a plain secret reference, which is correct — no
+		// request leaves for api.ollama.com.
+		if spec.Ollama == nil || spec.Ollama.Host != "" {
+			break
+		}
+		if !models.IsOllamaCloudModel(spec.Model) {
+			break
+		}
+		if spec.APIKeySecret == "" && !spec.APIKeyPassthrough && spec.Ollama.APIKey == "" {
+			break
+		}
+		name, endpoint, header, prefix = env.OllamaAPIKey.Name(), "https://api.ollama.com", "authorization", "Bearer "
 	case v1alpha3.ModelProviderFoundry:
 		name, endpoint, header = env.FoundryAPIKey.Name(), resolved.FoundryEndpoint, "api-key"
 		if spec.Foundry != nil && spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {

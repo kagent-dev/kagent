@@ -152,6 +152,13 @@ var (
 		"Base URL for the Ollama API endpoint.",
 		ComponentAgentRuntime,
 	)
+
+	OllamaAPIKey = RegisterStringVar(
+		"OLLAMA_API_KEY",
+		"",
+		"API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly.",
+		ComponentAgentRuntime,
+	)
 )
 
 // SAP AI Core

@@ -233,6 +233,10 @@ func (g *GeminiAnthropic) GetType() string {
 
 type Ollama struct {
 	BaseModel
+	// APIKey authenticates against Ollama Cloud. The agent runtime reads it from
+	// the provider's environment variable, so agents should not set it in the
+	// serialized config; it exists for embedders constructing a model directly.
+	APIKey  string            `json:"api_key,omitempty"`
 	Options map[string]string `json:"options,omitempty"`
 }
 

@@ -338,10 +338,11 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		return models.NewAnthropicModel(ctx, cfg)
 
 	case *adk.Ollama:
+		// Leave the host empty when the controller did not set one: NewOllamaModel
+		// then applies the cloud/local routing. Defaulting it to localhost here
+		// would look like an operator-chosen endpoint and pin every cloud model
+		// to the local daemon.
 		baseURL := os.Getenv("OLLAMA_API_BASE")
-		if baseURL == "" {
-			baseURL = "http://localhost:11434"
-		}
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultOllamaModel
@@ -351,7 +352,10 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
 			Model:           modelName,
 			Host:            baseURL,
-			Options:         m.Options,
+			// An inline key from the ModelConfig wins; otherwise take the one the
+			// controller mounts, which is how an apiKeySecret reaches the pod.
+			APIKey:  firstNonEmpty(m.APIKey, os.Getenv("OLLAMA_API_KEY")),
+			Options: m.Options,
 		}
 		return models.NewOllamaModel(ctx, cfg)
 
@@ -443,6 +447,17 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
 	}
+}
+
+// firstNonEmpty returns the first non-empty string. It lets an explicit value
+// from the model config outrank an environment fallback without a nil check.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // transportConfigFromBase builds a TransportConfig from the shared BaseModel fields.

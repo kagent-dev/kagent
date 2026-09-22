@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -373,9 +374,37 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		destinations = append(destinations, "api.anthropic.com")
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "generativelanguage.googleapis.com")
+	case v1alpha3.ModelProviderOllama:
+		// Ollama's endpoint is the provider's own field and is not part of the
+		// serialized model, so the walk above never sees it. Unlike the three
+		// providers above there is no default to fall back on: the host is the
+		// operator's, so it has to be read from the spec.
+		if ollama := modelConfig.Spec.Ollama; ollama != nil {
+			if ollama.Host != "" {
+				destinations = appendURLHost(destinations, withDefaultScheme(ollama.Host))
+			}
+			// A cloud-tagged model with a key reaches api.ollama.com directly,
+			// bypassing the operator's host entirely, so the agent needs that
+			// host allowed as well or the call is denied by egress policy.
+			if ollama.APIKey != "" || modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough {
+				if models.IsOllamaCloudModel(modelConfig.Spec.Model) {
+					destinations = append(destinations, "api.ollama.com")
+				}
+			}
+		}
 	}
 	slices.Sort(destinations)
 	return slices.Compact(destinations)
+}
+
+// withDefaultScheme makes a bare host:port an absolute URL. The Ollama host
+// field accepts either form, but net/url reads the bare one as a scheme, so a
+// caller that wants a hostname from it has to normalize first.
+func withDefaultScheme(host string) string {
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		return host
+	}
+	return "http://" + host
 }
 
 // appendURLValues walks serialized provider config because endpoint fields are

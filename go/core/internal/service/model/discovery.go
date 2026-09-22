@@ -172,17 +172,38 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "claude-haiku-4-5", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderOllama: {
-			// FunctionCalling flags corrected: recent Ollama builds of these models
-			// support tool calling.
-			{Name: "llama3.3", FunctionCalling: true},
-			{Name: "llama3.1", FunctionCalling: true},
-			{Name: "qwen2.5-coder", FunctionCalling: true},
-			{Name: "mistral", FunctionCalling: true},
-			{Name: "mixtral", FunctionCalling: true},
-			{Name: "deepseek-r1", FunctionCalling: false}, // tool support inconsistent across tags
-			{Name: "llama2", FunctionCalling: false},
-			{Name: "llama2:13b", FunctionCalling: false},
-			{Name: "llama2:70b", FunctionCalling: false},
+			// Ollama Cloud models, as returned by GET https://api.ollama.com/api/tags.
+			// Every one reports "tools" in its capability set, so function calling
+			// is on throughout. Names are the bare tags the cloud API accepts;
+			// appending ":cloud" reaches the same model through a signed-in local
+			// daemon (see models.IsOllamaCloudModel for the routing rule).
+			{Name: "kimi-k2.6", FunctionCalling: true},
+			{Name: "kimi-k2.7-code", FunctionCalling: true},
+			{Name: "kimi-k3", FunctionCalling: true},
+			{Name: "glm-5.1", FunctionCalling: true},
+			{Name: "glm-5.2", FunctionCalling: true},
+			{Name: "glm-5.3", FunctionCalling: true},
+			{Name: "glm-5.3-flash", FunctionCalling: true},
+			{Name: "minimax-m2.7", FunctionCalling: true},
+			{Name: "minimax-m3", FunctionCalling: true},
+			{Name: "deepseek-v4.1-flash", FunctionCalling: true},
+			{Name: "deepseek-v4-flash:0731", FunctionCalling: true},
+			{Name: "deepseek-v4-pro:0813", FunctionCalling: true},
+			{Name: "gpt-oss:20b", FunctionCalling: true},
+			{Name: "gpt-oss:120b", FunctionCalling: true},
+			{Name: "qwen3.5:397b", FunctionCalling: true},
+			{Name: "mistral-large-3:675b", FunctionCalling: true},
+			{Name: "nemotron-3-nano:30b", FunctionCalling: true},
+			{Name: "nemotron-3-super", FunctionCalling: true},
+			{Name: "nemotron-3-ultra", FunctionCalling: true},
+			{Name: "gemma4:31b", FunctionCalling: true},
+
+			// Local models, pulled with `ollama pull` and served by a daemon the
+			// operator runs. A cloud tag is not accepted for either — deepseek-r1
+			// is not on Ollama Cloud at all — so these reach the daemon directly.
+			// Function calling is verified against a local daemon's /api/show.
+			{Name: "qwen3.5", FunctionCalling: true},
+			{Name: "deepseek-r1", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderGemini: {
 			// Gemini 3 family

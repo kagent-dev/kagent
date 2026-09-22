@@ -73,7 +73,17 @@ export const mockProviderModels: ProviderModelsResponse = {
     { name: "claude-sonnet-4", function_calling: true },
     { name: "claude-haiku-4", function_calling: true },
   ],
-  Ollama: [{ name: "llama3.2", function_calling: false }],
+  // Ollama models, mirroring the controller's static catalog: cloud models
+  // reached at api.ollama.com with a key, and local models served by a daemon.
+  // Every one reports tool support.
+  Ollama: [
+    { name: "kimi-k2.6", function_calling: true },
+    { name: "glm-5.3-flash", function_calling: true },
+    { name: "deepseek-v4.1-flash", function_calling: true },
+    { name: "gpt-oss:120b", function_calling: true },
+    { name: "qwen3.5", function_calling: true },
+    { name: "deepseek-r1", function_calling: true },
+  ],
   Foundry: [
     { name: "gpt-4.1", function_calling: true },
     { name: "gpt-4.1-mini", function_calling: true },

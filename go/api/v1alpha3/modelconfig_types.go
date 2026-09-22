@@ -276,6 +276,14 @@ type OllamaConfig struct {
 	// Options for the Ollama API
 	// +optional
 	Options map[string]string `json:"options,omitempty"`
+
+	// API key for Ollama Cloud. When set, a cloud-tagged model reaches
+	// api.ollama.com directly. Preferred over apiKeySecret for an embedding
+	// application constructing a model in-process; agents should leave it unset
+	// and use apiKeySecret instead, which the controller mounts as
+	// OLLAMA_API_KEY rather than serializing the key into the agent config.
+	// +optional
+	APIKey string `json:"apiKey,omitempty"`
 }
 
 // GeminiConfig contains Gemini (AI Studio, API-key) specific configuration options

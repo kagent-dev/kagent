@@ -712,7 +712,16 @@ providers:
     #   disableSystemCAs: false
   ollama:
     provider: Ollama
+    # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
+    # the UI (see the controller's static catalog) and reached with a ":cloud" tag
+    # or bare cloud tag such as "deepseek-v4.1-flash".
     model: "llama3.2"
+    # apiKeySecretRef/apiKeySecretKey point at the Secret holding OLLAMA_API_KEY,
+    # which is what lets a ":cloud" model reach api.ollama.com directly. Without a
+    # key such a model is proxied by the local daemon on its `ollama signin`
+    # identity instead.
+    # apiKeySecretRef: "kagent-ollama-cloud"
+    # apiKeySecretKey: "OLLAMA_API_KEY"
     config:
       host: host.docker.internal:11434
       options:

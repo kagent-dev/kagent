@@ -197,9 +197,16 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
   };
 }
 
-/** Which auth mode an existing spec expresses. */
+/**
+ * Which auth mode an existing spec expresses. For Ollama a named Secret is a
+ * real choice — it is what authenticates an Ollama Cloud model — so it is
+ * surfaced rather than collapsed to "none"; a bare local model still reads as
+ * "none".
+ */
 function authTypeFrom(spec: ModelConfigSpec): ModelAuthType {
-  if (spec.provider === OLLAMA_PROVIDER) return "none";
+  if (spec.provider === OLLAMA_PROVIDER) {
+    return spec.apiKeySecret ? "secret" : "none";
+  }
   if (spec.apiKeyPassthrough) return "passthrough";
   if (spec.apiKeySecret) return "secret";
   return "none";
@@ -249,7 +256,9 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     (spec as unknown as Record<string, unknown>)[blockKey] = block;
   }
 
-  // Authentication. Ollama takes none; otherwise the mode decides what is sent.
+  // Authentication. Ollama defaults to none — a local daemon needs no
+  // credential — but a cloud model reaches api.ollama.com with one, so a Secret
+  // named here is carried through. Every other provider lets the mode decide.
   let inlineKey = "";
   if (!isOllama) {
     if (draft.authType === "apiKey") {
@@ -263,6 +272,11 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
       }
     } else if (draft.authType === "passthrough") {
       spec.apiKeyPassthrough = true;
+    }
+  } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
+    spec.apiKeySecret = draft.apiKeySecret.trim();
+    if (draft.apiKeySecretKey.trim()) {
+      spec.apiKeySecretKey = draft.apiKeySecretKey.trim();
     }
   }
 
@@ -354,6 +368,14 @@ export function modelDraftIssues(
       draft.apiKeySecretKey.trim() &&
       !draft.apiKeySecret.trim()
     ) {
+      issues.push("A secret key needs the secret that holds it.");
+    }
+  } else if (isOllama && draft.authType === "secret") {
+    // Ollama needs no credential locally, but a cloud model reaches
+    // api.ollama.com with the key that a Secret supplies, so naming the Secret
+    // is what makes that work. A Secret key is still optional: an operator
+    // relying on the chart's OLLAMA_API_KEY names only the Secret.
+    if (draft.apiKeySecretKey.trim() && !draft.apiKeySecret.trim()) {
       issues.push("A secret key needs the secret that holds it.");
     }
   }

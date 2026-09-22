@@ -214,15 +214,19 @@ export function ModelForm({
 
   // Passthrough only where the CRD allows it; `changeProvider` resets the mode
   // when switching to a provider that forbids it, so this never strands an
-  // invalid selection.
-  const authOptions: { label: string; value: ModelAuthType }[] = [
-    { label: "API key", value: "apiKey" },
-    { label: "Existing secret", value: "secret" },
-    ...(supportsPassthrough(draft.provider)
-      ? [{ label: "Passthrough", value: "passthrough" as const }]
-      : []),
-    { label: "No credential", value: "none" },
-  ];
+  // invalid selection. Ollama gets "Existing secret" alone: it needs no
+  // credential locally, but one is what authenticates an Ollama Cloud model, and
+  // the chart's OLLAMA_API_KEY already lives in a Secret.
+  const authOptions: { label: string; value: ModelAuthType }[] = isOllama
+    ? [{ label: "Existing secret", value: "secret" }]
+    : [
+        { label: "API key", value: "apiKey" },
+        { label: "Existing secret", value: "secret" },
+        ...(supportsPassthrough(draft.provider)
+          ? [{ label: "Passthrough", value: "passthrough" as const }]
+          : []),
+        { label: "No credential", value: "none" },
+      ];
 
   // The name follows the chosen model until the field is edited, since the model's
   // own name is almost always what a new configuration should be called.
@@ -526,17 +530,27 @@ export function ModelForm({
           />
         </Form.Item>
 
-        {/* Authentication. Ollama runs locally and needs none; every other provider
-            picks a mode: a key typed here (stored in a Secret the backend creates),
-            an existing Secret referenced by name, forwarding the caller's own
-            credential (passthrough), or no credential at all. */}
+        {/* Authentication. Ollama needs no key for a local model, so it defaults
+            to no credential, but an Ollama Cloud model authenticates against
+            api.ollama.com with a key — hence the Secret option. Every other
+            provider picks a mode: a key typed here (stored in a Secret the
+            backend creates), an existing Secret referenced by name, forwarding
+            the caller's own credential (passthrough), or no credential. */}
         {isOllama ? (
-          <Alert
-            type="info"
-            showIcon
-            data-testid="model-ollama-auth-note"
-            title="Ollama models run locally and need no API key."
-          />
+          <Form.Item
+            label="Authentication"
+            extra="A local Ollama model needs no API key. To run a cloud model such as one tagged :cloud against api.ollama.com, name a Secret holding OLLAMA_API_KEY."
+          >
+            <Radio.Group
+              data-testid="model-auth-type"
+              value={draft.authType}
+              onChange={(event) =>
+                set("authType", event.target.value as ModelAuthType)
+              }
+              options={authOptions}
+              optionType="button"
+            />
+          </Form.Item>
         ) : (
           <>
             <Form.Item label="Authentication">

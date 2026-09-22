@@ -37,6 +37,12 @@ export interface AzureOpenAIConfig {
 export interface OllamaConfig {
   host?: string;
   options?: Record<string, string>;
+  /**
+   * Ollama Cloud API key. Prefer naming a Secret in `apiKeySecret` — an agent
+   * reads the key from `OLLAMA_API_KEY`, and this field serializes it into the
+   * agent config instead of mounting it.
+   */
+  apiKey?: string;
 }
 
 export interface GeminiConfig {

@@ -371,6 +371,14 @@ spec:
               ollama:
                 description: Ollama-specific configuration
                 properties:
+                  apiKey:
+                    description: |-
+                      API key for Ollama Cloud. When set, a cloud-tagged model reaches
+                      api.ollama.com directly. Preferred over apiKeySecret for an embedding
+                      application constructing a model in-process; agents should leave it unset
+                      and use apiKeySecret instead, which the controller mounts as
+                      OLLAMA_API_KEY rather than serializing the key into the agent config.
+                    type: string
                   host:
                     description: Host for the Ollama API
                     type: string

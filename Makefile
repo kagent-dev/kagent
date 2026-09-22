@@ -205,7 +205,11 @@ check-api-key: ## Validate required API key for the configured model provider
 			exit 1; \
 		fi; \
 	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
-		echo "Note: Ollama provider does not require an API key"; \
+		if [ -z "$$OLLAMA_API_KEY" ]; then \
+			echo "Note: OLLAMA_API_KEY is not set — local Ollama models need no key, and a"; \
+			echo "      ':cloud' model will be proxied by the local daemon instead of"; \
+			echo "      reaching api.ollama.com directly. Export OLLAMA_API_KEY to use the cloud API."; \
+		fi; \
 	else \
 		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
 	fi

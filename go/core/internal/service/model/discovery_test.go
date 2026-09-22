@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -100,7 +101,7 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	require.NotEmpty(t, models[v1alpha3.ModelProviderOpenAI])
 	assert.Equal(t, "gpt-5.6-terra", models[v1alpha3.ModelProviderOpenAI][0].Name)
 	assert.True(t, models[v1alpha3.ModelProviderOpenAI][0].FunctionCalling)
-	assert.Equal(t, model.ModelInfo{Name: "deepseek-r1", FunctionCalling: false}, models[v1alpha3.ModelProviderOllama][5])
+	assert.Equal(t, model.ModelInfo{Name: "glm-5.3-flash", FunctionCalling: true}, models[v1alpha3.ModelProviderOllama][6])
 	assert.Equal(t, model.ModelInfo{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false}, models[v1alpha3.ModelProviderBedrock][10])
 
 	encoded, err := json.Marshal(models[v1alpha3.ModelProviderOpenAI][0])
@@ -254,4 +255,43 @@ func providerNames(providers []model.ProviderDefinition) []string {
 		names = append(names, provider.Name)
 	}
 	return names
+}
+
+// The Ollama catalog mixes two families served by different endpoints: cloud
+// models, reached at api.ollama.com with a key, and local models, pulled with
+// `ollama pull` and served by the operator's daemon. Both have to be listed, and
+// tool support has to be true for each — it is verified per model against
+// /api/show (cloud) or a local daemon, not inferred from the family.
+func TestOllamaCatalogCoversCloudAndLocal(t *testing.T) {
+	service := model.NewService(nil, nil, "default")
+	catalog := service.ListSupportedModels(context.Background())[v1alpha3.ModelProviderOllama]
+	require.NotEmpty(t, catalog)
+
+	byName := make(map[string]model.ModelInfo, len(catalog))
+	for _, m := range catalog {
+		byName[m.Name] = m
+	}
+
+	cloud := []string{"kimi-k3", "glm-5.3", "minimax-m3", "deepseek-v4.1-flash", "gpt-oss:120b", "qwen3.5:397b"}
+	local := []string{"qwen3.5", "deepseek-r1"}
+
+	for _, name := range append(append([]string{}, cloud...), local...) {
+		info, ok := byName[name]
+		require.True(t, ok, "model %q is missing from the Ollama catalog", name)
+		assert.True(t, info.FunctionCalling, "model %q should report tool support", name)
+	}
+
+	// A local family must be listed under its bare name: ":cloud" is not a valid
+	// tag for either, so a cloud-suffixed entry would route to an endpoint that
+	// cannot serve it.
+	for _, name := range local {
+		assert.False(t, models.IsOllamaCloudModel(name),
+			"%q is a local model and must not be treated as a cloud tag", name)
+	}
+
+	// The cloud subset must be reachable through the cloud routing rule.
+	for _, name := range cloud {
+		assert.True(t, models.IsOllamaCloudModel(name+":cloud"),
+			"%q should route to the cloud when tagged", name)
+	}
 }
