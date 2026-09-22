@@ -34,12 +34,6 @@
  * The three behaviours below were each a bug fixed against a live controller, and
  * none of them is implied by the protocol:
  *
- * - **Chunks are coalesced on `adk_invocation_id`.** A streamed reply arrives as
- *   many whole messages, each with a `messageId` of its own, so delivering them
- *   as they came produced one bubble per word. What relates them is the metadata.
- * - **The final message replaces the streamed one rather than following it.**
- *   It repeats every word already shown, so emitted under a new id it printed the
- *   answer twice.
  * - **An artifact repeating text already shown is dropped.** The reply arrives
  *   both as status text and as a final artifact; an agent that sends only
  *   artifacts still works, because the check is on the text and not on the shape.
@@ -66,6 +60,7 @@ import {
   type TaskStatus,
 } from "@/generated/a2a_pb";
 import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
+import { A2A_METADATA, metadataString } from "./a2aMetadata";
 import {
   HITL_EXTENSION_HEADER,
   HITL_EXTENSION_URI,
@@ -105,13 +100,6 @@ const SHARE_HEADER = "X-Share-Token";
  * which would otherwise spin here with the page stuck on a spinner.
  */
 const HISTORY_PAGE_LIMIT = 50;
-
-/*
- * Temporary bridge to A2A's ordered task timeline and artifact generation ranges:
- * https://github.com/a2aproject/A2A/pull/2129
- */
-const TIMELINE_POSITION_METADATA_KEY = "kagent.dev/timeline-position";
-const OUTPUT_SCHEMA_SHA256_METADATA_KEY = "kagent.dev/a2a/output-schema-sha256";
 
 /** Ids for the messages the wire did not name. */
 let counter = 0;
@@ -189,7 +177,6 @@ function toPart(part: A2APart): ChatPart | undefined {
     return {
       kind: "data",
       dataKind: dataKindOf(
-        data,
         part.mediaType,
         part.metadata as Record<string, unknown> | undefined,
       ),
@@ -209,25 +196,24 @@ function toPart(part: A2APart): ChatPart | undefined {
  * What a data part represents.
  *
  * A structured terminal answer has an explicit runtime-owned signature: JSON media
- * type plus the digest of the schema that was enforced. Tool traffic has no wire
- * discriminator, so it is read from the payload shape the runtime emits:
- * `{name, args}` for a call and `{name, response}` for its result. Requiring both
+ * type plus the digest of the schema that was enforced. Tool traffic uses the
+ * shared part-type discriminator. Requiring both
  * pieces of the output signature avoids relabelling an arbitrary JSON tool payload
  * as the agent's final answer.
  */
 function dataKindOf(
-  data: Record<string, unknown>,
   mediaType: string,
   metadata: Record<string, unknown> | undefined,
 ): ChatDataPart["dataKind"] {
   if (
     mediaType.split(";", 1)[0]?.trim().toLowerCase() === "application/json" &&
-    typeof metadata?.[OUTPUT_SCHEMA_SHA256_METADATA_KEY] === "string"
+    typeof metadata?.[A2A_METADATA.outputSchemaSha256] === "string"
   ) {
     return "structured_output";
   }
-  if ("args" in data) return "tool_call";
-  if ("response" in data || "result" in data) return "tool_result";
+  const partType = metadataString(metadata, A2A_METADATA.partType);
+  if (partType === "function_call") return "tool_call";
+  if (partType === "function_response") return "tool_result";
   return "unknown";
 }
 
@@ -323,24 +309,6 @@ function statusTime(status: TaskStatus | undefined): string {
   // something else entirely. Narrowed here, at the boundary, as every other
   // int64 in this app is.
   return new Date(Number(seconds) * 1000).toISOString();
-}
-
-/** Whether a message is a chunk of a reply still being written. */
-function isPartial(message: A2AMessage | undefined): boolean {
-  return message?.metadata?.adk_partial === true;
-}
-
-/**
- * What relates the chunks of one reply.
- *
- * Every chunk is a whole message with a `messageId` of its own, so the ids cannot
- * group them; `adk_invocation_id` is the same across all of them and is the only
- * thing that can. Keyed on the invocation rather than the task, because one task
- * can hold several replies with tool calls between them.
- */
-function invocationOf(message: A2AMessage | undefined, taskId: string): string {
-  const invocation = message?.metadata?.adk_invocation_id;
-  return typeof invocation === "string" && invocation !== "" ? invocation : taskId;
 }
 
 export class A2AGrpcChatClient implements ChatClient {
@@ -517,19 +485,6 @@ export class A2AGrpcChatClient implements ChatClient {
      */
     const artifacts = new Map<string, string>();
 
-    let runId: string | undefined;
-    let streamedId: string | undefined;
-    /*
-     * What has been shown of the reply being streamed.
-     *
-     * A local, not a field and not a module-level map: it belongs to this turn and
-     * must not outlive it. The artifact that closes the turn repeats the whole
-     * answer, so it is the accumulation that has to be recorded in `statusReply`,
-     * not each chunk — recording only chunks let the artifact through and printed
-     * the answer a second time.
-     */
-    let streamedText = "";
-
     let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
     try {
       stream = client.sendStreamingMessage(
@@ -575,72 +530,9 @@ export class A2AGrpcChatClient implements ChatClient {
             (awaiting === undefined || awaiting.kind === "unknown")
           ) {
             const role = message.role === Role.AGENT ? "agent" : "user";
-            const isTextOnly = parts.every((part) => part.kind === "text");
-            const invocation = invocationOf(message, event.taskId);
             const createdAt = statusTime(status);
 
-            // A chunk of a reply still being written.
-            if (role === "agent" && isPartial(message) && isTextOnly) {
-              const chunk = textOf(parts);
-
-              if (streamedId === undefined || runId !== invocation) {
-                runId = invocation;
-                streamedId = message.messageId || nextId("message");
-                streamedText = chunk;
-                statusReply = streamedText;
-                yield {
-                  type: "message",
-                  message: {
-                    id: streamedId,
-                    role: "agent",
-                    parts,
-                    createdAt,
-                    taskId: event.taskId,
-                  },
-                };
-              } else if (chunk !== "") {
-                streamedText += chunk;
-                statusReply = streamedText;
-                yield { type: "delta", messageId: streamedId, text: chunk };
-              }
-
-              yield { type: "status", state, taskId: event.taskId, awaiting };
-              continue;
-            }
-
-            // The complete reply that closes a run of partials. Emitted under the
-            // streamed id, which makes it a replacement rather than an addition:
-            // `useChat` upserts by id, so the server's canonical text takes the place
-            // of the text assembled from chunks.
-            const closesRun =
-              role === "agent" &&
-              isTextOnly &&
-              streamedId !== undefined &&
-              runId === invocation;
-
-            const id = closesRun
-              ? (streamedId as string)
-              : message.messageId || nextId("message");
-
-            if (closesRun) {
-              const body = textOf(parts);
-              statusReply = body;
-              yield {
-                type: "message",
-                message: { id, role: "agent", parts, createdAt, taskId: event.taskId },
-              };
-              yield { type: "status", state, taskId: event.taskId, awaiting };
-              runId = undefined;
-              streamedId = undefined;
-              streamedText = "";
-              continue;
-            }
-
-            // A tool call, or the user's own message: its own message, and it ends
-            // any run of prose that was open.
-            runId = undefined;
-            streamedId = undefined;
-            streamedText = "";
+            const id = message.messageId || nextId("message");
 
             if (!delivered.has(id)) {
               delivered.add(id);
@@ -991,8 +883,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
 }
 
 function timelinePosition(metadata: JsonObject | undefined): string | undefined {
-  const value = metadata?.[TIMELINE_POSITION_METADATA_KEY];
-  return typeof value === "string" ? value : undefined;
+  return metadataString(metadata, A2A_METADATA.timelinePosition);
 }
 
 /** Whether a reader's turn is answering an `ask_user` rather than opening a task. */
