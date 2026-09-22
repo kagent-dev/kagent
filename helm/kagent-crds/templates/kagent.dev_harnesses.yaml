@@ -107,6 +107,17 @@ spec:
               byo:
                 description: BYOHarness selects an image that implements kagent's
                   private A2A contract.
+                properties:
+                  port:
+                    description: |-
+                      Port is the TCP port the image serves its A2A endpoint on. The
+                      compiler advertises it in the agent card and injects it as the PORT
+                      environment variable so the card and the listener always agree.
+                      Omitted defaults to 80.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
                 type: object
               claude:
                 description: ClaudeHarness selects the Claude runtime adapter.
