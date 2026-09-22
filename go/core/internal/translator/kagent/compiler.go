@@ -33,7 +33,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
-	compiled, err := c.config.Build(ctx, input.Root)
+	compiled, err := c.config.BuildWithAgentID(ctx, input.Root)
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,67 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
+	model := &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-model", Namespace: "agents"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderOpenAI,
+			Model:    "gpt-4.1-mini",
+			DefaultHeaders: map[string]string{
+				"X-Tenant":   "acme",
+				"x-agent-id": "user-provided",
+			},
+		},
+	}}
+	builder := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{})
+
+	for _, test := range []struct {
+		name       string
+		template   string
+		wantHeader string
+	}{
+		{name: "refund agent", template: "refund-agent", wantHeader: "agents/refund-agent"},
+		{name: "ticket agent", template: "ticket-agent", wantHeader: "agents/ticket-agent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := builder.BuildWithAgentID(context.Background(), &v2translator.AgentInput{
+				Template: &v1alpha3.AgentTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: test.template, Namespace: "agents"},
+					Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "shared-model"}},
+				},
+				ResolvedModelConfig: model,
+			})
+			require.NoError(t, err)
+
+			compiled, ok := result.Config.Model.(*adk.OpenAI)
+			require.True(t, ok, "compiled model = %T", result.Config.Model)
+			require.Equal(t, test.wantHeader, compiled.Headers[adk.ModelAgentIDHeader])
+			require.Equal(t, "acme", compiled.Headers["X-Tenant"])
+			require.NotContains(t, compiled.Headers, "x-agent-id")
+		})
+	}
+
+	require.Equal(t, map[string]string{
+		"X-Tenant":   "acme",
+		"x-agent-id": "user-provided",
+	}, model.Config.Spec.DefaultHeaders, "compilation must not mutate the shared ModelConfig")
+
+	t.Run("default build leaves headers unchanged", func(t *testing.T) {
+		result, err := builder.Build(context.Background(), &v2translator.AgentInput{
+			Template: &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "byo-agent", Namespace: "agents"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "shared-model"}},
+			},
+			ResolvedModelConfig: model,
+		})
+		require.NoError(t, err)
+
+		compiled, ok := result.Config.Model.(*adk.OpenAI)
+		require.True(t, ok, "compiled model = %T", result.Config.Model)
+		require.Equal(t, model.Config.Spec.DefaultHeaders, compiled.Headers)
+	})
+}
+
 func TestApplyCompaction(t *testing.T) {
 	collections := contextTestCollections(t,
 		openAIModel("agent", "https://agent.example.com/v1"),
