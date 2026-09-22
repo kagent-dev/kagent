@@ -5,9 +5,12 @@ from unittest.mock import AsyncMock
 import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
-from a2a.types import Message, Part, Role, SendMessageRequest
+from a2a.types import Artifact, Message, Part, Role, SendMessageRequest, TaskArtifactUpdateEvent
 from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
+from kagent.core.a2a import A2A_PART_TYPE_METADATA_KEY, A2A_USAGE_METADATA_KEY
 
 import kagent.adk._agent_executor as executor_module
 from kagent.adk._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -66,6 +69,27 @@ def test_convert_request_clears_bearer_token_when_no_auth_header():
     executor._convert_request(context, None)
 
     assert bearer_token.get() is None
+
+
+def test_adk_event_metadata_is_projected_at_adapter_boundary():
+    part = Part(
+        data=ParseDict({"name": "lookup"}, Value()),
+        metadata={"adk_type": "function_call", "adk_thought": True},
+    )
+    event = TaskArtifactUpdateEvent(
+        task_id="task-1",
+        context_id="context-1",
+        artifact=Artifact(artifact_id="artifact-1", parts=[part]),
+        metadata={"adk_usage_metadata": {"total_token_count": 3}, "adk_invocation_id": "private"},
+    )
+
+    executor_module._canonicalize_adk_event(event)
+
+    part = event.artifact.parts[0]
+    assert part.metadata[A2A_PART_TYPE_METADATA_KEY] == "function_call"
+    assert event.metadata[A2A_USAGE_METADATA_KEY]["total_token_count"] == 3
+    assert not any(key.startswith("adk_") for key in part.metadata)
+    assert not any(key.startswith("adk_") for key in event.metadata)
 
 
 @pytest.mark.asyncio

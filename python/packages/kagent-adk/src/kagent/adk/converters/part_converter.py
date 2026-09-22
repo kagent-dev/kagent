@@ -31,8 +31,7 @@ from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    get_kagent_metadata_key,
+    A2A_PART_TYPE_METADATA_KEY,
 )
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -66,9 +65,9 @@ def convert_a2a_part_to_genai_part(
         # logic accordingly
         data_value = MessageToDict(a2a_part.data)
         metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
-        if metadata and get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY) in metadata:
+        if metadata and A2A_PART_TYPE_METADATA_KEY in metadata:
             if (
-                metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)]
+                metadata[A2A_PART_TYPE_METADATA_KEY]
                 == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
             ):
                 if isinstance(data_value, dict):
@@ -76,7 +75,7 @@ def convert_a2a_part_to_genai_part(
                         function_call=genai_types.FunctionCall.model_validate(data_value, by_alias=True)
                     )
             if (
-                metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)]
+                metadata[A2A_PART_TYPE_METADATA_KEY]
                 == A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE
             ):
                 if isinstance(data_value, dict):
@@ -84,7 +83,7 @@ def convert_a2a_part_to_genai_part(
                         function_response=genai_types.FunctionResponse.model_validate(data_value, by_alias=True)
                     )
             if (
-                metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)]
+                metadata[A2A_PART_TYPE_METADATA_KEY]
                 == A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT
             ):
                 if isinstance(data_value, dict):
@@ -92,7 +91,7 @@ def convert_a2a_part_to_genai_part(
                         code_execution_result=genai_types.CodeExecutionResult.model_validate(data_value, by_alias=True)
                     )
             if (
-                metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)]
+                metadata[A2A_PART_TYPE_METADATA_KEY]
                 == A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE
             ):
                 if isinstance(data_value, dict):
@@ -115,27 +114,13 @@ def convert_genai_part_to_a2a_part(
     """Convert a Google GenAI Part to an A2A Part."""
 
     if part.text:
-        a2a_part = a2a_types.Part(text=part.text)
-        if part.thought is not None:
-            a2a_part.metadata.update({get_kagent_metadata_key("thought"): part.thought})
-        return a2a_part
+        return a2a_types.Part(text=part.text)
 
     if part.file_data:
         return a2a_types.Part(url=part.file_data.file_uri, media_type=part.file_data.mime_type)
 
     if part.inline_data:
-        a2a_part = a2a_types.Part(raw=part.inline_data.data, media_type=part.inline_data.mime_type)
-
-        if part.video_metadata:
-            a2a_part.metadata.update(
-                {
-                    get_kagent_metadata_key("video_metadata"): part.video_metadata.model_dump(
-                        by_alias=True, exclude_none=True
-                    )
-                }
-            )
-
-        return a2a_part
+        return a2a_types.Part(raw=part.inline_data.data, media_type=part.inline_data.mime_type)
 
     # Convert the funcall and function response to A2A DataPart.
     # This is mainly for converting human in the loop and auth request and
@@ -146,38 +131,28 @@ def convert_genai_part_to_a2a_part(
         payload = part.function_call.model_dump(by_alias=True, exclude_none=True)
         return a2a_types.Part(
             data=ParseDict(payload, Value()),
-            metadata={
-                get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-            },
+            metadata={A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL},
         )
 
     if part.function_response:
         payload = part.function_response.model_dump(by_alias=True, exclude_none=True)
         return a2a_types.Part(
             data=ParseDict(payload, Value()),
-            metadata={
-                get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE
-            },
+            metadata={A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE},
         )
 
     if part.code_execution_result:
         payload = part.code_execution_result.model_dump(by_alias=True, exclude_none=True)
         return a2a_types.Part(
             data=ParseDict(payload, Value()),
-            metadata={
-                get_kagent_metadata_key(
-                    A2A_DATA_PART_METADATA_TYPE_KEY
-                ): A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT
-            },
+            metadata={A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT},
         )
 
     if part.executable_code:
         payload = part.executable_code.model_dump(by_alias=True, exclude_none=True)
         return a2a_types.Part(
             data=ParseDict(payload, Value()),
-            metadata={
-                get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE
-            },
+            metadata={A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE},
         )
 
     logger.warning(
