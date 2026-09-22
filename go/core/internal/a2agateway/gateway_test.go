@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"iter"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -1167,21 +1169,56 @@ func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T)
 }
 
 func TestGatewaySubscriptionRecoversTaskRun(t *testing.T) {
-	active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-	runtime := &gatewayTestRuntime{subscribeEvent: a2atype.NewStatusUpdateEvent(active, a2atype.TaskStateCanceled, nil)}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), task: active, active: active}
-	workflow := &gatewayTestWorkflow{}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+	for _, tt := range []struct {
+		name                      string
+		completeBeforeObservation bool
+		wantStates                []a2atype.TaskState
+	}{
+		{"completion before snapshot", true, []a2atype.TaskState{a2atype.TaskStateCanceled}},
+		{"completion after snapshot", false, []a2atype.TaskState{a2atype.TaskStateWorking, a2atype.TaskStateCanceled}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+				runtime := &gatewayTestRuntime{subscribeEvent: a2atype.NewStatusUpdateEvent(active, a2atype.TaskStateCanceled, nil)}
+				store := &gatewayTestStore{instance: gatewayTestInstance(), task: active, active: active}
+				complete := make(chan struct{})
+				release := sync.OnceFunc(func() { close(complete) })
+				defer release()
+				workflow := &gatewayTestWorkflow{onQuiesce: func() { <-complete }}
+				gateway := &Gateway{
+					store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}),
+					dialer:   &gatewayTestDialer{client: gatewayTestClient(t, runtime)},
+					workflow: workflow, coordinator: &memoryRuntimeCoordinator{},
+				}
 
-	var events []a2atype.Event
-	for event, err := range gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		events = append(events, event)
-	}
-	if len(events) != 2 || workflow.quiesceCalls != 1 || len(store.stored) != 1 || !runtime.destroyed {
-		t.Fatalf("events = %d, quiescence calls = %d, stored events = %d, runtime destroyed = %v", len(events), workflow.quiesceCalls, len(store.stored), runtime.destroyed)
+				stream := gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: active.ID})
+				if tt.completeBeforeObservation {
+					release()
+				}
+				// Let ingestion either finish or block at quiescence before reading.
+				synctest.Wait()
+				var states []a2atype.TaskState
+				for event, err := range stream {
+					if err != nil {
+						t.Fatal(err)
+					}
+					task, ok := event.(*a2atype.Task)
+					if !ok || task.ID != active.ID || task.ContextID != active.ContextID {
+						t.Fatalf("unexpected recovered task: %#v", event)
+					}
+					states = append(states, task.Status.State)
+					release()
+				}
+				synctest.Wait()
+				if !slices.Equal(states, tt.wantStates) {
+					t.Fatalf("task states = %v, want %v", states, tt.wantStates)
+				}
+				if workflow.quiesceCalls != 1 || len(store.stored) != 1 || store.active != nil || !runtime.destroyed {
+					t.Fatalf("quiescence calls = %d, stored events = %d, active task = %#v, runtime destroyed = %v", workflow.quiesceCalls, len(store.stored), store.active, runtime.destroyed)
+				}
+			})
+		})
 	}
 }
 
