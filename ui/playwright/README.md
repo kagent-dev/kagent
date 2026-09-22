@@ -74,7 +74,7 @@ playwright/
   live/            the live suite: specs, plus helpers/ of its own
   shared/          specs that run in both suites — laid out like tests/, one folder
                    per resource and app-wide specs at the root — see below
-  DEFERRED.md      the specs not yet portable, and what each one is waiting on
+  DEFERRED.md      coverage this suite does not have, and what each gap waits on
 ```
 
 **`shared/` runs in every project**, mock and live alike. What goes in it is narrow: no

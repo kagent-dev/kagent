@@ -42,7 +42,8 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.2.0-beta2
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # 50: main's own 40, plus the ten or so the UI image and the browser suite below add.
+    # 50: main's own 40, kept as headroom. The job itself takes around 10 minutes,
+    # UI image and browser suite included, on a warm buildx cache.
     timeout-minutes: 50
     steps:
       - name: Checkout repository
