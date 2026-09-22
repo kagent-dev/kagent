@@ -128,7 +128,7 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 		t.Fatalf("delegated message = %#v, want one FunctionResponse", builtin.message)
 	}
 	part := builtin.message.Parts[0]
-	if got, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey); got != A2ADataPartMetadataTypeFunctionResponse {
+	if got := part.Metadata[apia2a.PartTypeMetadataKey]; got != A2ADataPartMetadataTypeFunctionResponse {
 		t.Fatalf("delegated part type = %#v, want function_response", got)
 	}
 	if got := asDataPart(part)[PartKeyID]; got != "confirm-1" {

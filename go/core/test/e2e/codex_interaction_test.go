@@ -14,6 +14,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
@@ -295,7 +296,7 @@ func sendCodexStreaming(t *testing.T, fixture *interactionFixture, text string) 
 func codexToolEvents(parts []*a2atype.Part) []codexToolEvent {
 	var events []codexToolEvent
 	for _, part := range parts {
-		partType, _ := part.Metadata["kagent_type"].(string)
+		partType, _ := part.Metadata[apia2a.PartTypeMetadataKey].(string)
 		if partType != "function_call" && partType != "function_response" {
 			continue
 		}

@@ -17,7 +17,6 @@ import (
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
@@ -81,7 +80,7 @@ func TestTaskTimestampsUseDurableCreationTime(t *testing.T) {
 	task := &a2atype.Task{
 		ID: testTaskID, ContextID: testInstanceID,
 		Status:   a2atype.TaskStatus{State: a2atype.TaskStateWorking, Timestamp: &updated},
-		Metadata: map[string]any{a2agateway.TaskCreatedAtMetadataKey: created.Format(time.RFC3339Nano)},
+		Metadata: map[string]any{apia2a.TaskCreatedAtMetadataKey: created.Format(time.RFC3339Nano)},
 	}
 	fields := taskToMCP("task-ref", task)
 	if fields.CreatedAt != created.Format(time.RFC3339Nano) || fields.LastUpdatedAt != updated.Format(time.RFC3339Nano) {

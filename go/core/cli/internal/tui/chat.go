@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/kagent-dev/kagent/go/api/utils"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
@@ -448,34 +448,23 @@ func (m *chatModel) renderToolActivity(parts a2atype.ContentParts) {
 			}
 		}
 
-		if part.Metadata == nil {
-			continue
-		}
-		typeVal, found := utils.GetMetadataValue(part.Metadata, "type")
-		if !found {
-			continue
-		}
-		kagentType, ok := typeVal.(string)
-		if !ok {
-			continue
-		}
-		dataMap, ok := data.(map[string]any)
+		activity, ok := kagenta2a.ParseToolActivity(part)
 		if !ok {
 			continue
 		}
 
-		switch kagentType {
-		case "function_call":
+		switch activity.Kind {
+		case kagenta2a.ToolCallKind:
 			calls = append(calls, toolCall{
-				Name: getString(dataMap, "name"),
-				ID:   getString(dataMap, "id"),
-				Args: dataMap["args"],
+				Name: activity.Name,
+				ID:   activity.ID,
+				Args: activity.Args,
 			})
-		case "function_response":
+		case kagenta2a.ToolResultKind:
 			results = append(results, toolResult{
-				Name:     getString(dataMap, "name"),
-				ID:       getString(dataMap, "id"),
-				Response: dataMap["response"],
+				Name:     activity.Name,
+				ID:       activity.ID,
+				Response: activity.Response,
 			})
 		}
 	}
@@ -575,14 +564,4 @@ func (m *chatModel) updateStatus() {
 	} else {
 		m.statusText = ""
 	}
-}
-
-// getString safely extracts a string value from a map
-func getString(m map[string]any, key string) string {
-	if val, ok := m[key]; ok {
-		if str, ok := val.(string); ok {
-			return str
-		}
-	}
-	return ""
 }
