@@ -63,6 +63,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: genAIPartConverter,
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
+			outputLimitWatchFrom(ctx).observe(event)
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
 			}
@@ -76,6 +77,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 				}
 				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
+			return nil
+		},
+		AfterExecuteCallback: func(ctx adka2a.ExecutorContext, finalEvent *a2atype.TaskStatusUpdateEvent, _ error) error {
+			outputLimitWatchFrom(ctx).failTruncatedAnswer(finalEvent)
+			// Never return the execution error: ADK drops the terminal status
+			// event and reports the error instead, which would lose the failure
+			// it is already carrying.
 			return nil
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
@@ -134,6 +142,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
+		ctx = withOutputLimitWatch(ctx)
 		spanAttributes := map[string]string{
 			"kagent.user_id":         userID,
 			"gen_ai.task.id":         string(reqCtx.TaskID),
