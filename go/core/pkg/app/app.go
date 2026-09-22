@@ -393,7 +393,7 @@ func Run(ctx context.Context, opts Options) error {
 		TaskStoreService:      runtimeTasks,
 		SessionService:        sessions,
 		ScheduledRunService:   schedules,
-		AuthorizationService: kubeauth.NewAccessReviewer(authorizer),
+		AuthorizationService:  kubeauth.NewAccessReviewer(authorizer),
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, auth.ResourceAgentTemplate),

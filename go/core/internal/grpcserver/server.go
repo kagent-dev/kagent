@@ -68,7 +68,7 @@ type Config struct {
 	ScheduledRunService    *scheduledrun.Service
 	A2AHandler             a2asrv.RequestHandler
 	SandboxTemplateService *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
-	AuthorizationService *kubeauth.AccessReviewer
+	AuthorizationService   *kubeauth.AccessReviewer
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
 	RegisterServices func(grpc.ServiceRegistrar)

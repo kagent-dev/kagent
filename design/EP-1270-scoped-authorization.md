@@ -64,7 +64,8 @@ A decision that permits no resources returns an empty collection. An authorizati
 ## Advisory access review
 
 An access review with a resource name uses the same exact authorization check as
-the corresponding operation. A target without a name is an existential question:
+the corresponding operation. GET requires a name. A target without a name is an
+existential question:
 whether the complete authorization scope contains at least one valid resource name
 in that namespace. It is not an exact check with an empty or wildcard name.
 
