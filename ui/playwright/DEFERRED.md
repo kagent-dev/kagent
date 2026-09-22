@@ -32,7 +32,8 @@ Nothing below is a gap. They are listed only so they are not looked for again.
   paired with a `Harness`, materialised by admission — `router/routes.ts` records why
   there is no `agentNew` and no `agentEdit`. Nothing creates one, so there is nothing
   to validate. The create-and-read-back property that lived in the removed agent-create
-  spec is now `tests/harnesses/harnesses.spec.ts`.
+  spec is now `shared/harnesses/` and `shared/agent-templates/`, which create against
+  either backend — `tests/harnesses/` only checks when the button is enabled.
 - **The REST path tests.** `src/api/{readPaths,writePaths}.test.ts` drove the client over
   REST URLs that no longer exist; the controller serves gRPC-Web. `src/api/operations.test.ts`
   replaces them against the real generated descriptors and covers strictly more.

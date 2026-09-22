@@ -25,9 +25,6 @@ test("live: the substrate page renders the cluster's own inventory", async ({ pa
     await expect(page.getByTestId("substrate-actors-card")).toBeVisible({
       timeout: 60_000,
     });
-    // After the card, not after `loadApp`: the alerts are counted once, and a page that
-    // has not read anything yet has none — see `expectNoLoadFailure`.
-    await expectNoLoadFailure(page);
   });
 
   await test.step("2. the tiles report a real count, not zero", async () => {
@@ -53,5 +50,13 @@ test("live: the substrate page renders the cluster's own inventory", async ({ pa
     await expect(workers.locator(".ant-table-row").first()).toBeVisible({
       timeout: 60_000,
     });
+
+    /*
+     * Last, and not after the card in step 1: the card is a shell the page draws
+     * before it has read anything, so an alert counted then is counted before any read
+     * could have failed — and `expectNoLoadFailure` reads once rather than retrying, so
+     * it would never look again. Here, three reads have demonstrably landed.
+     */
+    await expectNoLoadFailure(page);
   });
 });

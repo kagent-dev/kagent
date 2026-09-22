@@ -1,5 +1,10 @@
 import { test, expect } from "../../fixtures/test";
-import { LIFECYCLE_TIMEOUT, optionNamed } from "../../helpers/resource";
+import {
+  LIFECYCLE_TIMEOUT,
+  confirmation,
+  optionNamed,
+  pressOnce,
+} from "../../helpers/resource";
 
 /**
  * Schedules — reading one, running it, and the states around that.
@@ -52,6 +57,16 @@ test("schedules: a schedule is read, run, paused, and its failures reported", as
     // No pagination over a list this size: a control that pages nothing is a control
     // that implies there is more to see.
     await expect(page.getByTestId("schedules-pages")).toHaveCount(0);
+
+    /*
+     * The row reads the cron rather than printing it. `0 9 * * *` is a field the
+     * controller stores and not something to put in front of a reader, and the column
+     * is the only place the derived reading is shown — `scheduleTiming.test.ts` covers
+     * every shape the reading takes, including the weekly ones no fixture here has.
+     */
+    const row = rowNamed("Daily cluster report");
+    await expect(row).toContainText("Every day at 09:00");
+    await expect(row).not.toContainText("* * *");
   });
 
   await test.step("2. a row opens its schedule, and its buttons still do their own job", async () => {
@@ -260,7 +275,50 @@ test("schedules: a schedule is read, run, paused, and its failures reported", as
     expect(overflows).toBe(false);
   });
 
-  await test.step("13. a link held from before a delete still opens, and says what it is", async () => {
+  await test.step("13. delete asks twice over, and Keep leaves the row where it was", async () => {
+    await page.goto("/schedules?mock=ok");
+
+    /*
+     * The list confirms in a popconfirm and the detail page in a modal — two shapes,
+     * one copy, and the cancel on each reads "Keep" rather than "Cancel" because the
+     * reader is choosing between two outcomes rather than dismissing a dialog.
+     *
+     * Both paths matter: the sentence is what a reader decides on, and it is the part
+     * that would go stale silently if only one of the two were driven.
+     */
+    await page.getByTestId("delete-Schedule 3").click();
+    const popconfirm = confirmation(page);
+    await expect(popconfirm).toContainText("Stops future executions.");
+    await expect(popconfirm).toContainText("history and conversations are retained");
+    await pressOnce(popconfirm.getByRole("button", { name: "Keep", exact: true }));
+    await expect(page.getByTestId("schedule-link-Schedule 3")).toBeVisible();
+
+    // And the same on the detail page's own delete, which is a modal.
+    await page.getByTestId("schedule-link-Daily cluster report").click();
+    await page.waitForURL(new RegExp(`/schedules/${SEEDED}$`));
+    await page.getByTestId("delete-Daily cluster report").click();
+    const modal = page.getByRole("dialog");
+    await expect(modal).toContainText("Stops future executions.");
+    await pressOnce(modal.getByRole("button", { name: "Keep", exact: true }));
+    await expect(page).toHaveURL(new RegExp(`/schedules/${SEEDED}$`));
+  });
+
+  await test.step("14. a delete takes one row and leaves the others", async () => {
+    // The claim a delete test usually forgets: that it removed the row it was asked
+    // for and not the list. Only the seeded fixtures can say this, since a live journey
+    // deletes the one thing it made and has nothing else of its own to count.
+    await page.goto("/schedules?mock=ok");
+    await page.getByTestId("delete-Schedule 3").click();
+    await pressOnce(
+      confirmation(page).getByRole("button", { name: "Delete", exact: true }),
+    );
+
+    await expect(page.getByTestId("schedule-link-Schedule 3")).toHaveCount(0);
+    await expect(page.getByTestId("schedule-link-Daily cluster report")).toBeVisible();
+    await expect(page.getByTestId("schedule-link-Schedule 2")).toBeVisible();
+  });
+
+  await test.step("15. a link held from before a delete still opens, and says what it is", async () => {
     // The executions are retained, so the address is not a 404 — and must not render as
     // a live schedule either, or a reader will try to act on one that is gone.
     await page.goto(`/schedules/${RETIRED}?mock=ok`);
@@ -274,7 +332,7 @@ test("schedules: a schedule is read, run, paused, and its failures reported", as
     await expect(page.getByTestId("schedule-meta")).toContainText("Deleted");
   });
 
-  await test.step("14. and it is not offered in the list it was removed from", async () => {
+  await test.step("16. and it is not offered in the list it was removed from", async () => {
     await page.goto("/schedules?mock=ok");
     await expect(
       page.getByTestId("schedule-link-Retired sweep"),

@@ -157,13 +157,47 @@ test("models: the list reads, narrows, and says what the form requires", async (
     });
   });
 
-  await test.step("6. an empty result says so instead of showing a bare table", async () => {
+  await test.step("6. editing does not ask for the API key again", async () => {
+    /*
+     * The other half of step 5, and the half a reader notices: a stored key is write-only
+     * — the controller never sends it back — so an edit form that marked the field
+     * required would demand the secret again to change a display name, and there would be
+     * nowhere to read it from.
+     *
+     * The label carries the promise ("leave blank to keep existing") and `expectRequired`
+     * checks that the mark agrees with it. Asserted as a pair for the same reason step 5
+     * is: a form that marked nothing would pass a check that only looked at the unmarked
+     * list.
+     */
+    await loadPage(page, routes.models, { title: "Models" });
+    await page.getByTestId("edit-default-model-config").click();
+    await page.waitForURL(/\/models\/kagent\/default-model-config\/edit$/);
+    await expectSettled(page);
+
+    // Every seeded configuration authenticates by secret reference, so the inline field
+    // has to be asked for. Switching to it is also the case that matters: the reader is
+    // replacing how this model authenticates, and still should not have to retype a key
+    // to do it.
+    // The label, not the input: antd's button-style radio hides the input itself, so a
+    // click on the role never lands.
+    await page
+      .getByTestId("model-auth-type")
+      .getByText("API key", { exact: true })
+      .click();
+
+    await expectRequired(page, {
+      marked: ["Provider", "Model", "Name", "Namespace"],
+      unmarked: ["Authentication", "API key (leave blank to keep existing)"],
+    });
+  });
+
+  await test.step("7. an empty result says so instead of showing a bare table", async () => {
     await loadPage(page, routes.models, { scenario: "empty", title: "Models" });
     await expect(page.getByText("No model configurations yet.")).toBeVisible();
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("7. a failed load is reported, not disguised as an empty list", async () => {
+  await test.step("8. a failed load is reported, not disguised as an empty list", async () => {
     await loadPage(page, routes.models, { scenario: "error", title: "Models" });
 
     const alert = page.getByTestId("models-error");
@@ -182,7 +216,7 @@ test("models: the list reads, narrows, and says what the form requires", async (
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("8. retrying asks the backend again, and it recovers", async () => {
+  await test.step("9. retrying asks the backend again, and it recovers", async () => {
     const before = await operationCalls(page, rpc.listModelConfigs);
 
     await page.getByRole("button", { name: "Try again" }).click();

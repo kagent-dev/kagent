@@ -571,10 +571,7 @@ export function AgentPage() {
             },
           ]}
           trailing={
-            /* `data !== undefined` as well as `!isLoading`: SWR runs its fetcher in an
-               effect, so the first paint reports "not loading" with nothing read yet,
-               and this count renders "0 of 0 conversations" for a page that has not
-               asked the controller anything. */
+            /* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */
             !conversations.error &&
             !conversations.isLoading &&
             conversations.data !== undefined ? (

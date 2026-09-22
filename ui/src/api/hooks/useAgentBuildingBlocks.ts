@@ -48,9 +48,17 @@ export function useAgentTemplates(namespace?: string): ApiResource<AgentTemplate
 export function useHarnessesAcrossNamespaces(
   namespaces: readonly string[] | undefined,
 ): ApiResource<Harness[]> {
+  /*
+   * Keyed on `namespaces` rather than on the joined string, because `[]` joins to
+   * `""` — and holding the read back for that conflates "we do not know the
+   * namespaces yet" with "we know, and there are none". The second is an answer: it
+   * resolves to an empty list, so a page can say "0 of 0" and mean it. Held back, the
+   * key stays null, `isLoading` is reported false (idle, not loading) and `data` never
+   * arrives, so a summary gated on `data` would never render at all.
+   */
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
 
-  return useApiResource(key ? ["harnesses.listAll", key] : null, async () => {
+  return useApiResource(namespaces ? ["harnesses.listAll", key] : null, async () => {
     const names = key ? key.split(",").filter(Boolean) : [];
     const settled = await Promise.allSettled(
       names.map((namespace) => apiClient.agentBuildingBlocks.harnesses(namespace)),
@@ -105,10 +113,12 @@ export function useAgentTemplatesAcrossNamespaces(
 ): ApiResource<AgentTemplatesAcrossNamespaces> {
   // Sorted into the key, so the same set in a different order is the same read rather
   // than a cache miss that refetches everything.
+  // `namespaces`, not `key`: see `useHarnessesAcrossNamespaces` — `[]` joins to `""`,
+  // and a known-empty set is an answer rather than a reason to hold the read back.
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
 
   return useApiResource(
-    key ? ["agentTemplates.listAll", key] : null,
+    namespaces ? ["agentTemplates.listAll", key] : null,
     async () => {
       const names = key ? key.split(",").filter(Boolean) : [];
       const settled = await Promise.allSettled(

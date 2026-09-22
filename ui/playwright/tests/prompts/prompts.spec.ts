@@ -186,9 +186,11 @@ test("prompts: libraries are read, edited, and their failures reported", async (
      * driven twice, and the count it used to assert is stronger there, where it is
      * relative to whatever the list already held.
      *
-     * Navigated rather than submitted, so the steps below start on the list with a draft
-     * abandoned — which is also the state a reader leaves behind when they change their
-     * mind, and nothing else covers it.
+     * Navigated rather than submitted, so the steps below start on the list.
+     *
+     * Not coverage of an abandoned draft, though it looks like it: `loadPage` is a
+     * `page.goto`, which restarts the module-level mock backend, so a draft that had
+     * wrongly saved itself would be wiped by the navigation and this would still pass.
      */
     await loadPage(page, routes.prompts, { title: "Prompts" });
     await expect(dataRows(page)).toHaveCount(SEEDED.length);

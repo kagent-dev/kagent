@@ -34,8 +34,13 @@ const EXTENSION_SPECS = /\.withExtension\.spec\.ts$/;
  * narrowness is the point and the risk: assertions true of both are the weakest ones,
  * so this folder stays a smoke sweep rather than growing lifecycles.
  * `conventions.test.ts` fails a spec here that reaches for a scenario.
+ *
+ * A glob, not a regex: Playwright matches a `testMatch` regex against the *absolute*
+ * path, so `/shared\//` also matches every spec in a checkout that happens to live
+ * under a directory of that name. A glob resolves against `testDir`, which is the
+ * thing actually meant here.
  */
-const SHARED_SPECS = /shared\/.*\.spec\.ts$/;
+const SHARED_SPECS = "shared/**/*.spec.ts";
 
 /**
  * The suite is the acceptance bar, so what it runs against cannot depend on the
@@ -222,7 +227,7 @@ export default defineConfig({
     ? [
         {
           name: LIVE_PROJECT,
-          testMatch: [/live\/.*\.spec\.ts$/, SHARED_SPECS],
+          testMatch: ["live/**/*.spec.ts", SHARED_SPECS],
           use: {
             ...devices["Desktop Chrome"],
             baseURL: LIVE_BASE_URL,
@@ -236,7 +241,7 @@ export default defineConfig({
     : [
         {
           name: "chromium",
-          testMatch: [/tests\/.*\.spec\.ts$/, SHARED_SPECS],
+          testMatch: ["tests/**/*.spec.ts", SHARED_SPECS],
           testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Chrome"], baseURL: BASE_URL },
         },
@@ -252,7 +257,7 @@ export default defineConfig({
           // The extension split below is a build-time difference, not a browser one,
           // so it stays on one engine rather than doubling for no new signal.
           name: "firefox",
-          testMatch: [/tests\/.*\.spec\.ts$/, SHARED_SPECS],
+          testMatch: ["tests/**/*.spec.ts", SHARED_SPECS],
           testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Firefox"], baseURL: BASE_URL },
         },

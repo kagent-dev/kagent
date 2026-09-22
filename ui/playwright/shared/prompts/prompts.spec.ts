@@ -76,9 +76,13 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
     await fragmentKey(page, 0).fill("changelog");
     await fragmentValue(page, 0).fill("Group by user impact.");
 
+    // Set before the submit, not after the redirect: a create the controller accepted
+    // but whose redirect was slow would otherwise fail the test with the flag still
+    // false, and the cleanup would skip a resource that really is on the cluster. The
+    // sweep looks for the row, so claiming one that was never made costs nothing.
+    created = true;
     await page.getByTestId("prompt-submit").click();
     await expect(page).toHaveURL(/\/prompts$/, { timeout: READ_TIMEOUT });
-    created = true;
 
     // Read back off the list rather than from a toast or a closed form: those two
     // only prove the app believes it worked. Narrowed to the one name this run

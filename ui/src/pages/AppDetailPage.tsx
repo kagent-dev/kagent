@@ -120,10 +120,10 @@ export function AppDetailPage() {
           />
         ) : null}
 
-        {/* Absence is only meaningful once the read finished and succeeded — and
-            `!isLoading` alone does not mean that. SWR runs its fetcher in an effect,
-            so the first paint reports "not loading" with nothing read, and this
-            announced "No such app" about a server list it had not yet asked for. */}
+        {/* Absence is only meaningful once the read finished and succeeded, and
+            `!isLoading` alone does not mean that: an idle read reports it false with
+            nothing in it, so this announced "No such app" about a list it had not
+            asked for. See `useApiResource`. */}
         {appName &&
         !servers.error &&
         !servers.isLoading &&

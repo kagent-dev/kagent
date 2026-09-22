@@ -275,7 +275,11 @@ jobs:
           yarn test:pw:live
 
       - name: Upload live browser report
-        if: ${{ failure() && steps.install-kagent.outcome == 'success' }}
+        # Any finished run, not just a failed one: CI retries twice, so a spec that
+        # fails and then passes leaves a green job and no trace of the failure — which
+        # is the run whose trace is worth the most. A clean run uploads the HTML report
+        # and nothing else, since `test-results` only has content when something failed.
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
         uses: actions/upload-artifact@v5
         with:
           name: ui-live-playwright-report

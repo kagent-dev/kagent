@@ -285,12 +285,34 @@ test("agent templates: the list reads, and a template is read and edited", async
     );
   });
 
-  await test.step("11. a template nothing runs says that instead", async () => {
+  await test.step("11. deleting counts what is built from the template, both ways", async () => {
     /*
      * Back to the list first. The delete that used to sit here navigated back as a side
      * effect of removing the template, and it moved to `shared/agent-templates/` — so
      * the return trip is now this step's own business rather than something it inherits.
+     *
+     * Both branches are asserted here because only the fixtures can hold both at once:
+     * the shared spec deletes a template it created seconds earlier, which can only ever
+     * be the "nothing is built from it" branch, and it says so by matching either
+     * sentence. The seeded wording is this suite's to pin.
      */
+    await page.getByRole("button", { name: "Back to templates" }).click();
+    await page.waitForURL(/\/agents\?.*tab=templates/);
+
+    // A template an agent *is* built from: the count, and the two things that follow
+    // from it — what survives the delete and what cannot be started after it. This is
+    // the branch a reader is most likely to be reading before they decide.
+    await page.getByTestId("templates-filters-search").fill("k8s-agent-7f3a91c");
+    await page.getByTestId("template-link-k8s-agent-7f3a91c").click();
+    await page.waitForURL(/\/agent-templates\/kagent\/k8s-agent-7f3a91c/);
+
+    await page.getByTestId("delete-k8s-agent-7f3a91c").click();
+    const populated = page.getByTestId("template-delete-consequence");
+    await expect(populated).toContainText("1 agent is built from this template");
+    await expect(populated).toContainText("keep working");
+    await expect(populated).toContainText("no new one can be started");
+
+    await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Back to templates" }).click();
     await page.waitForURL(/\/agents\?.*tab=templates/);
 

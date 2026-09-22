@@ -165,13 +165,17 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
 
   await test.step("3. submitting reaches the controller and lands on the list", async () => {
     await expect(page.getByTestId("template-submit")).toBeEnabled();
+    // Set before the submit, not after the redirect: a create the controller accepted
+    // but whose redirect was slow would otherwise fail the test with the flag still
+    // false, and the cleanup would skip a resource that really is on the cluster. The
+    // sweep looks for the row, so claiming one that was never made costs nothing.
+    created = true;
     await page.getByTestId("template-submit").click();
 
     // Success is leaving the form. A create the controller refused keeps the reader on
     // it with `template-create-error` — which is the shape the defect this suite was
     // written for produced for a template that had in fact been created.
     await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: READ_TIMEOUT });
-    created = true;
     /*
      * And the list comes back narrowed to the namespace that was being worked in.
      * Nothing asserted this once, which is how two faults sat on the one line that

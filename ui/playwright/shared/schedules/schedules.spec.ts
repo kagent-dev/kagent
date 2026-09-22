@@ -199,6 +199,18 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
     );
     detailURL = undefined;
 
+    /*
+     * Wait for the list to draw before asserting the row is gone. Zero rows is also
+     * what a list that has not rendered yet looks like, so without this a delete the
+     * controller refused still passes — either the empty state or a first row, then
+     * the absence.
+     */
+    await expect(
+      page
+        .getByTestId("schedules-empty")
+        .or(page.locator('[data-testid="schedules-table"] tbody tr.ant-table-row'))
+        .first(),
+    ).toBeVisible({ timeout: READ_TIMEOUT });
     await expect(page.getByRole("link", { name: CREATED, exact: true })).toHaveCount(0, {
       timeout: READ_TIMEOUT,
     });

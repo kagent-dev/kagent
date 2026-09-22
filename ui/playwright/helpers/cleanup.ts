@@ -4,13 +4,15 @@ import { expectListLoaded, loadApp, rowNamed, searchList } from "./app";
 import { confirmDelete } from "./resource";
 
 /**
- * Removes a row this run made, from a `finally`, without ever throwing.
+ * Removes a row this run made, from a `test.afterEach`, without ever throwing.
  *
  * Every move a cleanup makes can fail — the navigation, the list read, the delete — and
- * each of them throws. Thrown from a `finally`, that replaces the failure the test was
+ * each of them throws. Thrown from a cleanup, that replaces the failure the test was
  * actually reporting, *and* skips the delete underneath it: the run reports a timeout in
- * the cleanup while the resource stays on the cluster. `appeared` was written for
- * exactly this reason and the rest of these blocks were not.
+ * the cleanup while the resource stays on the cluster.
+ *
+ * A hook rather than a `finally`, which is the other half: a timed-out test has a closed
+ * page, so everything in its `finally` throws before it can delete anything.
  *
  * So it warns and returns. A cleanup that could not run says so in the output, and the
  * test still reports what it found.

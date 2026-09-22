@@ -119,13 +119,17 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
 
   await test.step("2. a complete draft is created", async () => {
     await expect(page.getByTestId("harness-create")).toBeEnabled();
+    // Set before the submit, not after the redirect: a create the controller accepted
+    // but whose redirect was slow would otherwise fail the test with the flag still
+    // false, and the cleanup would skip a resource that really is on the cluster. The
+    // sweep looks for the row, so claiming one that was never made costs nothing.
+    created = true;
     await page.getByTestId("harness-create").click();
 
     // Back to the tab it came from, with the new harness in the list. Read back off
     // the table rather than from a toast: "the create returned" and "the thing
     // exists" are different claims, and only the list checks the second.
     await page.waitForURL(/tab=harnesses/, { timeout: READ_TIMEOUT });
-    created = true;
     await expect(page.getByTestId(table)).toContainText(CREATED, {
       timeout: READ_TIMEOUT,
     });

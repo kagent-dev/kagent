@@ -3,6 +3,15 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
+ * The exports of `helpers/app` that are seeded mock rows rather than helpers.
+ *
+ * A list because the distinction is not visible in the name: `routes` and `loadApp`
+ * hold on either backend, `instances` and `agents` are ids only the fixture backend
+ * has.
+ */
+const FIXTURE_EXPORTS = ["instances", "agents"];
+
+/**
  * The layout rules from `README.md`, checked.
  *
  * Two of the four were already enforced by ESLint — the shared fixture import and
@@ -173,6 +182,22 @@ describe("playwright layout", () => {
         /mock=|withScenario|scenario:|helpers\/mockCalls/.test(source),
         `${spec} drives the mock backend, so it cannot run live`,
       ).toBe(false);
+
+      /*
+       * And the other half, which a scenario check misses entirely: a seeded row named
+       * by id. `instances.ready` is a UUID out of `src/mocks/fixtures.ts` — legal
+       * TypeScript, green in the mock lane, and a 404 against any cluster. The README
+       * has always said this folder may not name a fixture; until this ran, nothing
+       * checked the half that is not a query parameter.
+       */
+      const imported = [...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"[^"]*helpers\/app"/g)]
+        .flatMap((match) => match[1].split(","))
+        .map((binding) => binding.trim().split(/\s+as\s+/)[0].trim());
+      const fixtures = imported.filter((binding) => FIXTURE_EXPORTS.includes(binding));
+      expect(
+        fixtures,
+        `${spec} names seeded fixtures (${fixtures.join(", ")}), which no cluster has`,
+      ).toEqual([]);
     }
   });
 
