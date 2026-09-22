@@ -120,7 +120,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 				&v2translator.AgentInput{
-					Template:           &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+					Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				})
 			require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.AgentInput{
-				Template:           &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 			})
 		require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.AgentInput{
-				Template:           &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 			})
 		require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.AgentInput{
-				Template:           &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 			})
 		require.NoError(t, err)
