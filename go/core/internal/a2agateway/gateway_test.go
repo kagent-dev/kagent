@@ -20,10 +20,10 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstancetask"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -44,6 +44,7 @@ func (gatewayTestSession) Principal() auth.Principal {
 }
 
 type gatewayTestStore struct {
+	mu              sync.Mutex
 	instance        *apiv1alpha1.AgentInstance
 	revision        *database.RuntimeRevision
 	err             error
@@ -66,21 +67,29 @@ type gatewayTestStore struct {
 }
 
 func (s *gatewayTestStore) GetAgentInstanceByID(_ context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.id, s.userID = id, ""
 	s.unscoped = true
 	return s.instance, s.err
 }
 
 func (s *gatewayTestStore) GetAgentInstance(_ context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.id, s.userID = id, userID
 	return s.instance, s.err
 }
 
 func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.revision, nil
 }
 
 func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ string, task *a2atype.Task, event a2atype.Event, snapshot *database.AgentInstanceTaskSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.taskErr != nil {
 		return s.taskErr
 	}
@@ -97,6 +106,8 @@ func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ stri
 }
 
 func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, _ []byte, task *a2atype.Task) (*a2atype.Task, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.taskErr != nil {
 		return nil, false, s.taskErr
 	}
@@ -153,7 +164,38 @@ func (s *gatewayTestStore) ContinueAgentInstanceTask(ctx context.Context, id str
 	return &database.TaskContinuation{Current: &submitted, Previous: waiting}, nil
 }
 
+func (s *gatewayTestStore) GetAgentInstanceTaskObservation(_ context.Context, _ string, taskID string, _ *int) (*database.TaskObservation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.taskErr != nil {
+		return nil, s.taskErr
+	}
+	if s.task == nil || string(s.task.ID) != taskID {
+		return nil, database.ErrNotFound
+	}
+	return &database.TaskObservation{Task: s.task, Sequence: int64(len(s.stored))}, nil
+}
+
+func (s *gatewayTestStore) ListAgentInstanceTaskEvents(_ context.Context, _ string, taskID string, after int64, _ int) ([]database.TaskEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.taskErr != nil {
+		return nil, s.taskErr
+	}
+	if s.task == nil || string(s.task.ID) != taskID {
+		return nil, database.ErrNotFound
+	}
+	if after >= int64(len(s.stored)) {
+		return nil, nil
+	}
+	task := *s.task
+	task.History = nil
+	return []database.TaskEvent{{Sequence: int64(len(s.stored)), Event: &task}}, nil
+}
+
 func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.active == nil {
 		return nil, database.ErrNotFound
 	}
@@ -161,6 +203,8 @@ func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (
 }
 
 func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _ string, taskID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !s.interruptResult || s.active == nil || string(s.active.ID) != taskID {
 		return false, nil
 	}
@@ -170,6 +214,8 @@ func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _
 }
 
 func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string, historyLength *int) (*a2atype.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.historyLength = historyLength
 	if s.taskErr != nil {
 		return nil, s.taskErr
@@ -181,11 +227,14 @@ func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, tas
 }
 
 func (s *gatewayTestStore) ListAgentInstanceTasks(_ context.Context, _, _ string, _ a2atype.TaskState, _ *time.Time, _ int, historyLength *int) ([]*a2atype.Task, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.historyLength = historyLength
 	return s.tasks, s.total, s.taskErr
 }
 
 type gatewayTestAuthorizer struct {
+	mu        sync.Mutex
 	principal auth.Principal
 	err       error
 	verb      auth.Verb
@@ -193,6 +242,8 @@ type gatewayTestAuthorizer struct {
 }
 
 func (a *gatewayTestAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.principal, a.verb, a.resource = principal, verb, resource
 	return a.err
 }
@@ -1079,14 +1130,15 @@ func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T)
 	runtime := &singleCloseGatewayRuntime{}
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
 	workflow := &gatewayTestWorkflow{}
-	gateway := &Gateway{store: store, workflow: workflow, events: eventqueue.NewInMemoryManager(), coordinator: &memoryRuntimeCoordinator{}}
+	gateway := &Gateway{store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}), workflow: workflow, coordinator: &memoryRuntimeCoordinator{}}
 	task := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	store.task = task
 	release := make(chan struct{})
 	events := func(yield func(a2atype.Event, error) bool) {
 		<-release
 		yield(a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, nil), nil)
 	}
-	run, reader, err := gateway.startTaskRun(gatewayTestContext(), store.instance, task, gatewayTestClient(t, runtime), events)
+	run, err := gateway.startTaskRun(gatewayTestContext(), store.instance, task, gatewayTestClient(t, runtime), events)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1097,12 +1149,12 @@ func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T)
 		t.Fatal(closeErr)
 	}
 	terminal := a2atype.TaskStateUnspecified
-	for event, err := range run.observeReader(t.Context(), nil, reader) {
+	for event, err := range run.observe(gatewayTestContext()) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok {
-			terminal = update.Status.State
+		if task, ok := event.(*a2atype.Task); ok {
+			terminal = task.Status.State
 		}
 	}
 	<-run.done
@@ -1458,7 +1510,7 @@ func TestGatewayUsesBoundContextWithinInstanceAuthority(t *testing.T) {
 	instance := gatewayTestInstance()
 	task := &a2atype.Task{ID: "shared-task-id", ContextID: instance.GetContextId(), Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
 	store := &gatewayTestStore{instance: instance, tasks: []*a2atype.Task{task}, total: 1}
-	gateway := &Gateway{store: store, authorizer: &gatewayTestAuthorizer{}}
+	gateway := &Gateway{store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{})}
 	for _, contextID := range []string{"", instance.GetContextId(), instance.GetId()} {
 		listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{ContextID: contextID})
 		if err != nil {

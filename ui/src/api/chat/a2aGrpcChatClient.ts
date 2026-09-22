@@ -148,6 +148,12 @@ function turnState(state: TaskState | undefined): ChatTurnState {
   return TURN_STATE_BY_ENUM[state] ?? "working";
 }
 
+function pendingRequest(taskId: string, status: TaskStatus | undefined): PendingRequest | undefined {
+  if (!isAwaitingReply(status?.state) || !taskId) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
+}
+
 /** One A2A part, as something the transcript can render. */
 function toPart(part: A2APart): ChatPart | undefined {
   const content = part.content;
@@ -388,12 +394,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequest(task.id, task.status);
           }
         }
 
@@ -516,13 +517,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequest(event.taskId, status);
 
           if (
             message &&
@@ -643,15 +638,34 @@ export class A2AGrpcChatClient implements ChatClient {
           continue;
         }
 
-        // A non-streaming agent answers with the whole task instead of updates.
+        // Recovery starts with a task snapshot; later snapshots replace state
+        // under the same IDs, and subsequent artifact chunks append to that state.
         if (payload.case === "task") {
           const task = payload.value as A2ATask;
+          artifacts.clear();
+          for (const artifact of task.artifacts) {
+            if (artifact.artifactId) {
+              artifacts.set(artifact.artifactId, textOf(toParts(artifact.parts)));
+            }
+          }
           for (const message of messagesFromTask(task)) {
-            if (delivered.has(message.id)) continue;
+            // Preserve the richer optimistic card for the caller's own reply.
+            if (message.id === input.messageId) continue;
+            // Archived messages are immutable; artifact snapshots can replace
+            // earlier content under the same ID.
+            if (delivered.has(message.id) && !artifacts.has(message.id)) continue;
             delivered.add(message.id);
             yield { type: "message", message };
+            if (message.id === task.status?.message?.messageId && message.role === "agent") {
+              statusReply = textOf(message.parts);
+            }
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequest(task.id, task.status),
+          };
           continue;
         }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	corea2a "github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -333,7 +334,7 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 		event := &a2apb.StreamResponse{Payload: &a2apb.StreamResponse_StatusUpdate{StatusUpdate: &a2apb.TaskStatusUpdateEvent{
 			TaskId: task.Id, ContextId: task.ContextId, Status: status,
 		}}}
-		task, err = applyTaskEvent(task, event)
+		task, err = corea2a.ApplyTaskEvent(task, event)
 		if err != nil {
 			return err
 		}
@@ -521,82 +522,208 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 	return nil
 }
 
-// GetAgentInstanceTask returns a task with up to historyLength latest archived messages,
-// or ErrNotFound if the instance or task is absent. Nil or negative historyLength loads
-// all history; zero skips it. Callers authorize instance access.
+// TaskObservation pairs a task with its last committed event in the same snapshot.
+// Sequence belongs to this instance history and task; it must not be reused across forks.
+type TaskObservation struct {
+	Task     *a2a.Task
+	Sequence int64
+}
+
+// TaskEvent is one canonical task update or archived message from the existing log.
+// Consumers fold these records into the observed task; this is not a wire-event archive.
+// Positions increase but need not be consecutive.
+type TaskEvent struct {
+	Sequence int64
+	Event    a2a.Event
+}
+
+// GetAgentInstanceTask returns a task with up to historyLength latest archived messages
+// from one database snapshot, without locking writers. Nil or negative historyLength
+// loads all history; zero skips it. Missing/deleted instances or tasks return ErrNotFound;
+// malformed durable data returns an error. Callers authorize instance access.
 func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
+	observation, err := c.GetAgentInstanceTaskObservation(ctx, instanceID, taskID, historyLength)
+	if err != nil {
+		return nil, err
+	}
+	return observation.Task, nil
+}
+
+// GetAgentInstanceTaskObservation reads task state, selected history, and the last
+// event position in one statement. History limits match GetAgentInstanceTask.
+// Missing/deleted instances or tasks return ErrNotFound. Callers authorize access.
+func (c *Client) GetAgentInstanceTaskObservation(ctx context.Context, instanceID, taskID string, historyLength *int) (*TaskObservation, error) {
+	type taskRow struct {
+		Sequence  int64
+		Data      []byte
+		Messages  [][]byte
+		ContextID string
+	}
 	row, err := queryOne(ctx, c.db, `
-		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
-		    t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri,
-		    t.snapshot_content_scope, t.history_sequence, t.position
+		SELECT t.data, i.context_id::text AS context_id,
+		    COALESCE((SELECT MAX(e.sequence) FROM agent_instance_task_event e
+		        WHERE e.history_id = t.history_id AND e.task_id = t.id), 0) AS sequence,
+		    ARRAY(SELECT messages.data FROM (
+		        SELECT e.sequence, e.data FROM agent_instance_task_event e
+		        WHERE e.history_id = t.history_id AND e.task_id = t.id AND e.message_id IS NOT NULL
+		        ORDER BY e.sequence DESC
+		        LIMIT CASE WHEN $3::int < 0 THEN NULL ELSE $3 END
+		    ) messages ORDER BY messages.sequence) AS messages
 		FROM agent_instance_task t
 		JOIN agent_instance i ON i.history_id = t.history_id
 		WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
-	`, pgx.RowToStructByName[agentInstanceTaskRow], instanceID, taskID)
+	`, pgx.RowToStructByName[taskRow], instanceID, taskID, historyLength)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
-	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task}, historyLength)
+	if err != nil {
+		return nil, err
 	}
-	return task, err
+	if string(task.ID) != taskID || task.ContextID != row.ContextID {
+		return nil, fmt.Errorf("AgentInstance task has inconsistent identity")
+	}
+	if len(row.Messages) > 0 || (historyLength != nil && *historyLength == 0) {
+		task.History = make([]*a2a.Message, 0, len(row.Messages))
+	} else if historyLength != nil && *historyLength > 0 && *historyLength < len(task.History) {
+		task.History = task.History[len(task.History)-*historyLength:]
+	}
+	for _, data := range row.Messages {
+		event, err := unmarshalAgentInstanceTaskEvent(data)
+		if err != nil {
+			return nil, err
+		}
+		message, ok := event.(*a2a.Message)
+		if !ok || message.TaskID != task.ID || message.ContextID != task.ContextID {
+			return nil, fmt.Errorf("AgentInstance task history contains an inconsistent message")
+		}
+		task.History = append(task.History, message)
+	}
+	return &TaskObservation{Task: task, Sequence: row.Sequence}, nil
+}
+
+// ListAgentInstanceTaskEvents reads at most limit committed records strictly after
+// afterSequence from the task's existing log. It includes archived messages and
+// canonical task updates; callers restore history and state rather than treating
+// these records as the original runtime responses. Start from a TaskObservation
+// and consume each position once to avoid repeating artifact appends.
+// Empty results mean the caller has caught up; missing/deleted instances or tasks
+// return ErrNotFound. Callers authorize access and arrange wakeups. No runtime is contacted.
+func (c *Client) ListAgentInstanceTaskEvents(ctx context.Context, instanceID, taskID string, afterSequence int64, limit int) ([]TaskEvent, error) {
+	if afterSequence < 0 || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("event position must be nonnegative and limit must be between 1 and 1000")
+	}
+	type eventRow struct {
+		Sequence  *int64
+		ContextID string
+		Data      []byte
+		MessageID *string
+	}
+	rows, err := queryMany(ctx, c.db, `
+		SELECT e.sequence, i.context_id::text AS context_id, e.data, e.message_id
+		FROM agent_instance i
+		JOIN agent_instance_task t ON t.history_id = i.history_id AND t.id = $2
+		LEFT JOIN LATERAL (
+		    SELECT sequence, data, message_id FROM agent_instance_task_event
+		    WHERE history_id = t.history_id AND task_id = t.id AND sequence > $3
+		    ORDER BY sequence LIMIT $4
+		) e ON true
+		WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED'
+		ORDER BY e.sequence
+	`, pgx.RowToStructByName[eventRow], instanceID, taskID, afterSequence, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list AgentInstance task events: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, ErrNotFound
+	}
+	events := make([]TaskEvent, 0, len(rows))
+	for _, row := range rows {
+		if row.Sequence == nil {
+			continue // Existing task with no later records.
+		}
+		event, err := unmarshalAgentInstanceTaskEvent(row.Data)
+		if err != nil {
+			return nil, err
+		}
+		if info := event.TaskInfo(); string(info.TaskID) != taskID || info.ContextID != row.ContextID {
+			return nil, fmt.Errorf("event %d has inconsistent task identity", *row.Sequence)
+		}
+		if message, ok := event.(*a2a.Message); ok {
+			if row.MessageID == nil || message.ID != *row.MessageID {
+				return nil, fmt.Errorf("event %d has inconsistent message identity", *row.Sequence)
+			}
+		} else if row.MessageID != nil {
+			return nil, fmt.Errorf("event %d has an invalid message index", *row.Sequence)
+		}
+		events = append(events, TaskEvent{Sequence: *row.Sequence, Event: event})
+	}
+	return events, nil
 }
 
 // ListAgentInstanceTasks returns tasks with archived messages in immutable creation order
 // after afterID, with optional state and exclusive status-timestamp filters. The total
-// counts all matching tasks before pagination; it is read separately and can differ under
-// concurrent writes. History limits have the same semantics as GetAgentInstanceTask.
+// counts all matching tasks before pagination. State, totals, and history are read in
+// one read-only snapshot. History limits have the same semantics as GetAgentInstanceTask.
 // Callers authorize instance access.
 func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int, historyLength *int) ([]*a2a.Task, int, error) {
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
-	}
+	var tasks []*a2a.Task
+	var total int
+	err := pgx.BeginTxFunc(ctx, c.db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		instance, err := readAgentInstance(ctx, tx, instanceID)
+		if err != nil {
+			return fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
+		}
 
-	total, err := queryOne(ctx, c.db, `
-		SELECT COUNT(*) FROM agent_instance_task
-		WHERE history_id = $1
-		  AND ($2::text = '' OR state = $2)
-		  AND ($3::timestamptz IS NULL
-		       OR status_timestamp > $3)
-	`, pgx.RowTo[int64], instance.HistoryID, string(state), statusTimestampAfter)
-	if err != nil {
-		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
-	}
-	rows, err := queryMany(ctx, c.db, `
-		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
-		    t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
-		    t.history_sequence, t.position FROM agent_instance_task t
-		WHERE t.history_id = $1
-		  AND ($2::text = '' OR t.position > (
-		      SELECT cursor.position FROM agent_instance_task cursor
-		      WHERE cursor.history_id = $1 AND cursor.id = $2
-		  ))
-		  AND ($3::text = '' OR t.state = $3)
-		  AND ($4::timestamptz IS NULL
-		       OR t.status_timestamp > $4)
-		ORDER BY t.position
-		LIMIT $5
-	`,
-		pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID, afterID, string(state), statusTimestampAfter,
-		int32(limit),
-	)
+		count, err := queryOne(ctx, tx, `
+			SELECT COUNT(*) FROM agent_instance_task
+			WHERE history_id = $1
+			  AND ($2::text = '' OR state = $2)
+			  AND ($3::timestamptz IS NULL
+			       OR status_timestamp > $3)
+		`, pgx.RowTo[int64], instance.HistoryID, string(state), statusTimestampAfter)
+		if err != nil {
+			return fmt.Errorf("count AgentInstance tasks: %w", err)
+		}
+		rows, err := queryMany(ctx, tx, `
+			SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
+			    t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
+			    t.history_sequence, t.position FROM agent_instance_task t
+			WHERE t.history_id = $1
+			  AND ($2::text = '' OR t.position > (
+			      SELECT cursor.position FROM agent_instance_task cursor
+			      WHERE cursor.history_id = $1 AND cursor.id = $2
+			  ))
+			  AND ($3::text = '' OR t.state = $3)
+			  AND ($4::timestamptz IS NULL
+			       OR t.status_timestamp > $4)
+			ORDER BY t.position
+			LIMIT $5
+		`,
+			pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID, afterID, string(state), statusTimestampAfter,
+			int32(limit),
+		)
+		if err != nil {
+			return fmt.Errorf("list AgentInstance tasks: %w", err)
+		}
+		tasks = make([]*a2a.Task, 0, len(rows))
+		for _, row := range rows {
+			task, err := unmarshalAgentInstanceTask(row.Data)
+			if err != nil {
+				return fmt.Errorf("decode AgentInstance task %s: %w", row.ID, err)
+			}
+			tasks = append(tasks, task)
+		}
+		if err := loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, tasks, historyLength); err != nil {
+			return err
+		}
+		total = int(count)
+		return nil
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("list AgentInstance tasks: %w", err)
 	}
-	tasks := make([]*a2a.Task, 0, len(rows))
-	for _, row := range rows {
-		task, err := unmarshalAgentInstanceTask(row.Data)
-		if err != nil {
-			return nil, 0, fmt.Errorf("decode AgentInstance task %s: %w", row.ID, err)
-		}
-		tasks = append(tasks, task)
-	}
-	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks, historyLength); err != nil {
-		return nil, 0, err
-	}
-	return tasks, int(total), nil
+	return tasks, total, nil
 }
 
 // unmarshalAgentInstanceTaskEvent decodes a stored A2A event, returning an error for
