@@ -36,6 +36,7 @@ import {
   type CreateModelConfigRequest,
 } from "@/api";
 import {
+  authTypeForProvider,
   buildModelPayload,
   emptyModelDraft,
   isBadNumber,
@@ -217,8 +218,15 @@ export function ModelForm({
   // invalid selection. Ollama gets "Existing secret" alone: it needs no
   // credential locally, but one is what authenticates an Ollama Cloud model, and
   // the chart's OLLAMA_API_KEY already lives in a Secret.
+  //
+  // "No credential" has to be offered alongside it: a new draft starts on
+  // "apiKey" (see newDraft), so with only "Existing secret" here an Ollama draft
+  // opened with nothing selected and no way back once that button was clicked.
   const authOptions: { label: string; value: ModelAuthType }[] = isOllama
-    ? [{ label: "Existing secret", value: "secret" }]
+    ? [
+        { label: "Existing secret", value: "secret" },
+        { label: "No credential", value: "none" },
+      ]
     : [
         { label: "API key", value: "apiKey" },
         { label: "Existing secret", value: "secret" },
@@ -233,6 +241,52 @@ export function ModelForm({
   const effectiveName = nameTouched
     ? draft.name
     : slugifyResourceName(draft.model ?? "");
+  // The Secret name/key fields, shared by every provider that offers "Existing
+  // secret". They used to live only in the non-Ollama branch, so choosing that
+  // mode for Ollama rendered the choice with no field to fill in and submitted
+  // no credential at all.
+  const secretFields = (
+    <>
+      <Form.Item
+        label="API key secret"
+        help="The name of an existing Kubernetes Secret holding the credential."
+      >
+        <Input
+          data-testid="model-api-key-secret"
+          placeholder={isOllama ? "kagent-ollama-cloud" : "kagent-openai"}
+          value={draft.apiKeySecret}
+          onChange={(event) => set("apiKeySecret", event.target.value)}
+        />
+      </Form.Item>
+      <Form.Item
+        label="Secret key"
+        validateStatus={
+          submitted &&
+          draft.apiKeySecretKey.trim() &&
+          !draft.apiKeySecret.trim()
+            ? "error"
+            : undefined
+        }
+        help={
+          submitted &&
+          draft.apiKeySecretKey.trim() &&
+          !draft.apiKeySecret.trim()
+            ? "A secret key needs the secret that holds it."
+            : isOllama
+              ? "Which key inside that Secret. Defaults to OLLAMA_API_KEY."
+              : "Which key inside that Secret. Defaults to the provider's usual key."
+        }
+      >
+        <Input
+          data-testid="model-api-key-secret-key"
+          placeholder={isOllama ? "OLLAMA_API_KEY" : "OPENAI_API_KEY"}
+          value={draft.apiKeySecretKey}
+          onChange={(event) => set("apiKeySecretKey", event.target.value)}
+        />
+      </Form.Item>
+    </>
+  );
+
   const effective = useMemo<ModelDraft>(
     () => ({ ...draft, name: effectiveName }),
     [draft, effectiveName],
@@ -251,18 +305,18 @@ export function ModelForm({
 
   const changeProvider = (type: string) => {
     // The previous model, tag and parameters belong to the old provider, so they
-    // are cleared rather than carried onto one that does not offer them. A
-    // passthrough selection is reset too when the new provider forbids it.
+    // are cleared rather than carried onto one that does not offer them.
+    // The auth mode is reset whenever the new provider does not offer it: a
+    // passthrough selection for a provider that forbids it, and "apiKey" for
+    // Ollama, which takes an existing Secret only. Leaving it would render a
+    // radio group with nothing selected.
     setDraft((current) => ({
       ...current,
       provider: type,
       model: undefined,
       modelTag: "",
       params: {},
-      authType:
-        current.authType === "passthrough" && !supportsPassthrough(type)
-          ? "apiKey"
-          : current.authType,
+      authType: authTypeForProvider(type, current.authType),
     }));
     setFailure(undefined);
     onProviderChange?.(type);
@@ -537,20 +591,23 @@ export function ModelForm({
             backend creates), an existing Secret referenced by name, forwarding
             the caller's own credential (passthrough), or no credential. */}
         {isOllama ? (
-          <Form.Item
-            label="Authentication"
-            extra="A local Ollama model needs no API key. To run a cloud model such as one tagged :cloud against api.ollama.com, name a Secret holding OLLAMA_API_KEY."
-          >
-            <Radio.Group
-              data-testid="model-auth-type"
-              value={draft.authType}
-              onChange={(event) =>
-                set("authType", event.target.value as ModelAuthType)
-              }
-              options={authOptions}
-              optionType="button"
-            />
-          </Form.Item>
+          <>
+            <Form.Item
+              label="Authentication"
+              extra="A local Ollama model needs no API key. To run a cloud model against api.ollama.com, name a Secret holding OLLAMA_API_KEY — an explicit host is used instead when one is set."
+            >
+              <Radio.Group
+                data-testid="model-auth-type"
+                value={draft.authType}
+                onChange={(event) =>
+                  set("authType", event.target.value as ModelAuthType)
+                }
+                options={authOptions}
+                optionType="button"
+              />
+            </Form.Item>
+            {draft.authType === "secret" ? secretFields : null}
+          </>
         ) : (
           <>
             <Form.Item label="Authentication">
@@ -610,49 +667,7 @@ export function ModelForm({
               </Form.Item>
             ) : null}
 
-            {draft.authType === "secret" ? (
-              <>
-                <Form.Item
-                  label="API key secret"
-                  help="The name of an existing Kubernetes Secret holding the credential."
-                >
-                  <Input
-                    data-testid="model-api-key-secret"
-                    placeholder="kagent-openai"
-                    value={draft.apiKeySecret}
-                    onChange={(event) =>
-                      set("apiKeySecret", event.target.value)
-                    }
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="Secret key"
-                  validateStatus={
-                    submitted &&
-                    draft.apiKeySecretKey.trim() &&
-                    !draft.apiKeySecret.trim()
-                      ? "error"
-                      : undefined
-                  }
-                  help={
-                    submitted &&
-                    draft.apiKeySecretKey.trim() &&
-                    !draft.apiKeySecret.trim()
-                      ? "A secret key needs the secret that holds it."
-                      : "Which key inside that Secret. Defaults to the provider's usual key."
-                  }
-                >
-                  <Input
-                    data-testid="model-api-key-secret-key"
-                    placeholder="OPENAI_API_KEY"
-                    value={draft.apiKeySecretKey}
-                    onChange={(event) =>
-                      set("apiKeySecretKey", event.target.value)
-                    }
-                  />
-                </Form.Item>
-              </>
-            ) : null}
+            {draft.authType === "secret" ? secretFields : null}
 
             {draft.authType === "passthrough" ? (
               <Alert

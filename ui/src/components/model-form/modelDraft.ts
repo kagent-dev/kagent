@@ -15,7 +15,11 @@ import {
   type TLSConfig,
 } from "@/api";
 import { DEFAULT_NAMESPACE } from "@/components/common/resourceName";
-import { OLLAMA_DEFAULT_TAG, OLLAMA_PROVIDER } from "./providerInfo";
+import {
+  OLLAMA_DEFAULT_TAG,
+  OLLAMA_PROVIDER,
+  supportsPassthrough,
+} from "./providerInfo";
 
 /**
  * How the model authenticates:
@@ -212,6 +216,28 @@ function authTypeFrom(spec: ModelConfigSpec): ModelAuthType {
   return "none";
 }
 
+/**
+ * The auth mode to switch to when the provider changes.
+ *
+ * Keep the current mode when the new provider still offers it; otherwise land on
+ * one it does. Passthrough is refused by providers the CRD does not allow it for,
+ * and Ollama offers neither "apiKey" nor "passthrough", so a draft switching to
+ * it from either has to move rather than leave the radio group with nothing
+ * selected. The inverse of {@link authTypeFrom}.
+ */
+export function authTypeForProvider(
+  provider: string | undefined,
+  current: ModelAuthType,
+): ModelAuthType {
+  if (provider === OLLAMA_PROVIDER) {
+    return current === "secret" || current === "none" ? current : "none";
+  }
+  if (current === "passthrough" && !supportsPassthrough(provider)) {
+    return "apiKey";
+  }
+  return current;
+}
+
 /** The stored provider block, flattened to the form's string values. */
 function paramsFromSpec(spec: ModelConfigSpec): Record<string, string> {
   const key = spec.provider ? PROVIDER_SPEC_KEY[spec.provider] : undefined;
@@ -275,9 +301,12 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     }
   } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
     spec.apiKeySecret = draft.apiKeySecret.trim();
-    if (draft.apiKeySecretKey.trim()) {
-      spec.apiKeySecretKey = draft.apiKeySecretKey.trim();
-    }
+    // apiKeySecretKey is required by the CRD whenever apiKeySecret is set
+    // (Bedrock and SAPAICore are the only exemptions), so an empty field has
+    // to be filled in rather than omitted or admission rejects the save.
+    // Ollama Cloud always authenticates with OLLAMA_API_KEY.
+    spec.apiKeySecretKey =
+      draft.apiKeySecretKey.trim() || "OLLAMA_API_KEY";
   }
 
   const headers = headersToRecord(draft.defaultHeaders);
