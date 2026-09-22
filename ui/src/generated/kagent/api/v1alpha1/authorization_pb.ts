@@ -50,8 +50,8 @@ export type AccessTarget = Message<"kagent.api.v1alpha1.AccessTarget"> & {
   namespace: string;
 
   /**
-   * When omitted, the review checks whether any valid resource name in the
-   * namespace is permitted.
+   * When present, the review checks this exact resource identity. When omitted,
+   * it checks whether any valid resource name in the namespace is permitted.
    *
    * @generated from field: optional string name = 2;
    */
@@ -172,8 +172,8 @@ export const AuthorizationVerbSchema: GenEnum<AuthorizationVerb> = /*@__PURE__*/
   enumDesc(file_kagent_api_v1alpha1_authorization, 1);
 
 /**
- * AuthorizationService answers advisory access checks for catalog UI actions.
- * The resource operation remains authoritative.
+ * AuthorizationService answers advisory access checks for catalog operations.
+ * Catalog operations remain authoritative.
  *
  * @generated from service kagent.api.v1alpha1.AuthorizationService
  */

@@ -89,9 +89,12 @@ const (
 
 // Authz
 type Authorizer interface {
+	// Check returns nil only when the principal may perform the operation.
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
 }
 
+// CollectionAuthorizer enumerates every namespace/name combination allowed for a verb.
+// Scope must fail rather than return a partial result.
 type CollectionAuthorizer interface {
 	Authorizer
 	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (authorization.AuthorizationScope, error)

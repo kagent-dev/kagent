@@ -23,16 +23,28 @@ type scopeCall struct {
 	resourceType string
 }
 
+type checkCall struct {
+	principal auth.Principal
+	verb      auth.Verb
+	resource  auth.Resource
+}
+
+type checkKey struct {
+	verb                          auth.Verb
+	resourceType, namespace, name string
+}
+
 type testAuthorizer struct {
 	scopes     map[auth.Verb]apiauthorization.AuthorizationScope
 	scopeErrs  map[auth.Verb]error
 	scopeCalls []scopeCall
-	checkCalls int
+	checkErrs  map[checkKey]error
+	checkCalls []checkCall
 }
 
-func (a *testAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
-	a.checkCalls++
-	return nil
+func (a *testAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.checkCalls = append(a.checkCalls, checkCall{principal: principal, verb: verb, resource: resource})
+	return a.checkErrs[checkKey{verb: verb, resourceType: resource.Type, namespace: resource.Namespace, name: resource.Name}]
 }
 
 func (a *testAuthorizer) Scope(_ context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
@@ -43,6 +55,7 @@ func (a *testAuthorizer) Scope(_ context.Context, principal auth.Principal, verb
 func TestCheckAccessMatrix(t *testing.T) {
 	principal := auth.Principal{User: auth.User{ID: "reader"}}
 	ctx := auth.AuthSessionTo(t.Context(), testSession{principal: principal})
+	denied := errors.New("denied")
 	authorizer := &testAuthorizer{scopes: map[auth.Verb]apiauthorization.AuthorizationScope{
 		auth.VerbUpdate: {
 			Kind: apiauthorization.ScopeAnyOf,
@@ -57,6 +70,10 @@ func TestCheckAccessMatrix(t *testing.T) {
 				{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}},
 			}}},
 		},
+	}, checkErrs: map[checkKey]error{
+		{verb: auth.VerbUpdate, resourceType: auth.ResourceAgentTemplate, namespace: "team-b", name: "assistant"}: denied,
+		{verb: auth.VerbCreate, resourceType: auth.ResourceAgentTemplate, namespace: "team-b", name: "assistant"}: denied,
+		{verb: auth.VerbUpdate, resourceType: auth.ResourceAgentTemplate, namespace: "team-a", name: "other"}:     denied,
 	}}
 	targets := []kubeauth.ReviewTarget{
 		{Namespace: "team-a", Name: "assistant"},
@@ -82,7 +99,30 @@ func TestCheckAccessMatrix(t *testing.T) {
 		{principal: principal, verb: auth.VerbUpdate, resourceType: auth.ResourceAgentTemplate},
 		{principal: principal, verb: auth.VerbCreate, resourceType: auth.ResourceAgentTemplate},
 	}, authorizer.scopeCalls)
-	assert.Zero(t, authorizer.checkCalls)
+	assert.Equal(t, []checkCall{
+		{principal: principal, verb: auth.VerbUpdate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "assistant"}},
+		{principal: principal, verb: auth.VerbUpdate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-b", Name: "assistant"}},
+		{principal: principal, verb: auth.VerbUpdate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "other"}},
+		{principal: principal, verb: auth.VerbCreate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "assistant"}},
+		{principal: principal, verb: auth.VerbCreate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-b", Name: "assistant"}},
+		{principal: principal, verb: auth.VerbCreate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "other"}},
+	}, authorizer.checkCalls)
+}
+
+func TestCheckAccessNamedTargetsDoNotReadScope(t *testing.T) {
+	authorizer := &testAuthorizer{scopeErrs: map[auth.Verb]error{auth.VerbGet: errors.New("scope unavailable")}}
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+	target := kubeauth.ReviewTarget{Namespace: "team-a", Name: "assistant"}
+
+	results, err := kubeauth.NewAccessReviewer(authorizer).Review(
+		ctx,
+		auth.ResourceAgentTemplate,
+		[]auth.Verb{auth.VerbGet},
+		[]kubeauth.ReviewTarget{target},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []kubeauth.ReviewResult{{Target: target, AllowedVerbs: []auth.Verb{auth.VerbGet}}}, results)
+	assert.Empty(t, authorizer.scopeCalls)
 }
 
 func TestCheckAccessScopeFailures(t *testing.T) {

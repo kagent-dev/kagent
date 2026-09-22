@@ -26,8 +26,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AuthorizationService answers advisory access checks for catalog UI actions.
-// The resource operation remains authoritative.
+// AuthorizationService answers advisory access checks for catalog operations.
+// Catalog operations remain authoritative.
 type AuthorizationServiceClient interface {
 	CheckAccess(ctx context.Context, in *CheckAccessRequest, opts ...grpc.CallOption) (*CheckAccessResponse, error)
 }
@@ -54,8 +54,8 @@ func (c *authorizationServiceClient) CheckAccess(ctx context.Context, in *CheckA
 // All implementations must embed UnimplementedAuthorizationServiceServer
 // for forward compatibility.
 //
-// AuthorizationService answers advisory access checks for catalog UI actions.
-// The resource operation remains authoritative.
+// AuthorizationService answers advisory access checks for catalog operations.
+// Catalog operations remain authoritative.
 type AuthorizationServiceServer interface {
 	CheckAccess(context.Context, *CheckAccessRequest) (*CheckAccessResponse, error)
 	mustEmbedUnimplementedAuthorizationServiceServer()
