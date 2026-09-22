@@ -132,7 +132,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}
-	provenance, err := c.buildProvenance(ctx, input, environment, configJSON)
+	provenance, err := c.buildProvenance(ctx, input, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
@@ -304,11 +304,8 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON []byte) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec)}
-	entries = append(entries,
-		objectProvenance("kagent.internal/v1", "GeneratedInput", "config.json", "", 0, json.RawMessage(configJSON)),
-	)
 	seenObjects := map[string]struct{}{}
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)

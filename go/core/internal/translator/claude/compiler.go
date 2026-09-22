@@ -142,7 +142,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}
-	provenance, err := c.buildProvenance(ctx, input, environment, configJSON)
+	provenance, err := c.buildProvenance(ctx, input, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
@@ -394,14 +394,9 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON []byte) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	harness := input.Harness
-	entries := []provenanceEntry{
-		objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
-		// The compiled configuration carries settings that are not in any watched
-		// object, such as telemetry, so a change to one produces a new revision.
-		objectProvenance("kagent.internal/v1", "GeneratedInput", "config.json", "", 0, json.RawMessage(configJSON)),
-	}
+	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {

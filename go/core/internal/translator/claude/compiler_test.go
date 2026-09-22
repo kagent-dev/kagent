@@ -670,10 +670,22 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if !capturedConfig.RuntimeTelemetry.CaptureContent || capturedConfig.RuntimeTelemetry.CaptureLimit() != 4096 {
 		t.Fatalf("captured runtime telemetry = %#v", capturedConfig.RuntimeTelemetry)
 	}
-	// A telemetry change lives only in the configuration, so provenance must
-	// cover it or the runtime would keep its previous revision.
-	if bytes.Equal(revision.Provenance, captured.Provenance) {
-		t.Fatal("changing the capture policy did not change revision provenance")
+	// A telemetry change lives only in the compiled configuration, which the
+	// revision digest covers. Provenance records Kubernetes inputs, none of
+	// which changed.
+	if !bytes.Equal(revision.Provenance, captured.Provenance) {
+		t.Fatal("changing the capture policy changed revision provenance")
+	}
+	before, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := captured.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("changing the capture policy did not change the revision digest")
 	}
 }
 

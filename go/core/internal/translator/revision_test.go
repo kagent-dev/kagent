@@ -29,6 +29,22 @@ func TestRevisionDigestIncludesProvenance(t *testing.T) {
 	}
 }
 
+func TestRevisionDigestIncludesConfig(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude", ConfigJSON: []byte(`{"version":5,"runtime_telemetry":{"capture_content":false}}`)}
+	first, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.ConfigJSON = []byte(`{"version":5,"runtime_telemetry":{"capture_content":true}}`)
+	second, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("compiled configuration change did not change runtime revision")
+	}
+}
+
 func TestCompilationWarningsDoNotAffectRevisionDigest(t *testing.T) {
 	compilation := &CompileResult{Revision: Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude"}}
 	first, err := compilation.Digest()
