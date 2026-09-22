@@ -9,6 +9,24 @@ var (
 		ComponentController,
 	)
 
+	MetricsBindAddress = RegisterStringVar(
+		"METRICS_BIND_ADDRESS",
+		"0",
+		"Address the controller-runtime metrics server binds to, e.g. :8080. "+
+			"\"0\" (the default) serves no metrics, so an installation that does not "+
+			"set this is unchanged. The Helm chart renders this variable, and its "+
+			"ServiceMonitor, from controller.metrics.",
+		ComponentController,
+	)
+
+	MetricsSecure = RegisterBoolVar(
+		"METRICS_SECURE",
+		false,
+		"Serve the metrics endpoint over HTTPS with authentication and authorization. "+
+			"A scraper then needs a token bound to the metrics-reader ClusterRole.",
+		ComponentController,
+	)
+
 	KagentNamespace = RegisterStringVar(
 		"KAGENT_NAMESPACE",
 		"kagent",

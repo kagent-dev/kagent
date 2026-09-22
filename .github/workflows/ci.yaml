@@ -40,7 +40,7 @@ jobs:
   test-e2e:
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.2.0-beta4
+      SUBSTRATE_VERSION: 0.2.0-beta5
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:

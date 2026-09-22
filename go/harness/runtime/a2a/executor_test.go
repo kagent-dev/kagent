@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -94,7 +95,7 @@ func TestExecuteStreamsCompletesAndPersistsSession(t *testing.T) {
 			return runtime.Outcome{}, err
 		}
 		return runtime.Outcome{}, nil
-	}}, continuation)
+	}}, continuation, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestExecutePreservesTextAndToolOrder(t *testing.T) {
 			}
 		}
 		return runtime.Outcome{}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +214,7 @@ func TestExecuteRejectsMalformedToolActivity(t *testing.T) {
 	for _, emit := range tests {
 		executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 			return runtime.Outcome{}, emit(sink)
-		}}, &fakeContinuation{})
+		}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +251,7 @@ func assertToolActivity(t *testing.T, events []a2atype.Event, partType string, w
 func TestExecuteFailureBoundary(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
 		return runtime.Outcome{Failure: &runtime.Failure{Message: "budget limit reached"}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +270,7 @@ func TestExecuteReleasesActiveTaskBeforeTerminalEvent(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
 		close(runnerReturned)
 		return runtime.Outcome{}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestBusyAndCancellation(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return runtime.Outcome{}, ctx.Err()
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +339,7 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 				return nil
 			},
 		}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +401,7 @@ func TestCancelParkedTurn(t *testing.T) {
 				},
 			}}, nil
 		},
-	}, &fakeContinuation{})
+	}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +442,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 				return runtime.Outcome{}, nil
 			},
 		}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +482,7 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 				return runtime.Outcome{}, nil
 			},
 		}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}

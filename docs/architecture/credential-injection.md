@@ -1,6 +1,6 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.2.0-beta4**. The compiler turns ModelConfig API
+Kagent requires Substrate **v0.2.0-beta5**. The compiler turns ModelConfig API
 keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
 bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 overwrites the outgoing HTTP header. SDKs receive an inert placeholder where

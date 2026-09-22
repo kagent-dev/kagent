@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -315,4 +316,72 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{
 		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
 	}}, collections
+}
+
+func TestCompileRuntimeTelemetry(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Name = "fast"
+
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := codexconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The compiled identity follows the Harness name, not the harness kind.
+	want := tracing.RuntimeTelemetry{
+		Runtime: tracing.RuntimeCodex, AgentName: "assistant-fast", AgentNamespace: "test",
+		Provider: "openai", Model: "gpt-5.2-codex",
+	}
+	if config.RuntimeTelemetry != want {
+		t.Fatalf("runtime telemetry = %#v, want %#v", config.RuntimeTelemetry, want)
+	}
+	if config.RuntimeTelemetry.CaptureLimit() != 0 {
+		t.Fatal("content capture is not disabled by default")
+	}
+
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedConfig, err := codexconfig.Parse(captured.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capturedConfig.RuntimeTelemetry.CaptureContent {
+		t.Fatalf("captured runtime telemetry = %#v", capturedConfig.RuntimeTelemetry)
+	}
+	// The native exporter settings stay separate from the Go wrapper contract.
+	if capturedConfig.Telemetry == nil || !capturedConfig.Telemetry.CaptureContent {
+		t.Fatalf("native telemetry = %#v", capturedConfig.Telemetry)
+	}
+	// A telemetry change lives only in the compiled configuration, which the
+	// revision digest covers. Provenance records Kubernetes inputs, none of
+	// which changed.
+	if !bytes.Equal(revision.Provenance, captured.Provenance) {
+		t.Fatal("changing the capture policy changed revision provenance")
+	}
+	before, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := captured.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("changing the capture policy did not change the revision digest")
+	}
 }

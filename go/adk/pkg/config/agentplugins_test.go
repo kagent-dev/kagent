@@ -51,6 +51,24 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 	}
 }
 
+func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
+	root := t.TempDir()
+	paths := AgentPluginPaths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
+	// Pre-seeded package cache: Materialize reuses it instead of fetching.
+	manifest := filepath.Join(paths.Packages, "plugin-0", ".claude-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"acme-claude"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
+	agentConfig := &adk.AgentConfig{AgentPlugins: &agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}}}
+	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err == nil {
+		t.Fatal("MaterializeAgentPlugins() accepted a Claude-format plugin")
+	}
+}
+
 func TestAddMCPConfigConvertsRuntimeNeutralServers(t *testing.T) {
 	agentConfig := &adk.AgentConfig{}
 	addMCPConfig(agentConfig, agentplugins.MCPConfig{

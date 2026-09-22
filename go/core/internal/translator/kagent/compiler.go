@@ -76,6 +76,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	)
 	environment = append(environment, telemetryConfig.TraceEnvironment()...)
 	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.CaptureEnvironment())
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {

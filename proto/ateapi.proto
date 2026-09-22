@@ -43,6 +43,10 @@ service Control {
   // Resume an actor from its latest snapshot.
   rpc ResumeActor(ResumeActorRequest) returns (ResumeActorResponse) {}
 
+  // Revert an actor to SUSPENDED state.
+  // Only crashed, running or paused actors can be reverted.
+  rpc RevertActor(RevertActorRequest) returns (RevertActorResponse) {}
+
   // Delete an actor. Only suspended actors can be deleted.
   rpc DeleteActor(DeleteActorRequest) returns (Actor) {}
 
@@ -523,6 +527,7 @@ enum ActorState {
   ACTOR_STATE_PAUSED = 6;
   ACTOR_STATE_CRASHED = 7;
   ACTOR_STATE_DELETING = 8;
+  ACTOR_STATE_REVERTING = 9;
   // Keep this in sync with ActorStatus.state's maximum.
 }
 
@@ -531,7 +536,7 @@ message ActorStatus {
   //
   // +k8s:required
   // +k8s:minimum=1
-  // +k8s:maximum=8 # keep this in sync with the ActorState enum
+  // +k8s:maximum=9 # keep this in sync with the ActorState enum
   ActorState state = 1;
 
   // worker_assignment points at the worker currently hosting this Actor.
@@ -639,6 +644,12 @@ message WorkerAssignment {
   // +k8s:required
   // +k8s:customValidation # until `format=k8s-ip` is supported
   string worker_pod_ip = 5;
+
+  // node_name is the Kubernetes node hosting worker_pod.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-long-name
+  string node_name = 7;
 }
 
 // TagStatus is the server-owned state of a Tag.
@@ -1389,6 +1400,21 @@ message ResumeActorResponse {
   // True if a resume workflow was executed to activate the actor.
   // False if the actor was already RUNNING.
   bool resumed = 2;
+}
+
+// RevertActorRequest identifies the Actor to revert.
+message RevertActorRequest {
+  // actor to revert.
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 1;
+}
+
+// RevertActorResponse holds the reverted Actor.
+message RevertActorResponse {
+  // actor as it stands after the revert, SUSPENDED and still holding the
+  // external snapshot it was reverted to.
+  Actor actor = 1;
 }
 
 message DeleteActorRequest {

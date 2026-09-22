@@ -12,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/executor"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -55,7 +56,13 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if strings.TrimSpace(card.Name) == "" {
 		return fmt.Errorf("agent card name is required")
 	}
-	shutdownTelemetry, telemetryEnabled, telemetryErr := tracing.Init(ctx, card.Name)
+	// Telemetry identity and capture policy are compiled into the runtime
+	// configuration, so the configuration is read before tracing starts.
+	cfg, err := config.Parse(configJSON)
+	if err != nil {
+		return err
+	}
+	shutdownTelemetry, telemetryEnabled, telemetryErr := tracing.Init(ctx, card.Name, cfg.RuntimeTelemetry)
 	if telemetryErr != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", telemetryErr)
 	} else if telemetryEnabled {
@@ -76,7 +83,10 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if check {
 		return nil
 	}
-	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, exec)
+	application, err := app.New(app.AppConfig{
+		AgentCard: card, Port: privatePort, AppName: card.Name,
+		Logger: logging.FromContext(ctx), Telemetry: cfg.RuntimeTelemetry,
+	}, exec)
 	if err != nil {
 		return fmt.Errorf("construct private A2A app: %w", err)
 	}

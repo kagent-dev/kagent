@@ -283,6 +283,9 @@ export function CheckpointDivider({
                 "data-testid": `chat-checkpoint-delete-confirm-${checkpointId}`,
               }}
               cancelText="Cancel"
+              cancelButtonProps={{
+                "data-testid": `chat-checkpoint-delete-cancel-${checkpointId}`,
+              }}
               onConfirm={onDelete}
             >
               {/* No tooltip, unlike its neighbours. The pointer that opens the

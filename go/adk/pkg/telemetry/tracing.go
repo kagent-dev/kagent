@@ -28,10 +28,11 @@ func SetKAgentSpanAttributes(ctx context.Context, attributes map[string]string) 
 	return context.WithValue(ctx, kagentSpanAttributesKey{}, merged)
 }
 
-// StartInvocationSpan creates a lightweight root span around one executor run.
-// Descendant spans inherit request-scoped attributes via the span processor.
+// StartInvocationSpan creates a lightweight span around one executor run,
+// beneath the invocation span the A2A server opened. Descendant spans inherit
+// request-scoped attributes via the span processor.
 func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
-	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
+	return tracing.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
 }
 
 // PreResponseFlushEnabled reports whether spans must be exported before a turn's
@@ -55,13 +56,15 @@ func ForceFlush(ctx context.Context) {
 }
 
 // Init initializes OpenTelemetry providers for Go ADK, sets global providers and
-// propagators, and returns a shutdown function.
-func Init(ctx context.Context, serviceName string, serviceNamespace string) (shutdown func(context.Context) error, enabled bool, err error) {
+// propagators, and returns a shutdown function. The telemetry contract names
+// the service and stamps the runtime identity on the resource, the same way
+// the harness runtimes do.
+func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (shutdown func(context.Context) error, enabled bool, err error) {
 	if !isTelemetryEnabled() {
 		return func(context.Context) error { return nil }, false, nil
 	}
 
-	telemetryResource, err := tracing.NewResource(ctx, serviceName, serviceNamespace)
+	telemetryResource, err := tracing.NewResource(ctx, telemetry.AgentName, telemetry.AgentNamespace, telemetry.Identity()...)
 	if err != nil {
 		return nil, true, err
 	}
