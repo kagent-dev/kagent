@@ -23,16 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// AgentTemplateConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
-type AgentTemplateConfigMapKeyReference struct {
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Key string `json:"key"`
-}
-
 // AgentTemplatePromptTemplateSpec enables Go template rendering and ConfigMap includes.
 type AgentTemplatePromptTemplateSpec struct {
 	// DataSources are same-namespace ConfigMaps available to include("source/key").
@@ -200,7 +190,7 @@ type AgentTemplateSpec struct {
 	SystemPrompt string `json:"systemPrompt,omitempty"`
 	// SystemPromptFrom references prompt text in a same-namespace ConfigMap.
 	// +optional
-	SystemPromptFrom *AgentTemplateConfigMapKeyReference `json:"systemPromptFrom,omitempty"`
+	SystemPromptFrom *ConfigMapKeyReference `json:"systemPromptFrom,omitempty"`
 	// OutputSchema constrains successful terminal output when this template is
 	// compiled as the root agent.
 	// +optional
@@ -210,7 +200,7 @@ type AgentTemplateSpec struct {
 	// OutputSchemaFrom references a JSON Schema stored as JSON in a
 	// same-namespace ConfigMap key.
 	// +optional
-	OutputSchemaFrom *AgentTemplateConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
+	OutputSchemaFrom *ConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
 	// +optional
 	PromptTemplate *AgentTemplatePromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// +kubebuilder:validation:MaxItems=50

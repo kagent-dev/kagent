@@ -164,7 +164,7 @@ func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
-			OutputSchemaFrom: &v1alpha3.AgentTemplateConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
+			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
 			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
 			}}},
