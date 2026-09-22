@@ -550,6 +550,9 @@ ui:
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
   publicBackendUrl: "/api"
+  # -- Path prefix the UI is served under when a reverse proxy strips it before
+  # forwarding, e.g. `/ui`. Root-relative URLs, including `publicBackendUrl`, get it too.
+  basePath: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}

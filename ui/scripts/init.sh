@@ -29,6 +29,13 @@ API_BASE_URL="${KAGENT_API_BASE_URL:-/api}"
 SSO_REDIRECT_PATH="${SSO_REDIRECT_PATH:-/oauth2/start}"
 STREAM_TIMEOUT_MS="${KAGENT_STREAM_TIMEOUT_MS:-1800000}"
 ENABLE_MOCK_UI="${ENABLE_MOCK_UI:-false}"
+# Public path prefix when a reverse proxy serves the UI under a sub-path, e.g. /ui.
+BASE_PATH="${KAGENT_UI_BASE_PATH:-}"
+BASE_PATH="${BASE_PATH%/}"
+if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]]; then
+  echo "init.sh: KAGENT_UI_BASE_PATH='${BASE_PATH}' is not a path like /ui; serving at the root" >&2
+  BASE_PATH=""
+fi
 
 # A non-numeric timeout would abort every chat stream immediately, which looks
 # like the backend hanging up rather than like a bad value. Fall back instead.
@@ -64,9 +71,13 @@ window.environmentVariables = {
   "API_BASE_URL": "$(json_escape "$API_BASE_URL")",
   "SSO_REDIRECT_PATH": "$(json_escape "$SSO_REDIRECT_PATH")",
   "STREAM_TIMEOUT_MS": "$STREAM_TIMEOUT_MS",
-${extension_json}  "ENABLE_MOCK_UI": "$(json_escape "$ENABLE_MOCK_UI")"
+${extension_json}  "BASE_PATH": "$BASE_PATH",
+  "ENABLE_MOCK_UI": "$(json_escape "$ENABLE_MOCK_UI")"
 };
 EOF
+
+# Assets load relative to <base href>, so deep links resolve under the sub-path too.
+sed "s|<base href=\"/\"|<base href=\"${BASE_PATH}/\"|" /usr/share/nginx/html/index.html > /tmp/kagent/index.html
 
 # nginx is the only process in this container, so it runs as PID 1 directly
 # instead of under a process manager.

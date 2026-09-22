@@ -345,6 +345,18 @@ tests:
             name: KAGENT_API_BASE_URL
             value: "/api"
 
+  - it: should pass ui.basePath through to the browser config only when set
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /ui
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_UI_BASE_PATH
+            value: "/ui"
+
   - it: should reflect overridden auth and stream settings
     template: ui-deployment.yaml
     set:

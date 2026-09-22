@@ -3,6 +3,7 @@ import { Alert, Button, Modal, Space, Switch, Table, Tooltip, Typography } from 
 import { useTheme } from "@emotion/react";
 import { Copy, Trash2 } from "lucide-react";
 import { apiClient, type AgentInstanceShare } from "@/api";
+import { withBasePath } from "@/env";
 import { buildPath, paths } from "@/router/routes";
 import { copyText } from "@/components/common/copyText";
 
@@ -60,7 +61,7 @@ function shareLink(
   allowWrites: boolean,
 ): string {
   const path = buildPath(paths.sharedAgent, { id, token });
-  return `${window.location.origin}${path}${allowWrites ? "?reply" : ""}`;
+  return `${window.location.origin}${withBasePath(path)}${allowWrites ? "?reply" : ""}`;
 }
 
 export function ShareDialog({

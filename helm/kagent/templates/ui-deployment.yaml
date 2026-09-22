@@ -71,6 +71,10 @@ spec:
           env:
             - name: KAGENT_API_BASE_URL
               value: {{ .Values.ui.publicBackendUrl | default "/api" | quote }}
+            {{- with .Values.ui.basePath }}
+            - name: KAGENT_UI_BASE_PATH
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.ui.auth }}
             - name: SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}

@@ -94,7 +94,7 @@ function devEnvConfig(mode: string): Plugin {
       const serialised = JSON.stringify(merged, null, 2).replace(/</g, "\\u003c");
 
       return html.replace(
-        /<script[^>]+src="[^"]*\/env-config\.js"[^>]*><\/script>/,
+        /<script[^>]+src="[^"]*env-config\.js"[^>]*><\/script>/,
         `<script>\nwindow.environmentVariables = ${serialised};\n</script>`,
       );
     },
@@ -114,6 +114,8 @@ function devEnvConfig(mode: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
+  // Relative asset URLs, resolved against the `<base href>` in index.html.
+  base: "./",
   // JSX is transformed by oxc, which routes the factory at @emotion/react —
   // that alone enables the `css` prop, no Babel step required.
   plugins: [react({ jsxImportSource: "@emotion/react" }), devEnvConfig(mode)],

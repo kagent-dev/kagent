@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ENV_DEFAULTS, env, envFlag, envIsSet, readEnv } from "./env";
+import { ENV_DEFAULTS, env, envFlag, envIsSet, readEnv, withBasePath } from "./env";
 
 afterEach(() => {
   delete window.environmentVariables;
@@ -62,5 +62,18 @@ describe("readEnv", () => {
 
   it("uses the caller's fallback when it is absent", () => {
     expect(readEnv("EXTENSION_ANYTHING", "a-fallback")).toBe("a-fallback");
+  });
+});
+
+describe("withBasePath", () => {
+  it("leaves paths alone at the root", () => {
+    expect(withBasePath("/api")).toBe("/api");
+  });
+
+  it("prefixes root-relative paths only", () => {
+    window.environmentVariables = { BASE_PATH: "/ui" };
+    expect(withBasePath("/api")).toBe("/ui/api");
+    expect(withBasePath("https://api.example.test")).toBe("https://api.example.test");
+    expect(withBasePath("//api.example.test")).toBe("//api.example.test");
   });
 });
