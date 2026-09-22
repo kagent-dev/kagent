@@ -132,20 +132,49 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	if !event.IsFinalResponse() {
 		return nil
 	}
-	if event.Output == nil {
-		return fmt.Errorf("output_validation_failed: root agent produced no structured value")
+	value, err := finalStructuredOutput(event)
+	if err != nil {
+		return err
 	}
-	if err := output.schema.Validate(event.Output); err != nil {
+	if err := output.schema.Validate(value); err != nil {
 		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
 	}
 	if processed == nil || processed.Artifact == nil {
 		return fmt.Errorf("output_validation_failed: root agent produced no result artifact")
 	}
-	part := a2atype.NewDataPart(event.Output)
+	part := a2atype.NewDataPart(value)
 	part.MediaType = "application/json"
 	part.SetMeta(OutputSchemaSHA256MetadataKey, output.sha256)
 	processed.Artifact.Parts = a2atype.ContentParts{part}
 	return nil
+}
+
+// finalStructuredOutput returns ADK's parsed output when available. Normal A2A
+// chat execution does not run the workflow-node wrapper that populates
+// Event.Output, so in that path the final model text is decoded here before it
+// is validated against the canonical JSON Schema.
+func finalStructuredOutput(event *adksession.Event) (any, error) {
+	if event.Output != nil {
+		return event.Output, nil
+	}
+	if event.Content == nil {
+		return nil, fmt.Errorf("output_validation_failed: root agent produced no structured value")
+	}
+	var text strings.Builder
+	for _, part := range event.Content.Parts {
+		if part == nil || part.Thought {
+			continue
+		}
+		text.WriteString(part.Text)
+	}
+	if strings.TrimSpace(text.String()) == "" {
+		return nil, fmt.Errorf("output_validation_failed: root agent produced no structured value")
+	}
+	var value any
+	if err := json.Unmarshal([]byte(text.String()), &value); err != nil {
+		return nil, fmt.Errorf("output_validation_failed: root agent output is not valid JSON")
+	}
+	return value, nil
 }
 
 // resolveStructuredOutput compiles the configured JSON Schema once so every

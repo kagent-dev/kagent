@@ -207,7 +207,7 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	}
 }
 
-func TestTransformStructuredOutput(t *testing.T) {
+func TestTransformStructuredOutputParsesFinalTextWhenADKOutputIsUnset(t *testing.T) {
 	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
 		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
 		SHA256:     "schema-digest",
@@ -220,7 +220,6 @@ func TestTransformStructuredOutput(t *testing.T) {
 		LLMResponse: model.LLMResponse{
 			Content: genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
 		},
-		Output: map[string]any{"answer": float64(4)},
 	}
 	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(`{"answer":4}`))
 	err = transformStructuredOutput(output, "root", event, update)
@@ -230,8 +229,9 @@ func TestTransformStructuredOutput(t *testing.T) {
 	if len(update.Artifact.Parts) != 1 || update.Artifact.Parts[0].MediaType != "application/json" {
 		t.Fatalf("structured artifact = %#v", update.Artifact)
 	}
-	if got := update.Artifact.Parts[0].Data(); !maps.Equal(got.(map[string]any), event.Output.(map[string]any)) {
-		t.Fatalf("structured data = %#v, want %#v", got, event.Output)
+	want := map[string]any{"answer": float64(4)}
+	if got := update.Artifact.Parts[0].Data(); !maps.Equal(got.(map[string]any), want) {
+		t.Fatalf("structured data = %#v, want %#v", got, want)
 	}
 	if got := update.Artifact.Parts[0].Metadata[OutputSchemaSHA256MetadataKey]; got != "schema-digest" {
 		t.Fatalf("schema digest = %#v", got)
@@ -278,7 +278,6 @@ func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing
 		LLMResponse: model.LLMResponse{
 			Content: genai.NewContentFromText(`{"secret":"do-not-log"}`, genai.RoleModel),
 		},
-		Output: map[string]any{"secret": "do-not-log"},
 	}
 	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"})
 	err = transformStructuredOutput(output, "root", event, update)

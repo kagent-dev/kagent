@@ -7,13 +7,11 @@ import { copyText } from "@/components/common/copyText";
 import { stableJson } from "./stableJson";
 
 const { Text } = Typography;
-const SCHEMA_DIGEST_KEY = "kagent.dev/output-schema-sha256";
 
 /** A schema-constrained terminal answer, distinct from runtime tool traffic. */
 export function StructuredOutputCard({ part }: { part: ChatDataPart }) {
   const theme = useTheme();
   const body = stableJson(part.data);
-  const digest = part.metadata?.[SCHEMA_DIGEST_KEY];
 
   async function copy(): Promise<void> {
     if (await copyText(body)) toast.success("JSON copied");
@@ -36,14 +34,6 @@ export function StructuredOutputCard({ part }: { part: ChatDataPart }) {
         <FileJson size={15} css={{ color: theme.color.textMuted }} />
         <Text css={{ fontWeight: 600, fontSize: 13 }}>Structured result</Text>
         <Tag color="success">JSON</Tag>
-        {typeof digest === "string" ? (
-          <Text
-            title={digest}
-            css={{ color: theme.color.textMuted, fontFamily: theme.font.mono, fontSize: 11 }}
-          >
-            schema {digest.slice(0, 12)}
-          </Text>
-        ) : null}
         <Button
           size="small"
           icon={<Copy size={13} />}
