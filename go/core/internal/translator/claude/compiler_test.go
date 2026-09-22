@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -153,6 +154,7 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "otlp",
 		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
+		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
 		"KAGENT_NAME":      "assistant-claude",
 		"KAGENT_NAMESPACE": "test", claudeconfig.PreResponseTraceFlushEnvName: "true",
 	} {
@@ -173,6 +175,9 @@ func TestCompileTracing(t *testing.T) {
 		if environment[name] != "1" {
 			t.Errorf("sensitive trace environment[%s] = %q, want 1", name, environment[name])
 		}
+	}
+	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != tracing.CaptureContentSpanOnly {
+		t.Errorf("capture environment = %q, want %q", got, tracing.CaptureContentSpanOnly)
 	}
 }
 
@@ -619,4 +624,78 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
 	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
+}
+
+func TestCompileRuntimeTelemetry(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Name = "fast"
+
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := claudeconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The compiled identity follows the Harness name, not the harness kind.
+	want := tracing.RuntimeTelemetry{
+		Runtime: tracing.RuntimeClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Provider: "anthropic", Model: "claude-sonnet-4-5",
+	}
+	if config.RuntimeTelemetry != want {
+		t.Fatalf("runtime telemetry = %#v, want %#v", config.RuntimeTelemetry, want)
+	}
+	if config.RuntimeTelemetry.CaptureLimit() != 0 {
+		t.Fatal("content capture is not disabled by default")
+	}
+
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "4096")
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedConfig, err := claudeconfig.Parse(captured.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capturedConfig.RuntimeTelemetry.CaptureContent || capturedConfig.RuntimeTelemetry.CaptureLimit() != 4096 {
+		t.Fatalf("captured runtime telemetry = %#v", capturedConfig.RuntimeTelemetry)
+	}
+	// A telemetry change lives only in the compiled configuration, which the
+	// revision digest covers. Provenance records Kubernetes inputs, none of
+	// which changed.
+	if !bytes.Equal(revision.Provenance, captured.Provenance) {
+		t.Fatal("changing the capture policy changed revision provenance")
+	}
+	before, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := captured.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("changing the capture policy did not change the revision digest")
+	}
+}
+
+func TestCompileRejectsAnUnusableCaptureBudget(t *testing.T) {
+	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "-1")
+	config, warnings := v2translator.TelemetryConfigFromProcess()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", warnings)
+	}
+	if config.MaxCaptureBytes != 0 {
+		t.Fatalf("MaxCaptureBytes = %d, want the shared default", config.MaxCaptureBytes)
+	}
 }

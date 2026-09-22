@@ -7,16 +7,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/adk/v2/model"
 )
 
-const (
-	captureMessageContentEnvVar = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-	maxSpanPayloadBytes         = 32 * 1024
-)
+const maxSpanPayloadBytes = 32 * 1024
 
 type kagentSpanAttributesKey struct{}
 
@@ -123,7 +121,7 @@ func setSpanAttributes(ctx context.Context, attrs ...attribute.KeyValue) {
 }
 
 func marshalSpanPayload(value any) string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv(captureMessageContentEnvVar)), "false") {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(tracing.CaptureContentEnvironmentVariable)), "false") {
 		return "{}"
 	}
 	if value == nil {

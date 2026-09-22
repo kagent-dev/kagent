@@ -16,6 +16,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -97,12 +98,17 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	)
 	environment = append(environment, telemetryConfig.TraceEnvironment()...)
 	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.CaptureEnvironment())
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
 	}
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	cfg.RuntimeTelemetry = telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeCodex, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
 		if traceConfig.Enabled {
@@ -126,7 +132,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}
-	provenance, err := c.buildProvenance(ctx, input, environment, configJSON)
+	provenance, err := c.buildProvenance(ctx, input, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
@@ -298,11 +304,8 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON []byte) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec)}
-	entries = append(entries,
-		objectProvenance("kagent.internal/v1", "GeneratedInput", "config.json", "", 0, json.RawMessage(configJSON)),
-	)
 	seenObjects := map[string]struct{}{}
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)

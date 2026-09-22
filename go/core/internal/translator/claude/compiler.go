@@ -17,6 +17,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -82,6 +83,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	)
 	environment = append(environment, telemetryConfig.TraceEnvironment()...)
 	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.CaptureEnvironment())
 	if traceConfig.Enabled || logConfig.Enabled {
 		tracesExporter := "none"
 		if traceConfig.Enabled {
@@ -121,6 +123,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	config.RuntimeTelemetry = telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeClaude, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
 	}

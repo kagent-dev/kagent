@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	adkagent "google.golang.org/adk/v2/agent"
 )
 
@@ -59,6 +60,11 @@ type AppConfig struct {
 	// Agent is the ADK agent used to enrich the agent card with skills via
 	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
+
+	// Telemetry is the compiler-owned telemetry contract for this runtime. Its
+	// static identity is stamped on every invocation span. The zero value
+	// leaves invocation spans without a runtime or agent identity.
+	Telemetry tracing.RuntimeTelemetry
 }
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
@@ -142,6 +148,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		ShutdownTimeout: cfg.ShutdownTimeout,
 		HealthPaths:     cfg.HealthPaths,
 		HealthHandler:   cfg.HealthHandler,
+		Telemetry:       cfg.Telemetry,
 	}
 
 	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)

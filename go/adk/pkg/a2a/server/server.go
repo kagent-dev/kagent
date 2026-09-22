@@ -40,6 +40,10 @@ type ServerConfig struct {
 	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
 	HealthPaths   []string
 	HealthHandler http.Handler
+
+	// Telemetry is the compiler-owned identity every invocation span reports.
+	// Request identity is added by whichever component resolves it, never here.
+	Telemetry tracing.RuntimeTelemetry
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
@@ -56,9 +60,10 @@ type A2AServer struct {
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
 	flushBeforeResponse := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
-	if flushBeforeResponse {
-		handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(&traceFlushInterceptor{logger: logger}))
-	}
+	// The invocation span anchors identity whether or not the deployment needs
+	// a pre-response flush. It is a no-op span when tracing is disabled.
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
+		newInvocationInterceptor(logger, config.Telemetry, flushBeforeResponse)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
