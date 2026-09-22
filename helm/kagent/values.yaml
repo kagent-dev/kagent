@@ -115,6 +115,9 @@ database:
     secretRef:
       name: ""
       key: connectionString
+    # -- Stable NOLOGIN role assumed after authentication. Required when Secret
+    # rotation changes the PostgreSQL login username.
+    role: ""
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
@@ -785,6 +788,10 @@ substrate:
       enabled: false
       name: ""
       key: ddlConnectionString
+    # -- Stable NOLOGIN roles assumed after authentication. Configure these
+    # when rotated Substrate credentials change login usernames.
+    runtimeRole: ""
+    ddlRole: ""
     pool:
       # -- Maximum physical connection lifetime for Substrate's pools.
       # Bounds how long a rotated credential stays in use. Set it longer than the

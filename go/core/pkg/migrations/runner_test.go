@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -189,6 +190,47 @@ func TestRunUpAndDown(t *testing.T) {
 	}
 	if got := testVersions(t, dsn, source.TrackingTable); !slices.Equal(got, []int64{0}) {
 		t.Fatalf("versions after down = %v", got)
+	}
+}
+
+func TestRunUpAsStableRole(t *testing.T) {
+	dsn := startTestDB(t)
+	execSQL(t, dsn, `
+		CREATE ROLE kagent_app NOLOGIN;
+		CREATE ROLE kagent_login LOGIN PASSWORD 'rotating-password';
+		GRANT kagent_app TO kagent_login;
+		GRANT USAGE, CREATE ON SCHEMA public TO kagent_app`)
+	t.Cleanup(func() {
+		execSQL(t, dsn, `
+			DROP TABLE IF EXISTS migration_test, test_schema_migrations;
+			REVOKE ALL ON SCHEMA public FROM kagent_app;
+			DROP ROLE IF EXISTS kagent_login;
+			DROP ROLE IF EXISTS kagent_app`)
+	})
+
+	loginURL, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginURL.User = url.UserPassword("kagent_login", "rotating-password")
+	if err := RunUpAsRole(t.Context(), loginURL.String(), "kagent_app", []Source{testSource(twoMigrationFS)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigratedAsRole(t.Context(), loginURL.String(), "kagent_app", []Source{testSource(twoMigrationFS)}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var owner string
+	if err := db.QueryRowContext(t.Context(), `SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'migration_test'::regclass`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "kagent_app" {
+		t.Fatalf("migration table owner = %q, want kagent_app", owner)
 	}
 }
 

@@ -14,7 +14,8 @@ import (
 	"strconv"
 	"strings"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
@@ -62,13 +63,19 @@ func BuiltinSources(vectorEnabled bool) []Source {
 
 // RunUp applies all pending migrations in source order.
 func RunUp(ctx context.Context, url string, sources []Source) error {
+	return RunUpAsRole(ctx, url, "", sources)
+}
+
+// RunUpAsRole applies all pending migrations after assuming role on every
+// database connection. The authenticated login only needs membership in role.
+func RunUpAsRole(ctx context.Context, url, role string, sources []Source) error {
 	if len(sources) == 0 {
 		return nil
 	}
 	if err := validateSources(sources); err != nil {
 		return err
 	}
-	if err := checkResolvedSchemaCollisions(ctx, url, sources); err != nil {
+	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
 		return err
 	}
 
@@ -88,7 +95,7 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("cancel before %s migrations: %w", src.Name, err)
 		}
-		err := WithProvider(ctx, url, src, func(provider *goose.Provider) error {
+		err := withProvider(ctx, url, role, src, func(provider *goose.Provider) error {
 			_, err := provider.Up(ctx)
 			return err
 		})
@@ -101,17 +108,23 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 
 // VerifyMigrated checks migration state without database writes.
 func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
+	return VerifyMigratedAsRole(ctx, url, "", sources)
+}
+
+// VerifyMigratedAsRole checks migration state after assuming role on every
+// database connection.
+func VerifyMigratedAsRole(ctx context.Context, url, role string, sources []Source) error {
 	if len(sources) == 0 {
 		return nil
 	}
 	if err := validateSources(sources); err != nil {
 		return err
 	}
-	if err := checkResolvedSchemaCollisions(ctx, url, sources); err != nil {
+	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
 		return err
 	}
 
-	db, err := sql.Open("pgx", url)
+	db, err := openDB(url, role)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -173,6 +186,16 @@ func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
 
 // WithProvider runs fn while one source lock is held.
 func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Provider) error) (retErr error) {
+	return withProvider(ctx, url, "", src, fn)
+}
+
+// WithProviderAsRole runs fn while one source lock is held and every database
+// connection has assumed role.
+func WithProviderAsRole(ctx context.Context, url, role string, src Source, fn func(*goose.Provider) error) error {
+	return withProvider(ctx, url, role, src, fn)
+}
+
+func withProvider(ctx context.Context, url, role string, src Source, fn func(*goose.Provider) error) (retErr error) {
 	if err := validateSources([]Source{src}); err != nil {
 		return err
 	}
@@ -185,7 +208,7 @@ func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Pr
 		}
 	}
 
-	db, err := sql.Open("pgx", connURL)
+	db, err := openDB(connURL, role)
 	if err != nil {
 		return fmt.Errorf("open database for %s: %w", src.Name, err)
 	}
@@ -367,7 +390,7 @@ func gooseAnnotation(line string) string {
 	return strings.ToLower(strings.TrimSpace(command))
 }
 
-func checkResolvedSchemaCollisions(ctx context.Context, url string, sources []Source) error {
+func checkResolvedSchemaCollisions(ctx context.Context, url, role string, sources []Source) error {
 	var hasDefault, hasExplicit bool
 	for _, src := range sources {
 		if src.Schema == "" {
@@ -380,7 +403,7 @@ func checkResolvedSchemaCollisions(ctx context.Context, url string, sources []So
 		return nil
 	}
 
-	db, err := sql.Open("pgx", url)
+	db, err := openDB(url, role)
 	if err != nil {
 		return fmt.Errorf("open database to resolve schema: %w", err)
 	}
@@ -406,6 +429,22 @@ func checkResolvedSchemaCollisions(ctx context.Context, url string, sources []So
 		seen[key] = src.Name
 	}
 	return nil
+}
+
+func openDB(url, role string) (*sql.DB, error) {
+	if role == "" {
+		return sql.Open("pgx", url)
+	}
+	config, err := pgx.ParseConfig(url)
+	if err != nil {
+		return nil, errors.New("invalid PostgreSQL connection string")
+	}
+	return stdlib.OpenDB(*config, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
+		if _, err := conn.Exec(ctx, "SELECT set_config('role', $1, false)", role); err != nil {
+			return fmt.Errorf("assuming PostgreSQL role %q: %w", role, err)
+		}
+		return nil
+	})), nil
 }
 
 func checkPgvector(url string) error {

@@ -126,10 +126,14 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	t.Setenv("DB_MIN_CONNS", "1")
 	t.Setenv("DB_MAX_CONN_IDLE_TIME", "1m")
 	t.Setenv("DB_MAX_CONN_LIFETIME", "10m")
+	t.Setenv("POSTGRES_DATABASE_ROLE", "kagent_app")
 
 	config := postgresConfigFromEnv("@file:/database/connection-string", true)
 	if config.URL != "@file:/database/connection-string" || !config.VectorEnabled {
 		t.Fatalf("postgres config lost connection source or vector setting: %#v", config)
+	}
+	if config.Role != "kagent_app" {
+		t.Fatalf("Role = %q, want kagent_app", config.Role)
 	}
 	if config.MaxConns == nil || *config.MaxConns != 8 {
 		t.Fatalf("MaxConns = %v, want 8", config.MaxConns)

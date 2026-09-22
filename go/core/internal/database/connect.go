@@ -24,6 +24,7 @@ import (
 // from ParseConfig unchanged (pgx library defaults).
 type PostgresConfig struct {
 	URL             string
+	Role            string
 	VectorEnabled   bool
 	MaxConns        *int32
 	MinConns        *int32
@@ -145,6 +146,9 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 
 			refreshed := fresh.ConnConfig.Config.Copy()
 			if fileBacked {
+				if cfg.Role == "" && baseline.User != refreshed.User {
+					return errors.New("database user changed without a stable role; restart required")
+				}
 				// A rotation that issues a new user each cycle, keeping the
 				// previous one able to log in until the cycle after, needs new
 				// connections to dial as the incoming user while older ones
@@ -158,9 +162,17 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 		}
 	}
 
-	if cfg.VectorEnabled {
+	if cfg.Role != "" || cfg.VectorEnabled {
 		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-			return pgvectorpgx.RegisterTypes(ctx, conn)
+			if cfg.Role != "" {
+				if _, err := conn.Exec(ctx, "SELECT set_config('role', $1, false)", cfg.Role); err != nil {
+					return fmt.Errorf("assuming PostgreSQL role %q: %w", cfg.Role, err)
+				}
+			}
+			if cfg.VectorEnabled {
+				return pgvectorpgx.RegisterTypes(ctx, conn)
+			}
+			return nil
 		}
 	}
 	return config, nil

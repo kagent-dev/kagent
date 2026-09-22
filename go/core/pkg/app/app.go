@@ -176,14 +176,15 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("resolve database connection: %w", err)
 	}
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
+	dbRole := kagentenv.DatabaseRole.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
 	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
 	if kagentenv.SkipMigrations.Get() {
-		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
-	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+	} else if err := migrations.RunUpAsRole(ctx, dbURL, dbRole, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
 	db, err := database.Connect(ctx, postgresConfigFromEnv(dbSource, vectorEnabled))
@@ -371,7 +372,7 @@ func envBool(name string) bool {
 }
 
 func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
-	config := &database.PostgresConfig{URL: source, VectorEnabled: vectorEnabled}
+	config := &database.PostgresConfig{URL: source, Role: kagentenv.DatabaseRole.Get(), VectorEnabled: vectorEnabled}
 	if value := kagentenv.DatabaseMaxConns.Get(); value > 0 {
 		maxConns := int32(value)
 		config.MaxConns = &maxConns

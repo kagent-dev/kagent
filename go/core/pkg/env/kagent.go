@@ -120,6 +120,13 @@ var (
 		ComponentDatabase,
 	)
 
+	DatabaseRole = RegisterStringVar(
+		"POSTGRES_DATABASE_ROLE",
+		"",
+		"Stable PostgreSQL role assumed after authentication. Required for rotation to a different login user.",
+		ComponentDatabase,
+	)
+
 	DatabaseMaxConns = RegisterIntVar(
 		"DB_MAX_CONNS",
 		0,

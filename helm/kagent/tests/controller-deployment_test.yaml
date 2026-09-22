@@ -704,6 +704,17 @@ tests:
           path: data.DATABASE_VECTOR_ENABLED
           value: "true"
 
+  - it: should set stable PostgreSQL role
+    template: controller-configmap.yaml
+    set:
+      database:
+        postgres:
+          role: kagent_app
+    asserts:
+      - equal:
+          path: data.POSTGRES_DATABASE_ROLE
+          value: kagent_app
+
   - it: should not set DB pool env vars by default
     template: controller-configmap.yaml
     asserts:

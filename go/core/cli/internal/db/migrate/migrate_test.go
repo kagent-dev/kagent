@@ -115,6 +115,16 @@ func TestResolveDSN(t *testing.T) {
 	}
 }
 
+func TestResolveRole(t *testing.T) {
+	t.Setenv(dbRoleEnv, "env_role")
+	if got := (&commandState{}).role(); got != "env_role" {
+		t.Fatalf("role() = %q, want env_role", got)
+	}
+	if got := (&commandState{dbRole: "flag_role"}).role(); got != "flag_role" {
+		t.Fatalf("role() = %q, want flag_role", got)
+	}
+}
+
 func TestResolveSource(t *testing.T) {
 	multi := testSources()
 	single := multi[:1]

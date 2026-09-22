@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -105,9 +106,10 @@ func TestPoolConfigRefreshesFileCredentials(t *testing.T) {
 	const firstURL = "postgres://user:password-a@database:5432/app?sslmode=require&application_name=kagent"
 	writeDatabaseURL(t, path, firstURL)
 
-	config, err := poolConfig(&PostgresConfig{URL: "@file:" + path})
+	config, err := poolConfig(&PostgresConfig{URL: "@file:" + path, Role: "kagent_app"})
 	require.NoError(t, err)
 	require.NotNil(t, config.BeforeConnect)
+	require.NotNil(t, config.AfterConnect)
 	assert.Equal(t, "password-a", config.ConnConfig.Password)
 
 	connConfig := config.ConnConfig.Copy()
@@ -121,6 +123,65 @@ func TestPoolConfigRefreshesFileCredentials(t *testing.T) {
 	assert.Equal(t, "user", config.ConnConfig.User, "refresh must not mutate the pinned config")
 	assert.Equal(t, "kagent", connConfig.RuntimeParams["application_name"])
 	assert.NotSame(t, initialTLS, connConfig.TLSConfig)
+}
+
+func TestPoolConfigRejectsRotatedUserWithoutStableRole(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "connection-string")
+	writeDatabaseURL(t, path, "postgres://user:password-a@database:5432/app?sslmode=disable")
+	config, err := poolConfig(&PostgresConfig{URL: "@file:" + path})
+	require.NoError(t, err)
+
+	writeDatabaseURL(t, path, "postgres://user_v2:password-b@database:5432/app?sslmode=disable")
+	err = config.BeforeConnect(context.Background(), config.ConnConfig.Copy())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "without a stable role")
+}
+
+func TestConnectRotatesLoginBehindStableRole(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip the PostgreSQL test in short mode")
+	}
+	const (
+		role   = "kagent_rotation_role"
+		loginA = "kagent_rotation_login_a"
+		loginB = "kagent_rotation_login_b"
+	)
+	_, err := sharedDB.Exec(t.Context(), `
+		DROP ROLE IF EXISTS kagent_rotation_login_a;
+		DROP ROLE IF EXISTS kagent_rotation_login_b;
+		DROP ROLE IF EXISTS kagent_rotation_role;
+		CREATE ROLE kagent_rotation_role NOLOGIN;
+		CREATE ROLE kagent_rotation_login_a LOGIN PASSWORD 'rotation-password';
+		CREATE ROLE kagent_rotation_login_b LOGIN PASSWORD 'rotation-password';
+		GRANT kagent_rotation_role TO kagent_rotation_login_a, kagent_rotation_login_b`)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = sharedDB.Exec(context.Background(), `
+			DROP ROLE IF EXISTS kagent_rotation_login_a;
+			DROP ROLE IF EXISTS kagent_rotation_login_b;
+			DROP ROLE IF EXISTS kagent_rotation_role`)
+	})
+
+	dsn, err := url.Parse(sharedConnStr)
+	require.NoError(t, err)
+	dsn.User = url.UserPassword(loginA, "rotation-password")
+	path := filepath.Join(t.TempDir(), "connection-string")
+	writeDatabaseURL(t, path, dsn.String())
+	pool, err := Connect(t.Context(), &PostgresConfig{URL: "@file:" + path, Role: role})
+	require.NoError(t, err)
+	defer pool.Close()
+
+	var sessionUser, currentUser string
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT session_user, current_user`).Scan(&sessionUser, &currentUser))
+	assert.Equal(t, loginA, sessionUser)
+	assert.Equal(t, role, currentUser)
+
+	dsn.User = url.UserPassword(loginB, "rotation-password")
+	writeDatabaseURL(t, path, dsn.String())
+	pool.Reset()
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT session_user, current_user`).Scan(&sessionUser, &currentUser))
+	assert.Equal(t, loginB, sessionUser)
+	assert.Equal(t, role, currentUser)
 }
 
 func TestPoolConfigRefreshesTLSForLiteralURL(t *testing.T) {

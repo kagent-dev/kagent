@@ -64,6 +64,7 @@ database:
     secretRef:
       name: kagent-postgres
       key: connectionString
+    role: kagent_app
     bundled:
       enabled: false
 substrate:
@@ -79,6 +80,8 @@ substrate:
       enabled: true
       name: substrate-ddl-postgres
       key: connectionString
+    runtimeRole: substrate_runtime
+    ddlRole: substrate_ddl
 ```
 
 The DDL role owns the Substrate schema and performs migrations and partition
@@ -100,9 +103,16 @@ embedded Substrate shares the Secret, set
 and DDL pools. Keep old and new credentials valid long enough for Kubernetes
 Secret projection and connection turnover.
 
-Rotation may change passwords and referenced TLS material. Host, port,
-fallback targets, database, and username identify the pool and require a
-controller restart when changed. Direct binary deployments use
+Rotation may change passwords, usernames, and referenced TLS material. For a
+username-changing rotation, set `database.postgres.role` to a stable `NOLOGIN`
+role and grant every incoming login membership before publishing the Secret.
+Set `substrate.postgres.runtimeRole` and `substrate.postgres.ddlRole` the same
+way for embedded Substrate. Neither Kagent nor either Helm chart creates these
+roles or grants membership: database provisioning must create the roles before
+installation, and the credential rotator must grant each incoming login before
+publishing its Secret. Without stable roles, changing a username requires a
+restart. Host, port, fallback targets, and database always require a restart.
+Direct binary deployments use
 `POSTGRES_DATABASE_URL=@file:/absolute/path`; there is no separate `_FILE`
 environment variable.
 
