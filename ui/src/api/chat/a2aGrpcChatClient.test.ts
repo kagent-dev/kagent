@@ -254,6 +254,80 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it.each([false, true])("reconciles status chunks across snapshots (recover initial: %s)", async (recoverInitial) => {
+    const chunk = (messageId: string, value: string) => ({
+      messageId, role: Role.AGENT, parts: [text(value)],
+      metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
+    });
+    const first = chunk("chunk-1", "hello");
+    const second = chunk("chunk-2", " world");
+    const events = await turn([
+      recoverInitial ? { payload: { case: "task", value: {
+        id: "task-1", contextId: CONVERSATION.contextId,
+        status: { state: TaskState.WORKING, message: first },
+      } } } : statusFrame({ message: first }),
+      statusFrame({ message: second }),
+      { payload: { case: "task", value: {
+        id: "task-1", contextId: CONVERSATION.contextId,
+        history: [first, second],
+        status: { state: TaskState.COMPLETED, message: {
+          messageId: "complete", role: Role.AGENT, parts: [text("hello world!")],
+          metadata: { adk_invocation_id: "inv-1" },
+        } },
+      } } },
+    ]);
+    expect(transcript(events).map((message) => [message.id, textOf(message)]))
+      .toEqual([["chunk-1", "hello world!"]]);
+  });
+
+  it("continues artifact appends from a task snapshot and accepts a later replacement", async () => {
+    const snapshot = (value: string, state = TaskState.WORKING) => ({
+      payload: {
+        case: "task",
+        value: {
+          id: "task-1", contextId: CONVERSATION.contextId, status: { state },
+          artifacts: [{ artifactId: "reply", parts: [text(value)] }],
+        },
+      },
+    });
+    const events = await turn([
+      snapshot("hello"),
+      { payload: { case: "artifactUpdate", value: {
+        taskId: "task-1", append: true,
+        artifact: { artifactId: "reply", parts: [text(" world")] },
+      } } },
+      snapshot("hello world!", TaskState.COMPLETED),
+    ]);
+    expect(events).toContainEqual({ type: "delta", messageId: "reply", text: " world" });
+    expect(transcript(events).map(textOf)).toEqual(["hello world!"]);
+  });
+
+  it("restores the interactive request from a waiting task snapshot", async () => {
+    const frame = statusFrame({
+      state: TaskState.INPUT_REQUIRED,
+      message: {
+        messageId: "question", role: Role.AGENT, parts: [text("Choose a size")],
+        extensions: ["https://kagent.dev/extensions/hitl/v1"],
+        metadata: { "https://kagent.dev/extensions/hitl/v1": {
+          type: "ask_user_request", id: "ask-1",
+          questions: [{ question: "What size?", choices: ["Large"] }],
+        } },
+      },
+    });
+    const events = await turn([{ payload: { case: "task", value: {
+      id: "task-1", contextId: CONVERSATION.contextId, status: frame.payload.value.status,
+    } } }]);
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status", state: "input_required", taskId: "task-1",
+      awaiting: {
+        kind: "ask_user", taskId: "task-1", requestId: "ask-1",
+        questions: [{ question: "What size?", choices: ["Large"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
   it("shows only the interactive card when ask_user parks the turn", async () => {
     const events = await turn([
       {

@@ -159,6 +159,12 @@ function turnState(state: TaskState | undefined): ChatTurnState {
   return TURN_STATE_BY_ENUM[state] ?? "working";
 }
 
+function pendingRequest(taskId: string, status: TaskStatus | undefined): PendingRequest | undefined {
+  if (!isAwaitingReply(status?.state) || !taskId) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
+}
+
 /** One A2A part, as something the transcript can render. */
 function toPart(part: A2APart): ChatPart | undefined {
   const content = part.content;
@@ -394,12 +400,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequest(task.id, task.status);
           }
         }
 
@@ -504,6 +505,28 @@ export class A2AGrpcChatClient implements ChatClient {
      */
     let streamedText = "";
 
+    // Snapshot history and live status chunks share identities and accumulation.
+    const partialText = (
+      message: A2AMessage, parts: ChatPart[], taskId: string, createdAt: string,
+    ): ChatEvent | undefined => {
+      if (message.messageId && delivered.has(message.messageId)) return undefined;
+      if (message.messageId) delivered.add(message.messageId);
+      const invocation = invocationOf(message, taskId);
+      const chunk = textOf(parts);
+      if (streamedId === undefined || runId !== invocation) {
+        runId = invocation;
+        streamedId = message.messageId || nextId("message");
+        streamedText = chunk;
+        statusReply = streamedText;
+        return { type: "message", message: { id: streamedId, role: "agent", parts, createdAt, taskId } };
+      }
+      if (chunk !== "") {
+        streamedText += chunk;
+        statusReply = streamedText;
+        return { type: "delta", messageId: streamedId, text: chunk };
+      }
+    };
+
     let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
     try {
       stream = client.sendStreamingMessage(
@@ -535,13 +558,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequest(event.taskId, status);
 
           if (
             message &&
@@ -555,28 +572,8 @@ export class A2AGrpcChatClient implements ChatClient {
 
             // A chunk of a reply still being written.
             if (role === "agent" && isPartial(message) && isTextOnly) {
-              const chunk = textOf(parts);
-
-              if (streamedId === undefined || runId !== invocation) {
-                runId = invocation;
-                streamedId = message.messageId || nextId("message");
-                streamedText = chunk;
-                statusReply = streamedText;
-                yield {
-                  type: "message",
-                  message: {
-                    id: streamedId,
-                    role: "agent",
-                    parts,
-                    createdAt,
-                    taskId: event.taskId,
-                  },
-                };
-              } else if (chunk !== "") {
-                streamedText += chunk;
-                statusReply = streamedText;
-                yield { type: "delta", messageId: streamedId, text: chunk };
-              }
+              const update = partialText(message, parts, event.taskId, createdAt);
+              if (update) yield update;
 
               yield { type: "status", state, taskId: event.taskId, awaiting };
               continue;
@@ -597,6 +594,7 @@ export class A2AGrpcChatClient implements ChatClient {
               : message.messageId || nextId("message");
 
             if (closesRun) {
+              if (message.messageId) delivered.add(message.messageId);
               const body = textOf(parts);
               statusReply = body;
               yield {
@@ -725,15 +723,51 @@ export class A2AGrpcChatClient implements ChatClient {
           continue;
         }
 
-        // A non-streaming agent answers with the whole task instead of updates.
+        // Recovery starts with a task snapshot; later snapshots replace state
+        // under the same IDs, and subsequent artifact chunks append to that state.
         if (payload.case === "task") {
           const task = payload.value as A2ATask;
-          for (const message of messagesFromTask(task)) {
-            if (delivered.has(message.id)) continue;
-            delivered.add(message.id);
-            yield { type: "message", message };
+          const sources = new Map(task.history.map((message) => [message.messageId, message]));
+          if (task.status?.message) sources.set(task.status.message.messageId, task.status.message);
+          artifacts.clear();
+          for (const artifact of task.artifacts) {
+            if (artifact.artifactId) {
+              artifacts.set(artifact.artifactId, textOf(toParts(artifact.parts)));
+            }
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          for (const message of messagesFromTask(task)) {
+            // Preserve the richer optimistic card for the caller's own reply.
+            if (message.id === input.messageId) continue;
+            const source = sources.get(message.id);
+            if (source && isPartial(source) && message.role === "agent"
+              && message.parts.every((part) => part.kind === "text")) {
+              const update = partialText(source, message.parts, task.id, message.createdAt);
+              if (update) yield update;
+              continue;
+            }
+            const closesRun = source !== undefined && message.role === "agent"
+              && !isPartial(source) && message.parts.every((part) => part.kind === "text")
+              && streamedId !== undefined && runId === invocationOf(source, task.id);
+            // Archived messages are immutable; artifact snapshots can replace
+            // earlier content. A completed status replaces its streamed chunks.
+            if (!closesRun && delivered.has(message.id) && !artifacts.has(message.id)) continue;
+            delivered.add(message.id);
+            yield { type: "message", message: closesRun ? { ...message, id: streamedId! } : message };
+            if (closesRun) {
+              statusReply = textOf(message.parts);
+              runId = undefined;
+              streamedId = undefined;
+              streamedText = "";
+            } else if (source === task.status?.message && message.role === "agent") {
+              statusReply = textOf(message.parts);
+            }
+          }
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequest(task.id, task.status),
+          };
           continue;
         }
 
