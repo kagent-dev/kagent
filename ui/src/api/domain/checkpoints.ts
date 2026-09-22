@@ -29,6 +29,7 @@ export type CheckpointState =
 
 export interface Checkpoint {
   id: string;
+  /** Originating instance; inherited checkpoints keep this ID when listed in a fork. */
   agentInstanceId: string;
   /**
    * What the reader calls it, and what a fork taken from it is named.
@@ -50,4 +51,3 @@ export interface Checkpoint {
 export function canForkFrom(checkpoint: Checkpoint): boolean {
   return checkpoint.state === "ready";
 }
-

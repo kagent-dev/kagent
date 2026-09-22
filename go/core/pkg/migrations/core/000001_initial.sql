@@ -107,8 +107,6 @@ CREATE TABLE agent_instance_checkpoint (
     CHECK (state IN ('CREATING', 'READY', 'FAILED', 'DELETING')),
     UNIQUE (user_id, request_id)
 );
-CREATE INDEX agent_instance_checkpoint_list_idx
-    ON agent_instance_checkpoint (source_instance_id, id);
 CREATE INDEX agent_instance_checkpoint_history_idx
     ON agent_instance_checkpoint (source_history_id, history_sequence);
 CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx

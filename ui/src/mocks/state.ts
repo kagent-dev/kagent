@@ -520,9 +520,30 @@ function writeAll(rows: MockCheckpoint[]): void {
   }
 }
 
-/** Every boundary saved against one conversation. */
+// Mock turns are completed, immutable boundaries. Retain the parent's task prefix
+// alongside each fork, just as its transcript is copied through the selected turn.
+const CHECKPOINT_FORKS_KEY = "kagent.mock.checkpointForks";
+
+type MockCheckpointFork = { sourceId: string; forkId: string; taskIds: string[] };
+
+function readCheckpointForks(): MockCheckpointFork[] {
+  return JSON.parse(window.sessionStorage.getItem(CHECKPOINT_FORKS_KEY) ?? "[]") as MockCheckpointFork[];
+}
+
+export function recordCheckpointFork(sourceId: string, forkId: string, taskIds: string[]): void {
+  window.sessionStorage.setItem(CHECKPOINT_FORKS_KEY, JSON.stringify([
+    ...readCheckpointForks(), { sourceId, forkId, taskIds },
+  ]));
+}
+
+/** Local and inherited boundaries, preserving the originating instance and name. */
 export function readCheckpoints(agentInstanceId: string): MockCheckpoint[] {
-  return readAll().filter((row) => row.agentInstanceId === agentInstanceId);
+  const local = readAll().filter((row) => row.agentInstanceId === agentInstanceId);
+  const parent = readCheckpointForks().find((fork) => fork.forkId === agentInstanceId);
+  const inherited = parent
+    ? readCheckpoints(parent.sourceId).filter((row) => parent.taskIds.includes(row.headTaskId))
+    : [];
+  return [...local, ...inherited].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function checkpointById(id: string): MockCheckpoint | undefined {
@@ -552,8 +573,14 @@ export function renameCheckpoint(id: string, name: string): MockCheckpoint | und
 /** Removes one, the way `DeleteCheckpoint` releases the snapshot it was holding. */
 export function deleteCheckpoint(id: string): boolean {
   const rows = readAll();
+  const checkpoint = rows.find((row) => row.id === id);
+  if (!checkpoint) return false;
+  for (const parent of readCheckpointForks()) {
+    if (parent.sourceId === checkpoint.agentInstanceId && parent.taskIds.includes(checkpoint.headTaskId)) {
+      return false;
+    }
+  }
   const kept = rows.filter((row) => row.id !== id);
-  if (kept.length === rows.length) return false;
   writeAll(kept);
   return true;
 }

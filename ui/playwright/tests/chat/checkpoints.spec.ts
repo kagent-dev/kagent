@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import { agentChat, instances } from "../../helpers/app";
 import { pressOnce } from "../../helpers/resource";
+import { sendAndAwaitTurn } from "../../helpers/chat";
 
 /** The menu that is actually on screen: antd leaves a closed dropdown mounted. */
 const openMenu = (page: import("@playwright/test").Page) =>
@@ -128,8 +129,8 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
  *
  * Three claims about one action, so one action proves all three. Forking the *seeded*
  * boundary once a second one exists leaves the later turn behind — which is the whole
- * point of forking a boundary rather than a conversation — the copy arrives with no
- * lines on it at all, and it is titled after the snapshot rather than after its
+ * point of forking a boundary rather than a conversation — the copy retains only
+ * inherited checkpoint lines, and it is titled after the snapshot rather than after its
  * source. That last one is the controller's job now: the page passes no name, so a
  * fork called anything else means the name never reached `ForkAgentInstance`.
  *
@@ -137,9 +138,9 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
  * remembered against the message it was taken at, because the reader's newest message
  * has no turn id yet. A fork is handed copies of its source's messages under the same
  * ids — so without dropping that memory when the conversation changes, a fork opened
- * from here drew a line it does not have.
+ * from here could draw a line beyond the inherited cutoff.
  */
-test("chat: a fork holds only what was above its line, takes the snapshot's name, and inherits none of its marks", async ({
+test("chat: a fork inherits its checkpoint prefix with view and fork actions only", async ({
   page,
 }) => {
   const SNAPSHOT_NAME = "Before the second question";
@@ -183,8 +184,42 @@ test("chat: a fork holds only what was above its line, takes the snapshot's name
   await expect(page.getByTestId("chat-sessions")).toContainText(SNAPSHOT_NAME);
   // Only what was above the line: the second turn is below it.
   await expect(mine).toHaveCount(1, { timeout: 30_000 });
-  // And none of the source page's marks came with it.
-  await expect(dividers(page)).toHaveCount(0);
+  await expect(dividers(page)).toHaveCount(1);
+  const inherited = dividers(page).first();
+  await expect(inherited.getByTestId("chat-checkpoint-label")).toHaveText(`Snapshot “${SNAPSHOT_NAME}”`);
+  await expect(inherited.locator('[data-testid^="chat-checkpoint-fork-"]')).toBeEnabled();
+  await expect(inherited.locator('[data-testid^="chat-checkpoint-rename-"]')).toHaveCount(0);
+  await expect(inherited.locator('[data-testid^="chat-checkpoint-delete-"]')).toHaveCount(0);
+
+  await test.step("a checkpoint created on the fork still offers rename and delete", async () => {
+    await sendAndAwaitTurn(page, "A new turn on this fork.");
+    await expect(mine).toHaveCount(2);
+    await expect(page.getByTestId("chat-checkpoint")).toBeEnabled();
+    await page.getByTestId("chat-checkpoint").click();
+    await expect(dividers(page)).toHaveCount(2);
+    const local = dividers(page).last();
+    await expect(local.locator('[data-testid^="chat-checkpoint-rename-"]')).toBeEnabled();
+    await expect(local.locator('[data-testid^="chat-checkpoint-delete-"]')).toBeEnabled();
+    await openSnapshot(page, local);
+    await expect(page.getByTestId("snapshot-details-rename")).toBeEnabled();
+    await expect(page.getByTestId("snapshot-details-delete")).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
+  });
+
+  await test.step("inherited details allow viewing and another fork, but no mutations", async () => {
+    await openSnapshot(page, inherited);
+    await expect(page.getByTestId("snapshot-details-name")).toHaveText(SNAPSHOT_NAME);
+    await expect(page.getByTestId("snapshot-details-rename")).toHaveCount(0);
+    await expect(page.getByTestId("snapshot-details-delete")).toHaveCount(0);
+    const firstForkURL = page.url();
+    await page.getByTestId("snapshot-details-fork").click();
+    await expect(page).not.toHaveURL(firstForkURL);
+    await expect(rows).toHaveCount(before + 2);
+    // The new fork must load the inherited prefix and leave our local turn behind.
+    await expect(mine).toHaveCount(1);
+    await expect(dividers(page)).toHaveCount(1);
+  });
 });
 
 /*

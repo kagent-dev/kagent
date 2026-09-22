@@ -79,8 +79,10 @@ func (CheckpointState) EnumDescriptor() ([]byte, []int) {
 }
 
 type Checkpoint struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The instance that created this checkpoint. For an inherited checkpoint this
+	// differs from the instance requested in ListCheckpoints.
 	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	HeadTaskId      string                 `protobuf:"bytes,3,opt,name=head_task_id,json=headTaskId,proto3" json:"head_task_id,omitempty"`
 	HistorySequence uint64                 `protobuf:"varint,4,opt,name=history_sequence,json=historySequence,proto3" json:"history_sequence,omitempty"`
@@ -366,9 +368,11 @@ func (x *GetCheckpointResponse) GetCheckpoint() *Checkpoint {
 }
 
 type ListCheckpointsRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Page            *PageRequest           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The instance whose local and inherited checkpoints to list. Its retained
+	// history remains listable after the instance is deleted.
+	AgentInstanceId string       `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	Page            *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }

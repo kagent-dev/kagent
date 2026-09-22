@@ -12,6 +12,9 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1
 service CheckpointService {
   rpc CreateCheckpoint(CreateCheckpointRequest) returns (CreateCheckpointResponse);
   rpc GetCheckpoint(GetCheckpointRequest) returns (GetCheckpointResponse);
+  // Lists ready checkpoints from the instance's history and inherited prefixes.
+  // Checkpoints retain their originating instance IDs, including after deletion
+  // of the originating or listed instance.
   rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
   rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (DeleteCheckpointResponse);
   rpc ForkAgentInstance(ForkAgentInstanceRequest) returns (ForkAgentInstanceResponse);
@@ -28,6 +31,8 @@ enum CheckpointState {
 
 message Checkpoint {
   string id = 1;
+  // The instance that created this checkpoint. For an inherited checkpoint this
+  // differs from the instance requested in ListCheckpoints.
   string agent_instance_id = 2;
   string head_task_id = 3;
   uint64 history_sequence = 4;
@@ -61,6 +66,8 @@ message GetCheckpointResponse {
 }
 
 message ListCheckpointsRequest {
+  // The instance whose local and inherited checkpoints to list. Its retained
+  // history remains listable after the instance is deleted.
   string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   PageRequest page = 2;
 }
