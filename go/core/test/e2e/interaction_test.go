@@ -119,7 +119,7 @@ func assertStructuredOutputArtifact(t *testing.T, artifact *a2atype.Artifact, an
 	if part.MediaType != "application/json" {
 		t.Fatalf("structured result media type = %q", part.MediaType)
 	}
-	if got, _ := part.Metadata[adka2a.OutputSchemaSHA256MetadataKey].(string); len(got) != 64 {
+	if got, _ := part.Metadata[kagenta2a.OutputSchemaSHA256MetadataKey].(string); len(got) != 64 {
 		t.Fatalf("structured result schema digest = %#v", got)
 	}
 }

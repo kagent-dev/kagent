@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // Assembler projects an A2A event stream into its current Message or Task.
@@ -73,13 +74,25 @@ func (a *Assembler) Complete() bool {
 	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
 }
 
-// PartsText concatenates the text of every text part, ignoring data parts.
-func PartsText(parts a2atype.ContentParts) string {
+// PartsText concatenates text parts and serializes structured terminal results.
+// Other data parts are runtime activity and remain excluded from answer text.
+func PartsText(parts a2atype.ContentParts) (string, error) {
 	var text strings.Builder
 	for _, part := range parts {
-		if part != nil {
-			text.WriteString(part.Text())
+		if part == nil {
+			continue
+		}
+		if value := part.Text(); value != "" {
+			text.WriteString(value)
+			continue
+		}
+		value, ok, err := kagenta2a.StructuredOutputJSON(part)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			text.WriteString(value)
 		}
 	}
-	return text.String()
+	return text.String(), nil
 }

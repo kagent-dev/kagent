@@ -232,7 +232,9 @@ func TestConsumeA2AStreamReturnsPartialResultOnTruncation(t *testing.T) {
 	), func(a2atype.Event, a2atype.SendMessageResult) error { return nil })
 
 	require.ErrorIs(t, err, errTruncatedA2AStream)
-	assert.Equal(t, "partial", sendResultText(result))
+	text, err := sendResultText(result)
+	require.NoError(t, err)
+	assert.Equal(t, "partial", text)
 }
 
 func TestConsumeA2AStreamWritesJSONL(t *testing.T) {
@@ -254,7 +256,9 @@ func TestConsumeA2AStreamWritesJSONL(t *testing.T) {
 		return writeStreamEvent(&output, event)
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "done", sendResultText(result))
+	text, err := sendResultText(result)
+	require.NoError(t, err)
+	assert.Equal(t, "done", text)
 	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
 	require.Len(t, lines, len(events))
 	for _, line := range lines {

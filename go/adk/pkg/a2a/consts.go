@@ -13,7 +13,6 @@ const (
 	A2ADataPartMetadataIsLongRunningKey     = "is_long_running"
 	A2ADataPartMetadataTypeFunctionCall     = "function_call"
 	A2ADataPartMetadataTypeFunctionResponse = "function_response"
-	OutputSchemaSHA256MetadataKey           = "kagent.dev/output-schema-sha256"
 )
 
 // DataPart map keys for GenAI-style function call / response content.

@@ -267,7 +267,9 @@ function visibleParts(
       visible.push(part);
       continue;
     }
-    if (part.data.name === "ask_user") continue;
+    if (part.dataKind !== "structured_output" && part.data.name === "ask_user") {
+      continue;
+    }
 
     const control = controlFlowResult(part);
     if (control === "confirmation_required") continue;

@@ -157,7 +157,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		},
 	}
 	if agentConfig.Output != nil {
-		llmAgentConfig.OutputSchema, err = adkoutputschema.Project(agentConfig.Output.JSONSchema)
+		llmAgentConfig.OutputSchema, err = adkoutputschema.ToGenAISchema(agentConfig.Output.JSONSchema)
 		if err != nil {
 			return nil, err
 		}

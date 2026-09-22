@@ -20,7 +20,7 @@ func TestApplyOutputSchema(t *testing.T) {
 	require.Equal(t, "digest", config.Output.SHA256)
 }
 
-func TestApplyOutputSchemaRejectsRecursiveADKProjection(t *testing.T) {
+func TestApplyOutputSchemaRejectsRecursiveADKConversion(t *testing.T) {
 	config := &adk.AgentConfig{}
 	output := &v2translator.ResolvedOutputSchema{Schema: []byte(`{
 		"type":"object",

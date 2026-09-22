@@ -280,7 +280,7 @@ func bedrockOutputConfig(config *genai.GenerateContentConfig) (*types.OutputConf
 			Type: types.OutputFormatTypeJsonSchema,
 			Structure: &types.OutputFormatStructureMemberJsonSchema{
 				Value: types.JsonSchemaDefinition{
-					Name:   aws.String("kagent_output"),
+					Name:   aws.String(structuredOutputName),
 					Schema: aws.String(string(encoded)),
 				},
 			},

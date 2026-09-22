@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,10 +46,11 @@ type KAgentExecutorConfig struct {
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
 // A2A executor. Event conversion and artifact streaming are delegated to ADK.
 type KAgentExecutor struct {
-	builtin        a2asrv.AgentExecutor
-	sessionService adksession.Service
-	appName        string
-	logger         *slog.Logger
+	builtin                 a2asrv.AgentExecutor
+	sessionService          adksession.Service
+	appName                 string
+	logger                  *slog.Logger
+	structuredOutputEnabled bool
 }
 
 type structuredOutput struct {
@@ -73,9 +75,12 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 	if cfg.SessionService != nil {
 		runnerConfig.SessionService = cfg.SessionService
 	}
-	rootName := ""
-	if runnerConfig.Agent != nil {
-		rootName = runnerConfig.Agent.Name()
+	if runnerConfig.Agent == nil {
+		return nil, fmt.Errorf("root agent is required")
+	}
+	rootName := runnerConfig.Agent.Name()
+	if rootName == "" {
+		return nil, fmt.Errorf("root agent name is required")
 	}
 	builtin := adka2a.NewExecutor(adka2a.ExecutorConfig{
 		RunnerConfig:       runnerConfig,
@@ -83,9 +88,6 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
-			if processed == nil {
-				return nil
-			}
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
 			}
@@ -105,10 +107,11 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 	})
 
 	return &KAgentExecutor{
-		builtin:        builtin,
-		sessionService: runnerConfig.SessionService,
-		appName:        cfg.AppName,
-		logger:         cfg.Logger.With("component", "kagent-executor"),
+		builtin:                 builtin,
+		sessionService:          runnerConfig.SessionService,
+		appName:                 cfg.AppName,
+		logger:                  cfg.Logger.With("component", "kagent-executor"),
+		structuredOutputEnabled: output != nil,
 	}, nil
 }
 
@@ -132,6 +135,9 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	if !event.IsFinalResponse() {
 		return nil
 	}
+	if event.FinishReason != genai.FinishReasonStop {
+		return fmt.Errorf("output_validation_failed: root agent did not complete structured output")
+	}
 	value, err := finalStructuredOutput(event)
 	if err != nil {
 		return err
@@ -144,7 +150,7 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	}
 	part := a2atype.NewDataPart(value)
 	part.MediaType = "application/json"
-	part.SetMeta(OutputSchemaSHA256MetadataKey, output.sha256)
+	part.SetMeta(apia2a.OutputSchemaSHA256MetadataKey, output.sha256)
 	processed.Artifact.Parts = a2atype.ContentParts{part}
 	return nil
 }
@@ -291,7 +297,26 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			reqCtx.Message = resumeMessage
 		}
 
+		structuredResultEmitted := false
 		for event, err := range e.builtin.Execute(ctx, reqCtx) {
+			// Mark that a structured result has been emitted
+			if update, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && update.Artifact != nil &&
+				slices.ContainsFunc(update.Artifact.Parts, apia2a.IsStructuredOutputPart) {
+				structuredResultEmitted = true
+			}
+			// If the event is a task status update event and the status is completed,
+			// but no structured result has been emitted, mark the status as failed with a message
+			// indicating that the root agent produced no result artifact.
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok &&
+				err == nil && e.structuredOutputEnabled && !structuredResultEmitted &&
+				update.Status.State == a2atype.TaskStateCompleted {
+				update.Status.State = a2atype.TaskStateFailed
+				update.Status.Message = a2atype.NewMessageForTask(
+					a2atype.MessageRoleAgent,
+					update,
+					a2atype.NewTextPart("output_validation_failed: root agent produced no result artifact"),
+				)
+			}
 			// If the event is a task status update event and the status is input required, build the HITL status message
 			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok &&
 				update.Status.State == a2atype.TaskStateInputRequired && update.Status.Message != nil {

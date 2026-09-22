@@ -218,7 +218,8 @@ func TestTransformStructuredOutputParsesFinalTextWhenADKOutputIsUnset(t *testing
 	event := &adksession.Event{
 		Author: "root",
 		LLMResponse: model.LLMResponse{
-			Content: genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+			Content:      genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+			FinishReason: genai.FinishReasonStop,
 		},
 	}
 	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(`{"answer":4}`))
@@ -233,7 +234,7 @@ func TestTransformStructuredOutputParsesFinalTextWhenADKOutputIsUnset(t *testing
 	if got := update.Artifact.Parts[0].Data(); !maps.Equal(got.(map[string]any), want) {
 		t.Fatalf("structured data = %#v, want %#v", got, want)
 	}
-	if got := update.Artifact.Parts[0].Metadata[OutputSchemaSHA256MetadataKey]; got != "schema-digest" {
+	if got := update.Artifact.Parts[0].Metadata[apia2a.OutputSchemaSHA256MetadataKey]; got != "schema-digest" {
 		t.Fatalf("schema digest = %#v", got)
 	}
 }
@@ -243,6 +244,13 @@ func TestNewKAgentExecutorRejectsInvalidOutputSchema(t *testing.T) {
 		Logger: slog.New(slog.DiscardHandler),
 		Output: &apiadk.OutputConfig{JSONSchema: []byte(`{`)},
 	})
+	if err == nil || executor != nil {
+		t.Fatalf("NewKAgentExecutor() = %#v, %v; want a construction error", executor, err)
+	}
+}
+
+func TestNewKAgentExecutorRequiresRootAgent(t *testing.T) {
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{Logger: slog.New(slog.DiscardHandler)})
 	if err == nil || executor != nil {
 		t.Fatalf("NewKAgentExecutor() = %#v, %v; want a construction error", executor, err)
 	}
@@ -276,13 +284,87 @@ func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing
 	event := &adksession.Event{
 		Author: "root",
 		LLMResponse: model.LLMResponse{
-			Content: genai.NewContentFromText(`{"secret":"do-not-log"}`, genai.RoleModel),
+			Content:      genai.NewContentFromText(`{"secret":"do-not-log"}`, genai.RoleModel),
+			FinishReason: genai.FinishReasonStop,
 		},
 	}
 	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"})
 	err = transformStructuredOutput(output, "root", event, update)
 	if err == nil || strings.Contains(err.Error(), "do-not-log") {
 		t.Fatalf("validation error = %v", err)
+	}
+}
+
+func TestTransformStructuredOutputRejectsIncompleteResponse(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author: "root",
+		LLMResponse: model.LLMResponse{
+			Content:      genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+			FinishReason: genai.FinishReasonMaxTokens,
+		},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(`{"answer":4}`))
+	err = transformStructuredOutput(output, "root", event, update)
+	if err == nil || !strings.Contains(err.Error(), "did not complete") {
+		t.Fatalf("transformStructuredOutput() error = %v, want incomplete-output error", err)
+	}
+}
+
+func TestKAgentExecutorFailsCompletedStructuredOutputWithoutResult(t *testing.T) {
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "structured-agent",
+		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				yield(&adksession.Event{
+					Author:       ic.Agent().Name(),
+					InvocationID: ic.InvocationID(),
+					LLMResponse: model.LLMResponse{
+						Content:      &genai.Content{Role: genai.RoleModel},
+						FinishReason: genai.FinishReasonStop,
+					},
+				}, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService := adksession.InMemoryService()
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName:        "test-app",
+		SessionService: sessionService,
+		Logger:         slog.New(slog.DiscardHandler),
+		RunnerConfig:   runner.Config{AppName: "test-app", Agent: agent},
+		Output: &apiadk.OutputConfig{
+			JSONSchema: []byte(`{"type":"object"}`),
+			SHA256:     "schema-digest",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "context-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("answer")),
+	}
+
+	var terminal *a2atype.TaskStatusUpdateEvent
+	for event, err := range executor.Execute(t.Context(), reqCtx) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State.Terminal() {
+			terminal = update
+		}
+	}
+	if terminal == nil || terminal.Status.State != a2atype.TaskStateFailed || terminal.Status.Message == nil {
+		t.Fatalf("terminal status = %#v, want failed status with an error message", terminal)
 	}
 }
 

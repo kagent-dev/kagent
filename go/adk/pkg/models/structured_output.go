@@ -8,6 +8,10 @@ import (
 	"google.golang.org/genai"
 )
 
+// structuredOutputName identifies kagent's response format to providers. It is
+// an API request label, not a field in the generated result.
+const structuredOutputName = "kagent_output"
+
 // structuredOutputSchema returns the JSON Schema that a provider request
 // should send.
 //

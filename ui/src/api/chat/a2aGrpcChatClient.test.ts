@@ -710,6 +710,39 @@ describe("A2AGrpcChatClient.send", () => {
     });
   });
 
+  it('keeps structured output whose user data contains name "ask_user"', async () => {
+    const result = data(
+      { name: "ask_user", answer: 4 },
+      {
+        mediaType: "application/json",
+        metadata: { "kagent.dev/output-schema-sha256": "abc123" },
+      },
+    );
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate" as const,
+          value: {
+            taskId: "task-1",
+            contextId: CONVERSATION.contextId,
+            artifact: { artifactId: "answer", parts: [result] },
+            lastChunk: true,
+          },
+        },
+      },
+      statusFrame({ state: TaskState.COMPLETED }),
+    ]);
+
+    const structured = transcript(events)
+      .flatMap((message) => message.parts)
+      .find(
+        (part) => part.kind === "data" && part.dataKind === "structured_output",
+      );
+    expect(structured).toMatchObject({
+      data: { name: "ask_user", answer: 4 },
+    });
+  });
+
   it("reports the turn reaching completion", async () => {
     const events = await turn([
       statusFrame({

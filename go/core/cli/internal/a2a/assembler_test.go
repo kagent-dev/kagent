@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +56,15 @@ func TestAssemblerAcceptsMessageResult(t *testing.T) {
 	require.NoError(t, assembler.Apply(message))
 	assert.Same(t, message, assembler.Result())
 	assert.True(t, assembler.Complete())
+}
+
+func TestPartsTextSerializesStructuredOutput(t *testing.T) {
+	structured := a2atype.NewDataPart(map[string]any{"answer": float64(4)})
+	structured.MediaType = "application/json"
+	structured.SetMeta(kagenta2a.OutputSchemaSHA256MetadataKey, "digest")
+	toolResult := a2atype.NewDataPart(map[string]any{"name": "tool", "response": "ignored"})
+
+	text, err := PartsText(a2atype.ContentParts{toolResult, structured})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"answer":4}`, text)
 }

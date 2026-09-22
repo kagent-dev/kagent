@@ -64,6 +64,11 @@ unsupported keywords are rejected during compilation rather than silently
 weakened for a provider. A provider or model can still reject structured output
 at runtime; in that case the Task fails.
 
+The serialized schema is limited to 64 KiB. Conversion to the Go ADK schema is
+also limited to 32 levels and 1,000 expanded schema nodes; these bounds include
+nodes expanded through local `$defs` references. Schemas that exceed any limit
+fail compilation.
+
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).
 Runtime validation and A2A conversion are owned by the Go and Python kagent ADK

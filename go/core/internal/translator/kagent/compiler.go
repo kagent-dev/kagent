@@ -107,14 +107,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 }
 
 // applyOutputSchema verifies the portable schema by performing the same
-// genai.Schema projection used by the Go runtime, then records the canonical
+// genai.Schema conversion used by the Go runtime, then records the canonical
 // schema for both Go and Python ADK runtimes. This keeps compatibility
 // failures at Harness compilation instead of actor startup.
 func applyOutputSchema(config *adk.AgentConfig, output *v2translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
-	if _, err := adkoutputschema.Project(output.Schema); err != nil {
+	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
 		return v2translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
 	config.Output = &adk.OutputConfig{

@@ -8,8 +8,8 @@ import (
 	"google.golang.org/genai"
 )
 
-func TestProject(t *testing.T) {
-	schema, err := Project(json.RawMessage(`{
+func TestToGenAISchema(t *testing.T) {
+	schema, err := ToGenAISchema(json.RawMessage(`{
 		"type":"object",
 		"properties":{
 			"status":{"$ref":"#/$defs/status"},
@@ -25,8 +25,8 @@ func TestProject(t *testing.T) {
 	require.Equal(t, genai.TypeInteger, schema.Properties["payload"].Items.Type)
 }
 
-func TestProjectRejectsRecursiveReference(t *testing.T) {
-	_, err := Project(json.RawMessage(`{
+func TestToGenAISchemaRejectsRecursiveReference(t *testing.T) {
+	_, err := ToGenAISchema(json.RawMessage(`{
 		"type":"object",
 		"$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},
 		"properties":{"node":{"$ref":"#/$defs/node"}}
@@ -34,7 +34,7 @@ func TestProjectRejectsRecursiveReference(t *testing.T) {
 	require.ErrorContains(t, err, "recursive output schema")
 }
 
-func TestProjectBoundsReferenceExpansion(t *testing.T) {
+func TestToGenAISchemaBoundsReferenceExpansion(t *testing.T) {
 	leafProperties := make(map[string]any, 30)
 	for i := range 30 {
 		leafProperties[string(rune('a'+i))] = map[string]any{"type": "string"}
@@ -52,6 +52,6 @@ func TestProjectBoundsReferenceExpansion(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = Project(raw)
-	require.ErrorContains(t, err, "projection exceeds maximum node count")
+	_, err = ToGenAISchema(raw)
+	require.ErrorContains(t, err, "conversion exceeds maximum node count")
 }

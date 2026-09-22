@@ -40,7 +40,7 @@ func generateContentResponses(
 		yield(nil, err)
 		return
 	} else if schema != nil {
-		format := responses.ResponseFormatTextConfigParamOfJSONSchema("kagent_output", schema)
+		format := responses.ResponseFormatTextConfigParamOfJSONSchema(structuredOutputName, schema)
 		format.OfJSONSchema.Strict = param.NewOpt(true)
 		params.Text.Format = format
 	}

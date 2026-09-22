@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -407,8 +408,12 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, result a2atype.SendMessageResult) (remoteA2AResponse, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
+		text, err := extractTextFromMessage(r)
+		if err != nil {
+			return remoteA2AResponse{}, fmt.Errorf("extract remote agent message result: %w", err)
+		}
 		return remoteA2AResponse{
-			Result:            extractTextFromMessage(r),
+			Result:            text,
 			SubagentSessionID: contextID,
 		}, nil
 	case *a2atype.Task:
@@ -416,7 +421,10 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 		case a2atype.TaskStateInputRequired:
 			return s.handleInputRequired(ctx, r, contextID), nil
 		case a2atype.TaskStateFailed:
-			text := extractTextFromTask(r)
+			text, err := extractTextFromTask(r)
+			if err != nil {
+				return remoteA2AResponse{}, fmt.Errorf("extract remote agent failure: %w", err)
+			}
 			if text == "" {
 				text = fmt.Sprintf("Remote agent '%s' failed.", s.name)
 			}
@@ -428,8 +436,12 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 			// completed — include sub-agent's final LLM usage from task.metadata
 			// so the parent can display it on the AgentCall card in the UI.
 			// Mirrors Python's _extract_usage_from_task(task).
+			text, err := extractTextFromTask(r)
+			if err != nil {
+				return remoteA2AResponse{}, fmt.Errorf("extract remote agent task result: %w", err)
+			}
 			ret := remoteA2AResponse{
-				Result:            extractTextFromTask(r),
+				Result:            text,
 				SubagentSessionID: contextID,
 			}
 			if usage := extractUsageFromTask(r); usage != nil {
@@ -509,10 +521,10 @@ func extractUsageFromTask(task *a2atype.Task) map[string]any {
 	return nil
 }
 
-// extractTextFromTask extracts the text result from a completed Task.
-func extractTextFromTask(task *a2atype.Task) string {
+// extractTextFromTask extracts text or a structured terminal result from a completed Task.
+func extractTextFromTask(task *a2atype.Task) (string, error) {
 	if task == nil {
-		return ""
+		return "", nil
 	}
 	// Prefer artifacts (canonical result).
 	if len(task.Artifacts) > 0 {
@@ -524,24 +536,32 @@ func extractTextFromTask(task *a2atype.Task) string {
 				}
 				if text := part.Text(); text != "" {
 					texts = append(texts, text)
+					continue
+				}
+				text, ok, err := kagenta2a.StructuredOutputJSON(part)
+				if err != nil {
+					return "", err
+				}
+				if ok {
+					texts = append(texts, text)
 				}
 			}
 		}
 		if len(texts) > 0 {
-			return strings.Join(texts, "\n")
+			return strings.Join(texts, "\n"), nil
 		}
 	}
 	// Fall back to status message.
 	if task.Status.Message != nil {
 		return extractTextFromMessage(task.Status.Message)
 	}
-	return ""
+	return "", nil
 }
 
-// extractTextFromMessage extracts text from a direct A2A Message response.
-func extractTextFromMessage(message *a2atype.Message) string {
+// extractTextFromMessage extracts text or a structured result from a direct A2A Message response.
+func extractTextFromMessage(message *a2atype.Message) (string, error) {
 	if message == nil {
-		return ""
+		return "", nil
 	}
 	var texts []string
 	for _, part := range message.Parts {
@@ -550,7 +570,15 @@ func extractTextFromMessage(message *a2atype.Message) string {
 		}
 		if text := part.Text(); text != "" {
 			texts = append(texts, text)
+			continue
+		}
+		text, ok, err := kagenta2a.StructuredOutputJSON(part)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			texts = append(texts, text)
 		}
 	}
-	return strings.Join(texts, "\n")
+	return strings.Join(texts, "\n"), nil
 }
