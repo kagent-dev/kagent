@@ -138,3 +138,47 @@ jobs:
         files: |
           go/core/bin/kagent-*
           dist/kagent-*.tgz
+
+  # Tell kagent-dev/website to regenerate the kagent reference docs at this
+  # release. That workflow builds from a release tag rather than main, so
+  # without this ping the docs only move when someone runs it by hand.
+  notify-docs:
+    # After `release` on purpose: the docs job looks this release up by tag and
+    # resolves the runtime image digests from GHCR, so the release and the
+    # images both have to exist before it starts.
+    needs:
+    - setup
+    - release
+    # Never fail a release because the docs ping failed. A miss here is
+    # recoverable by dispatching the website workflow by hand; a red release is
+    # not worth it.
+    continue-on-error: true
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+    # GITHUB_TOKEN is scoped to this repository and cannot dispatch into
+    # website, so this mints a short-lived token from a GitHub App installed
+    # there. The App needs only Contents: write.
+    - name: Mint a token for the website repository
+      id: token
+      uses: actions/create-github-app-token@v3
+      with:
+        app-id: ${{ secrets.APP_ID }}
+        private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        repositories: website
+
+    - name: Trigger the reference docs regeneration
+      env:
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+        OWNER: ${{ github.repository_owner }}
+        VERSION: ${{ needs.setup.outputs.version }}
+      run: |
+        set -euo pipefail
+        # The version is sent explicitly rather than letting the docs workflow
+        # read "latest release", so a re-run of an older tag regenerates that
+        # release instead of whatever is newest.
+        gh api --method POST "repos/$OWNER/website/dispatches" --input - <<JSON
+        {"event_type": "kagent-release", "client_payload": {"version": "$VERSION"}}
+        JSON
+        echo "Dispatched kagent-release $VERSION to $OWNER/website"
