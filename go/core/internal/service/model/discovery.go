@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
@@ -55,6 +56,30 @@ type GetProviderModelsRequest struct {
 type ProviderModelsResult struct {
 	Provider string   `json:"provider"`
 	Models   []string `json:"models"`
+}
+
+// ollamaCatalogModels renders the Ollama catalog from the same list that
+// decides cloud routing.
+//
+// The two used to be maintained separately: the catalog advertised bare names
+// while models.IsOllamaCloudModel recognised only the ":cloud" tag, so picking
+// a listed cloud model routed it to the local daemon. Deriving both from
+// models.OllamaCloudModels makes a cloud entry unable to appear in the catalog
+// without also being routed to the cloud.
+//
+// Tool support is true throughout — it is verified per model against /api/show
+// for cloud models and a local daemon for local ones, not inferred from family.
+func ollamaCatalogModels() []ModelInfo {
+	// Local models, pulled with `ollama pull` and served by a daemon the
+	// operator runs. A cloud tag is not accepted for either — deepseek-r1 is
+	// not on Ollama Cloud at all — so these reach the daemon directly.
+	local := []string{"qwen3.5", "deepseek-r1"}
+
+	catalog := make([]ModelInfo, 0, len(models.OllamaCloudModels)+len(local))
+	for _, name := range append(append([]string{}, models.OllamaCloudModels...), local...) {
+		catalog = append(catalog, ModelInfo{Name: name, FunctionCalling: true})
+	}
+	return catalog
 }
 
 func (s *Service) ListSupportedModels(context.Context) ProviderModels {
@@ -171,40 +196,7 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "claude-sonnet-4-6", FunctionCalling: true},
 			{Name: "claude-haiku-4-5", FunctionCalling: true},
 		},
-		v1alpha3.ModelProviderOllama: {
-			// Ollama Cloud models, as returned by GET https://api.ollama.com/api/tags.
-			// Every one reports "tools" in its capability set, so function calling
-			// is on throughout. Names are the bare tags the cloud API accepts;
-			// appending ":cloud" reaches the same model through a signed-in local
-			// daemon (see models.IsOllamaCloudModel for the routing rule).
-			{Name: "kimi-k2.6", FunctionCalling: true},
-			{Name: "kimi-k2.7-code", FunctionCalling: true},
-			{Name: "kimi-k3", FunctionCalling: true},
-			{Name: "glm-5.1", FunctionCalling: true},
-			{Name: "glm-5.2", FunctionCalling: true},
-			{Name: "glm-5.3", FunctionCalling: true},
-			{Name: "glm-5.3-flash", FunctionCalling: true},
-			{Name: "minimax-m2.7", FunctionCalling: true},
-			{Name: "minimax-m3", FunctionCalling: true},
-			{Name: "deepseek-v4.1-flash", FunctionCalling: true},
-			{Name: "deepseek-v4-flash:0731", FunctionCalling: true},
-			{Name: "deepseek-v4-pro:0813", FunctionCalling: true},
-			{Name: "gpt-oss:20b", FunctionCalling: true},
-			{Name: "gpt-oss:120b", FunctionCalling: true},
-			{Name: "qwen3.5:397b", FunctionCalling: true},
-			{Name: "mistral-large-3:675b", FunctionCalling: true},
-			{Name: "nemotron-3-nano:30b", FunctionCalling: true},
-			{Name: "nemotron-3-super", FunctionCalling: true},
-			{Name: "nemotron-3-ultra", FunctionCalling: true},
-			{Name: "gemma4:31b", FunctionCalling: true},
-
-			// Local models, pulled with `ollama pull` and served by a daemon the
-			// operator runs. A cloud tag is not accepted for either — deepseek-r1
-			// is not on Ollama Cloud at all — so these reach the daemon directly.
-			// Function calling is verified against a local daemon's /api/show.
-			{Name: "qwen3.5", FunctionCalling: true},
-			{Name: "deepseek-r1", FunctionCalling: true},
-		},
+		v1alpha3.ModelProviderOllama: ollamaCatalogModels(),
 		v1alpha3.ModelProviderGemini: {
 			// Gemini 3 family
 			{Name: "gemini-3.5-flash", FunctionCalling: true},

@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -476,10 +477,25 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				Value: withDefaultScheme(model.Spec.Ollama.Host),
 			})
 		}
-		// Ollama Cloud authenticates with a key; a local daemon has none. The
-		// key is mounted only when the operator configured one, and passthrough
-		// takes precedence because it carries the caller's own token.
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		// Ollama Cloud authenticates with a key; a local daemon has none. Mount
+		// the key only when the model will actually reach api.ollama.com, which
+		// is the same condition credential compilation uses to create the
+		// gateway binding for it (see models.OllamaReachesCloud).
+		//
+		// Mounting on apiKeySecret alone used to break every other case: an
+		// explicit host, or a local model, gets no binding, and
+		// CompileCredentials rejects a Secret-backed env var that has none
+		// ("cannot use gateway header injection"), so the agent failed to
+		// compile instead of simply staying on the daemon. The chart ships a
+		// default host, so following the values.yaml comment that introduces
+		// apiKeySecretRef was enough to hit it.
+		//
+		// Passthrough is excluded because it carries the caller's own token
+		// through the gateway rather than a key mounted here. The credential
+		// argument is true by construction: this mounts a key only when one
+		// exists.
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
+			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OllamaAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{

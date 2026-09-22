@@ -58,6 +58,12 @@ func TestIsOllamaCloudModel(t *testing.T) {
 	// "cloud" has to be the tag, not merely present in the name.
 	local := []string{"llama3.2", "cloudy-llm:7b", "nimbus-cloud-13b:q4", "llama3.3:70b"}
 
+	// The catalog lists cloud models by their bare names, which is what
+	// api.ollama.com accepts. Recognising only the ":cloud" tag made every
+	// catalog entry look local, so a user picking one got a call to the pod's
+	// own localhost:11434 instead of the model they chose.
+	cloud = append(cloud, OllamaCloudModels...)
+
 	for _, m := range cloud {
 		if !IsOllamaCloudModel(m) {
 			t.Errorf("IsOllamaCloudModel(%q) = false, want true", m)
@@ -67,6 +73,39 @@ func TestIsOllamaCloudModel(t *testing.T) {
 		if IsOllamaCloudModel(m) {
 			t.Errorf("IsOllamaCloudModel(%q) = true, want false", m)
 		}
+	}
+}
+
+// TestOllamaReachesCloud pins the one routing rule the runtime, the key mount,
+// and credential compilation all share. They previously carried three separate
+// copies that disagreed, so a valid ModelConfig could compile with an env var
+// that had no binding to match, or with an egress list that omitted the host it
+// was about to call.
+func TestOllamaReachesCloud(t *testing.T) {
+	tests := []struct {
+		name          string
+		model         string
+		host          string
+		hasCredential bool
+		want          bool
+	}{
+		// The chart ships this host, so it is the common local case.
+		{name: "explicit host wins even for a cloud model with a key", model: "minimax-m3:cloud", host: "host.docker.internal:11434", hasCredential: true, want: false},
+		{name: "explicit host wins for a bare catalog name", model: "kimi-k3", host: "http://gpu-box.lan:11434", hasCredential: true, want: false},
+		{name: "bare catalog name without a host reaches the cloud", model: "kimi-k3", hasCredential: true, want: true},
+		{name: "tagged cloud model without a host reaches the cloud", model: "minimax-m3:cloud", hasCredential: true, want: true},
+		{name: "cloud model without a credential stays local", model: "kimi-k3", hasCredential: false, want: false},
+		{name: "local model with a credential stays local", model: "llama3.2", hasCredential: true, want: false},
+		// A name that merely contains "cloud" is not a cloud model.
+		{name: "name containing cloud is not a cloud model", model: "cloudy-llm:7b", hasCredential: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := OllamaReachesCloud(tt.model, tt.host, tt.hasCredential); got != tt.want {
+				t.Errorf("OllamaReachesCloud(%q, %q, %v) = %v, want %v", tt.model, tt.host, tt.hasCredential, got, tt.want)
+			}
+		})
 	}
 }
 

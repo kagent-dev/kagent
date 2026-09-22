@@ -108,6 +108,35 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),
 		},
+		{
+			// The chart ships a default host, so this is the ordinary case for
+			// an operator who follows the values.yaml comment introducing
+			// apiKeySecretRef. The request goes to that host, so no credential
+			// binding exists, and mounting the key made CompileCredentials
+			// reject the whole revision ("cannot use gateway header injection")
+			// instead of simply using the daemon.
+			name: "an explicit host does not mount the key even for a cloud model",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name()},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			// Same problem without a host: a local model has no cloud binding,
+			// so mounting the Secret breaks compilation for a config that was
+			// previously fine.
+			name: "a local model with a secret does not mount the key",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+			wantNames: []string{},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

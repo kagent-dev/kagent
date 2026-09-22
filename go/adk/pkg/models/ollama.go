@@ -35,10 +35,83 @@ const (
 	ollamaCloudURL = "https://api.ollama.com"
 )
 
+// OllamaCloudModels names the models served by api.ollama.com, as returned by
+// GET https://api.ollama.com/api/tags. This is the single source of truth for
+// cloud membership: the controller's model catalog renders its Ollama cloud
+// entries from it, and IsOllamaCloudModel consults it, so the list a user picks
+// from and the rule that routes their choice cannot drift apart.
+//
+// A bare catalog name is a cloud model. The ":cloud" suffix is also accepted
+// (see IsOllamaCloudModel) because a signed-in local daemon proxies the same
+// model under that tag.
+var OllamaCloudModels = []string{
+	"kimi-k2.6",
+	"kimi-k2.7-code",
+	"kimi-k3",
+	"glm-5.1",
+	"glm-5.2",
+	"glm-5.3",
+	"glm-5.3-flash",
+	"minimax-m2.7",
+	"minimax-m3",
+	"deepseek-v4.1-flash",
+	"deepseek-v4-flash:0731",
+	"deepseek-v4-pro:0813",
+	"gpt-oss:20b",
+	"gpt-oss:120b",
+	"qwen3.5:397b",
+	"mistral-large-3:675b",
+	"nemotron-3-nano:30b",
+	"nemotron-3-super",
+	"nemotron-3-ultra",
+	"gemma4:31b",
+}
+
+// ollamaCloudModelSet is OllamaCloudModels as a lookup table.
+var ollamaCloudModelSet = func() map[string]bool {
+	set := make(map[string]bool, len(OllamaCloudModels))
+	for _, name := range OllamaCloudModels {
+		set[name] = true
+	}
+	return set
+}()
+
 // IsOllamaCloudModel reports whether an Ollama model name is a cloud model.
-// Only the tag counts, so a name that merely contains "cloud" stays local.
+//
+// A name is cloud when it is one of the catalog's cloud models, or when it
+// carries a ":cloud"/"-cloud" tag. Both forms have to count: the catalog lists
+// bare names because that is what the cloud API accepts, while users and docs
+// also write the tagged form, and a cloud model selected from the catalog used
+// to be treated as local — it either called the pod's own localhost:11434 or
+// failed compilation on a credential that had nowhere to bind.
+//
+// The tag rule is a suffix test on purpose, so a name that merely contains
+// "cloud" stays local (cloudy-llm:7b is not a cloud model).
 func IsOllamaCloudModel(modelName string) bool {
+	if ollamaCloudModelSet[modelName] {
+		return true
+	}
 	return strings.HasSuffix(modelName, ":cloud") || strings.HasSuffix(modelName, "-cloud")
+}
+
+// OllamaReachesCloud reports whether a request for this model is sent to
+// api.ollama.com rather than to a daemon.
+//
+// This is the one definition of the routing rule, and every component that has
+// to agree with it calls it: the runtime when it picks an endpoint, the compiler
+// when it decides whether to mount OLLAMA_API_KEY, and credential compilation
+// when it decides whether a gateway binding exists. Three independent copies of
+// this predicate previously disagreed, which turned a valid configuration into
+// either a denied egress call or a hard credential error.
+//
+// An explicit host always wins: that is how an operator points at another
+// machine, a container, or an authenticated proxy. A credential is required
+// because api.ollama.com answers 401 before it looks at the model.
+func OllamaReachesCloud(modelName, host string, hasCredential bool) bool {
+	if host != "" {
+		return false
+	}
+	return hasCredential && IsOllamaCloudModel(modelName)
 }
 
 // IsOllamaCloudEndpoint reports whether an endpoint is ollama.com's hosted API.
@@ -68,23 +141,21 @@ func withDefaultScheme(host string) string {
 
 // resolveOllamaEndpoint picks the server a model should be sent to.
 //
-// An explicit host always wins: that is how an operator points at another
-// machine, a container, or an authenticated proxy. Otherwise a cloud-tagged
-// model with a key goes to api.ollama.com, and everything else goes to the
-// local daemon — including a cloud-tagged model with no key, because a signed-in
-// daemon proxies cloud models and an unauthenticated api.ollama.com answers 401
-// before it looks at the model, so the alternative is not a different result but
-// a guaranteed failure.
+// The decision itself lives in OllamaReachesCloud so the compiler and credential
+// compilation cannot disagree with the runtime about it. Everything this adds is
+// the fallback: a cloud model with no key goes to the local daemon rather than
+// api.ollama.com, because a signed-in daemon proxies cloud models and an
+// unauthenticated api.ollama.com answers 401 before it looks at the model, so
+// the alternative is not a different result but a guaranteed failure.
 //
-// The key is read in exactly one direction. Its absence keeps a cloud-tagged
-// model local; its presence never promotes an untagged model. Treating the key
-// as a global switch instead sends every local model to the cloud, where a
-// privately pulled name does not exist.
+// The key is read in exactly one direction. Its absence keeps a cloud model
+// local; its presence never promotes a local model, which would send a privately
+// pulled name to an endpoint that does not have it.
 func resolveOllamaEndpoint(config *OllamaConfig, host string) string {
 	if host != "" {
 		return host
 	}
-	if IsOllamaCloudModel(config.Model) && config.APIKey != "" {
+	if OllamaReachesCloud(config.Model, host, config.APIKey != "") {
 		return ollamaCloudURL
 	}
 	return ollamaLocalURL

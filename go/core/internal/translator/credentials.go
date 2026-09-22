@@ -154,19 +154,23 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 			endpoint = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", spec.Bedrock.Region)
 		}
 	case v1alpha3.ModelProviderOllama:
-		// Ollama Cloud is the only keyed Ollama endpoint. A local daemon needs no
-		// credential, so there is no binding to declare unless a cloud model is
-		// actually reachable: a cloud-tagged model with a key, and no explicit
-		// host that would win over it. Without the key this returns empty and the
-		// env var is treated as a plain secret reference, which is correct — no
-		// request leaves for api.ollama.com.
-		if spec.Ollama == nil || spec.Ollama.Host != "" {
+		// Ollama Cloud is the only keyed Ollama endpoint, so a binding is
+		// declared exactly when the model reaches it. That condition lives in
+		// models.OllamaReachesCloud, which the compiler's key mount and the
+		// egress list also call: a cloud model picked from the catalog, an
+		// explicit host, and a missing key were each judged differently in each
+		// place, so a valid configuration could compile with an env var that had
+		// no binding to match, or with an egress list that omitted the host it
+		// was about to call.
+		//
+		// Without a binding this leaves the name empty, and the env var is
+		// treated as a plain secret reference, which is correct — no request
+		// leaves for api.ollama.com.
+		if spec.Ollama == nil {
 			break
 		}
-		if !models.IsOllamaCloudModel(spec.Model) {
-			break
-		}
-		if spec.APIKeySecret == "" && !spec.APIKeyPassthrough && spec.Ollama.APIKey == "" {
+		hasCredential := spec.APIKeySecret != "" || spec.APIKeyPassthrough || spec.Ollama.APIKey != ""
+		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
 			break
 		}
 		name, endpoint, header, prefix = env.OllamaAPIKey.Name(), "https://api.ollama.com", "authorization", "Bearer "
