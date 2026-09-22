@@ -50,6 +50,26 @@ tests:
       - notExists:
           path: spec.env
 
+  - it: should render the compaction of the Harness under the kagent adapter
+    set:
+      harness.create: true
+      harness.compaction:
+        tokenThreshold: 24000
+        eventRetentionSize: 4
+        summarizer:
+          modelConfigRef:
+            name: cheap
+    asserts:
+      - equal:
+          path: spec.kagent.compaction.tokenThreshold
+          value: 24000
+      - equal:
+          path: spec.kagent.compaction.eventRetentionSize
+          value: 4
+      - equal:
+          path: spec.kagent.compaction.summarizer.modelConfigRef.name
+          value: cheap
+
   - it: should follow the agent image registry over the global one
     set:
       harness.create: true

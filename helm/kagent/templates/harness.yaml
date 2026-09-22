@@ -30,8 +30,16 @@ metadata:
     # The runtime of every agent admitted under it: kept across an uninstall of the chart.
     helm.sh/resource-policy: keep
 spec:
-  {{- /* Exactly one of kagent|codex|claude|byo; the Go ADK runtime adapter. */}}
+  {{- /* Exactly one of kagent|codex|claude|byo; the Go ADK runtime adapter.
+  Compaction is the Harness's (Harness.spec.kagent.compaction): every admitted
+  AgentTemplate runs with it. */}}
+  {{- with .Values.harness.compaction }}
+  kagent:
+    compaction:
+      {{- toYaml . | nindent 6 }}
+  {{- else }}
   kagent: {}
+  {{- end }}
   workload:
     image: {{ $image | quote }}
   {{- with .Values.harness.env }}

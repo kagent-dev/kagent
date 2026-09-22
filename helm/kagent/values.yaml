@@ -489,6 +489,12 @@ harness:
   snapshotLocation: ""
   # -- Environment of the runtime (Harness.spec.env: name with value or credentialRef).
   env: []
+  # -- Context compaction of every agent the Harness admits
+  # (Harness.spec.kagent.compaction): tail retention (`tokenThreshold` with
+  # `eventRetentionSize`), the sliding window (`compactionInterval` with
+  # `overlapSize`), and a `summarizer` (`modelConfigRef.name`, `promptTemplate`).
+  # At least one strategy when set; empty leaves the history uncompacted.
+  compaction: {}
   # -- The AgentTemplates the Harness admits (Harness.spec.allowedAgentTemplates).
   # A matchLabels entry whose value is the empty string is dropped from the
   # rendered selector: values layered over these merge maps and cannot remove
