@@ -25,9 +25,11 @@ import { withScenario } from "./app";
  * the default says nothing about its health there — only about its length.
  *
  * **By shape, not by folder.** Any one test of ten or more steps needs it, wherever it
- * lives — `conventions.test.ts` checks that. Applying it to the resource folders alone
- * left `chat/questions.spec.ts` with twelve steps on the default, which is what timed
- * out in CI at step eight while passing twenty times in isolation.
+ * lives — `conventions.test.ts` checks that, test by test. Applying it to the resource
+ * folders alone left `chat/questions.spec.ts` with twelve steps on the default, which
+ * is what timed out in CI at step eight while passing twenty times in isolation. A
+ * journey that shares its file with single tests sets it in its own body with
+ * `test.setTimeout(LIFECYCLE_TIMEOUT)`, so the single tests keep the default.
  *
  * Sixty rather than ninety, and the difference is the point: loose enough for a
  * contended run, tight enough that a journey which doubles in cost is still a

@@ -14,6 +14,7 @@ import {
   sendMessage,
   type SentTurn,
 } from "../../helpers/chat";
+import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
 
 /**
  * Chat — the conversation journey.
@@ -73,6 +74,17 @@ const replyTo = (question: string) =>
   ].join("\n");
 
 test("chat: history, sending, streaming, and tool rendering", async ({ page }) => {
+  /*
+   * A journey, so it gets the lifecycle budget rather than the default — see
+   * `LIFECYCLE_TIMEOUT`. Fifteen steps around two page loads, three streamed turns and
+   * a switch to another conversation: about fifteen seconds idle, thirty-one to
+   * thirty-four on a loaded Firefox run, where every step waits on the page and the
+   * default measured their sum. Set here rather than for the file, because the tests
+   * after this one are single claims, and for those the thirty seconds still mean
+   * something.
+   */
+  test.setTimeout(LIFECYCLE_TIMEOUT);
+
   const messages = page.getByTestId("chat-message");
   // Scoped by role: the agent quotes the question back in its reply, so a plain
   // text filter matches the answer as well as the question that prompted it.

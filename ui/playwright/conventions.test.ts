@@ -118,21 +118,37 @@ describe("playwright layout", () => {
      * came to hold twelve steps on the thirty-second default and time out in CI at
      * step eight. A resource folder is not what makes a test long; the number of
      * steps sharing one budget is.
+     *
+     * Counted per test, not per file. Counting per file let a journey through as long
+     * as the file held a second test: the transcript journey in `chat/transcript.spec.ts`
+     * sat at fifteen steps on the default beside five single claims, and timed out on
+     * every attempt of a loaded Firefox run. A test is the text from its `test(` to the
+     * next one; it carries the budget if it sets it itself, or if it is its file's only
+     * test and the file configures it. A budget above it (`LIFECYCLE_TIMEOUT + 30_000`)
+     * counts too.
      */
     const offenders: string[] = [];
     for (const dir of [TESTS, ...folders().map((name) => join(TESTS, name))]) {
       for (const spec of specsIn(dir)) {
         const source = readFileSync(join(dir, spec), "utf8");
-        const tests = [...source.matchAll(/^test(\.skip)?\(/gm)].length;
-        const steps = [...source.matchAll(/test\.step\(/g)].length;
-        if (tests === 1 && steps >= 10 && !source.includes("LIFECYCLE_TIMEOUT")) {
-          offenders.push(`${spec} (${steps} steps)`);
-        }
+        const starts = [...source.matchAll(/^test(\.skip)?\(/gm)].map((match) => match.index);
+        const configured = /test\.describe\.configure\(\{ timeout: LIFECYCLE_TIMEOUT\b/.test(source);
+        starts.forEach((start, index) => {
+          const body = source.slice(start, starts[index + 1]);
+          const steps = [...body.matchAll(/test\.step\(/g)].length;
+          const budgeted =
+            /test\.setTimeout\(LIFECYCLE_TIMEOUT\b/.test(body) ||
+            (starts.length === 1 && configured);
+          if (steps >= 10 && !budgeted) {
+            const line = source.slice(0, start).split("\n").length;
+            offenders.push(`${spec}:${line} (${steps} steps)`);
+          }
+        });
       }
     }
     expect(
       offenders,
-      "a single test of ten or more steps needs `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })`",
+      "a test of ten or more steps needs the lifecycle budget: `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })` when it is its file's only test, `test.setTimeout(LIFECYCLE_TIMEOUT)` in its body otherwise",
     ).toEqual([]);
   });
 
