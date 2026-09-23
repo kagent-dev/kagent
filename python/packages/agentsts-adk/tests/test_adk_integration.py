@@ -9,7 +9,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
-from agentsts.adk._base import HEADERS_KEY
+from agentsts.adk._base import HEADERS_KEY, _TokenCacheEntry
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
 from agentsts.adk._base import _has_token_expired as has_token_expired
@@ -45,7 +45,9 @@ class TestADKTokenPropagationPlugin:
     @pytest.mark.asyncio
     async def test_before_run_callback_no_headers(self):
         """Case: nothing added (no headers) -> no cache entry, returns None."""
-        plugin = ADKTokenPropagationPlugin()
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        plugin = ADKTokenPropagationPlugin(sts)
         ic = self._make_invocation_context("sess-1", headers=None)
         with patch("agentsts.adk._base.logger") as mock_logger:
             result = await plugin.before_run_callback(invocation_context=ic)
@@ -185,13 +187,17 @@ class TestADKTokenPropagationPlugin:
 
     @pytest.mark.asyncio
     async def test_downstream_token_propagation_without_sts(self):
-        """Case: headers present, no STS integration -> subject token cached and available via header_provider."""
+        """Case: headers present, no STS integration -> nothing cached, no header injected.
+
+        The MCP toolset forwards the live caller Authorization itself. Caching
+        the caller's own token here would only let a later turn on the session go
+        out as an earlier caller.
+        """
         plugin = ADKTokenPropagationPlugin(sts_integration=None)
         ic = self._make_invocation_context("sess-2", headers={"Authorization": "Bearer subj-token-123"})
         result = await plugin.before_run_callback(invocation_context=ic)
         assert result is None
-        assert "sess-2" in plugin.token_cache
-        assert plugin.token_cache["sess-2"].token == "subj-token-123"
+        assert plugin.token_cache == {}
 
         # propagate toolset
         mcp_toolset = Mock(spec=MCPToolset)
@@ -201,15 +207,22 @@ class TestADKTokenPropagationPlugin:
         # The toolset._header_provider should be callable
         assert callable(mcp_toolset._header_provider)
 
-        # header provider should return subject token
         ro_ctx = self._make_readonly_context(ic)
-        headers = plugin.header_provider(ro_ctx)
-        assert headers == {"Authorization": "Bearer subj-token-123"}
+        assert plugin.header_provider(ro_ctx) == {}
 
-        # cleanup - token should still be cached if not expired
-        await plugin.after_run_callback(invocation_context=ic)
-        # Token has no expiry, so it's preserved
-        assert "sess-2" in plugin.token_cache
+    @pytest.mark.asyncio
+    async def test_propagate_only_never_overrides_a_later_callers_token(self):
+        """Two turns on one session with different callers: neither gets a header,
+        so the toolset keeps forwarding each turn's own Authorization."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        first = self._make_invocation_context("sess-shared", headers={"Authorization": "Bearer CALLER-ONE"})
+        await plugin.before_run_callback(invocation_context=first)
+        assert plugin.header_provider(self._make_readonly_context(first)) == {}
+
+        second = self._make_invocation_context("sess-shared", headers={"Authorization": "Bearer CALLER-TWO"})
+        await plugin.before_run_callback(invocation_context=second)
+        assert plugin.header_provider(self._make_readonly_context(second)) == {}
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_success(self):
@@ -273,6 +286,35 @@ class TestADKTokenPropagationPlugin:
         # token_cache intentionally missing key should result in {}
         assert plugin.header_provider(ro_ctx) == {}
 
+    def _exchanging_plugin(self):
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        return ADKTokenPropagationPlugin(sts)
+
+    def test_header_provider_requires_a_caller_token_on_this_request(self):
+        """A later turn presenting no Authorization gets no header: the cache
+        outlives the run, so it would otherwise go out as an earlier caller."""
+        plugin = self._exchanging_plugin()
+        plugin.token_cache["sess-8"] = _TokenCacheEntry(token="EXCHANGED", expiry=None)
+
+        ic = self._make_invocation_context("sess-8", headers=None)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+        with_caller = self._make_invocation_context("sess-8", headers={"Authorization": "Bearer caller"})
+        assert plugin.header_provider(self._make_readonly_context(with_caller)) == {"Authorization": "Bearer EXCHANGED"}
+
+    def test_header_provider_does_not_inject_an_expired_token(self):
+        """The MCP path checks expiry, like the LLM lookup it now shares."""
+        import time
+
+        plugin = self._exchanging_plugin()
+        plugin.token_cache["sess-9"] = _TokenCacheEntry(token="EXPIRED", expiry=int(time.time()) - 100)
+
+        ic = self._make_invocation_context("sess-9", headers={"Authorization": "Bearer caller"})
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
     @pytest.mark.asyncio
     async def test_after_run_callback_removes_expired_token(self):
         """Case: after_run_callback removes expired cached token."""
@@ -280,7 +322,12 @@ class TestADKTokenPropagationPlugin:
 
         past_expiry = int(time.time()) - 100
 
-        plugin = ADKTokenPropagationPlugin()
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-AAA")
+        plugin = ADKTokenPropagationPlugin(sts)
         ic = self._make_invocation_context("sess-6", headers={"Authorization": "Bearer AAA"})
 
         # Mock expiry to return expired timestamp

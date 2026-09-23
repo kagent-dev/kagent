@@ -33,6 +33,7 @@ from kagent.core.a2a import (
 )
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
+from ._bearer_token import ExchangedTokenProvider
 from ._lifespan import LifespanManager
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
@@ -66,6 +67,7 @@ class KAgentApp:
         stream: bool = False,
         agent_config: Optional[AgentConfig] = None,
         a2a_grpc_address: Optional[str] = None,
+        exchanged_token_provider: Optional[ExchangedTokenProvider] = None,
     ):
         """Initialize the KAgent application.
 
@@ -79,6 +81,7 @@ class KAgentApp:
             stream: Whether to stream the response
             agent_config: Optional agent configuration
             a2a_grpc_address: Address for the A2A gRPC listener
+            exchanged_token_provider: Source of STS-exchanged tokens, None without STS
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
@@ -89,6 +92,7 @@ class KAgentApp:
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
         self.agent_config = agent_config
+        self.exchanged_token_provider = exchanged_token_provider
 
     def build(self, local=False) -> FastAPI:
         attach_hitl_agent_extension(self.agent_card)
@@ -117,6 +121,7 @@ class KAgentApp:
                     controller_client=controller_client,
                     embedding_config=self.agent_config.memory.embedding,
                     ttl_days=self.agent_config.memory.ttl_days,
+                    exchanged_token_provider=self.exchanged_token_provider,
                 )
 
         def create_runner() -> Runner:

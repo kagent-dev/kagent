@@ -15,7 +15,6 @@ from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
-from ._bearer_token import set_exchanged_token_provider
 from ._config_materialize import materialize_from_env
 from .tools import add_skills_tool_to_agent
 
@@ -51,12 +50,7 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         sts_integration = None
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
-        plugin = ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
-        if sts_integration:
-            # Propagate-only mode caches the caller's own token, which the LLM
-            # path already reads from the request.
-            set_exchanged_token_provider(plugin)
-        return plugin
+        return ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
 
 
 def maybe_add_skills(root_agent: BaseAgent):
@@ -107,7 +101,7 @@ def static(
 
         if plugins is None:
             plugins = []
-        plugins.append(LLMPassthroughPlugin())
+        plugins.append(LLMPassthroughPlugin(sts_integration))
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
@@ -124,6 +118,7 @@ def static(
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
         agent_config=agent_config,
+        exchanged_token_provider=sts_integration,
     )
 
     server = kagent_app.build()
@@ -222,6 +217,7 @@ def run(
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
         agent_config=agent_config,
+        exchanged_token_provider=sts_integration,
     )
 
     if local:
@@ -259,7 +255,13 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         return root_agent
 
     app = KAgentApp(
-        root_agent_factory, agent_card, app_cfg.api_url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
+        root_agent_factory,
+        agent_card,
+        app_cfg.api_url,
+        app_cfg.app_name,
+        plugins=plugins,
+        agent_config=agent_config,
+        exchanged_token_provider=sts_integration,
     )
     await app.test(task)
 

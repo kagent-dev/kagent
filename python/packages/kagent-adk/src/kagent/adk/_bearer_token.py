@@ -27,18 +27,13 @@ session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("kage
 
 @runtime_checkable
 class ExchangedTokenProvider(Protocol):
-    """Returns the STS-exchanged token cached for a session, or None."""
+    """Resolves the STS-exchanged token for one request, or None.
 
-    def get_token_for_session(self, session_id: str) -> Optional[str]: ...
+    The implementation owns mode handling, caller identity and expiry, so the
+    LLM and MCP paths read the same lookup instead of the cache directly.
+    """
 
-
-_exchanged_token_provider: Optional[ExchangedTokenProvider] = None
-
-
-def set_exchanged_token_provider(provider: Optional[ExchangedTokenProvider]) -> None:
-    """Register the STS plugin as the source of exchanged tokens. Called once at startup."""
-    global _exchanged_token_provider
-    _exchanged_token_provider = provider
+    def exchanged_token(self, *, session_id: str, bearer_token: str) -> Optional[str]: ...
 
 
 def extract_bearer_token(headers: dict) -> Optional[str]:
@@ -51,30 +46,33 @@ def extract_bearer_token(headers: dict) -> Optional[str]:
 
 
 def resolve_passthrough_token(
-    inbound_token: Optional[str] = None, current_session_id: Optional[str] = None
+    provider: Optional[ExchangedTokenProvider],
+    *,
+    inbound_token: Optional[str],
+    session_id: Optional[str],
 ) -> Optional[str]:
     """Token to authenticate an outbound LLM call with.
 
     The STS-exchanged token for the session wins over the caller's own bearer
     token: it names the user delegated to this agent, which is the identity the
-    backend should see. Without STS configured no provider is registered and the
+    backend should see. Without STS configured no provider is passed and the
     caller's token is returned, as before.
 
     A request presenting no caller token gets None: the exchanged token replaces
     the caller's, it never stands in for its absence.
+
+    Both request inputs are required, so an explicitly absent credential is
+    distinguishable from an omitted argument. Callers outside the
+    before_model_callback pipeline read the ContextVars and pass them in.
     """
-    inbound = inbound_token if inbound_token is not None else bearer_token.get()
-    if not inbound:
+    if not inbound_token:
         return None
-    exchanged = _exchanged_token(current_session_id if current_session_id is not None else session_id.get())
-    return exchanged or inbound
-
-
-def _exchanged_token(current_session_id: Optional[str]) -> Optional[str]:
-    if _exchanged_token_provider is None or not current_session_id:
-        return None
-    try:
-        return _exchanged_token_provider.get_token_for_session(current_session_id)
-    except Exception:
-        logger.warning("Failed to read the exchanged token, falling back to the caller's token", exc_info=True)
-        return None
+    if provider is not None and session_id:
+        try:
+            exchanged = provider.exchanged_token(session_id=session_id, bearer_token=inbound_token)
+        except Exception:
+            logger.warning("Failed to read the exchanged token, falling back to the caller's token", exc_info=True)
+            exchanged = None
+        if exchanged:
+            return exchanged
+    return inbound_token
