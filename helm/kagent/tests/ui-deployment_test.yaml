@@ -357,6 +357,15 @@ tests:
             name: KAGENT_UI_BASE_PATH
             value: "/ui"
 
+  - it: should omit KAGENT_UI_BASE_PATH by default
+    template: ui-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_UI_BASE_PATH
+          any: true
+
   - it: should reflect overridden auth and stream settings
     template: ui-deployment.yaml
     set:

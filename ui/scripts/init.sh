@@ -78,6 +78,7 @@ EOF
 
 # Assets load relative to <base href>, so deep links resolve under the sub-path too.
 sed "s|<base href=\"/\"|<base href=\"${BASE_PATH}/\"|" /usr/share/nginx/html/index.html > /tmp/kagent/index.html
+grep -q "<base href=\"${BASE_PATH}/\"" /tmp/kagent/index.html || echo "init.sh: could not set <base href> to ${BASE_PATH}/" >&2
 
 # nginx is the only process in this container, so it runs as PID 1 directly
 # instead of under a process manager.
