@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	TimelinePositionMetadataKey = "kagent.dev/a2a/timeline-position"
-	TaskCreatedAtMetadataKey    = "kagent.dev/a2a/task-created-at"
-	PartTypeMetadataKey         = "kagent.dev/a2a/part-type"
-	UsageMetadataKey            = "kagent.dev/a2a/usage"
+	MetadataPrefix              = "kagent.dev/a2a/"
+	TimelinePositionMetadataKey = MetadataPrefix + "timeline-position"
+	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
+	PartTypeMetadataKey         = MetadataPrefix + "part-type"
+	UsageMetadataKey            = MetadataPrefix + "usage"
 )
 
 // SetTimelinePosition records the temporary task-timeline ordering key.
