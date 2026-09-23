@@ -3,6 +3,7 @@ package telemetry
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -69,9 +70,20 @@ func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, families, 1)
 			require.Equal(t, metricGenAIClientTokenUsage, families[0].GetName())
-			wantTokens := map[string]int64{tokenTypeCached: testCase.input.CachedTokens}
-			if testCase.input.InputTokens > 0 {
-				wantTokens[tokenTypeInput] = testCase.input.InputTokens
+			// The emitted series are additive: input excludes the cached portion
+			// when the prompt count includes it, so input + cached equals the
+			// prompt tokens the model reported.
+			wantInput := testCase.input.InputTokens
+			wantCached := testCase.input.CachedTokens
+			if wantCached > 0 && wantCached <= wantInput {
+				wantInput -= wantCached
+			}
+			wantTokens := map[string]int64{}
+			if wantInput > 0 {
+				wantTokens[tokenTypeInput] = wantInput
+			}
+			if wantCached > 0 {
+				wantTokens[tokenTypeCached] = wantCached
 			}
 			if testCase.input.OutputTokens > 0 {
 				wantTokens[tokenTypeOutput] = testCase.input.OutputTokens
@@ -97,6 +109,30 @@ func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
 			}
 			require.Empty(t, wantTokens)
 		})
+	}
+}
+
+// TestRecordTokenUsage_CachedSeriesAdditive ensures summing the token-type
+// series yields the prompt total instead of double counting cache hits.
+func TestRecordTokenUsage_CachedSeriesAdditive(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	tokenUsage.Reset()
+	t.Cleanup(tokenUsage.Reset)
+
+	// Prompt count includes cached tokens: the input series must exclude them
+	// so input + cached equals the 100 prompt tokens the model reported.
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, CachedTokens: 30})
+	body := serveMetrics(t)
+	want := map[string]string{tokenTypeInput: "70", tokenTypeCached: "30"}
+	for tokenType, sum := range want {
+		pattern := `gen_ai_client_token_usage_sum[{][^}]*gen_ai_token_type="` + tokenType + `"[}] ([0-9]+)`
+		m := regexp.MustCompile(pattern).FindStringSubmatch(body)
+		if m == nil {
+			t.Fatalf("no %s series in metrics output:\n%s", tokenType, body)
+		}
+		if m[1] != sum {
+			t.Fatalf("%s series sum = %s, want %s\n%s", tokenType, m[1], sum, body)
+		}
 	}
 }
 

@@ -119,7 +119,8 @@ type TokenUsage struct {
 	ErrorType string
 	// InputTokens / OutputTokens are the token counts (output = candidate +
 	// reasoning tokens). CachedTokens are prompt tokens served from the prompt
-	// cache. Non-positive counts are skipped.
+	// cache. Providers report prompt counts inconsistently, so RecordTokenUsage
+	// normalizes the emitted series to stay additive. Non-positive counts are skipped.
 	InputTokens  int64
 	OutputTokens int64
 	CachedTokens int64
@@ -129,6 +130,10 @@ type TokenUsage struct {
 // gen_ai.client.token.usage histogram. If the metric pipeline is disabled
 // (OTEL_METRICS_ENABLED unset or not "true"), it is a no-op. Zero/negative
 // counts are skipped.
+//
+// The token-type series are additive: the input observation excludes the
+// cached portion, so input + cached always equals the prompt token count the
+// model reported and summing the series never double counts cache hits.
 func RecordTokenUsage(usage TokenUsage) {
 	if !MetricsEnabled() {
 		return
@@ -141,16 +146,26 @@ func RecordTokenUsage(usage TokenUsage) {
 	if responseModel == "" {
 		responseModel = usage.RequestModel
 	}
-	if usage.InputTokens > 0 {
+	inputTokens := usage.InputTokens
+	cachedTokens := usage.CachedTokens
+	if cachedTokens > 0 && cachedTokens <= inputTokens {
+		// Providers include cache hits in the prompt count (Gemini, OpenAI);
+		// emitting both unchanged would double count them in aggregates.
+		inputTokens -= cachedTokens
+	}
+	if cachedTokens < 0 {
+		cachedTokens = 0
+	}
+	if inputTokens > 0 {
 		tokenUsage.WithLabelValues(tokenTypeInput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
-			Observe(float64(usage.InputTokens))
+			Observe(float64(inputTokens))
 	}
 	if usage.OutputTokens > 0 {
 		tokenUsage.WithLabelValues(tokenTypeOutput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
 			Observe(float64(usage.OutputTokens))
 	}
-	if usage.CachedTokens > 0 {
+	if cachedTokens > 0 {
 		tokenUsage.WithLabelValues(tokenTypeCached, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
-			Observe(float64(usage.CachedTokens))
+			Observe(float64(cachedTokens))
 	}
 }
