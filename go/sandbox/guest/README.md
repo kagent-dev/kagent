@@ -1,0 +1,81 @@
+# Standalone sandbox guest
+
+This image packages `agent-substrate/env/cmd/ate-env-guest` at the version pinned
+in `go/go.mod`. It builds the upstream daemon directly with kagent's dependency
+graph, including the existing Substrate replacement. No AX code is used.
+
+The image is the first runtime component of the
+[sandbox design](https://gist.github.com/EItanya/8867e70fbde9618e5d7c5432491d2e92). Sandbox
+creation, authorization, expiration, shared runtime persistence, and MCP tools
+still need control-plane implementation. AgentInstances do not run this guest.
+
+## Runtime contract
+
+- The static binary is `/usr/local/bin/ate-env-guest`.
+- The daemon runs as UID/GID `65532:65532` and starts no agent runtime.
+- Port `80` serves both HTTP `GET /readyz` and plaintext HTTP/2 gRPC.
+- The upstream `ProcessService` and `FileSystemService` protocols are unchanged.
+- The default process working directory and file API root are `/data/workspace`.
+- Process output is spooled under `/data/guest-logs`.
+- Both directories must be writable by the runtime user when mounting `/data`.
+
+The guest is a private runtime endpoint, with no caller authentication or resource
+ownership enforcement. The future kagent sandbox service must authorize and admit
+calls before routing them to it. The workspace path is a convenience boundary;
+processes can access files allowed by their OS permissions, and filesystem path
+checks do not provide isolation from symlinks. The Actor supplies isolation.
+
+The image includes Bash, Git, and CA certificates. Other workload images can copy
+the static binary and supply their own tools and writable directories:
+
+```dockerfile
+ARG GUEST_IMAGE
+FROM ${GUEST_IMAGE} AS guest
+FROM your-workload-image
+COPY --from=guest /usr/local/bin/ate-env-guest /usr/local/bin/ate-env-guest
+# Prepare /data/workspace and /data/guest-logs for this image's runtime user.
+ENTRYPOINT ["/usr/local/bin/ate-env-guest"]
+CMD ["--listen=:80", "--workspace=/data/workspace", "--log-dir=/data/guest-logs"]
+```
+
+Use an immutable guest image digest for reproducible packaging. Automatic image
+volume injection and SandboxTemplate preparation are later integration work.
+
+## Build and verify
+
+From the repository root, build into the local Docker daemon without publishing:
+
+```sh
+make build-sandbox-guest \
+  SANDBOX_GUEST_IMG=kagent-sandbox-guest:dev \
+  DOCKER_BUILD_ARGS='--load --platform linux/amd64'
+```
+
+Use `linux/arm64` on an ARM host. Run the image tests from `go/`:
+
+```sh
+KAGENT_SANDBOX_GUEST_IMAGE=kagent-sandbox-guest:dev \
+  go test -race ./sandbox/guest -run TestE2ESandboxGuest -count=1 -v
+```
+
+The tests require Docker and an explicitly selected image. They exercise the real
+daemon over HTTP/gRPC: chunked binary file transfer, command working directory
+and environment, successful and failed exits, reconnecting to output by offset,
+observer cancellation, explicit process termination, and restart behavior. The
+image build CI runs them against the image it just built. Container tests do not
+establish Substrate router or snapshot compatibility; that requires a live Actor
+integration test when sandbox preparation is implemented.
+
+## Upstream semantics
+
+Process identities and status are in memory. Restarting the guest loses the
+registry even if workspace files survive. Filesystem persistence does not resume
+processes or provide durable process results. `StartProcess` has no idempotency
+key; never blindly retry after an ambiguous response.
+
+The pinned daemon defaults to ten concurrent processes, a one-hour process
+timeout, and 10 MiB of output per stream. Output truncation, completed-process
+retention, partial file writes, and termination follow upstream behavior. In
+particular, writes replace the destination directly; an interrupted transfer can
+leave a partial file. Shutdown is not a checkpoint or a durable-completion
+protocol. These limits must remain explicit when adding the public sandbox API.

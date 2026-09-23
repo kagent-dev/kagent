@@ -8,10 +8,12 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/a2aproject/a2a-go/v2 v2.5.0
+	github.com/agent-substrate/env v0.0.11-0.20260911201957-ab40c7bfb204
 	github.com/agent-substrate/substrate v0.0.0
 	github.com/anthropics/anthropic-sdk-go v1.66.0
 	github.com/aws/aws-sdk-go-v2 v1.43.6
 	github.com/aws/aws-sdk-go-v2/config v1.32.37
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.36
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.2
 	github.com/briandowns/spinner v1.23.2
@@ -128,7 +130,6 @@ require (
 	github.com/ashanbrown/makezero/v2 v2.2.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.18 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.36 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.37 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.37 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.37 // indirect
@@ -487,6 +488,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
-tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
+tool (
+	github.com/agent-substrate/env/cmd/ate-env-guest
+	sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
+)
 
 replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.2.0-beta5

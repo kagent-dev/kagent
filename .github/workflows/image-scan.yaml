@@ -48,6 +48,9 @@ jobs:
           - build_target: codex-harness
             image_name: codex-harness
             tag_suffix: ""
+          - build_target: sandbox-guest
+            image_name: sandbox-guest
+            tag_suffix: ""
     runs-on: blacksmith-2vcpu-ubuntu-2404
     services:
       registry:

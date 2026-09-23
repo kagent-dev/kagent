@@ -567,6 +567,7 @@ jobs:
           - golang-adk
           - claude-harness
           - codex-harness
+          - sandbox-guest
     runs-on: blacksmith-2vcpu-ubuntu-2404
     services:
       registry:
@@ -599,6 +600,18 @@ jobs:
           export BUILDX_BUILDER_NAME
           make build-${{ matrix.image }}
         working-directory: ./
+      - name: Set up Go for guest image tests
+        if: matrix.image == 'sandbox-guest'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: Test sandbox guest image
+        if: matrix.image == 'sandbox-guest'
+        working-directory: go
+        env:
+          KAGENT_SANDBOX_GUEST_IMAGE: localhost:5001/${{ github.repository_owner }}/kagent/sandbox-guest:${{ env.VERSION }}
+        run: go test -race ./sandbox/guest -run TestE2ESandboxGuest -count=1 -v
 
   go-lint:
     runs-on: ubuntu-latest
