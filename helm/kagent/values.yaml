@@ -550,10 +550,8 @@ ui:
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
   publicBackendUrl: "/api"
-  # -- Path prefix the UI is served under when a reverse proxy strips it before
-  # forwarding, e.g. `/ui`. Root-relative URLs, including `publicBackendUrl` and
-  # `ui.auth.ssoRedirectPath`, get it too; use an absolute URL for anything outside it.
-  # With oauth2-proxy, set `OIDC_REDIRECT_URL` under the prefix, and restart it after changing this.
+  # -- Prefix a reverse proxy strips before forwarding, e.g. `/ui`; root-relative URLs such as `publicBackendUrl` get it too.
+  # With oauth2-proxy, set `OIDC_REDIRECT_URL` under it and restart oauth2-proxy after changing it.
   basePath: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)

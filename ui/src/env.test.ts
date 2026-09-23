@@ -75,7 +75,8 @@ describe("withBasePath", () => {
     expect(withBasePath("/api")).toBe("/ui/api");
     expect(withBasePath("https://api.example.test")).toBe("https://api.example.test");
     expect(withBasePath("//api.example.test")).toBe("//api.example.test");
-    expect(withBasePath("/ui/api")).toBe("/ui/api");
-    expect(withBasePath("/uix")).toBe("/ui/uix");
+    // Router paths never carry the base, even when they share its first segment.
+    window.environmentVariables = { BASE_PATH: "/agents" };
+    expect(withBasePath("/agents/ns/x")).toBe("/agents/agents/ns/x");
   });
 });

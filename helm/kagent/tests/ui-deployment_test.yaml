@@ -375,6 +375,15 @@ tests:
       - failedTemplate:
           errorMessage: ui.basePath must be a path like /ui
 
+  - it: should reject a ui.basePath with dot segments
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /ui/..
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath must be a path like /ui
+
   - it: should reflect overridden auth and stream settings
     template: ui-deployment.yaml
     set:

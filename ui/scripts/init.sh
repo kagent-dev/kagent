@@ -32,7 +32,7 @@ ENABLE_MOCK_UI="${ENABLE_MOCK_UI:-false}"
 # Public path prefix when a reverse proxy serves the UI under a sub-path, e.g. /ui.
 BASE_PATH="${KAGENT_UI_BASE_PATH:-}"
 BASE_PATH="${BASE_PATH%/}"
-if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]]; then
+if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || [[ "$BASE_PATH" =~ (^|/)\.\.?(/|$) ]]; then
   echo "init.sh: KAGENT_UI_BASE_PATH='${BASE_PATH}' is not a path like /ui; serving at the root" >&2
   BASE_PATH=""
 fi
