@@ -3,6 +3,7 @@
   - kagent.dev
   resources:
   - harnesses
+  - sandboxtemplates
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs

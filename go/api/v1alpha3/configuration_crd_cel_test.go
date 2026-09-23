@@ -214,6 +214,48 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				},
 			}),
 		},
+		{
+			name:   "valid SandboxTemplate",
+			object: sandboxTemplateForValidation(namespace, "valid-sandbox-template", nil),
+		},
+		{
+			name:       "SandboxTemplate requires an immutable image",
+			object:     sandboxTemplateForValidation(namespace, "sandbox-tagged-image", func(spec *SandboxTemplateSpec) { spec.Workload.Image = "example.com/guest:latest" }),
+			wantReject: "spec.workload.image",
+		},
+		{
+			name:       "SandboxTemplate requires a worker pool",
+			object:     sandboxTemplateForValidation(namespace, "sandbox-empty-pool", func(spec *SandboxTemplateSpec) { spec.Substrate.WorkerPoolRef.Name = "" }),
+			wantReject: "workerPoolRef name must not be empty",
+		},
+		{
+			name:       "SandboxTemplate rejects whitespace in snapshot location",
+			object:     sandboxTemplateForValidation(namespace, "sandbox-invalid-location", func(spec *SandboxTemplateSpec) { spec.Substrate.SnapshotPolicy.Location = "bad location" }),
+			wantReject: "spec.substrate.snapshotPolicy.location",
+		},
+		{
+			name:   "SandboxTemplate allows empty literal environment values",
+			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Env = []HarnessEnvVar{{Name: "EMPTY", Value: &empty}} }),
+		},
+		{
+			name:       "SandboxTemplate requires one environment source",
+			object:     sandboxTemplateForValidation(namespace, "sandbox-missing-env-source", func(spec *SandboxTemplateSpec) { spec.Env = []HarnessEnvVar{{Name: "EMPTY"}} }),
+			wantReject: "exactly one of value or credentialRef",
+		},
+		{
+			name: "SandboxTemplate rejects two environment sources",
+			object: sandboxTemplateForValidation(namespace, "sandbox-two-env-sources", func(spec *SandboxTemplateSpec) {
+				spec.Env = []HarnessEnvVar{{Name: "TOKEN", Value: &empty, CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "secret"}, Key: "token"}}}
+			}),
+			wantReject: "exactly one of value or credentialRef",
+		},
+		{
+			name: "SandboxTemplate rejects duplicate environment names",
+			object: sandboxTemplateForValidation(namespace, "sandbox-duplicate-env", func(spec *SandboxTemplateSpec) {
+				spec.Env = []HarnessEnvVar{{Name: "LANG", Value: &empty}, {Name: "LANG", Value: &empty}}
+			}),
+			wantReject: "Duplicate value",
+		},
 	}
 
 	for _, tc := range cases {
@@ -226,6 +268,17 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantReject)
 		})
 	}
+}
+
+func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTemplateSpec)) *SandboxTemplate {
+	spec := SandboxTemplateSpec{
+		Workload:  SandboxTemplateWorkload{Image: "registry.example.com/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Substrate: HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: HarnessSnapshotPolicy{Location: "s3://snapshots"}},
+	}
+	if mutate != nil {
+		mutate(&spec)
+	}
+	return &SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Spec: spec}
 }
 
 func validHarness(namespace, name string, overrides HarnessSpec) *Harness {

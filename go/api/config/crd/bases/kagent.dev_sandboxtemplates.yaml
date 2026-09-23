@@ -1,0 +1,164 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: sandboxtemplates.kagent.dev
+spec:
+  group: kagent.dev
+  names:
+    categories:
+    - kagent
+    kind: SandboxTemplate
+    listKind: SandboxTemplateList
+    plural: sandboxtemplates
+    singular: sandboxtemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.workload.image
+      name: Image
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha3
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SandboxTemplate defines shared environment configuration. Creating one does not
+          allocate compute or launch an agent or guest.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SandboxTemplateSpec defines reusable runtime environment
+              configuration.
+            properties:
+              env:
+                description: |-
+                  Env supplies environment defaults using the existing Harness value contract.
+                  Credential references do not grant permission to read the referenced Secret.
+                items:
+                  description: HarnessEnvVar configures one runtime environment variable.
+                  properties:
+                    credentialRef:
+                      description: CredentialRef references a key in a same-namespace
+                        Secret.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    name:
+                      minLength: 1
+                      type: string
+                    value:
+                      description: Value is a literal value, including an empty string.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of value or credentialRef must be specified
+                    rule: has(self.value) != has(self.credentialRef)
+                  - message: credentialRef name must not be empty
+                    rule: '!has(self.credentialRef) || self.credentialRef.name.size()
+                      > 0'
+                maxItems: 100
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              substrate:
+                description: |-
+                  Substrate configures compute placement and snapshot storage. References are
+                  resolved in this template's namespace.
+                properties:
+                  snapshotPolicy:
+                    description: SnapshotPolicy configures runtime snapshot storage.
+                    properties:
+                      location:
+                        description: Location is the snapshot storage location used
+                          by Substrate.
+                        pattern: ^[^[:space:]]+$
+                        type: string
+                    required:
+                    - location
+                    type: object
+                  workerPoolRef:
+                    description: WorkerPoolRef references a WorkerPool in the resource's
+                      namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - snapshotPolicy
+                - workerPoolRef
+                type: object
+                x-kubernetes-validations:
+                - message: workerPoolRef name must not be empty
+                  rule: self.workerPoolRef.name.size() > 0
+              workload:
+                description: Workload selects the immutable runtime image.
+                properties:
+                  image:
+                    description: Image is an OCI image reference pinned by sha256
+                      digest.
+                    pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
+                    type: string
+                required:
+                - image
+                type: object
+            required:
+            - substrate
+            - workload
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

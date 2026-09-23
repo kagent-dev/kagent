@@ -41,25 +41,26 @@ const (
 )
 
 type Config struct {
-	BindAddress           string
-	MaxMessageBytes       int
-	Reflection            bool
-	TLSCertFile           string
-	TLSKeyFile            string
-	Authenticator         auth.AuthProvider
-	ShareStore            ShareStore
-	Registerer            prometheus.Registerer
-	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
-	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
-	ModelService          *modelservice.Service
-	ToolService           *toolservice.Service
-	PromptTemplateService *prompttemplateservice.Service
-	SystemService         *systemservice.Service
-	MemoryService         *memoryservice.Service
-	AgentInstanceService  *agentinstance.Service
-	CheckpointService     *checkpoint.Service
-	ScheduledRunService   *scheduledrun.Service
-	A2AHandler            a2asrv.RequestHandler
+	BindAddress            string
+	MaxMessageBytes        int
+	Reflection             bool
+	TLSCertFile            string
+	TLSKeyFile             string
+	Authenticator          auth.AuthProvider
+	ShareStore             ShareStore
+	Registerer             prometheus.Registerer
+	AgentTemplateService   *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
+	SandboxTemplateService *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
+	ModelService           *modelservice.Service
+	ToolService            *toolservice.Service
+	PromptTemplateService  *prompttemplateservice.Service
+	SystemService          *systemservice.Service
+	MemoryService          *memoryservice.Service
+	AgentInstanceService   *agentinstance.Service
+	CheckpointService      *checkpoint.Service
+	ScheduledRunService    *scheduledrun.Service
+	A2AHandler             a2asrv.RequestHandler
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
 	RegisterServices func(grpc.ServiceRegistrar)
@@ -133,6 +134,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.HarnessService != nil {
 		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
+	}
+	if config.SandboxTemplateService != nil {
+		apiv1alpha1.RegisterSandboxTemplateServiceServer(grpcServer, &sandboxTemplateServer{service: config.SandboxTemplateService, maxMessageBytes: config.MaxMessageBytes})
 	}
 	if config.ModelService != nil {
 		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))

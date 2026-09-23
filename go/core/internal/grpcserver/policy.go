@@ -57,6 +57,10 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.HarnessService_ListHarnesses_FullMethodName:               auth.AccessRead,
 		apiv1alpha1.HarnessService_CreateHarness_FullMethodName:               auth.AccessCreate,
 		apiv1alpha1.HarnessService_DeleteHarness_FullMethodName:               auth.AccessDelete,
+
+		apiv1alpha1.SandboxTemplateService_ListSandboxTemplates_FullMethodName:  auth.AccessRead,
+		apiv1alpha1.SandboxTemplateService_CreateSandboxTemplate_FullMethodName: auth.AccessCreate,
+		apiv1alpha1.SandboxTemplateService_DeleteSandboxTemplate_FullMethodName: auth.AccessDelete,
 	}
 	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = auth.AccessCreate
 	policies[apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName] = auth.AccessRead

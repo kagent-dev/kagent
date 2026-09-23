@@ -288,7 +288,7 @@ spec:
                     - location
                     type: object
                   workerPoolRef:
-                    description: WorkerPoolRef references a WorkerPool in the Harness
+                    description: WorkerPoolRef references a WorkerPool in the resource's
                       namespace.
                     properties:
                       name:
