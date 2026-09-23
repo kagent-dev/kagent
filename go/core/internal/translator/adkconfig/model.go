@@ -477,23 +477,11 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				Value: withDefaultScheme(model.Spec.Ollama.Host),
 			})
 		}
-		// Ollama Cloud authenticates with a key; a local daemon has none. Mount
-		// the key only when the model will actually reach api.ollama.com, which
-		// is the same condition credential compilation uses to create the
-		// gateway binding for it (see models.OllamaReachesCloud).
-		//
-		// Mounting on apiKeySecret alone used to break every other case: an
-		// explicit host, or a local model, gets no binding, and
-		// CompileCredentials rejects a Secret-backed env var that has none
-		// ("cannot use gateway header injection"), so the agent failed to
-		// compile instead of simply staying on the daemon. The chart ships a
-		// default host, so following the values.yaml comment that introduces
-		// apiKeySecretRef was enough to hit it.
-		//
-		// Passthrough is excluded because it carries the caller's own token
-		// through the gateway rather than a key mounted here. The credential
-		// argument is true by construction: this mounts a key only when one
-		// exists.
+		// Bind the Secret only when the model reaches api.ollama.com; the
+		// gateway injects the key at egress, while the agent sees only a
+		// placeholder. The same predicate decides the credential binding.
+		// Local models and operator-supplied daemon hosts have no cloud
+		// binding, so they must not receive a Secret-backed environment ref.
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
 			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -514,7 +502,6 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				Headers: model.Spec.DefaultHeaders,
 			},
 			Options: model.Spec.Ollama.Options,
-			APIKey:  model.Spec.Ollama.APIKey,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)

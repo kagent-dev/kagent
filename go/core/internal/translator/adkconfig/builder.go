@@ -386,13 +386,13 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 			// A cloud model with a key and no explicit host reaches
 			// api.ollama.com, so the agent needs that host allowed or the call
 			// is denied by egress policy. The condition is shared with the key
-			// mount and with credential compilation (models.OllamaReachesCloud).
+			// reference and credential binding (models.OllamaReachesCloud).
 			//
 			// This used to add the host whenever a cloud model had any key,
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := ollama.APIKey != "" || modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "api.ollama.com")
 			}

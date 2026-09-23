@@ -156,8 +156,8 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 	case v1alpha3.ModelProviderOllama:
 		// Ollama Cloud is the only keyed Ollama endpoint, so a binding is
 		// declared exactly when the model reaches it. That condition lives in
-		// models.OllamaReachesCloud, which the compiler's key mount and the
-		// egress list also call: a cloud model picked from the catalog, an
+		// models.OllamaReachesCloud, which the compiler's Secret reference and
+		// the egress list also use: a cloud model picked from the catalog, an
 		// explicit host, and a missing key were each judged differently in each
 		// place, so a valid configuration could compile with an env var that had
 		// no binding to match, or with an egress list that omitted the host it
@@ -169,7 +169,7 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		if spec.Ollama == nil {
 			break
 		}
-		hasCredential := spec.APIKeySecret != "" || spec.APIKeyPassthrough || spec.Ollama.APIKey != ""
+		hasCredential := spec.APIKeySecret != "" || spec.APIKeyPassthrough
 		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
 			break
 		}

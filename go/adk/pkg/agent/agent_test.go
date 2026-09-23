@@ -487,27 +487,3 @@ func TestUsesRawOutputSchema(t *testing.T) {
 		})
 	}
 }
-
-// An inline key on the ModelConfig must win over the mounted environment
-// variable, because it is the more specific statement of intent — and it is the
-// only one present when an operator sets spec.ollama.apiKey instead of a Secret.
-func TestFirstNonEmpty(t *testing.T) {
-	tests := []struct {
-		name   string
-		values []string
-		want   string
-	}{
-		{name: "no values", values: nil, want: ""},
-		{name: "all empty", values: []string{"", "", ""}, want: ""},
-		{name: "first wins", values: []string{"inline", "env"}, want: "inline"},
-		{name: "skips empty to reach the fallback", values: []string{"", "env"}, want: "env"},
-		{name: "single value", values: []string{"only"}, want: "only"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := firstNonEmpty(tt.values...); got != tt.want {
-				t.Errorf("firstNonEmpty(%q) = %q, want %q", tt.values, got, tt.want)
-			}
-		})
-	}
-}

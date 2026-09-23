@@ -716,10 +716,11 @@ providers:
     # the UI (see the controller's static catalog) and reached with a ":cloud" tag
     # or bare cloud tag such as "deepseek-v4.1-flash".
     model: "llama3.2"
-    # apiKeySecretRef/apiKeySecretKey point at the Secret holding OLLAMA_API_KEY,
-    # which is what lets a ":cloud" model reach api.ollama.com directly. Without a
-    # key such a model is proxied by the local daemon on its `ollama signin`
-    # identity instead.
+    # apiKeySecretRef/apiKeySecretKey point at the Secret holding OLLAMA_API_KEY.
+    # With no explicit host, a cloud model reaches api.ollama.com via gateway
+    # credential injection; without a Secret it uses the signed-in local daemon.
+    # Remove config.host below for direct cloud routing (the default host pins
+    # requests to the local daemon even when a Secret is configured).
     # apiKeySecretRef: "kagent-ollama-cloud"
     # apiKeySecretKey: "OLLAMA_API_KEY"
     config:
