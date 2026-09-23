@@ -308,6 +308,13 @@ func (p *TokenPropagationPlugin) actorTokenForExchange(ctx context.Context) (str
 // BeforeRunCallback is called before the ADK run starts.
 // It extracts the subject token, performs STS exchange if needed, and caches the result.
 func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) (*genai.Content, error) {
+	// Propagate-only mode has nothing to exchange, and caching the caller's own
+	// token would only spend cache capacity on an entry whose value the MCP
+	// registry already forwards from the live Authorization header.
+	if p.integration == nil {
+		return nil, nil
+	}
+
 	sessionID := ""
 	if session := ctx.Session(); session != nil {
 		sessionID = session.ID()
@@ -342,62 +349,50 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 		return nil, nil
 	}
 
-	// Get subject token
-	subjectToken := bearerToken
-	if p.integration != nil {
-		subjectToken = p.integration.GetSubjectToken(bearerToken)
-	}
-
+	subjectToken := p.integration.GetSubjectToken(bearerToken)
 	if subjectToken == "" {
 		p.logger.Debug("empty subject token extracted, skipping", "session_id", sessionID)
 		return nil, nil
 	}
 
-	if p.integration != nil {
-		actorToken, err := p.actorTokenForExchange(ctx)
-		if err != nil {
-			p.logger.Error("failed to fetch actor token dynamically, skipping STS token exchange", "error", err, "session_id", sessionID)
-			return nil, nil
-		}
-
-		resp, err := p.integration.ExchangeTokenWithActorToken(
-			ctx,
-			subjectToken,
-			TokenTypeJWT,
-			actorToken,
-			p.resource,
-			p.audience,
-			"", // scope
-			"", // requestedTokenType
-		)
-		if err != nil {
-			p.logger.Error("STS token exchange failed, tools may not authenticate", "error", err, "session_id", sessionID)
-			return nil, nil
-		}
-
-		// Cache the exchanged token.
-		exchangedToken := resp.AccessToken
-		expiry := int64(0)
-		if resp.ExpiresIn > 0 {
-			expiry = time.Now().Unix() + int64(resp.ExpiresIn)
-		} else {
-			// Fall back to JWT exp claim for cache TTL.
-			expiry = extractJWTExpiry(exchangedToken)
-		}
-		// The entry is keyed by the caller's credential, so it must not outlive
-		// it, nor the subject token the exchange rests on: replaying an expired
-		// credential would otherwise keep hitting a cached delegated token
-		// instead of reaching the STS.
-		expiry = earlierExpiry(expiry, extractJWTExpiry(subjectToken))
-		expiry = earlierExpiry(expiry, extractJWTExpiry(bearerToken))
-		p.setCachedToken(sessionID, subject, exchangedToken, expiry)
-		p.logger.Info("successfully exchanged and cached STS token", "session_id", sessionID)
-	} else {
-		// No STS integration — cache the raw subject token for header injection.
-		expiry := earlierExpiry(extractJWTExpiry(subjectToken), extractJWTExpiry(bearerToken))
-		p.setCachedToken(sessionID, subject, subjectToken, expiry)
-		p.logger.Debug("cached subject token (no STS exchange)", "session_id", sessionID)
+	actorToken, err := p.actorTokenForExchange(ctx)
+	if err != nil {
+		p.logger.Error("failed to fetch actor token dynamically, skipping STS token exchange", "error", err, "session_id", sessionID)
+		return nil, nil
 	}
+
+	resp, err := p.integration.ExchangeTokenWithActorToken(
+		ctx,
+		subjectToken,
+		TokenTypeJWT,
+		actorToken,
+		p.resource,
+		p.audience,
+		"", // scope
+		"", // requestedTokenType
+	)
+	if err != nil {
+		p.logger.Error("STS token exchange failed, tools may not authenticate", "error", err, "session_id", sessionID)
+		return nil, nil
+	}
+
+	// Cache the exchanged token.
+	exchangedToken := resp.AccessToken
+	expiry := int64(0)
+	if resp.ExpiresIn > 0 {
+		expiry = time.Now().Unix() + int64(resp.ExpiresIn)
+	} else {
+		// Fall back to JWT exp claim for cache TTL.
+		expiry = extractJWTExpiry(exchangedToken)
+	}
+	// The entry is keyed by the caller's credential, so it must not outlive
+	// it, nor the subject token the exchange rests on: replaying an expired
+	// credential would otherwise keep hitting a cached delegated token
+	// instead of reaching the STS.
+	expiry = earlierExpiry(expiry, extractJWTExpiry(subjectToken))
+	expiry = earlierExpiry(expiry, extractJWTExpiry(bearerToken))
+	p.setCachedToken(sessionID, subject, exchangedToken, expiry)
+	p.logger.Info("successfully exchanged and cached STS token", "session_id", sessionID)
 
 	return nil, nil
 }
@@ -423,64 +418,6 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 		p.logger.Debug("removing expired actor token from cache")
 		p.actorTokenCache = nil
 	}
-}
-
-// HeaderProvider returns a map of headers to inject into MCP tool HTTP requests.
-// It is called by the dynamicHeaderRoundTripper on every MCP HTTP request.
-// Requests with no user in context, such as startup toolset discovery, get no
-// header rather than the pod's own identity.
-func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]string {
-	if ctx == nil {
-		return nil
-	}
-
-	sessionID := sessionIDFromContext(ctx)
-	if sessionID == "" {
-		p.logger.DebugContext(ctx, "no session ID in context, MCP request will use existing headers")
-		return nil
-	}
-
-	// Derive the acting subject from this request's own credential, so the injected
-	// token matches the caller of this request rather than whichever subject
-	// first seeded the session. BearerTokenFromContext falls back to the A2A call
-	// context, the same source the round-tripper's propagateToken path reads, so
-	// the key stays derivable here even when BearerTokenKey was not threaded into
-	// the MCP request context.
-	subject := subjectKey(models.BearerTokenFromContext(ctx))
-	if subject == "" {
-		p.logger.DebugContext(ctx, "no caller credential on the request, MCP request will use existing headers", "session_id", sessionID)
-		return nil
-	}
-
-	entry, ok := p.getCachedToken(sessionID, subject)
-	if !ok {
-		// The caller is identified but has no usable entry, so this request loses
-		// its delegated identity. Reported above debug: nothing else says so.
-		p.logger.WarnContext(ctx, "no valid cached STS token for this caller, MCP request will use existing headers", "session_id", sessionID)
-		return nil
-	}
-
-	p.logger.DebugContext(ctx, "injecting STS token into MCP request headers", "session_id", sessionID)
-	return map[string]string{
-		"Authorization": fmt.Sprintf("Bearer %s", entry.Token),
-	}
-}
-
-// sessionIDFromContext recovers the ADK session ID: the value the executor
-// stamps on the context, else ADK's SessionID() method when ctx is the
-// ToolContext itself.
-func sessionIDFromContext(ctx context.Context) string {
-	if sessionID, ok := ctx.Value(models.SessionIDKey).(string); ok && sessionID != "" {
-		return sessionID
-	}
-
-	type sessionContext interface {
-		SessionID() string
-	}
-	if sessionCtx, ok := ctx.(sessionContext); ok {
-		return sessionCtx.SessionID()
-	}
-	return ""
 }
 
 var _ models.ExchangedTokenProvider = (*TokenPropagationPlugin)(nil)
@@ -527,6 +464,39 @@ func (p *TokenPropagationPlugin) ExchangedToken(ctx context.Context) (string, bo
 	}
 
 	return entry.Token, true
+}
+
+// HeaderProvider returns a map of headers to inject into MCP tool HTTP requests.
+// It is called by the dynamicHeaderRoundTripper on every MCP HTTP request.
+func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]string {
+	token, ok := p.ExchangedToken(ctx)
+	if !ok {
+		return nil
+	}
+
+	p.logger.DebugContext(ctx, "injecting STS token into MCP request headers")
+	return map[string]string{
+		"Authorization": fmt.Sprintf("Bearer %s", token),
+	}
+}
+
+// sessionIDFromContext recovers the ADK session ID: the value the executor
+// stamps on the context, else ADK's SessionID() method when ctx is the
+// ToolContext itself. The method stops being reachable once http.Client wraps
+// the request context in a deadline, which is every MCP call.
+func sessionIDFromContext(ctx context.Context) string {
+	if sessionID, ok := ctx.Value(models.SessionIDKey).(string); ok && sessionID != "" {
+		return sessionID
+	}
+
+	type sessionContext interface {
+		SessionID() string
+	}
+	sessionCtx, ok := ctx.(sessionContext)
+	if !ok {
+		return ""
+	}
+	return sessionCtx.SessionID()
 }
 
 // ClearCache clears all cached tokens.

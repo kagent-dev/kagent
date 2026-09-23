@@ -12,6 +12,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -266,6 +267,153 @@ func TestSTSExchangedTokenReachesMCPTool(t *testing.T) {
 		if auth != "Bearer "+stsExchangedToken {
 			t.Errorf("invocation request %d Authorization = %q, want %q: it must carry the EXCHANGED token, not the caller's raw token",
 				i, auth, "Bearer "+stsExchangedToken)
+		}
+	}
+}
+
+// perTurnToolLLM asks for the MCP tool once per run, then answers with text.
+type perTurnToolLLM struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *perTurnToolLLM) Name() string { return "fake-llm" }
+
+func (f *perTurnToolLLM) GenerateContent(ctx context.Context, req *adkmodel.LLMRequest, stream bool) iter.Seq2[*adkmodel.LLMResponse, error] {
+	f.mu.Lock()
+	f.calls++
+	n := f.calls
+	f.mu.Unlock()
+
+	return func(yield func(*adkmodel.LLMResponse, error) bool) {
+		part := &genai.Part{Text: "done"}
+		if n%2 == 1 {
+			part = &genai.Part{FunctionCall: &genai.FunctionCall{
+				ID:   fmt.Sprintf("fc-%d", n),
+				Name: stsInjectionTool,
+				Args: map[string]any{},
+			}}
+		}
+		yield(&adkmodel.LLMResponse{
+			Content:      &genai.Content{Role: "model", Parts: []*genai.Part{part}},
+			TurnComplete: true,
+		}, nil)
+	}
+}
+
+// TestPropagateOnlyMCPUsesEachTurnsOwnToken pins the propagate-only fix. Two
+// turns share one session and present different caller tokens; the MCP server
+// must see each turn's own token. While the plugin still answered in
+// propagate-only mode, turn one's cached token overrode turn two.
+func TestPropagateOnlyMCPUsesEachTurnsOwnToken(t *testing.T) {
+	const (
+		propagateOnlySession = "01a01e53-cfc7-7c25-9783-d0e5203b6452"
+		callerOne            = "CALLER-TOKEN-ONE"
+		callerTwo            = "CALLER-TOKEN-TWO"
+	)
+
+	rec := &authRecorder{}
+	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "propagate-only", Version: "0"}, nil)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{Name: stsInjectionTool, Description: "probe"},
+		func(ctx context.Context, req *mcpsdk.CallToolRequest, in struct{}) (*mcpsdk.CallToolResult, struct{}, error) {
+			return &mcpsdk.CallToolResult{}, struct{}{}, nil
+		})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	mcpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r.Header.Get("Authorization"))
+		handler.ServeHTTP(w, r)
+	}))
+	defer mcpSrv.Close()
+
+	// Propagate-only mode: no STS integration, so nothing is ever exchanged.
+	plugin := sts.NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+
+	mcpTimeout := stsInjectionMCPLimit
+	toolsets := CreateToolsets(
+		context.Background(),
+		[]adk.HttpMcpServerConfig{{Params: adk.StreamableHTTPConnectionParams{
+			Url:     mcpSrv.URL,
+			Timeout: &mcpTimeout,
+		}}},
+		nil,
+		nil,
+		true, // propagateToken on: this is what propagate-only mode means
+		plugin.HeaderProvider,
+	)
+	if len(toolsets) != 1 {
+		t.Fatalf("CreateToolsets() = %d toolsets, want 1 against the probe MCP server", len(toolsets))
+	}
+	discovery := rec.snapshot()
+
+	adkPlugin, err := plugin.ADKPlugin()
+	if err != nil {
+		t.Fatalf("ADKPlugin() error = %v", err)
+	}
+	adkAgent, err := llmagent.New(llmagent.Config{
+		Name:            "propagate_only_agent",
+		Description:     "probe",
+		Instruction:     "call the tool",
+		Model:           &perTurnToolLLM{},
+		IncludeContents: llmagent.IncludeContentsDefault,
+		Toolsets:        toolsets,
+	})
+	if err != nil {
+		t.Fatalf("llmagent.New() error = %v", err)
+	}
+
+	sessionSvc := adksession.InMemoryService()
+	r, err := adkrunner.New(adkrunner.Config{
+		AppName:        stsInjectionAppName,
+		Agent:          adkAgent,
+		SessionService: sessionSvc,
+		PluginConfig:   adkrunner.PluginConfig{Plugins: []*adkplugin.Plugin{adkPlugin}},
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	if _, err := sessionSvc.Create(context.Background(), &adksession.CreateRequest{
+		AppName: stsInjectionAppName, UserID: stsInjectionUserID, SessionID: propagateOnlySession,
+	}); err != nil {
+		t.Fatalf("session Create() error = %v", err)
+	}
+
+	runTurn := func(callerToken string) {
+		t.Helper()
+		base, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		ctx, _ := a2asrv.NewCallContext(base, a2asrv.NewServiceParams(
+			map[string][]string{"authorization": {"Bearer " + callerToken}}))
+		ctx = context.WithValue(ctx, models.BearerTokenKey, callerToken)
+		ctx = context.WithValue(ctx, models.SessionIDKey, propagateOnlySession)
+
+		msg := &genai.Content{Role: "user", Parts: []*genai.Part{{Text: "please call the tool"}}}
+		for _, err := range r.Run(ctx, stsInjectionUserID, propagateOnlySession, msg, adkagent.RunConfig{}) {
+			if err != nil {
+				t.Fatalf("the ADK run must reach the tool call, error = %v", err)
+			}
+		}
+	}
+
+	runTurn(callerOne)
+	afterTurnOne := rec.snapshot()
+	runTurn(callerTwo)
+	all := rec.snapshot()
+
+	turnOne := afterTurnOne[len(discovery):]
+	turnTwo := all[len(afterTurnOne):]
+	if len(turnOne) == 0 || len(turnTwo) == 0 {
+		t.Fatalf("each turn must make an MCP request, got %d and %d", len(turnOne), len(turnTwo))
+	}
+
+	for i, auth := range turnOne {
+		if auth != "Bearer "+callerOne {
+			t.Errorf("turn one request %d Authorization = %q, want %q", i, auth, "Bearer "+callerOne)
+		}
+	}
+	for i, auth := range turnTwo {
+		if auth != "Bearer "+callerTwo {
+			t.Errorf("turn two request %d Authorization = %q, want %q: each turn must carry its own caller token",
+				i, auth, "Bearer "+callerTwo)
 		}
 	}
 }
