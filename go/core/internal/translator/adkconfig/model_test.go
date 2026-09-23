@@ -125,6 +125,30 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			noEnv:     env.OllamaAPIKey.Name(),
 		},
 		{
+			// The cloud endpoint written out longhand is the cloud route, not an
+			// operator host: the runtime takes its bearer token from
+			// IsOllamaCloudEndpoint, so the key has to be mounted here or the
+			// request goes out unauthenticated.
+			name: "a host that is the cloud endpoint mounts the key",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "api.ollama.com"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name(), env.OllamaAPIKey.Name()},
+		},
+		{
+			// ...but it must not promote a local model to the cloud.
+			name: "the cloud endpoint does not mount the key for a local model",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "api.ollama.com"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name()},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
 			// Same problem without a host: a local model has no cloud binding,
 			// so mounting the Secret breaks compilation for a config that was
 			// previously fine.

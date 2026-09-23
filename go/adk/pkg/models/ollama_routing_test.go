@@ -92,6 +92,13 @@ func TestOllamaReachesCloud(t *testing.T) {
 		// The chart ships this host, so it is the common local case.
 		{name: "explicit host wins even for a cloud model with a key", model: "minimax-m3:cloud", host: "host.docker.internal:11434", hasCredential: true, want: false},
 		{name: "explicit host wins for a bare catalog name", model: "kimi-k3", host: "http://gpu-box.lan:11434", hasCredential: true, want: false},
+		// Writing the cloud endpoint out longhand is still the cloud route: the
+		// runtime takes its bearer token from IsOllamaCloudEndpoint, so treating
+		// this host as local shipped a request that went out unauthenticated.
+		{name: "a host that is the cloud endpoint reaches the cloud", model: "minimax-m3:cloud", host: "api.ollama.com", hasCredential: true, want: true},
+		{name: "cloud endpoint with a scheme reaches the cloud", model: "kimi-k3", host: "https://api.ollama.com", hasCredential: true, want: true},
+		{name: "cloud endpoint still needs a credential", model: "kimi-k3", host: "api.ollama.com", hasCredential: false, want: false},
+		{name: "cloud endpoint does not promote a local model", model: "llama3.2", host: "api.ollama.com", hasCredential: true, want: false},
 		{name: "bare catalog name without a host reaches the cloud", model: "kimi-k3", hasCredential: true, want: true},
 		{name: "tagged cloud model without a host reaches the cloud", model: "minimax-m3:cloud", hasCredential: true, want: true},
 		{name: "cloud model without a credential stays local", model: "kimi-k3", hasCredential: false, want: false},

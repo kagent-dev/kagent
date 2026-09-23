@@ -107,8 +107,18 @@ func IsOllamaCloudModel(modelName string) bool {
 // An explicit host always wins: that is how an operator points at another
 // machine, a container, or an authenticated proxy. A credential is required
 // because api.ollama.com answers 401 before it looks at the model.
+// An explicit host normally wins: that is how an operator points at another
+// machine, a container, or an authenticated proxy. The exception is a host that
+// *is* ollama.com's endpoint — writing `host: api.ollama.com` is the cloud route
+// spelled out longhand, and the runtime still expects a bearer token for it
+// (NewOllamaModel takes the token from IsOllamaCloudEndpoint). Treating every
+// explicit host as local left that configuration with no key mounted and no
+// credential binding, so the request went out unauthenticated and 401'd.
+//
+// A credential is required because api.ollama.com answers 401 before it looks at
+// the model.
 func OllamaReachesCloud(modelName, host string, hasCredential bool) bool {
-	if host != "" {
+	if host != "" && !IsOllamaCloudEndpoint(host) {
 		return false
 	}
 	return hasCredential && IsOllamaCloudModel(modelName)
