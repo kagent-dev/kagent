@@ -323,12 +323,10 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
-				position := time.Now().UTC()
-				if update.Status.Timestamp != nil {
-					position = update.Status.Timestamp.UTC()
-				}
-				apia2a.SetTimelinePosition(update.Status.Message, position)
 			}
+			// Status messages are outbound timeline items regardless of whether they
+			// represent HITL, validation failures, or another runtime status.
+			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
 				flushTurnSpans(ctx, invocationSpan)
@@ -338,6 +336,18 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			}
 		}
 	}
+}
+
+func stampStatusMessageTimeline(event a2atype.Event) {
+	update, ok := event.(*a2atype.TaskStatusUpdateEvent)
+	if !ok || update.Status.Message == nil {
+		return
+	}
+	position := time.Now().UTC()
+	if update.Status.Timestamp != nil {
+		position = update.Status.Timestamp.UTC()
+	}
+	apia2a.SetTimelinePosition(update.Status.Message, position)
 }
 
 // endsTurn reports whether an event is the last one a turn produces: a terminal
@@ -418,6 +428,7 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		for event, err := range e.builtin.Cancel(ctx, reqCtx) {
+			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if !yield(event, err) {
 				return

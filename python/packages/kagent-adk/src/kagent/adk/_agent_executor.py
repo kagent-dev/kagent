@@ -23,7 +23,10 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from google.adk.a2a.converters.part_converter import A2APartToGenAIPartConverter
+from google.adk.a2a.converters.part_converter import (
+    A2APartToGenAIPartConverter,
+    convert_a2a_part_to_genai_part as convert_upstream_a2a_part_to_genai_part,
+)
 from google.adk.a2a.converters.request_converter import (
     AgentRunRequest,
     convert_a2a_request_to_agent_run_request,
@@ -53,6 +56,7 @@ from ._bearer_token import bearer_token, extract_bearer_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import serialize_metadata_value
+from .converters.part_converter import convert_a2a_part_to_genai_part as convert_kagent_a2a_part_to_genai_part
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -140,6 +144,14 @@ def _canonicalize_adk_event(event: A2AEvent) -> None:
             _canonicalize_adk_artifact(artifact)
 
 
+def _convert_public_a2a_part_to_genai_part(part: Part) -> genai_types.Part | list[genai_types.Part] | None:
+    """Convert canonical typed data locally and delegate all other parts to ADK."""
+    metadata = MessageToDict(part.metadata) if part.metadata else {}
+    if part.HasField("data") and A2A_PART_TYPE_METADATA_KEY in metadata:
+        return convert_kagent_a2a_part_to_genai_part(part)
+    return convert_upstream_a2a_part_to_genai_part(part)
+
+
 class A2aAgentExecutor(AgentExecutor):
     """Thin kagent adapter around ADK 2.x's upstream A2A executor.
 
@@ -184,7 +196,7 @@ class A2aAgentExecutor(AgentExecutor):
             self._translate_hitl_response(context)
             runner = await self._resolve_runner()
 
-            run_request = self._convert_request(context, None)
+            run_request = self._convert_request(context, _convert_public_a2a_part_to_genai_part)
             await self._prepare_session(context, run_request, runner)
 
             span_attributes = {
@@ -198,6 +210,7 @@ class A2aAgentExecutor(AgentExecutor):
 
             execution_state = _ExecutionState(request_context=context)
             upstream_config = UpstreamA2aAgentExecutorConfig(
+                a2a_part_converter=_convert_public_a2a_part_to_genai_part,
                 request_converter=self._convert_request,
                 execute_interceptors=[
                     ExecuteInterceptor(

@@ -10,7 +10,11 @@ from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
-from kagent.core.a2a import A2A_PART_TYPE_METADATA_KEY, A2A_USAGE_METADATA_KEY
+from kagent.core.a2a import (
+    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+    A2A_PART_TYPE_METADATA_KEY,
+    A2A_USAGE_METADATA_KEY,
+)
 
 import kagent.adk._agent_executor as executor_module
 from kagent.adk._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -71,6 +75,23 @@ def test_convert_request_clears_bearer_token_when_no_auth_header():
     assert bearer_token.get() is None
 
 
+def test_convert_request_understands_canonical_function_call_parts():
+    context = _request_context()
+    context.message.parts[0].CopyFrom(
+        Part(
+            data=ParseDict({"id": "call-1", "name": "lookup", "args": {"query": "weather"}}, Value()),
+            metadata={A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL},
+        )
+    )
+    executor = A2aAgentExecutor(runner=lambda: None)
+
+    run_request = executor._convert_request(context, executor_module._convert_public_a2a_part_to_genai_part)
+
+    assert run_request.new_message is not None
+    assert run_request.new_message.parts[0].function_call is not None
+    assert run_request.new_message.parts[0].function_call.name == "lookup"
+
+
 def test_adk_event_metadata_is_projected_at_adapter_boundary():
     part = Part(
         data=ParseDict({"name": "lookup"}, Value()),
@@ -126,5 +147,6 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
     assert calls["context"] is context
     assert calls["event_queue"] is event_queue
     assert calls["config"].request_converter == executor._convert_request
+    assert calls["config"].a2a_part_converter == executor_module._convert_public_a2a_part_to_genai_part
     executor._prepare_session.assert_awaited_once_with(context, run_request, runner)
     executor._safe_close_runner.assert_awaited_once_with(runner)
