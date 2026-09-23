@@ -7,6 +7,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,22 +24,87 @@ type replyBarrierStore struct {
 	ready   chan struct{}
 }
 
-func (s *replyBarrierStore) ContinueAgentInstanceTask(ctx context.Context, instanceID string, hash []byte, message *a2atype.Message) (*database.TaskContinuation, error) {
+type initialAdmissionBarrierStore struct {
+	*database.Client
+	admitted atomic.Int32
+	ready    chan struct{}
+}
+
+func (s *initialAdmissionBarrierStore) AdmitAgentInstanceTask(ctx context.Context, instanceID string, hash []byte, request *a2atype.SendMessageRequest, task *a2atype.Task) (*database.TaskAdmission, error) {
+	admission, err := s.Client.AdmitAgentInstanceTask(ctx, instanceID, hash, request, task)
+	if err != nil {
+		return nil, err
+	}
+	if s.admitted.Add(1) == 2 {
+		close(s.ready)
+	}
+	select {
+	case <-s.ready:
+		return admission, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+type countingSendRuntime struct {
+	a2aclient.Transport
+	sends atomic.Int32
+}
+
+func (r *countingSendRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, request *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	r.sends.Add(1)
+	return &a2atype.Task{ID: request.Message.TaskID, ContextID: request.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil
+}
+
+func (r *countingSendRuntime) Destroy() error { return nil }
+
+func TestTwoGatewaysIssueOneRuntimeSend(t *testing.T) {
+	client, instance := gatewayPostgresFixture(t)
+	store := &initialAdmissionBarrierStore{Client: client, ready: make(chan struct{})}
+	runtime := &countingSendRuntime{}
+	first := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	second := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	type result struct {
+		task *a2atype.Task
+		err  error
+	}
+	results := make(chan result, 2)
+	for _, gateway := range []interface {
+		SendMessage(context.Context, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error)
+	}{first, second} {
+		go func() {
+			request := gatewayTestRequest()
+			request.Message.ID = "same-message"
+			value, err := gateway.SendMessage(gatewayTestContextWithRoute("team-a", instance.Id), request)
+			task, _ := value.(*a2atype.Task)
+			results <- result{task: task, err: err}
+		}()
+	}
+	firstResult, secondResult := <-results, <-results
+	require.NoError(t, firstResult.err)
+	require.NoError(t, secondResult.err)
+	require.NotNil(t, firstResult.task)
+	require.NotNil(t, secondResult.task)
+	require.Equal(t, firstResult.task.ID, secondResult.task.ID)
+	require.EqualValues(t, 1, runtime.sends.Load())
+}
+
+func (s *replyBarrierStore) AdmitAgentInstanceTaskContinuation(ctx context.Context, instanceID string, hash []byte, request *a2atype.SendMessageRequest) (*database.TaskAdmission, error) {
 	if s.readers.Add(1) == 2 {
 		close(s.ready)
 	}
 	select {
 	case <-s.ready:
-		return s.Client.ContinueAgentInstanceTask(ctx, instanceID, hash, message)
+		return s.Client.AdmitAgentInstanceTaskContinuation(ctx, instanceID, hash, request)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
 func TestPostgresContinuationAdmission(t *testing.T) {
-	client, instance := gatewayPostgresFixture(t)
 	for _, sameMessage := range []bool{false, true} {
 		t.Run(map[bool]string{false: "distinct replies", true: "identical retries"}[sameMessage], func(t *testing.T) {
+			client, instance := gatewayPostgresFixture(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("question"))
@@ -61,7 +127,7 @@ func TestPostgresContinuationAdmission(t *testing.T) {
 					}
 					req.Message.TaskID = task.ID
 					prepared, err := gateway.prepareReply(ctx, instance, req)
-					results <- outcome{prepared != nil && prepared.dispatch, err}
+					results <- outcome{prepared != nil && prepared.claimed, err}
 				}()
 			}
 			admitted := 0
@@ -75,21 +141,60 @@ func TestPostgresContinuationAdmission(t *testing.T) {
 					admitted++
 				}
 			}
-			// Release the slot through the store so the other subtest is independent.
-			task.Status.State = a2atype.TaskStateCanceled
-			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
 			require.Equal(t, 1, admitted, "only one continuation may dispatch from a waiting boundary")
 		})
 	}
 }
 
+func TestTwoGatewaysIssueOneRuntimeContinuation(t *testing.T) {
+	client, instance := gatewayPostgresFixture(t)
+	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("question"))
+	question.ID = "question-message"
+	task := &a2atype.Task{
+		ID: "continuation-task", ContextID: instance.ContextId,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
+	}
+	question.TaskID, question.ContextID = task.ID, task.ContextID
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, task, task, nil))
+
+	store := &replyBarrierStore{Client: client, ready: make(chan struct{})}
+	runtime := &countingSendRuntime{}
+	first := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	second := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	type result struct {
+		task *a2atype.Task
+		err  error
+	}
+	results := make(chan result, 2)
+	for _, gateway := range []interface {
+		SendMessage(context.Context, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error)
+	}{first, second} {
+		go func() {
+			reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("answer"))
+			reply.ID, reply.TaskID = "same-reply", task.ID
+			value, err := gateway.SendMessage(gatewayTestContextWithRoute("team-a", instance.Id), &a2atype.SendMessageRequest{Message: reply})
+			stored, _ := value.(*a2atype.Task)
+			results <- result{task: stored, err: err}
+		}()
+	}
+	firstResult, secondResult := <-results, <-results
+	require.NoError(t, firstResult.err)
+	require.NoError(t, secondResult.err)
+	require.NotNil(t, firstResult.task)
+	require.NotNil(t, secondResult.task)
+	require.Equal(t, firstResult.task.ID, secondResult.task.ID)
+	require.EqualValues(t, 1, runtime.sends.Load())
+}
+
 func TestPostgresSuspendRejectsAdmittedTask(t *testing.T) {
 	client, instance := gatewayPostgresFixture(t)
 	request := gatewayTestRequest()
+	request.Message.ID = "admitted-message"
+	request.Message.TaskID = "admitted"
+	request.Message.ContextID = instance.ContextId
 	task := &a2atype.Task{ID: "admitted", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}, History: []*a2atype.Message{request.Message}}
-	_, created, err := client.CreateAgentInstanceTask(t.Context(), instance.Id, []byte("hash"), task)
+	_, err := client.AdmitAgentInstanceTask(t.Context(), instance.Id, []byte("hash"), request, task)
 	require.NoError(t, err)
-	require.True(t, created)
 	suspending := proto.CloneOf(instance)
 	suspending.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND
 	_, err = client.TransitionAgentInstance(t.Context(), suspending, instance.State, instance.Operation)

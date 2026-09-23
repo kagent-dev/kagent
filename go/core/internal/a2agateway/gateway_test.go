@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"iter"
 	"net"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -22,11 +20,13 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/google/uuid"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstancetask"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -66,6 +66,12 @@ type gatewayTestStore struct {
 	onStore         func()
 	id, userID      string
 	unscoped        bool
+	turnID          uuid.UUID
+	ownerID         uuid.UUID
+	turnPhase       string
+	cancelRequested bool
+	turnRequest     *a2atype.SendMessageRequest
+	turnPrevious    *a2atype.Task
 }
 
 func (s *gatewayTestStore) GetAgentInstanceByID(_ context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
@@ -92,6 +98,10 @@ func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*databas
 func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ string, task *a2atype.Task, event a2atype.Event, snapshot *database.AgentInstanceTaskSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.storeAgentInstanceTaskEvent(task, event, snapshot)
+}
+
+func (s *gatewayTestStore) storeAgentInstanceTaskEvent(task *a2atype.Task, event a2atype.Event, snapshot *database.AgentInstanceTaskSnapshot) error {
 	if s.taskErr != nil {
 		return s.taskErr
 	}
@@ -195,6 +205,136 @@ func (s *gatewayTestStore) ListAgentInstanceTaskEvents(_ context.Context, _ stri
 	return []database.TaskEvent{{Sequence: int64(len(s.stored)), Event: &task}}, nil
 }
 
+func (s *gatewayTestStore) AdmitAgentInstanceTask(ctx context.Context, id string, hash []byte, request *a2atype.SendMessageRequest, task *a2atype.Task) (*database.TaskAdmission, error) {
+	stored, created, err := s.CreateAgentInstanceTask(ctx, id, hash, task)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		s.turnID, s.turnPhase, s.turnRequest = uuid.New(), "ADMITTED", request
+	}
+	return &database.TaskAdmission{Task: stored, TurnID: s.turnID}, nil
+}
+
+func (s *gatewayTestStore) AdmitAgentInstanceTaskContinuation(ctx context.Context, id string, hash []byte, request *a2atype.SendMessageRequest) (*database.TaskAdmission, error) {
+	continuation, err := s.ContinueAgentInstanceTask(ctx, id, hash, request.Message)
+	if err != nil {
+		return nil, err
+	}
+	if continuation.Previous != nil {
+		s.turnID, s.turnPhase, s.turnRequest = uuid.New(), "ADMITTED", request
+		s.turnPrevious = continuation.Previous
+	}
+	return &database.TaskAdmission{Task: continuation.Current, TurnID: s.turnID}, nil
+}
+
+func (s *gatewayTestStore) ClaimAgentInstanceTaskTurn(_ context.Context, _, _ string, turnID, ownerID uuid.UUID, _ time.Duration) (*database.TaskTurnClaim, bool, error) {
+	claim := &database.TaskTurnClaim{Task: s.task, TurnID: turnID, OwnerID: ownerID}
+	if turnID == uuid.Nil || turnID != s.turnID || s.turnPhase != "ADMITTED" || (s.ownerID != uuid.Nil && s.ownerID != ownerID) {
+		return claim, false, nil
+	}
+	s.ownerID = ownerID
+	claim.Request, claim.Previous = s.turnRequest, s.turnPrevious
+	return claim, true, nil
+}
+
+func (s *gatewayTestStore) ReleaseAgentInstanceTaskTurn(_ context.Context, _, _ string, turnID, ownerID uuid.UUID) error {
+	if turnID != s.turnID || ownerID != s.ownerID || s.turnPhase != "ADMITTED" {
+		return database.ErrConflict
+	}
+	s.ownerID = uuid.Nil
+	return nil
+}
+
+func (s *gatewayTestStore) MarkAgentInstanceTaskTurnIssued(_ context.Context, _, _ string, turnID, ownerID uuid.UUID) error {
+	if turnID != s.turnID || ownerID != s.ownerID || s.turnPhase != "ADMITTED" {
+		return database.ErrConflict
+	}
+	s.turnPhase = "ISSUED"
+	return nil
+}
+
+func (s *gatewayTestStore) RenewAgentInstanceTaskTurn(_ context.Context, _, _ string, turnID, ownerID uuid.UUID, _ time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if turnID != s.turnID || ownerID != s.ownerID || s.turnPhase == "SETTLED" {
+		return false, database.ErrConflict
+	}
+	return s.cancelRequested, nil
+}
+
+func (s *gatewayTestStore) RequestAgentInstanceTaskCancellation(ctx context.Context, id, taskID string) (*database.TaskCancellation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.task == nil || string(s.task.ID) != taskID {
+		return nil, database.ErrNotFound
+	}
+	result := &database.TaskCancellation{Task: s.task, TurnID: s.turnID}
+	if s.task.Status.State.Terminal() {
+		result.Settled = true
+		return result, nil
+	}
+	if s.turnPhase == "ADMITTED" {
+		copy := *s.task
+		copy.Status.State = a2atype.TaskStateCanceled
+		s.task, s.turnPhase, s.ownerID = &copy, "SETTLED", uuid.Nil
+		result.Task, result.Settled = s.task, true
+		return result, nil
+	}
+	if s.turnPhase == "" || s.turnPhase == "SETTLED" {
+		return nil, database.ErrFailedPrecondition
+	}
+	s.cancelRequested = true
+	ownerID := s.ownerID
+	result.OwnerID = &ownerID
+	return result, nil
+}
+
+func (s *gatewayTestStore) BeginAgentInstanceTaskCancellation(_ context.Context, _, _ string, turnID, ownerID uuid.UUID) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if turnID != s.turnID || ownerID != s.ownerID || s.turnPhase != "ISSUED" || !s.cancelRequested {
+		return false, nil
+	}
+	s.turnPhase = "CANCELING"
+	return true, nil
+}
+
+func (s *gatewayTestStore) BeginAgentInstanceTaskQuiescence(_ context.Context, _, _ string, turnID, ownerID uuid.UUID, state a2atype.TaskState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if turnID != s.turnID || ownerID != s.ownerID || (s.turnPhase != "ISSUED" && s.turnPhase != "CANCELING") {
+		return database.ErrConflict
+	}
+	if s.cancelRequested && !state.Terminal() {
+		return database.ErrConflict
+	}
+	s.turnPhase = "QUIESCING"
+	return nil
+}
+
+func (s *gatewayTestStore) StoreOwnedAgentInstanceTaskEvent(ctx context.Context, id string, turnID, ownerID uuid.UUID, task *a2atype.Task, event a2atype.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if turnID != s.turnID || ownerID != s.ownerID || (s.turnPhase != "ISSUED" && s.turnPhase != "CANCELING") {
+		return database.ErrConflict
+	}
+	return s.storeAgentInstanceTaskEvent(task, event, nil)
+}
+
+func (s *gatewayTestStore) SettleAgentInstanceTaskTurn(ctx context.Context, id string, turnID, ownerID uuid.UUID, task *a2atype.Task, event a2atype.Event, snapshot *database.AgentInstanceTaskSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if turnID != s.turnID || ownerID != s.ownerID || s.turnPhase != "QUIESCING" {
+		return database.ErrConflict
+	}
+	if err := s.storeAgentInstanceTaskEvent(task, event, snapshot); err != nil {
+		return err
+	}
+	s.turnPhase, s.ownerID = "SETTLED", uuid.Nil
+	return nil
+}
+
 func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -225,7 +365,8 @@ func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, tas
 	if s.task == nil || string(s.task.ID) != taskID {
 		return nil, database.ErrNotFound
 	}
-	return s.task, nil
+	task := *s.task
+	return &task, nil
 }
 
 func (s *gatewayTestStore) ListAgentInstanceTasks(_ context.Context, _, _ string, _ a2atype.TaskState, _ *time.Time, _ int, historyLength *int) ([]*a2atype.Task, int, error) {
@@ -403,16 +544,6 @@ func (r *blockingGatewayRuntime) CancelTask(_ context.Context, _ a2aclient.Servi
 }
 
 func (r *blockingGatewayRuntime) Destroy() error { return nil }
-
-type gatewayTestCoordinator struct {
-	runtimeCoordinator
-	quiescing chan struct{}
-}
-
-func (c *gatewayTestCoordinator) Quiesce(instanceID string) func() {
-	close(c.quiescing)
-	return c.runtimeCoordinator.Quiesce(instanceID)
-}
 
 func gatewayTestContext() context.Context {
 	return gatewayTestContextWithRoute("team-a", gatewayTestID)
@@ -735,6 +866,10 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 			if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "internal.host") {
 				t.Fatalf("SendMessage() leaked internal error: %v", err)
 			}
+			if test.name == "dialer" {
+				require.Equal(t, "ADMITTED", test.store.turnPhase)
+				require.Equal(t, uuid.Nil, test.store.ownerID, "a failure before runtime delivery must release its claim")
+			}
 		})
 	}
 }
@@ -997,34 +1132,19 @@ func TestGatewayPausesInputRequiredBeforeClosingRuntime(t *testing.T) {
 	}
 }
 
-func TestGatewayPersistsCancellationOfInputRequiredTask(t *testing.T) {
+func TestGatewayRejectsCancellationOfSettledInputRequiredTask(t *testing.T) {
 	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("approve?"))
 	waiting := &a2atype.Task{
 		ID: gatewayTestID, ContextID: gatewayTestID,
 		Status:  a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
 		History: []*a2atype.Message{a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("run it"))},
 	}
-	runtime := &gatewayTestRuntime{task: &a2atype.Task{
-		ID: gatewayTestID, ContextID: gatewayTestID,
-		Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled},
-	}}
 	store := &gatewayTestStore{instance: gatewayTestInstance(), task: waiting, active: waiting}
-	workflow := &gatewayTestWorkflow{}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
 
-	canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: waiting.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if canceled.Status.State != a2atype.TaskStateCanceled || len(canceled.History) != 1 {
-		t.Fatalf("CancelTask() = %#v", canceled)
-	}
-	if store.task == nil || store.task.Status.State != a2atype.TaskStateCanceled || len(store.stored) != 1 {
-		t.Fatalf("stored task/events = %#v/%d", store.task, len(store.stored))
-	}
-	if workflow.quiesceCalls != 1 || store.snapshot == nil || !runtime.destroyed {
-		t.Fatalf("quiesce calls/snapshot/runtime destroyed = %d/%#v/%v", workflow.quiesceCalls, store.snapshot, runtime.destroyed)
-	}
+	_, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: waiting.ID})
+	require.ErrorIs(t, err, a2atype.ErrTaskNotCancelable)
+	require.Equal(t, a2atype.TaskStateInputRequired, store.task.Status.State)
 }
 
 func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
@@ -1032,8 +1152,13 @@ func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
 	quiesced := make(chan struct{})
 	workflow := &gatewayTestWorkflow{onQuiesce: func() { close(quiesced) }}
-	coordinator := &gatewayTestCoordinator{runtimeCoordinator: &memoryRuntimeCoordinator{}, quiescing: make(chan struct{})}
-	gateway := newGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL, coordinator)
+	gateway := &Gateway{store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}), dialer: &gatewayTestDialer{client: gatewayTestClient(t, runtime)},
+		workflow:  workflow,
+		turnLease: time.Second, turnRenewal: 5 * time.Millisecond, cancelPoll: 5 * time.Millisecond}
+	remoteDialer := &gatewayTestDialer{err: errors.New("canceling replica must not dial")}
+	remote := &Gateway{store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}), dialer: remoteDialer,
+		workflow:  workflow,
+		turnLease: time.Second, turnRenewal: 5 * time.Millisecond, cancelPoll: 5 * time.Millisecond}
 
 	stream := gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
 	streamResult := make(chan a2atype.TaskState, 1)
@@ -1081,13 +1206,13 @@ func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
 	}
 	cancelResultCh := make(chan cancelResult, 1)
 	go func() {
-		canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: task.ID})
+		canceled, err := remote.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: task.ID})
 		cancelResultCh <- cancelResult{task: canceled, err: err}
 	}()
 	select {
-	case <-coordinator.quiescing:
+	case <-runtime.canceled:
 	case <-time.After(time.Second):
-		t.Fatal("terminal event did not request quiescence")
+		t.Fatal("runtime cancellation did not start")
 	}
 	select {
 	case <-quiesced:
@@ -1113,6 +1238,9 @@ func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
 	if workflow.quiesceCalls != 1 || len(store.stored) != 2 {
 		t.Fatalf("quiescence calls = %d, stored events = %d; want 1 and 2", workflow.quiesceCalls, len(store.stored))
 	}
+	if remoteDialer.instance != nil {
+		t.Fatal("canceling replica dialed the runtime")
+	}
 }
 
 // Like grpc.ClientConn, this transport rejects closing an already closed connection.
@@ -1132,18 +1260,21 @@ func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T)
 	runtime := &singleCloseGatewayRuntime{}
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
 	workflow := &gatewayTestWorkflow{}
-	gateway := &Gateway{store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}), workflow: workflow, coordinator: &memoryRuntimeCoordinator{}}
+	gateway := &Gateway{store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}), workflow: workflow}
 	task := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-	store.task = task
+	turnID, ownerID := uuid.New(), uuid.New()
+	store.task, store.turnID, store.ownerID, store.turnPhase = task, turnID, ownerID, "ISSUED"
 	release := make(chan struct{})
 	events := func(yield func(a2atype.Event, error) bool) {
 		<-release
 		yield(a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, nil), nil)
 	}
-	run, err := gateway.startTaskRun(gatewayTestContext(), store.instance, task, gatewayTestClient(t, runtime), events)
+	attempt := &preparedSend{instance: store.instance, task: task, turnID: turnID, ownerID: ownerID, claimed: true}
+	run, err := gateway.newTaskRun(gatewayTestContext(), attempt, gatewayTestClient(t, runtime))
 	if err != nil {
 		t.Fatal(err)
 	}
+	run.startIngest(events)
 	// Cancellation closes ingress while a terminal event is already in flight.
 	closeErr := run.closeRuntime()
 	close(release)
@@ -1168,58 +1299,28 @@ func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T)
 	}
 }
 
-func TestGatewaySubscriptionRecoversTaskRun(t *testing.T) {
-	for _, tt := range []struct {
-		name                      string
-		completeBeforeObservation bool
-		wantStates                []a2atype.TaskState
-	}{
-		{"completion before snapshot", true, []a2atype.TaskState{a2atype.TaskStateCanceled}},
-		{"completion after snapshot", false, []a2atype.TaskState{a2atype.TaskStateWorking, a2atype.TaskStateCanceled}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-				runtime := &gatewayTestRuntime{subscribeEvent: a2atype.NewStatusUpdateEvent(active, a2atype.TaskStateCanceled, nil)}
-				store := &gatewayTestStore{instance: gatewayTestInstance(), task: active, active: active}
-				complete := make(chan struct{})
-				release := sync.OnceFunc(func() { close(complete) })
-				defer release()
-				workflow := &gatewayTestWorkflow{onQuiesce: func() { <-complete }}
-				gateway := &Gateway{
-					store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}),
-					dialer:   &gatewayTestDialer{client: gatewayTestClient(t, runtime)},
-					workflow: workflow, coordinator: &memoryRuntimeCoordinator{},
-				}
+func TestGatewaySubscriptionWithoutLocalOwnerIsUnavailable(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	runtime := &gatewayTestRuntime{subscribeEvent: a2atype.NewStatusUpdateEvent(active, a2atype.TaskStateCanceled, nil)}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: active, active: active}
+	workflow := &gatewayTestWorkflow{}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
 
-				stream := gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: active.ID})
-				if tt.completeBeforeObservation {
-					release()
-				}
-				// Let ingestion either finish or block at quiescence before reading.
-				synctest.Wait()
-				var states []a2atype.TaskState
-				for event, err := range stream {
-					if err != nil {
-						t.Fatal(err)
-					}
-					task, ok := event.(*a2atype.Task)
-					if !ok || task.ID != active.ID || task.ContextID != active.ContextID {
-						t.Fatalf("unexpected recovered task: %#v", event)
-					}
-					states = append(states, task.Status.State)
-					release()
-				}
-				synctest.Wait()
-				if !slices.Equal(states, tt.wantStates) {
-					t.Fatalf("task states = %v, want %v", states, tt.wantStates)
-				}
-				if workflow.quiesceCalls != 1 || len(store.stored) != 1 || store.active != nil || !runtime.destroyed {
-					t.Fatalf("quiescence calls = %d, stored events = %d, active task = %#v, runtime destroyed = %v", workflow.quiesceCalls, len(store.stored), store.active, runtime.destroyed)
-				}
-			})
-		})
+	var events []a2atype.Event
+	var streamErr error
+	for event, err := range gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
+		if err != nil {
+			streamErr = err
+			continue
+		}
+		events = append(events, event)
 	}
+	require.Len(t, events, 1)
+	require.Equal(t, active, events[0])
+	require.ErrorIs(t, streamErr, a2atype.ErrInternalError)
+	require.Zero(t, runtime.subscribeCalls)
+	require.Zero(t, workflow.quiesceCalls)
+	require.Empty(t, store.stored)
 }
 
 func collectTerminalState(events iter.Seq2[a2atype.Event, error], result chan<- a2atype.TaskState) {
@@ -1304,51 +1405,8 @@ func TestGatewayKeepsLiveRuntimeTaskBusy(t *testing.T) {
 	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
 		t.Fatal("SendMessage() accepted a second active task")
 	}
-	if dialer.instance == nil || runtime.sent || store.interrupted || runtime.getTaskCalls != 0 {
+	if dialer.instance != nil || runtime.sent || store.interrupted || runtime.getTaskCalls != 0 {
 		t.Fatalf("live task reconciliation: dialed=%v sent=%v interrupted=%v GetTask calls=%d", dialer.instance != nil, runtime.sent, store.interrupted, runtime.getTaskCalls)
-	}
-}
-
-func TestGatewayInterruptsTaskWithoutRuntimeExecution(t *testing.T) {
-	active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-	runtime := &gatewayTestRuntime{taskResults: []*a2atype.Task{active}, subscribeErr: a2atype.ErrTaskNotFound}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
-
-	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
-		t.Fatal(err)
-	}
-	if !store.interrupted || !runtime.sent || runtime.getTaskCalls != 1 {
-		t.Fatalf("orphan reconciliation: interrupted=%v sent=%v GetTask calls=%d", store.interrupted, runtime.sent, runtime.getTaskCalls)
-	}
-}
-
-func TestGatewayDoesNotInterruptTaskBeforeRuntimeDispatch(t *testing.T) {
-	active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}}
-	runtime := &gatewayTestRuntime{taskErr: a2atype.ErrTaskNotFound, subscribeErr: a2atype.ErrTaskNotFound}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
-
-	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
-		t.Fatal("SendMessage() replaced a task that had not reached the runtime")
-	}
-	if store.interrupted || runtime.sent || runtime.getTaskCalls != 1 {
-		t.Fatalf("pre-dispatch task: interrupted=%v sent replacement=%v GetTask calls=%d", store.interrupted, runtime.sent, runtime.getTaskCalls)
-	}
-}
-
-func TestGatewayPersistsTerminalRuntimeTaskBeforeRetry(t *testing.T) {
-	active := &a2atype.Task{ID: "active", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-	terminal := &a2atype.Task{ID: active.ID, ContextID: active.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
-	runtime := &gatewayTestRuntime{taskResults: []*a2atype.Task{terminal}, subscribeErr: a2atype.ErrTaskNotFound}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
-
-	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
-		t.Fatal(err)
-	}
-	if len(store.stored) < 2 || store.stored[0] != terminal || !runtime.sent || runtime.getTaskCalls != 1 {
-		t.Fatalf("terminal reconciliation: stored=%#v sent=%v GetTask calls=%d", store.stored, runtime.sent, runtime.getTaskCalls)
 	}
 }
 

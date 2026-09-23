@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstancetask"
 	"github.com/stretchr/testify/require"
 )
@@ -17,12 +18,16 @@ func TestPostgresSlowObserverDoesNotBlockIngestion(t *testing.T) {
 	defer cancel()
 	task := &a2atype.Task{ID: "observed", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}}
 	task.History = []*a2atype.Message{a2atype.NewMessageForTask(a2atype.MessageRoleUser, task, a2atype.NewTextPart("start"))}
-	_, admitted, err := store.CreateAgentInstanceTask(ctx, instance.Id, []byte("request"), task)
+	request := &a2atype.SendMessageRequest{Message: task.History[0]}
+	admission, err := store.AdmitAgentInstanceTask(ctx, instance.Id, []byte("request"), request, task)
 	require.NoError(t, err)
-	require.True(t, admitted)
+	ownerID := uuid.New()
+	claim, claimed, err := store.ClaimAgentInstanceTaskTurn(ctx, instance.Id, string(task.ID), admission.TurnID, ownerID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, claimed)
 	gateway := &Gateway{
 		store: store, tasks: agentinstancetask.NewService(store, &gatewayTestAuthorizer{}),
-		workflow: &gatewayTestWorkflow{}, coordinator: &memoryRuntimeCoordinator{},
+		workflow: &gatewayTestWorkflow{}, turnLease: time.Minute, turnRenewal: time.Second,
 	}
 	produce := make(chan struct{})
 	events := func(yield func(a2atype.Event, error) bool) {
@@ -41,8 +46,10 @@ func TestPostgresSlowObserverDoesNotBlockIngestion(t *testing.T) {
 		}
 		yield(a2atype.NewMessageForTask(a2atype.MessageRoleAgent, task, a2atype.NewTextPart("finished")), nil)
 	}
-	run, err := gateway.startTaskRun(ctx, instance, task, gatewayTestClient(t, &gatewayTestRuntime{}), events)
+	attempt := &preparedSend{instance: instance, task: claim.Task, request: claim.Request, turnID: admission.TurnID, ownerID: ownerID, claimed: true}
+	run, err := gateway.startOwnedTaskRun(ctx, attempt, gatewayTestClient(t, &gatewayTestRuntime{}))
 	require.NoError(t, err)
+	run.startIngest(events)
 	initial := make(chan struct{})
 	releaseReader := make(chan struct{}, 1)
 	defer close(releaseReader)
