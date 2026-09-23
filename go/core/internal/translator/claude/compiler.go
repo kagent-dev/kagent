@@ -293,10 +293,13 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			return nil, nil, err
 		}
 		cfg := model.Spec.AnthropicVertexAI
+		// The gateway completes the request with an access token Substrate mints
+		// from the key, so Claude Code skips its own Google authentication and
+		// the key never enters the runtime.
 		return []corev1.EnvVar{
-			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
-			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{vertexHostname(cfg.Location), "oauth2.googleapis.com"}, nil
+			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.SkipVertexAuthEnvName, Value: "1"},
+			{Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
+		}, []string{v2translator.VertexAIHostname(cfg.Location)}, nil
 	default:
 		return nil, nil, v2translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -371,17 +374,6 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	return corev1.EnvVar{Name: environmentName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
 	}}}
-}
-
-func vertexHostname(location string) string {
-	switch location {
-	case "global":
-		return "aiplatform.googleapis.com"
-	case "us", "eu":
-		return "aiplatform." + location + ".rep.googleapis.com"
-	default:
-		return location + "-aiplatform.googleapis.com"
-	}
 }
 
 type provenanceEntry struct {

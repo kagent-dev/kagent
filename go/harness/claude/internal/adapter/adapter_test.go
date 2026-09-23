@@ -159,29 +159,6 @@ func TestNewRejectsInvalidInput(t *testing.T) {
 	}
 }
 
-func TestMaterializeGoogleCredentials(t *testing.T) {
-	dir := t.TempDir()
-	raw := `{"type":"service_account","project_id":"test"}`
-	environment, err := materializeGoogleCredentials([]string{"A=1", config.GoogleCredentialsJSONEnvName + "=" + raw}, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "google-credentials.json")
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(contents) != raw {
-		t.Fatalf("credentials = %q", contents)
-	}
-	if len(environment) != 2 || environment[0] != "A=1" || environment[1] != config.GoogleApplicationCredentialsEnvName+"="+path {
-		t.Fatalf("environment = %v", environment)
-	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("credential permissions = %v, %v", info, err)
-	}
-}
-
 func TestSetEnvironmentOverridesExistingValue(t *testing.T) {
 	got := setEnvironment([]string{"A=1", "A=2", "B=3"}, "A", "4")
 	want := []string{"B=3", "A=4"}

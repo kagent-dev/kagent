@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +24,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 		{"Foundry OpenAI", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderFoundry, Foundry: &v1alpha3.FoundryConfig{Endpoint: "https://team.services.ai.azure.com"}}, "FOUNDRY_API_KEY", "team.services.ai.azure.com", "api-key", ""},
 		{"Foundry Anthropic", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderFoundry, Foundry: &v1alpha3.FoundryConfig{Endpoint: "https://team.services.ai.azure.com", APIFormat: v1alpha3.FoundryAPIFormatAnthropic}}, "FOUNDRY_API_KEY", "team.services.ai.azure.com", "x-api-key", ""},
 		{"Bedrock bearer", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}, "AWS_BEARER_TOKEN_BEDROCK", "bedrock-runtime.us-east-1.amazonaws.com", "authorization", "Bearer "},
+		{"Anthropic Vertex AI", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}}, "GOOGLE_APPLICATION_CREDENTIALS", "us-east5-aiplatform.googleapis.com", "authorization", "Bearer "},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			test.spec.APIKeySecret, test.spec.APIKeySecretKey = "auth", "token"
@@ -40,9 +42,28 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			require.Equal(t, test.host, bindings[0].Hostname)
 			require.Equal(t, test.header, bindings[0].Header)
 			require.Equal(t, test.prefix, bindings[0].Prefix)
-			require.Equal(t, "ate-secret://kubernetes.io/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
+			authority := egress.KubernetesSecretAuthority
+			if test.spec.Provider == v1alpha3.ModelProviderAnthropicVertexAI {
+				authority = egress.GoogleAccessTokenAuthority
+			}
+			require.Equal(t, egress.CredentialURI(authority, "team", "auth", test.spec.APIKeySecretKey), bindings[0].URI)
 		})
 	}
+}
+
+func TestCompileCredentialsBindsVertexWithoutEnvironment(t *testing.T) {
+	// The Claude compiler renders no variable for the key: Substrate mints the
+	// token and the runtime sends the request unauthenticated.
+	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, APIKeySecret: "auth", APIKeySecretKey: "credentials.json",
+		AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global"}}}
+	environment := []corev1.EnvVar{{Name: "CLOUD_ML_REGION", Value: "global"}}
+	got, bindings, err := CompileCredentials(credentialInput(spec), nil, environment)
+	require.NoError(t, err)
+	require.Equal(t, environment, got)
+	require.Equal(t, []egress.Credential{{
+		Hostname: "aiplatform.googleapis.com", Header: "authorization", Prefix: "Bearer ",
+		URI: "ate-secret://google-access-token.kubernetes.io/team/auth/credentials.json",
+	}}, bindings)
 }
 
 func TestCompileCredentialsRejectsConflictingSharedModels(t *testing.T) {

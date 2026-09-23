@@ -55,6 +55,7 @@ overrides of these variables are rejected.
 | Foundry Anthropic API key | `x-api-key: <key>` |
 | Gemini API key | `x-goog-api-key: <key>` |
 | Bedrock bearer token | `authorization: Bearer <token>` |
+| Google service account key (Vertex AI, Claude Harness) | `authorization: Bearer <access token>`; Substrate mints the token from the key at fetch time |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
 Provider endpoint overrides determine the injection destination. Substrate
@@ -64,9 +65,23 @@ between models, memory embeddings, and MCP servers. Use distinct DNS names for
 origins requiring different credentials. IP-address destinations cannot carry
 credential injection rules.
 
-AWS IAM signing keys, Google service-account keys, OAuth client credentials, and
-arbitrary Harness `credentialRef` environment values require mechanisms beyond
-static header injection and are rejected rather than serialized into runtimes.
-Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share a hostname with static gateway credentials, which would override
-the caller's authentication.
+Google service account keys are the one credential the gateway transforms rather
+than copies. The compiler binds an `AnthropicVertexAI` ModelConfig to
+`ate-secret://google-access-token.kubernetes.io/<namespace>/<secret>/<key>` on the
+Vertex AI hostname for its location, and Substrate's Kubernetes credential
+provider signs the key's JWT assertion and exchanges it for a `cloud-platform`
+access token when the gateway fetches the credential. The runtime never holds the
+key: Claude Code runs with `CLAUDE_CODE_SKIP_VERTEX_AUTH=1` and sends the request
+unauthenticated for the gateway to complete. Tokens live an hour and the provider
+refreshes them ahead of the gateway cache, so rotating the key needs no
+recompilation. This needs a Substrate release whose provider serves the
+`google-access-token.kubernetes.io` name. The kagent runtimes still authenticate
+to Vertex AI themselves, so a Vertex ModelConfig with a Secret remains rejected
+for them.
+
+AWS IAM signing keys, OAuth client credentials, and arbitrary Harness
+`credentialRef` environment values require mechanisms beyond static header
+injection and are rejected rather than serialized into runtimes. Caller-token
+passthrough retains its existing behavior. A passthrough model cannot share a
+hostname with static gateway credentials, which would override the caller's
+authentication.
