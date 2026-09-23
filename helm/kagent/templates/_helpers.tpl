@@ -286,11 +286,13 @@ Bundled PostgreSQL image - constructs the full image reference from registry/rep
 {{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
 {{- end -}}
 
-{{/*
-Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWORD.
-*/}}
-{{- define "kagent.passwordSecretName" -}}
-{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
+{{/* PostgreSQL bootstrap helpers. */}}
+{{- define "kagent.postgres.connectionSecretName" -}}
+{{- .Values.database.postgres.secretRef.name | default "kagent-postgres" -}}
+{{- end -}}
+
+{{- define "kagent.postgres.adminSecretName" -}}
+{{- .Values.database.postgres.bundled.adminSecretRef.name | default "postgres-admin" -}}
 {{- end -}}
 
 {{/* Public A2A endpoint advertised by AgentInstance Agent Cards. */}}

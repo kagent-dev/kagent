@@ -104,20 +104,23 @@ nodeSelector: {}
 
 database:
   postgres:
-    # -- External PostgreSQL connection string.
-    # Mutually exclusive with `secretRef.name`.
-    url: ""
-    # -- Source the external PostgreSQL connection string from an existing Secret.
+    # -- Source the PostgreSQL connection string from an existing Secret when
+    # bundled bootstrap is disabled or PostgreSQL is external.
     # The Secret is mounted and reread for each new physical connection. Configure
     # pool.maxConnLifetime to bound how long old credentials remain in use.
-    # To share it with embedded Substrate, set the same name and key under
-    # `substrate.postgres.connectionStringSecretRef`.
+    # Embedded Substrate uses separate read/write and owner connection Secrets
+    # even when it shares the same database.
     secretRef:
       name: ""
       key: connectionString
-    # -- Stable NOLOGIN role assumed after authentication. Required when Secret
-    # rotation changes the PostgreSQL login username.
-    role: ""
+    # -- Role assumed on each Kagent connection. Set a distinct role for each
+    # install sharing a database; bundled bootstrap requires kagent_owner.
+    role: kagent_owner
+    # -- Schema for Kagent tables.
+    schema: public
+    # -- Schema for the shared pgvector extension. Existing installations must match this value.
+    # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
+    vectorSchema: public
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
@@ -139,6 +142,15 @@ database:
     bundled:
       # -- Set to false to disable the bundled database and provide an external connection.
       enabled: true
+      # -- Create the fixed Kagent identity and schema. Disable when providing
+      # existing users and a connection Secret for the bundled database.
+      bootstrap: true
+      adminSecretRef:
+        # -- Existing administrator Secret. The chart creates postgres-admin when this value is empty.
+        name: ""
+        usernameKey: POSTGRES_USER
+        passwordKey: POSTGRES_PASSWORD
+
       image:
         # -- Bundled PostgreSQL image registry
         registry: docker.io
@@ -156,8 +168,7 @@ database:
       storage: 500Mi
       # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
       storageClassName: ""
-      # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
-      # This is intentional for a dev/eval setup. Switch to an external database for production.
+      # The bundled database uses fixed development credentials.
       # -- Resource requests/limits for the demo PostgreSQL container
       resources:
         requests:
@@ -771,33 +782,34 @@ substrate:
     # Kagent and Substrate use separate schemas in the same database.
     enabled: false
     schema: substrate
-    # -- Optional inline Substrate runtime/DML connection string.
-    # Disable connectionStringSecretRef when using it.
-    connectionString: ""
-    # -- Read the Substrate runtime/DML connection string from a Secret.
-    # With no name, Kagent creates this Secret from its bundled or inline URL.
-    connectionStringSecretRef:
-      enabled: true
-      # -- Existing Secret name. Kagent creates a release-named Secret when empty.
-      name: ""
-      key: connectionString
-    # -- Optional DDL and maintenance connection. Defaults to the runtime connection.
-    ddlConnectionString: ""
-    # -- Read the optional DDL connection string from a Secret.
-    ddlConnectionStringSecretRef:
-      enabled: false
-      name: ""
-      key: ddlConnectionString
-    # -- Stable NOLOGIN roles assumed after authentication. Configure these
-    # when rotated Substrate credentials change login usernames.
-    runtimeRole: ""
-    ddlRole: ""
+    # -- Read the Substrate read/write connection string from a Secret.
+    # With bundled bootstrap enabled, Kagent renders the fixed Substrate
+    # credentials from the Substrate chart into this Secret.
+    readWriteConnectionStringSecretRef:
+      # -- Use this fixed name for bundled bootstrap; otherwise supply an existing Secret.
+      name: substrate-postgres-readwrite
+      key: readWriteConnectionString
+    # -- Read the owner connection string from a Secret.
+    ownerConnectionStringSecretRef:
+      name: substrate-postgres-owner
+      key: ownerConnectionString
+    # -- Kagent's bundled PostgreSQL creates only the kagent database.
+    database: kagent
+    bootstrap: true
+    # -- Roles assumed by Substrate. Set distinct roles for each BYO install;
+    # Substrate bootstrap requires the fixed defaults.
+    readWriteRole: substrate_readwrite
+    ownerRole: substrate_owner
+    adminSecretRef:
+      name: postgres-admin
+      usernameKey: POSTGRES_USER
+      passwordKey: POSTGRES_PASSWORD
     pool:
       # -- Maximum physical connection lifetime for Substrate's pools.
       # Bounds how long a rotated credential stays in use. Set it longer than the
       # delay before the platform publishes an updated Secret, or connections
       # retire before the new credential arrives. Empty keeps the pgx default,
-      # which never retires a connection and so never picks up a rotation.
+      # which retires connections after one hour.
       maxConnLifetime: ""
   # Grant each agent atespace access to its credential namespace explicitly.
   # HTTPS also requires the egress-mitm-ca-pool Secret in Substrate's namespace.

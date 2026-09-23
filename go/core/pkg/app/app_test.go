@@ -159,6 +159,7 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	t.Setenv("DB_MAX_CONN_IDLE_TIME", "1m")
 	t.Setenv("DB_MAX_CONN_LIFETIME", "10m")
 	t.Setenv("POSTGRES_DATABASE_ROLE", "kagent_app")
+	t.Setenv("POSTGRES_DATABASE_SCHEMA", "kagent_test")
 
 	config := postgresConfigFromEnv("@file:/database/connection-string", true)
 	if config.URL != "@file:/database/connection-string" || !config.VectorEnabled {
@@ -166,6 +167,9 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	}
 	if config.Role != "kagent_app" {
 		t.Fatalf("Role = %q, want kagent_app", config.Role)
+	}
+	if config.Schema != "kagent_test" {
+		t.Fatalf("Schema = %q, want kagent_test", config.Schema)
 	}
 	if config.MaxConns == nil || *config.MaxConns != 8 {
 		t.Fatalf("MaxConns = %v, want 8", config.MaxConns)

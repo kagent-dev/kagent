@@ -23,40 +23,51 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 
 ### Substrate PostgreSQL
 
-Kagent supports three PostgreSQL layouts with embedded Substrate.
+The default install uses one PostgreSQL instance and one `kagent` database.
+Kagent uses the `public` schema by default. Substrate uses the `substrate` schema.
+This identity layout requires a fresh database; upgrading an existing database to it is unsupported.
+When vectors are enabled, `database.postgres.vectorSchema` names the one schema
+that holds the shared pgvector extension (default `public`). All Kagent installs
+using the same database must select that schema. For an external database,
+install pgvector there before running migrations and grant the application role
+`USAGE` on the extension schema. Set `POSTGRES_VECTOR_SCHEMA` to the same value
+when running the database CLI outside the chart.
+When separate from Kagent's table schema, the pgvector schema stays out of its
+normal SQL search path. Kagent qualifies its pgvector type, index operator
+class, and cosine operator references. A shared `extensions` schema may also
+contain other applications' objects. Grant Kagent
+`USAGE` on that schema; reserve `CREATE` for trusted administrators.
 
-1. Share Kagent's bundled PostgreSQL. Kagent and Substrate use the same
-   database with separate schemas; the parent chart creates Substrate's
-   release-scoped connection Secret.
+With `database.postgres.bundled.bootstrap=true`, each controller pod runs identity
+bootstrap on every start, before migrations. Repeated runs create only missing
+identities and do not reset existing passwords. If `database.postgres.vectorEnabled`
+changes from `false` to `true`, the next start installs the `vector` extension in
+`vectorSchema` and then applies pending vector migrations. The default bundled
+PostgreSQL image does not include pgvector; select an image with pgvector installed
+before enabling vectors. With bootstrap disabled or an external database, install
+the extension yourself before enabling vectors.
+
+The install creates separate users and group roles:
+
+| Product access | User | Group role |
+| --- | --- | --- |
+| Kagent | `kagent_user` | `kagent_owner` |
+| Substrate owner | `substrate_admin_user` | `substrate_owner` |
+| Substrate read/write | `substrate_readwrite_user` | `substrate_readwrite` |
+
+Enable Substrate to use this layout:
 
 ```yaml
 substrate:
   enabled: true
 ```
 
-2. Share one external Secret. Helm cannot dynamically copy a parent Secret
-   reference into a dependency, so repeat the same name and key explicitly.
+The chart creates `postgres-admin` for the bundled database. Each control plane uses this Secret before it runs migrations.
+If you supply another administrator Secret, set both `database.postgres.bundled.adminSecretRef` and `substrate.postgres.adminSecretRef` to the same name and keys.
 
-```yaml
-database:
-  postgres:
-    secretRef:
-      name: shared-postgres
-      key: connectionString
-    bundled:
-      enabled: false
-substrate:
-  enabled: true
-  postgres:
-    enabled: false
-    connectionStringSecretRef:
-      enabled: true
-      name: shared-postgres
-      key: connectionString
-```
+The chart also creates three application Secrets. Its default administrator and application passwords are fixed, published values. This bundled bootstrap setup is for development and evaluation, not production. For production, provision unique users and permissions externally, provide connection Secrets, and disable bootstrap. For Substrate, Kagent passes the bundled PostgreSQL Service address and the `kagent` database name to connection-string templates owned by the Substrate chart. Those templates supply Substrate's fixed usernames and passwords.
 
-3. Use separate Kagent, Substrate runtime/DML, and Substrate DDL/maintenance
-   Secrets.
+For an external database, create the users, roles, schemas, and grants yourself, then provide three application connection Secrets:
 
 ```yaml
 database:
@@ -64,64 +75,56 @@ database:
     secretRef:
       name: kagent-postgres
       key: connectionString
-    role: kagent_app
     bundled:
       enabled: false
 substrate:
   enabled: true
   postgres:
     enabled: false
-    schema: substrate
-    connectionStringSecretRef:
-      enabled: true
-      name: substrate-runtime-postgres
-      key: connectionString
-    ddlConnectionStringSecretRef:
-      enabled: true
-      name: substrate-ddl-postgres
-      key: connectionString
-    runtimeRole: substrate_runtime
-    ddlRole: substrate_ddl
+    readWriteConnectionStringSecretRef:
+      name: substrate-postgres-readwrite
+      key: readWriteConnectionString
+    ownerConnectionStringSecretRef:
+      name: substrate-postgres-owner
+      key: ownerConnectionString
+    bootstrap: false
 ```
 
-The DDL role owns the Substrate schema and performs migrations and partition
-maintenance. Substrate grants its runtime role access to migrated tables and
-sequences. Omitting the DDL connection preserves single-connection operation.
+Bundled bootstrap creates only the fixed users, using the same fixed development credentials compiled into each product and rendered into its connection Secrets. It also creates group roles, schemas, memberships, and grants. It does not change existing passwords. Bootstrap rejects a connection Secret whose credentials differ from those fixed defaults.
 
-An inline `database.postgres.url` remains supported, but is fixed for the life
-of the controller process. When embedded Substrate is enabled, the parent chart
-can copy that inline value into its release-scoped Substrate Secret.
+To use externally created users with the bundled database, first create the replacement users and connection Secrets. Then set `database.postgres.bundled.bootstrap=false` and provide `database.postgres.secretRef.name` in the same upgrade. If Substrate is enabled, set `substrate.postgres.bootstrap=false` and provide its owner and read/write Secret references too. The bundled PostgreSQL pod still uses its administrator Secret; neither control plane resets the original users' passwords.
+
+For a BYO database, create these objects before installation. Keep migrations enabled.
+Set `database.postgres.role` to the Kagent owner role and, when Substrate is
+enabled, set `substrate.postgres.ownerRole` and `substrate.postgres.readWriteRole`
+to the roles you provisioned. Use distinct role names and table schemas for
+separate installs sharing one database. Give each install separate logins and
+grant each login membership only in its install's roles. Bundled bootstrap uses
+the fixed role names and requires the default values.
+
+The application uses the same identity SQL that operators can run: [Kagent identity SQL](../go/core/pkg/migrations/identity/bootstrap.sql) and `cmd/ateapi/internal/store/atepg/identity.sql` in the Substrate repository. These files sit beside the migration sources but run separately, as an administrator. Set the transaction-local parameters listed at the top of each file before running it.
+For manual provisioning with custom chart role names, set
+`kagent.bootstrap_owner_role`, `substrate.bootstrap_owner_role`, and
+`substrate.bootstrap_readwrite_role` as transaction-local settings before
+running the applicable SQL file. They default to the fixed development names;
+the bundled binary bootstrap passes those fixed names explicitly.
 
 #### Credential rotation
 
-`database.postgres.secretRef` is mounted through a Secret volume. Kagent
-rereads the connection string before opening each new physical connection;
-existing sessions remain valid until pgx retires them. Set
-`database.postgres.pool.maxConnLifetime` to bound Kagent's turnover time. When
-embedded Substrate shares the Secret, set
-`substrate.postgres.pool.maxConnLifetime` as well to bound its runtime, watch,
-and DDL pools. Keep old and new credentials valid long enough for Kubernetes
-Secret projection and connection turnover.
+An outside process rotates credentials. First, create a new user and grant the applicable group role.
 
-Rotation may change passwords, usernames, and referenced TLS material. For a
-username-changing rotation, set `database.postgres.role` to a stable `NOLOGIN`
-role and grant every incoming login membership before publishing the Secret.
-Set `substrate.postgres.runtimeRole` and `substrate.postgres.ddlRole` the same
-way for embedded Substrate. Neither Kagent nor either Helm chart creates these
-roles or grants membership: database provisioning must create the roles before
-installation, and the credential rotator must grant each incoming login before
-publishing its Secret. Without stable roles, changing a username requires a
-restart. Host, port, fallback targets, and database always require a restart.
-Direct binary deployments use
-`POSTGRES_DATABASE_URL=@file:/absolute/path`; there is no separate `_FILE`
-environment variable.
+Next, update the connection Secret. Kagent and Substrate read the Secret before each new physical connection.
 
-Kagent 1.x removes `database.postgres.urlFile`. Replace:
+Set each pool lifetime to limit old connection use. Keep both users valid during Secret projection and connection replacement.
+
+A host, port, fallback target, or database change requires a restart.
+
+Kagent 1.x removes `database.postgres.url` and `database.postgres.urlFile`. Replace either value:
 
 ```yaml
 database:
   postgres:
-    urlFile: /user-managed/path
+    url: postgresql://user:password@database.example/kagent
 ```
 
 with:

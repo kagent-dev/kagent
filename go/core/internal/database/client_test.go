@@ -104,9 +104,8 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		t.Skip("skipping database test in short mode")
 	}
 
-	// Truncate application tables instead of full down+up migrations.
-	// Full down migration drops and recreates the pgvector extension, which
-	// changes type OIDs and breaks existing pool connections.
+	// Truncate application tables instead of rebuilding the schema while
+	// shared pool connections are active.
 	_, err := sharedDB.Exec(context.Background(), `
 		TRUNCATE TABLE
 			scheduled_run,

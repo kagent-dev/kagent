@@ -51,10 +51,30 @@ func TestInlineSQLPrepares(t *testing.T) {
 				return true
 			}
 			position := positions.Position(call.Pos())
-			literal, ok := call.Args[index].(*ast.BasicLit)
-			require.True(t, ok, "%s: keep SQL literal so schema validation covers it", position)
-			sql, err := strconv.Unquote(literal.Value)
-			require.NoError(t, err)
+			var sql string
+			switch value := call.Args[index].(type) {
+			case *ast.BasicLit:
+				sql, err = strconv.Unquote(value.Value)
+				require.NoError(t, err)
+			case *ast.CallExpr:
+				formatter, ok := value.Fun.(*ast.SelectorExpr)
+				require.True(t, ok, "%s: keep SQL literal so schema validation covers it", position)
+				require.Equal(t, "Sprintf", formatter.Sel.Name, "%s: unsupported SQL expression", position)
+				require.Len(t, value.Args, 3, "%s: expected two vector operators", position)
+				literal, ok := value.Args[0].(*ast.BasicLit)
+				require.True(t, ok, "%s: keep SQL template literal", position)
+				template, unquoteErr := strconv.Unquote(literal.Value)
+				require.NoError(t, unquoteErr)
+				require.Equal(t, 2, strings.Count(template, "%s"), "%s: expected two vector operators", position)
+				for _, arg := range value.Args[1:] {
+					operator, ok := arg.(*ast.SelectorExpr)
+					require.True(t, ok, "%s: expected configured vector operator", position)
+					require.Equal(t, "vectorCosineOperator", operator.Sel.Name, "%s: expected configured vector operator", position)
+				}
+				sql = fmt.Sprintf(template, `OPERATOR("public".<=>)`, `OPERATOR("public".<=>)`)
+			default:
+				require.FailNow(t, fmt.Sprintf("%s: keep SQL literal so schema validation covers it", position))
+			}
 			if !seen[sql] {
 				seen[sql] = true
 				t.Run(fmt.Sprintf("%s:%d", path, position.Line), func(t *testing.T) {

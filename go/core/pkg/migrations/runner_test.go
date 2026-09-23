@@ -71,6 +71,7 @@ func startTestDB(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("get PostgreSQL URL: %v", err)
 	}
+	execSQL(t, dsn, "CREATE EXTENSION vector WITH SCHEMA public")
 	return dsn
 }
 
@@ -231,6 +232,53 @@ func TestRunUpAsStableRole(t *testing.T) {
 	}
 	if owner != "kagent_app" {
 		t.Fatalf("migration table owner = %q, want kagent_app", owner)
+	}
+}
+
+func TestCustomSchemaUsesConfiguredVectorSchema(t *testing.T) {
+	dsn := startTestDB(t)
+	execSQL(t, dsn, `DROP EXTENSION vector; CREATE SCHEMA extensions; CREATE EXTENSION vector WITH SCHEMA extensions`)
+	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
+	if err := RunUp(t.Context(), dsn, sources); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigrated(t.Context(), dsn, sources); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"memory", coreTrackingTable, vectorTrackingTable} {
+		if !testTableExists(t, dsn, "tenant_one."+table) {
+			t.Fatalf("%s was not created in tenant_one", table)
+		}
+		if testTableExists(t, dsn, "public."+table) || testTableExists(t, dsn, "extensions."+table) {
+			t.Fatalf("%s was created outside tenant_one", table)
+		}
+	}
+}
+
+func TestCustomSchemaMustBeAccessible(t *testing.T) {
+	dsn := startTestDB(t)
+	execSQL(t, dsn, `CREATE SCHEMA locked; REVOKE ALL ON SCHEMA locked FROM PUBLIC; CREATE ROLE blocked NOLOGIN`)
+	source := testSource(twoMigrationFS)
+	source.Schema = "locked"
+	if err := RunUpAsRole(t.Context(), dsn, "blocked", []Source{source}); err == nil || !strings.Contains(err.Error(), `migration schema "locked" is not accessible`) {
+		t.Fatalf("RunUpAsRole error = %v", err)
+	}
+	if testTableExists(t, dsn, "public."+source.TrackingTable) || testTableExists(t, dsn, "public.migration_test") {
+		t.Fatal("migration wrote into public")
+	}
+}
+
+func TestPgvectorSchemaMismatchFailsBeforeMigrations(t *testing.T) {
+	dsn := startTestDB(t)
+	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
+	if err := RunUp(t.Context(), dsn, sources); err == nil || !strings.Contains(err.Error(), `installed in schema "public", expected "extensions"`) {
+		t.Fatalf("RunUp error = %v", err)
+	}
+	if err := VerifyMigrated(t.Context(), dsn, sources); err == nil || !strings.Contains(err.Error(), `installed in schema "public", expected "extensions"`) {
+		t.Fatalf("VerifyMigrated error = %v", err)
+	}
+	if testTableExists(t, dsn, "tenant_one."+coreTrackingTable) {
+		t.Fatal("core migration ran before the pgvector schema precheck")
 	}
 }
 
@@ -508,15 +556,42 @@ func TestBuiltinTrackingTables(t *testing.T) {
 	}
 }
 
+func TestBuiltinSourcesInSchema(t *testing.T) {
+	sources := BuiltinSourcesInSchema(true, "kagent", "extensions")
+	for _, source := range sources {
+		if source.Schema != "kagent" {
+			t.Fatalf("source %q schema = %q", source.Name, source.Schema)
+		}
+		if source.VectorSchema != "extensions" {
+			t.Fatalf("source %q vector schema = %q", source.Name, source.VectorSchema)
+		}
+	}
+}
+
 func TestWithSearchPath(t *testing.T) {
-	got, err := withSearchPath("postgres://u:p@host/db?sslmode=disable", "tenant_1")
+	got, err := withSearchPath("postgres://u:p@host/db?sslmode=disable", "tenant_1", "extensions")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "search_path=tenant_1") || !strings.Contains(got, "sslmode=disable") {
-		t.Fatalf("URL = %q", got)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := withSearchPath("mysql://host/db", "tenant_1"); err == nil {
+	if parsed.Query().Get("search_path") != `"tenant_1"` || parsed.Query().Get("kagent.vector_schema") != "extensions" || parsed.Query().Get("sslmode") != "disable" {
+		t.Fatalf("URL query = %q", parsed.RawQuery)
+	}
+	got, err = withSearchPath("postgres://u:p@host/db?kagent.vector_schema=other", "", "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Query().Has("search_path") || parsed.Query().Get("kagent.vector_schema") != "public" {
+		t.Fatalf("URL query = %q", parsed.RawQuery)
+	}
+	if _, err := withSearchPath("mysql://host/db", "tenant_1", "extensions"); err == nil {
 		t.Fatal("withSearchPath accepted MySQL")
 	}
 }

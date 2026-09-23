@@ -25,6 +25,8 @@ import (
 type PostgresConfig struct {
 	URL             string
 	Role            string
+	Schema          string
+	VectorSchema    string
 	VectorEnabled   bool
 	MaxConns        *int32
 	MinConns        *int32
@@ -127,6 +129,21 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 	if err := applyPoolConfig(config, cfg); err != nil {
 		return nil, err
 	}
+	vectorSchema := cfg.VectorSchema
+	if vectorSchema == "" {
+		vectorSchema = "public"
+	}
+	if cfg.VectorEnabled && cfg.Schema == "" && vectorSchema != "public" {
+		return nil, errors.New("database schema is required when pgvector uses a non-public schema")
+	}
+	var searchPath string
+	if cfg.Schema != "" {
+		searchPath = pgx.Identifier{cfg.Schema}.Sanitize()
+		if cfg.Schema != "public" && !cfg.VectorEnabled {
+			searchPath += ", public"
+		}
+		config.ConnConfig.RuntimeParams["search_path"] = searchPath
+	}
 
 	fileBacked := strings.HasPrefix(cfg.URL, fileSourcePrefix)
 	if fileBacked || usesTLS(config.ConnConfig) {
@@ -162,15 +179,37 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 		}
 	}
 
-	if cfg.Role != "" || cfg.VectorEnabled {
+	if cfg.Role != "" || cfg.VectorEnabled || cfg.Schema != "" {
 		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 			if cfg.Role != "" {
 				if _, err := conn.Exec(ctx, "SELECT set_config('role', $1, false)", cfg.Role); err != nil {
 					return fmt.Errorf("assuming PostgreSQL role %q: %w", cfg.Role, err)
 				}
 			}
+			if cfg.Schema != "" {
+				var currentSchema string
+				if err := conn.QueryRow(ctx, "SELECT COALESCE(current_schema(), '')").Scan(&currentSchema); err != nil {
+					return fmt.Errorf("check PostgreSQL schema %q: %w", cfg.Schema, err)
+				}
+				if currentSchema != cfg.Schema {
+					return fmt.Errorf("PostgreSQL schema %q is not accessible (current schema is %q)", cfg.Schema, currentSchema)
+				}
+			}
 			if cfg.VectorEnabled {
-				return pgvectorpgx.RegisterTypes(ctx, conn)
+				if cfg.Schema != "" && vectorSchema != cfg.Schema {
+					if _, err := conn.Exec(ctx, "SELECT set_config('search_path', $1, false)", pgx.Identifier{vectorSchema}.Sanitize()); err != nil {
+						return fmt.Errorf("select pgvector schema %q: %w", vectorSchema, err)
+					}
+				}
+				if err := pgvectorpgx.RegisterTypes(ctx, conn); err != nil {
+					return err
+				}
+				if cfg.Schema != "" && vectorSchema != cfg.Schema {
+					if _, err := conn.Exec(ctx, "SELECT set_config('search_path', $1, false)", searchPath); err != nil {
+						return fmt.Errorf("restore PostgreSQL search path: %w", err)
+					}
+				}
+				return nil
 			}
 			return nil
 		}

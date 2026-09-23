@@ -181,7 +181,7 @@ func Run(ctx context.Context, opts Options) error {
 	dbRole := kagentenv.DatabaseRole.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
-	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
+	sources := append(migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get()), opts.ExtraMigrations...)
 	if kagentenv.SkipMigrations.Get() {
 		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
@@ -194,7 +194,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db)
+	store := database.NewClient(db, kagentenv.DatabaseVectorSchema.Get())
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},
@@ -389,7 +389,13 @@ func envBool(name string) bool {
 }
 
 func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
-	config := &database.PostgresConfig{URL: source, Role: kagentenv.DatabaseRole.Get(), VectorEnabled: vectorEnabled}
+	config := &database.PostgresConfig{
+		URL:           source,
+		Role:          kagentenv.DatabaseRole.Get(),
+		Schema:        kagentenv.DatabaseSchema.Get(),
+		VectorSchema:  kagentenv.DatabaseVectorSchema.Get(),
+		VectorEnabled: vectorEnabled,
+	}
 	if value := kagentenv.DatabaseMaxConns.Get(); value > 0 {
 		maxConns := int32(value)
 		config.MaxConns = &maxConns

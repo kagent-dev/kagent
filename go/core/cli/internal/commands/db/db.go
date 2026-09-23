@@ -62,7 +62,7 @@ func migrationSources(namespace *string) dbmigrate.SourcesFunc {
 		} else if b, ok := clusterVectorEnabled(ctx, *namespace); ok {
 			vectorEnabled = b
 		}
-		return migrations.BuiltinSources(vectorEnabled), nil
+		return migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get()), nil
 	}
 }
 

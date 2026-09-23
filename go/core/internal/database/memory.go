@@ -56,17 +56,17 @@ func (c *Client) StoreAgentMemories(ctx context.Context, memories ...*Memory) er
 // best-effort and cannot fail a successful search.
 func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	normalized := strings.ReplaceAll(agentName, "-", "_")
-	results, err := queryMany(ctx, c.db, `
+	results, err := queryMany(ctx, c.db, fmt.Sprintf(`
 		SELECT id, COALESCE(agent_name, '') AS agent_name, COALESCE(user_id, '') AS user_id,
 		    COALESCE(content, '') AS content, embedding, COALESCE(metadata, '') AS metadata,
 		    COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
 		    expires_at, COALESCE(access_count, 0) AS access_count,
-		    COALESCE(1 - (embedding <=> $1), 0) AS score
+		    COALESCE(1 - (embedding %s $1), 0) AS score
 		FROM memory
 		WHERE (agent_name = $2 OR agent_name = $3) AND user_id = $4
-		ORDER BY embedding <=> $1 ASC
+		ORDER BY embedding %s $1 ASC
 		LIMIT $5
-	`, pgx.RowToStructByName[AgentMemorySearchResult], embedding, &agentName, &normalized, &userID, int32(limit))
+	`, c.vectorCosineOperator, c.vectorCosineOperator), pgx.RowToStructByName[AgentMemorySearchResult], embedding, &agentName, &normalized, &userID, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
