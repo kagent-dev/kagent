@@ -26,138 +26,150 @@ const (
 
 func TestMCPAgentInstanceInteraction(t *testing.T) {
 	t.Parallel()
-	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
-	endpoint := mcpEndpoint(t)
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
+		endpoint := mcpEndpoint(t)
 
-	listed := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name": "list_agent_instances", "arguments": map[string]any{},
-	}, false)
-	instances := listed["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instances"].([]any)
-	found := false
-	for _, item := range instances {
-		if item.(map[string]any)["id"] == fixture.instanceID {
-			found = true
+		listed := mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name": "list_agent_instances", "arguments": map[string]any{},
+		}, false)
+		instances := listed["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instances"].([]any)
+		found := false
+		for _, item := range instances {
+			if item.(map[string]any)["id"] == fixture.instanceID {
+				found = true
+			}
 		}
-	}
-	if !found {
-		t.Fatalf("list_agent_instances omitted %s: %#v", fixture.instanceID, instances)
-	}
+		if !found {
+			t.Fatalf("list_agent_instances omitted %s: %#v", fixture.instanceID, instances)
+		}
 
-	created := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", true)
-	handle, ok := created["taskId"].(string)
-	if !ok || handle == "" {
-		t.Fatalf("task-capable MCP invocation = %#v", created)
-	}
-	completed := waitMCPTask(t, endpoint, handle, "completed")
-	result := completed["result"].(map[string]any)
-	structured := result["structuredContent"].(map[string]any)
-	if !strings.Contains(mcpResultText(result), "The answer is 4.") {
-		t.Fatalf("MCP task result = %#v", result)
-	}
+		created := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", true)
+		handle, ok := created["taskId"].(string)
+		if !ok || handle == "" {
+			t.Fatalf("task-capable MCP invocation = %#v", created)
+		}
+		completed := waitMCPTask(t, endpoint, handle, "completed")
+		result := completed["result"].(map[string]any)
+		structured := result["structuredContent"].(map[string]any)
+		if !strings.Contains(mcpResultText(result), "The answer is 4.") {
+			t.Fatalf("MCP task result = %#v", result)
+		}
 
-	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: a2atype.TaskID(structured["task_id"].(string))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	persisted, err := fixture.client.GetTask(fixture.ctx, request)
-	if err != nil || persisted.GetId() != structured["task_id"] {
-		t.Fatalf("A2A task = %#v, error %v", persisted, err)
-	}
+		request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: a2atype.TaskID(structured["task_id"].(string))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := fixture.client.GetTask(fixture.ctx, request)
+		if err != nil || persisted.GetId() != structured["task_id"] {
+			t.Fatalf("A2A task = %#v, error %v", persisted, err)
+		}
 
-	synchronous := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false)
-	if synchronous["resultType"] != "complete" || !strings.Contains(mcpResultText(synchronous), "The answer is 4.") {
-		t.Fatalf("synchronous MCP result = %#v", synchronous)
-	}
+		synchronous := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false)
+		if synchronous["resultType"] != "complete" || !strings.Contains(mcpResultText(synchronous), "The answer is 4.") {
+			t.Fatalf("synchronous MCP result = %#v", synchronous)
+		}
+	})
 }
 
 func TestMCPAskUserContinuation(t *testing.T) {
 	t.Parallel()
-	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
-	endpoint := mcpEndpoint(t)
-	handle := mcpInvoke(t, endpoint, fixture.instanceID, "Which database should we use for storage?", true)["taskId"].(string)
-	waiting := waitMCPTask(t, endpoint, handle, "input_required")
-	requests := waiting["inputRequests"].(map[string]any)
-	if len(requests) != 1 {
-		t.Fatalf("inputRequests = %#v", requests)
-	}
-	var key string
-	for key = range requests {
-	}
-	mcpCall(t, endpoint, "tasks/update", map[string]any{
-		"taskId": handle,
-		"inputResponses": map[string]any{key: map[string]any{
-			"action": "accept", "content": map[string]any{"response": "PostgreSQL"},
-		}},
-	}, true)
-	completed := waitMCPTask(t, endpoint, handle, "completed")
-	if text := mcpResultText(completed["result"].(map[string]any)); !strings.Contains(text, "Using PostgreSQL") {
-		t.Fatalf("continued MCP result = %q", text)
-	}
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		switch harness.name {
+		case codexE2EHarness, claudeE2EHarness:
+			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
+		}
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+		endpoint := mcpEndpoint(t)
+		handle := mcpInvoke(t, endpoint, fixture.instanceID, "Which database should we use for storage?", true)["taskId"].(string)
+		waiting := waitMCPTask(t, endpoint, handle, "input_required")
+		requests := waiting["inputRequests"].(map[string]any)
+		if len(requests) != 1 {
+			t.Fatalf("inputRequests = %#v", requests)
+		}
+		var key string
+		for key = range requests {
+		}
+		mcpCall(t, endpoint, "tasks/update", map[string]any{
+			"taskId": handle,
+			"inputResponses": map[string]any{key: map[string]any{
+				"action": "accept", "content": map[string]any{"response": "PostgreSQL"},
+			}},
+		}, true)
+		completed := waitMCPTask(t, endpoint, handle, "completed")
+		if text := mcpResultText(completed["result"].(map[string]any)); !strings.Contains(text, "Using PostgreSQL") {
+			t.Fatalf("continued MCP result = %q", text)
+		}
+	})
 }
 
 func TestMCPCancelTask(t *testing.T) {
 	t.Parallel()
-	target := interactionTarget(t)
-	modelURL, started := startBlockingInteractionMock(t)
-	fixture := newInteractionFixture(t, target, modelURL)
-	endpoint := mcpEndpoint(t)
-	handle := mcpInvoke(t, endpoint, fixture.instanceID, "Wait for cancellation", true)["taskId"].(string)
-	select {
-	case <-started:
-	case <-time.After(time.Minute):
-		t.Fatal("runtime did not call the blocking model")
-	}
-	mcpCall(t, endpoint, "tasks/cancel", map[string]any{"taskId": handle}, true)
-	waitMCPTask(t, endpoint, handle, "cancelled")
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		modelURL, started := startBlockingInteractionMock(t)
+		fixture := newInteractionFixture(t, harness, target, modelURL)
+		endpoint := mcpEndpoint(t)
+		handle := mcpInvoke(t, endpoint, fixture.instanceID, "Wait for cancellation", true)["taskId"].(string)
+		select {
+		case <-started:
+		case <-time.After(time.Minute):
+			t.Fatal("runtime did not call the blocking model")
+		}
+		mcpCall(t, endpoint, "tasks/cancel", map[string]any{"taskId": handle}, true)
+		waitMCPTask(t, endpoint, handle, "cancelled")
+	})
 }
 
 func TestMCPCheckpointFork(t *testing.T) {
 	t.Parallel()
-	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
-	endpoint := mcpEndpoint(t)
-	if result := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false); result["resultType"] != "complete" {
-		t.Fatalf("initial invocation = %#v", result)
-	}
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
+		endpoint := mcpEndpoint(t)
+		if result := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false); result["resultType"] != "complete" {
+			t.Fatalf("initial invocation = %#v", result)
+		}
 
-	created := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name":      "create_agent_instance_checkpoint",
-		"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
-	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
-	checkpointID := created["id"].(string)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
-		defer cancel()
-		_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
-		if err != nil && status.Code(err) != codes.NotFound {
-			t.Errorf("delete checkpoint: %v", err)
+		created := mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name":      "create_agent_instance_checkpoint",
+			"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
+		}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
+		checkpointID := created["id"].(string)
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+			defer cancel()
+			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
+			if err != nil && status.Code(err) != codes.NotFound {
+				t.Errorf("delete checkpoint: %v", err)
+			}
+		})
+
+		listed := mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name":      "list_agent_instance_checkpoints",
+			"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
+		}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoints"].([]any)
+		if len(listed) != 1 || listed[0].(map[string]any)["id"] != checkpointID {
+			t.Fatalf("listed checkpoints = %#v", listed)
+		}
+
+		forked := mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name":      "fork_agent_instance",
+			"arguments": map[string]any{"checkpoint_id": checkpointID},
+		}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instance"].(map[string]any)
+		forkID := forked["id"].(string)
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+			defer cancel()
+			_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: forkID})
+			if err != nil && status.Code(err) != codes.NotFound {
+				t.Errorf("delete fork AgentInstance: %v", err)
+			}
+		})
+
+		if result := mcpInvoke(t, endpoint, forkID, "What is 2+2?", false); !strings.Contains(mcpResultText(result), "The answer is 4.") {
+			t.Fatalf("fork invocation = %#v", result)
 		}
 	})
-
-	listed := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name":      "list_agent_instance_checkpoints",
-		"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
-	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoints"].([]any)
-	if len(listed) != 1 || listed[0].(map[string]any)["id"] != checkpointID {
-		t.Fatalf("listed checkpoints = %#v", listed)
-	}
-
-	forked := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name":      "fork_agent_instance",
-		"arguments": map[string]any{"checkpoint_id": checkpointID},
-	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instance"].(map[string]any)
-	forkID := forked["id"].(string)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
-		defer cancel()
-		_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: forkID})
-		if err != nil && status.Code(err) != codes.NotFound {
-			t.Errorf("delete fork AgentInstance: %v", err)
-		}
-	})
-
-	if result := mcpInvoke(t, endpoint, forkID, "What is 2+2?", false); !strings.Contains(mcpResultText(result), "The answer is 4.") {
-		t.Fatalf("fork invocation = %#v", result)
-	}
 }
 
 func mcpEndpoint(t *testing.T) string {
