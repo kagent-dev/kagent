@@ -19,7 +19,7 @@ type SandboxTemplateWorkload struct {
 	Image string `json:"image"`
 }
 
-// SandboxTemplateSpec defines reusable runtime environment configuration.
+// SandboxTemplateSpec defines standalone sandbox environment configuration.
 type SandboxTemplateSpec struct {
 	// Workload selects the immutable runtime image.
 	// +required
@@ -45,7 +45,7 @@ type SandboxTemplateSpec struct {
 // +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.workload.image"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// SandboxTemplate defines shared environment configuration. Creating one does not
+// SandboxTemplate defines standalone sandbox configuration. Creating one does not
 // allocate compute or launch an agent or guest.
 type SandboxTemplate struct {
 	metav1.TypeMeta `json:",inline"`

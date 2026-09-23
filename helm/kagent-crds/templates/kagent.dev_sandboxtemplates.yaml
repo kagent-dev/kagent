@@ -27,7 +27,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          SandboxTemplate defines shared environment configuration. Creating one does not
+          SandboxTemplate defines standalone sandbox configuration. Creating one does not
           allocate compute or launch an agent or guest.
         properties:
           apiVersion:
@@ -48,7 +48,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SandboxTemplateSpec defines reusable runtime environment
+            description: SandboxTemplateSpec defines standalone sandbox environment
               configuration.
             properties:
               env:

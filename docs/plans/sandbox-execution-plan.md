@@ -4,6 +4,12 @@ This sequence implements the [approved API and persistence design](https://gist.
 AgentInstances keep their existing A2A lifecycle. Agents create independent scratch
 sandboxes through MCP; guest execution belongs to those sandboxes.
 
+Harness and SandboxTemplate are independent configuration resources. Harness owns
+the agent image, startup, adapter configuration, environment, Substrate policy,
+and AgentTemplate admission. SandboxTemplate owns the standalone sandbox image,
+environment, and Substrate policy. They may share Go field types and validation
+where semantics match; Harness does not reference or consume SandboxTemplate.
+
 1. **Guest runtime — merged in [#2911](https://github.com/kagent-dev/kagent/pull/2911).**
    Kagent owns the entrypoint and imports the pinned env guest services. Server
    tests run in-process in the existing Go test job.
@@ -12,37 +18,37 @@ sandboxes through MCP; guest execution belongs to those sandboxes.
    list/create/delete operations following HarnessService. Keep the CRD as the
    schema source of truth through StructuredObject. Test validation against a real
    Kubernetes API server and exercise the public RPCs and collection scopes.
-3. **Harness configuration cutover.** Require a same-namespace
-   `sandboxTemplateRef`; move image, environment, and Substrate policy out of
-   Harness. Retain adapter configuration, command/args, and AgentTemplate admission
-   on Harness. Resolve and authorize the reference, watch referenced-template
-   changes, include UID and resolved inputs in immutable revision provenance, and
-   update catalog image summaries, manifests, and all four compilers together.
-   Existing runtime pins and checkpoints must survive edits and deletions.
-4. **Shared runtime persistence.** Add runtime revision/instance bases with typed
+3. **Shared runtime persistence.** Add runtime revision/instance bases with typed
    agent and sandbox extensions in a new migration. Preserve agent lifecycle,
    retry identity, tombstones, and checkpoint/revision retention. Enforce matching
    kinds and exactly one extension transactionally; test migration, admission,
-   retries, deletion, and garbage collection against PostgreSQL.
-5. **Standalone preparation and lifecycle.** Prepare a pinned guest runtime from
+   retries, deletion, and garbage collection against PostgreSQL. Keep Harness and
+   AgentTemplate provenance on agent revisions and SandboxTemplate provenance on
+   sandbox revisions; shared persistence does not couple the configuration APIs.
+4. **Standalone preparation and lifecycle.** Prepare a pinned guest runtime from
    SandboxTemplate, then expose separately authorized Sandbox creation, listing,
    inspection, and deletion with bounded expiration. Establish resource/egress
    policy and uncertain-backend recovery before enabling the new runtime path.
-6. **Guest access and MCP.** Add authenticated process/file APIs scoped to a
+   Track template UID and resolved inputs in each immutable sandbox revision.
+   Template changes prepare new sandbox revisions; existing instances and retries
+   retain their pins. Template deletion must preserve retained runtime inputs.
+5. **Guest access and MCP.** Add authenticated process/file APIs scoped to a
    Sandbox identity, with lifecycle admission and explicit ambiguous-start
    handling. Expose scratch tools through the existing MCP service with verified
    caller identity and delegation. Validate against live Substrate Actors.
 
 ## Catalog boundary
 
-The initial resource reuses Harness's environment and Substrate field types and
-validation. Its workload contains only a digest-pinned image; it has no startup
-command, adapter, or guest toggle. Creating configuration allocates no compute.
-There is no preparation status until a consumer can establish it.
+The initial resource reuses the existing HarnessEnvVar and HarnessSubstratePolicy
+Go types and their validation. Its workload contains only a digest-pinned image;
+it has no startup command, adapter, or guest toggle. Creating configuration
+allocates no compute. There is no preparation status until a consumer can
+establish it.
 
-Harnesses continue to use their current configuration until the cutover in step 3.
-There is no overlay or override precedence between two environment definitions.
-Rename the shared environment and Substrate Go types during that cutover.
+Each resource owns its configuration independently, even where field shapes and
+values coincide. There is no configuration inheritance, Harness cutover, or agent
+runtime package composition in this plan. Renaming shared Go types can be a
+separate mechanical cleanup if needed; it does not change either resource's API.
 
 An illustrative template (replace the image digest before preparing a runtime):
 
