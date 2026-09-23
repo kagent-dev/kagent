@@ -1,8 +1,9 @@
 # Standalone sandbox guest
 
-This image packages `agent-substrate/env/cmd/ate-env-guest` at the version pinned
-in `go/go.mod`. It builds the upstream daemon directly with kagent's dependency
-graph, including the existing Substrate replacement. No AX code is used.
+This image builds kagent's [guest command](cmd/main.go), using the public
+`agent-substrate/env/guest` library at the version pinned in `go/go.mod`. Kagent
+owns the entrypoint, flags, logging, HTTP listener, readiness, and shutdown.
+Upstream provides the gRPC process and filesystem services. No AX code is used.
 
 The image is the first runtime component of the
 [sandbox design](https://gist.github.com/EItanya/8867e70fbde9618e5d7c5432491d2e92). Sandbox
@@ -11,13 +12,17 @@ still need control-plane implementation. AgentInstances do not run this guest.
 
 ## Runtime contract
 
-- The static binary is `/usr/local/bin/ate-env-guest`.
+- The static binary is `/usr/local/bin/kagent-sandbox-guest`.
 - The daemon runs as UID/GID `65532:65532` and starts no agent runtime.
 - Port `80` serves both HTTP `GET /readyz` and plaintext HTTP/2 gRPC.
 - The upstream `ProcessService` and `FileSystemService` protocols are unchanged.
 - The default process working directory and file API root are `/data/workspace`.
 - Process output is spooled under `/data/guest-logs`.
 - Both directories must be writable by the runtime user when mounting `/data`.
+- Flags `--listen`, `--workspace`, and `--log-dir` override these defaults.
+- JSON logs go to stderr; `LOG_LEVEL` selects debug, info (default), warn, or error.
+- SIGINT/SIGTERM stop serving and disconnect active RPCs, including output
+  observers, before cleaning up the guest services and exiting.
 
 The guest is a private runtime endpoint, with no caller authentication or resource
 ownership enforcement. The future kagent sandbox service must authorize and admit
@@ -32,9 +37,9 @@ the static binary and supply their own tools and writable directories:
 ARG GUEST_IMAGE
 FROM ${GUEST_IMAGE} AS guest
 FROM your-workload-image
-COPY --from=guest /usr/local/bin/ate-env-guest /usr/local/bin/ate-env-guest
+COPY --from=guest /usr/local/bin/kagent-sandbox-guest /usr/local/bin/kagent-sandbox-guest
 # Prepare /data/workspace and /data/guest-logs for this image's runtime user.
-ENTRYPOINT ["/usr/local/bin/ate-env-guest"]
+ENTRYPOINT ["/usr/local/bin/kagent-sandbox-guest"]
 CMD ["--listen=:80", "--workspace=/data/workspace", "--log-dir=/data/guest-logs"]
 ```
 
@@ -62,9 +67,9 @@ The tests require Docker and an explicitly selected image. They exercise the rea
 daemon over HTTP/gRPC: chunked binary file transfer, command working directory
 and environment, successful and failed exits, reconnecting to output by offset,
 observer cancellation, explicit process termination, and restart behavior. The
-image build CI runs them against the image it just built. Container tests do not
-establish Substrate router or snapshot compatibility; that requires a live Actor
-integration test when sandbox preparation is implemented.
+dedicated guest integration CI job builds the image and runs them. Container tests
+do not establish Substrate router or snapshot compatibility; that requires a live
+Actor integration test when sandbox preparation is implemented.
 
 ## Upstream semantics
 
@@ -73,7 +78,7 @@ registry even if workspace files survive. Filesystem persistence does not resume
 processes or provide durable process results. `StartProcess` has no idempotency
 key; never blindly retry after an ambiguous response.
 
-The pinned daemon defaults to ten concurrent processes, a one-hour process
+The pinned service defaults to ten concurrent processes, a one-hour process
 timeout, and 10 MiB of output per stream. Output truncation, completed-process
 retention, partial file writes, and termination follow upstream behavior. In
 particular, writes replace the destination directly; an interrupted transfer can

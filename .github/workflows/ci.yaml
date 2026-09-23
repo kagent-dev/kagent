@@ -600,17 +600,29 @@ jobs:
           export BUILDX_BUILDER_NAME
           make build-${{ matrix.image }}
         working-directory: ./
-      - name: Set up Go for guest image tests
-        if: matrix.image == 'sandbox-guest'
-        uses: actions/setup-go@v6
+
+  sandbox-guest-tests:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: kagent-sandbox-guest-tests
+          platforms: linux/amd64
+          nofallback: true
+      - name: Build sandbox guest image
+        run: docker buildx build --load --platform linux/amd64 -t kagent-sandbox-guest:test -f go/sandbox/guest/Dockerfile ./go
       - name: Test sandbox guest image
-        if: matrix.image == 'sandbox-guest'
         working-directory: go
         env:
-          KAGENT_SANDBOX_GUEST_IMAGE: localhost:5001/${{ github.repository_owner }}/kagent/sandbox-guest:${{ env.VERSION }}
+          KAGENT_SANDBOX_GUEST_IMAGE: kagent-sandbox-guest:test
         run: go test -race ./sandbox/guest -run TestE2ESandboxGuest -count=1 -v
 
   go-lint:

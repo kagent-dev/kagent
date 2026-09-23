@@ -118,11 +118,20 @@ func TestE2ESandboxGuest(t *testing.T) {
 
 	t.Run("restart preserves files but not process registry", func(t *testing.T) {
 		writeFile(t, ctx, files, "retained.txt", []byte("retained file"))
-		started, err := processes.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"true"}})
+		started, err := processes.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "printf started; exec sleep 120"}})
 		require.NoError(t, err)
-		waitForProcess(t, ctx, processes, started.ProcessId)
+		stream, err := processes.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{ProcessId: started.ProcessId, Follow: true})
+		require.NoError(t, err)
+		chunk, err := stream.Recv()
+		require.NoError(t, err)
+		require.Equal(t, "started", string(chunk.Data))
 		timeout := 5 * time.Second
 		require.NoError(t, container.Stop(ctx, &timeout))
+		state, err := container.State(ctx)
+		require.NoError(t, err)
+		require.Zero(t, state.ExitCode, "SIGTERM must exit cleanly even with an active output stream")
+		_, err = stream.Recv()
+		require.Error(t, err)
 		require.NoError(t, container.Start(ctx))
 		restarted := connect()
 		require.Equal(t, "retained file", string(readFile(t, ctx, ateenvv1alpha.NewFileSystemServiceClient(restarted), "retained.txt")))

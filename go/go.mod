@@ -488,9 +488,6 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
-tool (
-	github.com/agent-substrate/env/cmd/ate-env-guest
-	sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
-)
+tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
 replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.2.0-beta5
