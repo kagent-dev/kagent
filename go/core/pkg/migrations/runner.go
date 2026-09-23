@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
@@ -44,17 +45,17 @@ type Source struct {
 
 // BuiltinSources returns the built-in migration sources in the default schemas.
 func BuiltinSources(vectorEnabled bool) []Source {
-	return BuiltinSourcesInSchema(vectorEnabled, "kagent", "extensions")
+	return BuiltinSourcesInSchema(vectorEnabled, consts.DefaultPostgresTableSchema, consts.DefaultPgvectorSchema)
 }
 
 // BuiltinSourcesInSchema returns the built-in sources with their table and
 // pgvector schemas selected independently. Empty values use the defaults.
 func BuiltinSourcesInSchema(vectorEnabled bool, schema, vectorSchema string) []Source {
 	if schema == "" {
-		schema = "kagent"
+		schema = consts.DefaultPostgresTableSchema
 	}
 	if vectorSchema == "" {
-		vectorSchema = "extensions"
+		vectorSchema = consts.DefaultPgvectorSchema
 	}
 	sources := []Source{{
 		Name:          "core",

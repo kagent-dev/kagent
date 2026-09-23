@@ -1,5 +1,7 @@
 package env
 
+import "github.com/kagent-dev/kagent/go/core/pkg/consts"
+
 // Core kagent environment variables used by the controller and agent runtime.
 var (
 	LeaderElect = RegisterBoolVar(
@@ -147,14 +149,14 @@ var (
 
 	DatabaseSchema = RegisterStringVar(
 		"POSTGRES_DATABASE_SCHEMA",
-		"kagent",
+		consts.DefaultPostgresTableSchema,
 		"PostgreSQL schema for Kagent tables.",
 		ComponentDatabase,
 	)
 
 	DatabaseVectorSchema = RegisterStringVar(
 		"POSTGRES_VECTOR_SCHEMA",
-		"extensions",
+		consts.DefaultPgvectorSchema,
 		"Schema where the shared pgvector extension is installed.",
 		ComponentDatabase,
 	)

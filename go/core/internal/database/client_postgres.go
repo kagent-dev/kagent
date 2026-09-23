@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 )
 
 // Client persists control-plane state in PostgreSQL. Callers define the narrow
@@ -19,7 +20,7 @@ type Client struct {
 // NewClient wraps an existing PostgreSQL pool without connecting or migrating. The caller
 // owns the pool and must close it. The optional pgvector schema defaults to extensions.
 func NewClient(db *pgxpool.Pool, vectorSchema ...string) *Client {
-	schema := "extensions"
+	schema := consts.DefaultPgvectorSchema
 	if len(vectorSchema) > 0 && vectorSchema[0] != "" {
 		schema = vectorSchema[0]
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
@@ -132,7 +133,7 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 	}
 	vectorSchema := cfg.VectorSchema
 	if vectorSchema == "" {
-		vectorSchema = "extensions"
+		vectorSchema = consts.DefaultPgvectorSchema
 	}
 	if cfg.VectorEnabled && cfg.Schema == "" {
 		return nil, errors.New("database schema is required when pgvector is enabled")
