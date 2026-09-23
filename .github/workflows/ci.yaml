@@ -503,8 +503,12 @@ jobs:
       # What a failed attempt leaves behind: its screenshot and video, and the trace of
       # its retry. The log names the step that timed out; only the trace shows what was
       # on the page under the pointer while it did, and the runner discards it otherwise.
-      - name: Keep the browser suite's evidence of a failed run
-        if: failure()
+      # Kept whether the job failed or a retry passed: a flaky test leaves the job green
+      # and is the case that most needs its trace. A run whose every attempt passed
+      # writes nothing here (Playwright's `.last-run.json` is hidden, and hidden files
+      # are not uploaded), so it keeps no artifact.
+      - name: Keep the browser suite's evidence of a failed attempt
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ui-test-results
