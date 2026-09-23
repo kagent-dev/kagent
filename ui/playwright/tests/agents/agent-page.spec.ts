@@ -152,7 +152,8 @@ test("agents: a conversation is named by the reader, and never renders as a bare
       "cannot start or end with a space",
     );
     await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    // Same arriving-box case as the Save below: the rename modal animates in.
+    await pressOnce(page.getByRole("button", { name: "Cancel" }));
   });
 
   await test.step("5. clearing a name puts it back to being untitled", async () => {
@@ -186,8 +187,11 @@ test("agents: somebody else's conversation is listed, and plainly cannot be open
   await expectSettled(page);
 
   await test.step("1. the toggle and its alert are gone", async () => {
-    await expect(page.getByTestId("instances-all-creators")).toHaveCount(0);
-    await expect(page.getByTestId("instances-own-only")).toHaveCount(0);
+    // Asserted as "there is no such control", not as "two ids are absent": the ids this
+    // used to name have never existed in `src`, so those two assertions could not fail
+    // however the toggle came back.
+    await expect(page.getByRole("switch")).toHaveCount(0);
+    await expect(page.getByText(/created by (others|someone else)/i)).toHaveCount(0);
   });
 
   await test.step("2. everyone's conversations are listed", async () => {

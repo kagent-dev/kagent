@@ -306,7 +306,11 @@ func eventParts(ev a2atype.Event) a2atype.ContentParts {
 
 // renderAssembledText appends newly assembled text; the cumulative projection grows the block in place.
 func (m *chatModel) renderAssembledText() {
-	text := assembledText(m.assembler.Result())
+	text, err := assembledText(m.assembler.Result())
+	if err != nil {
+		m.appendTransportError(err)
+		return
+	}
 	if text == m.projected {
 		return
 	}
@@ -322,7 +326,7 @@ func (m *chatModel) renderAssembledText() {
 }
 
 // assembledText projects agent output; only artifacts carry it, status messages are control-plane.
-func assembledText(result a2atype.SendMessageResult) string {
+func assembledText(result a2atype.SendMessageResult) (string, error) {
 	switch result := result.(type) {
 	case *a2atype.Message:
 		return clia2a.PartsText(result.Parts)
@@ -332,13 +336,17 @@ func assembledText(result a2atype.SendMessageResult) string {
 			if artifact == nil {
 				continue
 			}
-			if text := clia2a.PartsText(artifact.Parts); text != "" {
+			text, err := clia2a.PartsText(artifact.Parts)
+			if err != nil {
+				return "", err
+			}
+			if text != "" {
 				groups = append(groups, text)
 			}
 		}
-		return strings.Join(groups, "\n")
+		return strings.Join(groups, "\n"), nil
 	default:
-		return ""
+		return "", nil
 	}
 }
 
@@ -363,7 +371,10 @@ func (m *chatModel) renderState() {
 	case a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateCanceled:
 		banner := fmt.Sprintf("✗ Task %s.", state)
 		if task.Status.Message != nil {
-			if detail := clia2a.PartsText(task.Status.Message.Parts); strings.TrimSpace(detail) != "" {
+			detail, err := clia2a.PartsText(task.Status.Message.Parts)
+			if err != nil {
+				m.appendTransportError(err)
+			} else if strings.TrimSpace(detail) != "" {
 				banner += " " + detail
 			}
 		}
@@ -386,11 +397,21 @@ func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 		if msg == nil || msg.Role != a2atype.MessageRoleUser {
 			continue
 		}
-		if text := clia2a.PartsText(msg.Parts); strings.TrimSpace(text) != "" {
+		text, err := clia2a.PartsText(msg.Parts)
+		if err != nil {
+			m.appendTransportError(err)
+			continue
+		}
+		if strings.TrimSpace(text) != "" {
 			m.appendUser(text)
 		}
 	}
-	if text := assembledText(task); strings.TrimSpace(text) != "" {
+	text, err := assembledText(task)
+	if err != nil {
+		m.appendTransportError(err)
+		return
+	}
+	if strings.TrimSpace(text) != "" {
 		m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -104,7 +105,13 @@ func main() {
 	if serviceNamespace == "" {
 		serviceNamespace = "default"
 	}
-	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), serviceName, serviceNamespace)
+	// The same identity reaches the resource and every invocation span, so a
+	// consumer reads one contract whichever runtime executed the agent. Model
+	// identity stays on the model spans the ADK emits per call.
+	runtimeTelemetry := tracing.RuntimeTelemetry{
+		Runtime: tracing.RuntimeADKGo, AgentName: serviceName, AgentNamespace: serviceNamespace,
+	}
+	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), runtimeTelemetry)
 	if telErr != nil {
 		logger.Error("failed to initialize ADK telemetry providers; continuing without telemetry export", "error", telErr)
 	} else if telemetryEnabled {
@@ -188,13 +195,18 @@ func main() {
 	}
 
 	stream := agentConfig.GetStream()
-	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
+	executor, err := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
 		RunnerConfig:   runnerConfig,
 		SessionService: sessionService,
 		Stream:         stream,
 		AppName:        appName,
 		Logger:         logger,
+		Output:         agentConfig.Output,
 	})
+	if err != nil {
+		logger.Error("failed to create A2A executor", "error", err)
+		os.Exit(1)
+	}
 
 	// Build the agent card.
 	if agentCard == nil {
@@ -220,6 +232,7 @@ func main() {
 		ShutdownTimeout: 5 * time.Second,
 		Logger:          logger,
 		Agent:           runnerConfig.Agent,
+		Telemetry:       runtimeTelemetry,
 	}, executor)
 	if err != nil {
 		logger.Error("failed to create app", "error", err)

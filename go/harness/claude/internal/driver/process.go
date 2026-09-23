@@ -34,6 +34,7 @@ type ProcessConfig struct {
 	SettingsPath         string
 	PermissionPromptTool string
 	SkillRoot            string
+	PluginDirs           []string
 	Environment          []string
 	MaxEventBytes        int
 	MaxStderrBytes       int
@@ -151,6 +152,9 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		// compiler-selected skills materialized beneath SkillRoot/.claude/skills.
 		args = append(args, "--add-dir", d.config.SkillRoot)
 	}
+	for _, dir := range d.config.PluginDirs {
+		args = append(args, "--plugin-dir", dir)
+	}
 	if turn.ContinuationID != "" {
 		// Resume the Actor's exact root conversation. --continue selects Claude's
 		// latest session and can be redirected by subagents or interrupted attempts.
@@ -221,6 +225,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 }
 
 // traceEnvironment injects the trace context into the environment variables.
+// Claude reads it once at startup, so a turn that is resumed after an approval
+// keeps emitting under the trace of the request that started the process. The
+// resumed A2A segment records a link to that origin rather than reparenting it.
 func traceEnvironment(ctx context.Context, environment []string) []string {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)

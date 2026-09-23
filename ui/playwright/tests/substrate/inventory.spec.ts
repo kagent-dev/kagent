@@ -108,9 +108,8 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(templates).toContainText("kagent/coder-template");
     await expect(templates).toContainText("platform/external-template");
 
-    // The golden actor, beneath the name: it is the snapshot every new actor of this
-    // template is cut from, and the one identifier worth carrying beside the name.
-    await expect(templates).toContainText("golden: actor-golden-001");
+    // The golden Tag identifies the snapshot used to create actors from this template.
+    await expect(templates).toContainText("golden: ate-golden/snap-2026-07-28");
 
     // The rest of what decides where and how a template runs.
     await expect(templates).toContainText("gvisor");
@@ -253,7 +252,24 @@ test("substrate: an empty inventory is shown without errors", async ({
   await loadPage(page, routes.substrate, { scenario: "empty", title: "Substrate" });
   await expectSettled(page);
 
-  await expect(page.getByTestId("substrate-stat-ateapi")).toHaveCount(0);
+  // Said by the two tables it applies to, not by a tile: a tile is for a number that
+  // moves, and an ate-api one read `connected` above that service's own timeout banner.
+  // The tiles are named rather than one absence asserted, an ate-api tile returning
+  // under any other id being the same regression.
+  const tiles = await page
+    .locator('[data-testid^="substrate-stat-"]')
+    .evaluateAll((nodes) =>
+      nodes
+        .map((node) => node.getAttribute("data-testid") ?? "")
+        .filter((id) => !id.endsWith("-value")),
+    );
+  expect(tiles.sort()).toEqual([
+    "substrate-stat-actors",
+    "substrate-stat-pools",
+    "substrate-stat-scope",
+    "substrate-stat-templates",
+    "substrate-stat-workers",
+  ]);
   await expect(page.getByTestId("substrate-inventory-error")).toHaveCount(0);
   await expect(page.getByTestId("substrate-partial")).toHaveCount(0);
 

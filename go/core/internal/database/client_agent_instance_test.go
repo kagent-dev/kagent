@@ -325,6 +325,10 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("snapshot lookup by another user = %v, want not found", err)
 	}
+	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", checkpoint.GetName())
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too early"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a creating checkpoint = %v, want not found", err)
+	}
 	if checkpoint.HeadTaskId != "task-1" || snapshot == nil ||
 		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
@@ -351,6 +355,18 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("fork by another user = %v, want not found", err)
 	}
+	renamed, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", renamed.GetName())
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "mallory", "stolen"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename by another user = %v, want not found", err)
+	}
+	stored, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", stored.GetName())
+	restored, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "")
+	require.NoError(t, err)
+	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", restored.GetName())
 	retained, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
 	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
@@ -365,6 +381,9 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.GetId(), "", "", "tag creation failed")
 	if err != nil || failed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
+	}
+	if _, err := client.UpdateCheckpointName(ctx, failed.GetId(), "alice", "doomed"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a failed checkpoint = %v, want not found", err)
 	}
 	if err := client.DeleteAgentInstance(ctx, instanceID); err != nil {
 		t.Fatal(err)
@@ -387,6 +406,9 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleting checkpoint is publicly visible: %v", err)
 	}
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too late"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a deleting checkpoint = %v, want not found", err)
+	}
 	deletingSnapshot, deletingTagUID, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
 	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
 		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
@@ -394,6 +416,25 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestReserveAgentInstanceCheckpointRejectsCorruptSource(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	client := NewClient(db)
+	instanceID := "99999999-9999-4999-8999-999999999999"
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)
+	`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'instance-request', $1, $1, 'AGENT_INSTANCE_STATE_READY', $2)
+	`, instanceID, []byte{0xff}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instanceID}, "alice", "checkpoint-request")
+	require.ErrorContains(t, err, "decode AgentInstance")
 }
 
 func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
@@ -464,6 +505,8 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	_, err = client.UpdateAgentInstanceName(ctx, source.GetId(), "alice", "Renamed after checkpoint")
 	require.NoError(t, err)
+	_, err = client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
+	require.NoError(t, err)
 
 	// Advancing the same task must not mutate the saved checkpoint projection.
 	first.Status.Message = a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("source advanced"))
@@ -485,7 +528,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 
 	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)
-	require.Equal(t, "Namespace explanation", fork.GetName())
+	require.Equal(t, "Before the detour", fork.GetName())
 	if err != nil || !created {
 		t.Fatalf("ForkAgentInstance() = %+v, created %v, error %v", fork, created, err)
 	}
@@ -549,10 +592,19 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
-	require.Equal(t, "Namespace explanation", fork2.GetName())
+	require.Equal(t, "77777777-7777-4777-8777-777777777777-task-1", fork2.GetName())
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}
+	// Deleting a fork releases its checkpoint pin but preserves its original
+	// request identity, even after that checkpoint itself has been removed.
+	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	require.NoError(t, err)
+	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"))
+	_, _, err = client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", uuid.NewString())
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	_, _, err = client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-1", uuid.NewString())
+	require.ErrorIs(t, err, ErrIdempotencyConflict)
 }
 
 func TestAgentInstanceCreateAndTransitions(t *testing.T) {
@@ -1032,4 +1084,102 @@ func TestAgentInstanceShareCreationRequiresOwner(t *testing.T) {
 	share.Id = uuid.NewString()
 	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("missing-token"), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestDeletedInstancePreservesRequestIdentityAndHidesAccess(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original")
+	instance, _, err := client.CreateAgentInstance(ctx, request, "stable-request")
+	require.NoError(t, err)
+	instance, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime.example")
+	require.NoError(t, err)
+	task := newAgentInstanceTask("task", "message")
+	task.ContextID = instance.ContextId
+	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("hash"), task)
+	require.NoError(t, err)
+	task.Status.State = a2a.TaskStateInputRequired
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
+	share := &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: instance.Id, Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE}
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("token"), "alice")
+	require.NoError(t, err)
+	require.NoError(t, client.DeleteAgentInstance(ctx, instance.Id))
+	require.NoError(t, client.DeleteAgentInstance(ctx, instance.Id))
+	_, err = client.GetAgentInstanceByID(ctx, instance.Id)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.GetAgentInstance(ctx, instance.Id, "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{AllUsers: true, Limit: 10})
+	require.NoError(t, err)
+	require.Empty(t, instances)
+	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "resurrect")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, []byte("token"))
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("new token"), "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.GetAgentInstanceTask(ctx, instance.Id, string(task.ID), nil)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.GetActiveAgentInstanceTask(ctx, instance.Id)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("hash"), task)
+	require.ErrorIs(t, err, ErrNotFound, "even task retries must respect deletion")
+	reply := a2a.NewMessageForTask(a2a.MessageRoleUser, task, a2a.NewTextPart("reply"))
+	reply.ID = "reply"
+	_, err = client.ContinueAgentInstanceTask(ctx, instance.Id, []byte("reply hash"), reply)
+	require.ErrorIs(t, err, ErrNotFound)
+	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil), ErrNotFound)
+	request.Id = uuid.NewString()
+	_, created, err := client.CreateAgentInstance(ctx, request, "stable-request")
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	require.False(t, created)
+	request.AgentTemplate.Name = "different"
+	_, _, err = client.CreateAgentInstance(ctx, request, "stable-request")
+	require.ErrorIs(t, err, ErrIdempotencyConflict)
+	// Tombstones release the revision FK and no longer block runtime cleanup.
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	_, err = client.BeginRuntimeRevisionDeletion(ctx, "revision")
+	require.NoError(t, err)
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", revisions[0].ActorTemplateUID))
+}
+
+func TestShareCreationRacesInstanceDeletion(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	for range 8 {
+		instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+		require.NoError(t, err)
+		token := []byte(uuid.NewString())
+		share := &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: instance.Id, Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY}
+		start := make(chan struct{})
+		shared, deleted := make(chan error, 1), make(chan error, 1)
+		go func() {
+			<-start
+			_, err := client.CreateAgentInstanceShare(ctx, share, token, "alice")
+			shared <- err
+		}()
+		go func() {
+			<-start
+			deleted <- client.DeleteAgentInstance(ctx, instance.Id)
+		}()
+		close(start)
+		shareErr, deleteErr := <-shared, <-deleted
+		require.NoError(t, deleteErr)
+		if shareErr != nil {
+			require.ErrorIs(t, shareErr, ErrNotFound)
+		}
+		_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, token)
+		require.ErrorIs(t, err, ErrNotFound)
+		// A revoked share must actually be removed, releasing its unique token hash.
+		other, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+		require.NoError(t, err)
+		share.AgentInstanceId = other.Id
+		_, err = client.CreateAgentInstanceShare(ctx, share, token, "alice")
+		require.NoError(t, err)
+	}
 }

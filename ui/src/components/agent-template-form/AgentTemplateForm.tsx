@@ -24,6 +24,7 @@ import {
 import {
   draftProblems,
   type AgentTemplateDraft,
+  type OutputSource,
 } from "./agentTemplateDraft";
 
 const { Text, Paragraph } = Typography;
@@ -157,6 +158,11 @@ export function AgentTemplateForm({
     );
     return (harnesses.data ?? []).filter((harness) => admitsLabels(harness, labels));
   }, [draft.labels, harnesses.data]);
+
+  const structuredOutputUnsupportedBy = useMemo(
+    () => wouldAdmit.filter((harness) => harness.runtime !== "kagent"),
+    [wouldAdmit],
+  );
 
   /*
    * With one harness on the cluster, a new template is labelled for it without being
@@ -340,6 +346,83 @@ export function AgentTemplateForm({
                 />
               </Space>
             )}
+          </Space>
+        </Form.Item>
+
+        <Form.Item
+          label="Output format"
+          extra="Structured output constrains only the successful final answer when this template runs as a root agent. It currently requires a kagent harness."
+        >
+          <Space orientation="vertical" size={8} css={{ display: "flex" }}>
+            <div data-testid="template-form-output-source">
+              <Select
+                css={{ minWidth: 240 }}
+                value={draft.outputSource}
+                onChange={(value: OutputSource) => set("outputSource", value)}
+                options={[
+                  { value: "text", title: "Text", label: "Text" },
+                  {
+                    value: "inline",
+                    title: "Inline JSON Schema",
+                    label: "Inline JSON Schema",
+                  },
+                  {
+                    value: "configMap",
+                    title: "JSON Schema from a ConfigMap",
+                    label: "JSON Schema from a ConfigMap",
+                  },
+                ]}
+                {...readOnlySelect}
+              />
+            </div>
+
+            {draft.outputSource === "inline" ? (
+              <Input.TextArea
+                data-testid="template-form-output-schema"
+                value={draft.outputSchema}
+                onChange={(event) => set("outputSchema", event.target.value)}
+                autoSize={{ minRows: readOnly ? 1 : 8, maxRows: 20 }}
+                placeholder={placeholder(
+                  '{\n  "type": "object",\n  "properties": {\n    "status": { "type": "string" }\n  },\n  "required": ["status"]\n}',
+                )}
+                css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+                {...readOnlyInput}
+              />
+            ) : draft.outputSource === "configMap" ? (
+              <Space size={8}>
+                <Input
+                  data-testid="template-form-output-configmap"
+                  value={draft.outputSchemaConfigMap}
+                  onChange={(event) =>
+                    set("outputSchemaConfigMap", event.target.value)
+                  }
+                  placeholder={placeholder("ConfigMap name")}
+                  {...readOnlyInput}
+                />
+                <Input
+                  data-testid="template-form-output-key"
+                  value={draft.outputSchemaKey}
+                  onChange={(event) => set("outputSchemaKey", event.target.value)}
+                  placeholder={placeholder("Key")}
+                  {...readOnlyInput}
+                />
+              </Space>
+            ) : readOnly ? (
+              none("Successful final answers are returned as text.")
+            ) : null}
+
+            {draft.outputSource !== "text" &&
+            structuredOutputUnsupportedBy.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                data-testid="template-form-output-compatibility"
+                title="Some matching harnesses do not support structured output"
+                description={`${structuredOutputUnsupportedBy
+                  .map((harness) => harness.name)
+                  .join(", ")} will report this template as incompatible. The controller remains the source of truth for compatibility.`}
+              />
+            ) : null}
           </Space>
         </Form.Item>
 

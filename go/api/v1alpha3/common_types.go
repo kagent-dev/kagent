@@ -29,6 +29,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// ConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
+type ConfigMapKeyReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Key string `json:"key"`
+}
+
 // FromNamespaces specifies namespace from which references to this resource are allowed.
 // This follows the same pattern as Gateway API's cross-namespace route attachment.
 // See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment

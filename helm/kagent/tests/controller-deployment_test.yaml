@@ -314,6 +314,30 @@ tests:
           path: data.WATCH_NAMESPACES
           value: "explicit-ns"
 
+  - it: should derive watch namespaces from global.watchNamespaces, install namespace included
+    template: controller-configmap.yaml
+    set:
+      global:
+        watchNamespaces:
+          - team-a
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "NAMESPACE,team-a"
+
+  - it: should watch all namespaces when an explicit empty rbac.namespaces overrides the global
+    template: controller-configmap.yaml
+    set:
+      rbac:
+        namespaces: []
+      global:
+        watchNamespaces:
+          - team-a
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: ""
+
   - it: should set podAnnotations
     template: controller-deployment.yaml
     set:

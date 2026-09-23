@@ -2,24 +2,31 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
+	"slices"
+	"strings"
 	"time"
 
 	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
 )
 
 const (
@@ -33,21 +40,33 @@ type KAgentExecutorConfig struct {
 	Stream         bool
 	AppName        string
 	Logger         *slog.Logger
+	Output         *apiadk.OutputConfig
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
 // A2A executor. Event conversion and artifact streaming are delegated to ADK.
 type KAgentExecutor struct {
-	builtin        a2asrv.AgentExecutor
-	sessionService adksession.Service
-	appName        string
-	logger         *slog.Logger
+	builtin                 a2asrv.AgentExecutor
+	sessionService          adksession.Service
+	appName                 string
+	logger                  *slog.Logger
+	structuredOutputEnabled bool
+}
+
+type structuredOutput struct {
+	schema *jsonschema.Resolved
+	sha256 string
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
 
-// NewKAgentExecutor creates a KAgentExecutor from config.
-func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
+// NewKAgentExecutor creates a KAgentExecutor from config. It returns an error if
+// the configured output schema cannot be prepared for runtime validation.
+func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
+	output, err := resolveStructuredOutput(cfg.Output)
+	if err != nil {
+		return nil, err
+	}
 	var runConfig adkagent.RunConfig
 	if cfg.Stream {
 		runConfig.StreamingMode = adkagent.StreamingModeSSE
@@ -56,11 +75,18 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	if cfg.SessionService != nil {
 		runnerConfig.SessionService = cfg.SessionService
 	}
+	if runnerConfig.Agent == nil {
+		return nil, fmt.Errorf("root agent is required")
+	}
+	rootName := runnerConfig.Agent.Name()
+	if rootName == "" {
+		return nil, fmt.Errorf("root agent name is required")
+	}
 	builtin := adka2a.NewExecutor(adka2a.ExecutorConfig{
 		RunnerConfig:       runnerConfig,
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
-		GenAIPartConverter: genAIPartConverter,
+		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
@@ -75,17 +101,105 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 				}
 				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
-			return nil
+			return transformStructuredOutput(output, rootName, event, processed)
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
 	})
 
 	return &KAgentExecutor{
-		builtin:        builtin,
-		sessionService: runnerConfig.SessionService,
-		appName:        cfg.AppName,
-		logger:         cfg.Logger.With("component", "kagent-executor"),
+		builtin:                 builtin,
+		sessionService:          runnerConfig.SessionService,
+		appName:                 cfg.AppName,
+		logger:                  cfg.Logger.With("component", "kagent-executor"),
+		structuredOutputEnabled: output != nil,
+	}, nil
+}
+
+// structuredOutputPartConverter drops partial root output before upstream ADK
+// creates an A2A artifact. A structured response is not useful until it is a
+// complete JSON value, and publishing fragments could persist invalid JSON.
+// Events from tools and sub-agents retain the normal converter behavior.
+func structuredOutputPartConverter(output *structuredOutput, rootName string) adka2a.GenAIPartConverter {
+	return func(ctx context.Context, event *adksession.Event, part *genai.Part) (*a2atype.Part, error) {
+		if output != nil && event != nil && event.Author == rootName && event.Partial {
+			return nil, nil
+		}
+		return genAIPartConverter(ctx, event, part)
 	}
+}
+
+func transformStructuredOutput(output *structuredOutput, rootName string, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
+	if output == nil || event.Author != rootName {
+		return nil
+	}
+	// ADK treats interruption and skip-summarization events as final responses so
+	// the current agent loop stops. They are not final structured results.
+	if !event.IsFinalResponse() || len(event.LongRunningToolIDs) > 0 || event.Actions.SkipSummarization {
+		return nil
+	}
+	switch event.FinishReason {
+	case "", genai.FinishReasonUnspecified, genai.FinishReasonStop:
+	default:
+		return fmt.Errorf("output_validation_failed: root agent did not complete structured output")
+	}
+	value, err := finalStructuredOutput(event)
+	if err != nil {
+		return err
+	}
+	if err := output.schema.Validate(value); err != nil {
+		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
+	}
+	if processed == nil || processed.Artifact == nil {
+		return fmt.Errorf("output_validation_failed: root agent produced no result artifact")
+	}
+	part := apia2a.NewStructuredOutputPart(value, output.sha256)
+	processed.Artifact.Parts = a2atype.ContentParts{part}
+	return nil
+}
+
+// finalStructuredOutput returns ADK's parsed output when available. Normal A2A
+// chat execution does not run the workflow-node wrapper that populates
+// Event.Output, so in that path the final model text is decoded here before it
+// is validated against the canonical JSON Schema.
+func finalStructuredOutput(event *adksession.Event) (any, error) {
+	if event.Output != nil {
+		return event.Output, nil
+	}
+	if event.Content == nil {
+		return nil, fmt.Errorf("output_validation_failed: root agent produced no structured value")
+	}
+	var text strings.Builder
+	for _, part := range event.Content.Parts {
+		if part == nil || part.Thought {
+			continue
+		}
+		text.WriteString(part.Text)
+	}
+	if strings.TrimSpace(text.String()) == "" {
+		return nil, fmt.Errorf("output_validation_failed: root agent produced no structured value")
+	}
+	var value any
+	if err := json.Unmarshal([]byte(text.String()), &value); err != nil {
+		return nil, fmt.Errorf("output_validation_failed: root agent output is not valid JSON")
+	}
+	return value, nil
+}
+
+// resolveStructuredOutput compiles the configured JSON Schema once so every
+// execution can validate its final value with the same immutable validator.
+func resolveStructuredOutput(config *apiadk.OutputConfig) (*structuredOutput, error) {
+	if config == nil {
+		return nil, nil
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(config.JSONSchema, &schema); err != nil {
+		return nil, fmt.Errorf("decode output schema: %w", err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output schema: %w", err)
+	}
+	return &structuredOutput{schema: resolved, sha256: config.SHA256}, nil
 }
 
 // UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the
@@ -133,10 +247,16 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
+		// The invocation span started before this executor ran, so the request
+		// identity the span processor stamps on descendant spans has to be
+		// recorded on it directly.
+		resumed := reqCtx.StoredTask != nil &&
+			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
+		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
 		spanAttributes := map[string]string{
-			"kagent.user_id":         userID,
-			"gen_ai.task.id":         string(reqCtx.TaskID),
-			"gen_ai.conversation.id": sessionID,
+			"kagent.user_id":                userID,
+			"gen_ai.task.id":                string(reqCtx.TaskID),
+			tracing.AttributeConversationID: sessionID,
 		}
 		if e.appName != "" {
 			spanAttributes["kagent.app_name"] = e.appName
@@ -179,7 +299,26 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			reqCtx.Message = resumeMessage
 		}
 
+		structuredResultEmitted := false
 		for event, err := range e.builtin.Execute(ctx, reqCtx) {
+			// Mark that a structured result has been emitted
+			if update, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && update.Artifact != nil &&
+				slices.ContainsFunc(update.Artifact.Parts, apia2a.IsStructuredOutputPart) {
+				structuredResultEmitted = true
+			}
+			// If the event is a task status update event and the status is completed,
+			// but no structured result has been emitted, mark the status as failed with a message
+			// indicating that the root agent produced no result artifact.
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok &&
+				err == nil && e.structuredOutputEnabled && !structuredResultEmitted &&
+				update.Status.State == a2atype.TaskStateCompleted {
+				update.Status.State = a2atype.TaskStateFailed
+				update.Status.Message = a2atype.NewMessageForTask(
+					a2atype.MessageRoleAgent,
+					update,
+					a2atype.NewTextPart("output_validation_failed: root agent produced no result artifact"),
+				)
+			}
 			// If the event is a task status update event and the status is input required, build the HITL status message
 			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok &&
 				update.Status.State == a2atype.TaskStateInputRequired && update.Status.Message != nil {

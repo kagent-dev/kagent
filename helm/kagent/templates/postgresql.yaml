@@ -53,7 +53,7 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) ($pg.podLabels | default dict) (include "kagent.selectorLabels" . | fromYaml) (dict "app.kubernetes.io/component" "database") }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" $) }}{{- . | nindent 6 }}{{- end }}
       serviceAccountName: {{ $fullname }}
       {{- with $pg.podSecurityContext }}
       securityContext:
@@ -74,7 +74,7 @@ spec:
       containers:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
-          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" $ "local" $pg.image.pullPolicy) }}
           {{- with $pg.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}

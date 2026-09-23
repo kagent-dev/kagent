@@ -218,6 +218,16 @@ const INPUTS = {
     name: "Forked from a checkpoint by the fixture suite",
   },
 
+  /*
+   * The seeded boundary again. The disposable one is deleted below, and a rename
+   * racing that delete would fail on a row that is legitimately gone; renaming the
+   * seeded one only changes what the concurrent fork ends up titled.
+   */
+  "agentInstances.checkpoints.rename": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    name: "Renamed by the fixture suite",
+  },
+
   // The disposable boundary: deleting the seeded one would race the fork case above.
   "agentInstances.checkpoints.delete": { checkpointId: DISPOSABLE_CHECKPOINT.id },
 

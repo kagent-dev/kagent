@@ -229,7 +229,7 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		case <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
 				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.Failure == nil && golden.GetGoldenSnapshot() == nil {
+				if state.Failure == nil && golden.GetGoldenTag() == nil {
 					r.pairs.Add(state.ResourceName())
 				}
 			}
@@ -312,9 +312,10 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
 		SourceSnapshot: state.Revision.Provenance, AgentCard: state.Revision.AgentCard,
 		EgressDestinations:    state.Revision.EgressDestinations,
+		Credentials:           state.Revision.Credentials,
 		ActorTemplateAtespace: observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
-	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() != nil
+	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {
 		return fmt.Errorf("store runtime revision %s: %w", state.RevisionID, err)
 	}

@@ -745,7 +745,7 @@ def test_azure_openai_client_with_tls():
 
     with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
-            with mock.patch("kagent.adk.models._openai.AsyncAzureOpenAI") as mock_azure_openai:
+            with mock.patch("kagent.adk.models._azure.AsyncAzureOpenAI") as mock_azure_openai:
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                 mock_create_ssl.return_value = mock_ssl_context
                 mock_httpx_instance = mock.MagicMock()

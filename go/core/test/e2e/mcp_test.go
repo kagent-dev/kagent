@@ -97,8 +97,9 @@ func TestMCPAskUserContinuation(t *testing.T) {
 
 func TestMCPCancelTask(t *testing.T) {
 	t.Parallel()
+	target := interactionTarget(t)
 	modelURL, started := startBlockingInteractionMock(t)
-	fixture := newInteractionFixture(t, interactionTarget(t), modelURL)
+	fixture := newInteractionFixture(t, target, modelURL)
 	endpoint := mcpEndpoint(t)
 	handle := mcpInvoke(t, endpoint, fixture.instanceID, "Wait for cancellation", true)["taskId"].(string)
 	select {

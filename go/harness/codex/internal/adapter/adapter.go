@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -48,11 +49,15 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
 	if cfg.SkillResources != nil {
-		if _, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
+		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
 			Skills:   filepath.Join(codexHome, "skills"),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
+		}
+		if len(materialized.ClaudeFormatPluginRoots()) > 0 {
+			return nil, fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 		}
 	}
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
@@ -66,6 +71,9 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
 	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
+	// The native runtime inherits the compiled identity through the standard
+	// resource variable, so no user-supplied marker is required.
+	environment = tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.ChildResource())
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {

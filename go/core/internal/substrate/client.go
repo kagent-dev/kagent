@@ -144,21 +144,11 @@ func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.Act
 	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
 }
 
-// DeleteActorTemplate also removes the template's golden Actor. Substrate
-// documents that behavior but does not implement it yet.
-func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error {
+// DeleteActorTemplate delegates golden Actor and Tag cleanup to Substrate.
+func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	_, err := c.ControlClient.DeleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
-	if err != nil && status.Code(err) != codes.NotFound {
-		return err
-	}
-	// ponytail: this two-RPC cleanup cannot share Substrate's template lease;
-	// remove it when DeleteActorTemplate fulfills its golden-Actor contract.
-	_, err = c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
-		Actor:    actorRef("ate-golden", uid),
-		AnyState: true,
-	})
 	if status.Code(err) == codes.NotFound {
 		return nil
 	}

@@ -61,8 +61,6 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if err != nil {
 		return nil, err
 	}
-	// ponytail: scope one connection to one public RPC until gateway traffic
-	// justifies a lifecycle-aware per-instance connection pool.
 	return a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{{
 		URL:             d.target,
 		ProtocolBinding: a2atype.TransportProtocolGRPC,

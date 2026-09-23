@@ -1,6 +1,7 @@
 {{- include "kagent.rbac.validate" . -}}
-{{- if .Values.rbac.namespaces }}
-{{- range $namespace := (.Values.rbac.namespaces | uniq) }}
+{{- $rbacNamespaces := include "kagent.rbacNamespaces" . | fromJsonArray }}
+{{- if $rbacNamespaces }}
+{{- range $namespace := $rbacNamespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

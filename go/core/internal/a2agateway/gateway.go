@@ -102,7 +102,9 @@ type Gateway struct {
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
 // New returns the upstream A2A handler independently of any listener.
-// ponytail: coordination is process-local; multiple replicas need a durable coordinator.
+// Coordination is process-local.
+// TODO: serialize dispatch, cancellation, and quiescence through durable instance
+// ownership before enabling multiple gateway replicas.
 func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, workflow instanceWorkflow, gatewayURL string) a2asrv.RequestHandler {
 	return newGateway(store, authorizer, dialer, workflow, gatewayURL, processRuntimeCoordinator)
 }

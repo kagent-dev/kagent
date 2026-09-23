@@ -60,6 +60,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -216,11 +218,21 @@ func Run(ctx context.Context, opts Options) error {
 		// Forbidden response without a failing Namespace informer blocking startup.
 		managerClientOptions.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Namespace{}}}
 	}
+	metricsOptions := metricsserver.Options{
+		BindAddress:   metricsBindAddress(),
+		SecureServing: kagentenv.MetricsSecure.Get(),
+	}
+	if metricsOptions.SecureServing {
+		// SecureServing alone only encrypts. The filter authenticates the scraper
+		// with a TokenReview and authorizes it with a SubjectAccessReview on the
+		// /metrics nonResourceURL.
+		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
 		Client:                  managerClientOptions,
-		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		Metrics:                 metricsOptions,
 		LeaderElection:          kagentenv.LeaderElect.Get(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
@@ -308,10 +320,15 @@ func Run(ctx context.Context, opts Options) error {
 	})
 	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
 	server, err := grpcserver.New(grpcserver.Config{
-		MethodPolicies:        policies,
-		RegisterServices:      opts.GRPCServices,
-		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
-		Reflection:            envBool("GRPC_REFLECTION"),
+		MethodPolicies:   policies,
+		RegisterServices: opts.GRPCServices,
+		BindAddress:      env("HTTP_BIND_ADDRESS", ":8083"),
+		Reflection:       envBool("GRPC_REFLECTION"),
+		// controller-runtime's registry, which the manager's metrics server
+		// serves. Left nil, newServerMetrics builds the interceptors' counters
+		// and registers them nowhere, so every gRPC call is measured and the
+		// measurement reaches no scrape.
+		Registerer:            crmetrics.Registry,
 		Authenticator:         authenticator,
 		ShareStore:            store,
 		ModelService:          models,
@@ -367,6 +384,16 @@ func env(name, fallback string) string {
 func envBool(name string) bool {
 	value, _ := strconv.ParseBool(os.Getenv(name))
 	return value
+}
+
+// metricsBindAddress resolves METRICS_BIND_ADDRESS. controller-runtime reads an
+// empty address as "unset" and falls back to :8080, so an empty value would
+// serve metrics on a port nobody asked for. "0" disables the metrics server.
+func metricsBindAddress() string {
+	if address := kagentenv.MetricsBindAddress.Get(); address != "" {
+		return address
+	}
+	return "0"
 }
 
 func namespaces(value string) []string {

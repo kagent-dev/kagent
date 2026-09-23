@@ -5,6 +5,7 @@ import { ArrowLeft, CalendarClock, ChevronsDownUp, ChevronsUpDown, ExternalLink,
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { invoke } from "@/api/operations";
+import { randomId } from "@/api/randomId";
 import { useApiResource } from "@/api/hooks/useApiResource";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -133,7 +134,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
         await invoke("scheduledRuns.update", { scheduledRunId: id, etag: schedule.etag, config: { ...config, paused: !config.paused } });
       } else {
         // Retained across a failed retry so it cannot queue a second execution.
-        const requestId = triggerRequestId ?? crypto.randomUUID();
+        const requestId = triggerRequestId ?? randomId();
         setTriggerRequestId(requestId);
         await invoke("scheduledRuns.trigger", { scheduledRunId: id, requestId });
         setTriggerRequestId(undefined);

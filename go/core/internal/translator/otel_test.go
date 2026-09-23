@@ -40,6 +40,11 @@ func TestTelemetryConfigFromProcess(t *testing.T) {
 	}; !reflect.DeepEqual(got.TraceEnvironment(), want) {
 		t.Errorf("trace environment = %#v, want %#v", got.TraceEnvironment(), want)
 	}
+	// The ADK runtimes read a plain true as log records only, so capture on is
+	// rendered in the form that records span attributes.
+	if capture, want := got.CaptureEnvironment(), (corev1.EnvVar{Name: "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", Value: "SPAN_ONLY"}); capture != want {
+		t.Errorf("capture environment = %#v, want %#v", capture, want)
+	}
 	if want := []corev1.EnvVar{
 		{Name: "OTEL_LOGGING_ENABLED", Value: "true"},
 		{Name: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", Value: "http://generic:4318/otel/v1/logs"},
@@ -61,6 +66,11 @@ func TestTelemetryConfigFromProcessKeepsSignalsIndependent(t *testing.T) {
 	}
 	if got.Traces.Enabled || got.TraceEnvironment() != nil || got.Traces.Hostname != "" || !got.Logs.Enabled {
 		t.Fatalf("telemetry = %#v", got)
+	}
+	// The capture decision is rendered even when the controller exports no
+	// traces, so a runtime cannot be handed a different one.
+	if capture := got.CaptureEnvironment(); capture.Value != "false" {
+		t.Fatalf("capture environment = %#v, want false", capture)
 	}
 }
 
@@ -124,6 +134,7 @@ func TestOwnsTelemetryEnvironment(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_PROTOCOL",
 		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
 		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
 	} {
 		if !translator.OwnsTelemetryEnvironment(name) {
 			t.Errorf("OwnsTelemetryEnvironment(%q) = false", name)
