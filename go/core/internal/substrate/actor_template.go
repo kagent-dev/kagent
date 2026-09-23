@@ -7,6 +7,7 @@ import (
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"google.golang.org/protobuf/proto"
@@ -72,14 +73,14 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
+	sandboxConfig, err := sandboxConfigForClass(spec.SandboxClass)
+	if err != nil {
+		return nil, err
+	}
 
 	template := &ateapipb.ActorTemplate{
-		Metadata: &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
-		// The v2 API intentionally has one default sandbox policy for now.
-		SandboxConfig: &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
-			ConfigName:   "gvisor-default",
-		},
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		SandboxConfig: sandboxConfig,
 		Containers: []*ateapipb.Container{{
 			Name:    defaultContainerName,
 			Image:   spec.Image,
@@ -175,4 +176,21 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 		result = append(result, &ateapipb.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return result, nil
+}
+
+func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxConfig, error) {
+	switch class {
+	case "", atev1alpha1.SandboxClassGvisor:
+		return &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			ConfigName:   "gvisor-default",
+		}, nil
+	case atev1alpha1.SandboxClassMicroVM:
+		return &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM,
+			ConfigName:   "microvm",
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported sandbox class %q", class)
+	}
 }

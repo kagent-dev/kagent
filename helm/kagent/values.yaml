@@ -460,8 +460,11 @@ substrateWorkerPool:
   name: kagent-default
   replicas: 1
   workerImage: ""
-  # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
-  # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
+  # sandboxClass selects the sandbox runtime family (gvisor|microvm) for workers
+  # and kagent-generated ActorTemplates whose Harness references this pool.
+  # Use a matching workerImage (ateom-gvisor or ateom-microvm). Substrate must have
+  # the corresponding SandboxConfig installed (gvisor-default or microvm);
+  # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
   # Extra labels merged onto the WorkerPool metadata (in addition to the
   # kagent.dev/worker-pool label used by generated ActorTemplates to select this pool).

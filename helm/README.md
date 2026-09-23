@@ -22,6 +22,30 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
+#### Selecting a Substrate sandbox
+
+The default sandbox is `gvisor`. With Substrate configured, use these values
+to select `microvm`:
+
+```yaml
+controller:
+  substrate:
+    enabled: true
+substrateWorkerPool:
+  create: true
+  sandboxClass: microvm
+  workerImage: <matching-microvm-worker-image>
+```
+
+Substrate worker images are published to GHCR, for example
+`ghcr.io/kagent-dev/substrate/ateom-microvm:latest`. For a pinned installation,
+use a release tag matching your Substrate version.
+
+Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.
+
+**Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
+workers. kagent does not install these prerequisites.
+
 ### Using Make
 
 ```bash
