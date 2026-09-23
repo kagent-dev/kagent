@@ -339,6 +339,20 @@ jobs:
       - name: Check protobuf compatibility
         run: make proto-breaking
 
+  semconv-check:
+    name: Telemetry Contract Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: false
+      - name: Check the registry and generated conventions
+        run: make semconv-verify
+
   upgrade-tests:
     needs:
       - setup

@@ -1,0 +1,18 @@
+file_format: definition/2
+attributes:
+  - key: kagent.thing.name
+    brief: A thing.
+    stability: development
+    type: string
+    examples: ["t"]
+spans:
+  - type: kagent.thing
+    requirement_level: recommended
+    kind: internal
+    name:
+      note: thing
+    brief: A span without error.type.
+    stability: development
+    attributes:
+      - ref: kagent.thing.name
+        requirement_level: required

@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -111,19 +111,19 @@ func (c TelemetryConfig) RuntimeTelemetry(runtime tracing.Runtime, agentName, na
 func ProviderName(provider v1alpha3.ModelProvider) string {
 	switch provider {
 	case v1alpha3.ModelProviderAnthropic:
-		return semconv.GenAIProviderNameAnthropic.Value.AsString()
+		return conv.GenAIProviderNameAnthropic
 	case v1alpha3.ModelProviderOpenAI:
-		return semconv.GenAIProviderNameOpenAI.Value.AsString()
+		return conv.GenAIProviderNameOpenAI
 	case v1alpha3.ModelProviderAzureOpenAI:
-		return semconv.GenAIProviderNameAzureAIOpenAI.Value.AsString()
+		return conv.GenAIProviderNameAzureAIOpenAI
 	case v1alpha3.ModelProviderBedrock:
-		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
+		return conv.GenAIProviderNameAWSBedrock
 	case v1alpha3.ModelProviderGemini:
-		return semconv.GenAIProviderNameGCPGemini.Value.AsString()
+		return conv.GenAIProviderNameGCPGemini
 	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
-		return semconv.GenAIProviderNameGCPVertexAI.Value.AsString()
+		return conv.GenAIProviderNameGCPVertexAI
 	case v1alpha3.ModelProviderFoundry:
-		return semconv.GenAIProviderNameAzureAIInference.Value.AsString()
+		return conv.GenAIProviderNameAzureAIInference
 	case v1alpha3.ModelProviderOllama:
 		return "ollama"
 	case v1alpha3.ModelProviderSAPAICore:

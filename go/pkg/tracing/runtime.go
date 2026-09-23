@@ -6,56 +6,56 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
-// SchemaURL is the OpenTelemetry semantic conventions version this contract
-// follows. Every tracer kagent creates declares it, so a consumer can tell
-// which revision of the GenAI conventions a span's attribute names come from.
+// SchemaURL is the OpenTelemetry semantic conventions version every tracer
+// kagent creates declares. It is the core version the SDK itself uses; the
+// GenAI names come from the registry in telemetry/registry.
 const SchemaURL = semconv.SchemaURL
 
 // Span and resource attribute keys kagent runtimes produce. Consumers read
-// these names directly, so treat them as a published contract. Names the GenAI
-// semantic conventions define are taken from the pinned semconv package rather
-// than spelled out, so they cannot drift from the version SchemaURL declares;
-// only the kagent and A2A namespaces are kagent's own.
+// these names directly, so treat them as a published contract. They come from
+// the generated conv package, so they cannot drift from telemetry/registry.
 const (
 	// AttributeOperationName is the GenAI operation. An invocation span carries
 	// OperationInvokeAgent; model and tool spans come from the runtime itself.
-	AttributeOperationName = string(semconv.GenAIOperationNameKey)
+	AttributeOperationName = string(conv.GenAIOperationNameKey)
 	// AttributeRuntime names the runtime behind an invocation. A Harness
 	// object's configurable name is not its runtime.
-	AttributeRuntime = "kagent.runtime"
+	AttributeRuntime = string(conv.KagentRuntimeKey)
 	// AttributeAgentName is the compiled agent identity, <template>-<harness>.
-	AttributeAgentName = string(semconv.GenAIAgentNameKey)
+	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.
-	AttributeAgentID = string(semconv.GenAIAgentIDKey)
+	AttributeAgentID = string(conv.GenAIAgentIDKey)
 	// AttributeProviderName is the model provider the agent is compiled against,
 	// in the GenAI conventions' vocabulary.
-	AttributeProviderName = string(semconv.GenAIProviderNameKey)
+	AttributeProviderName = string(conv.GenAIProviderNameKey)
 	// AttributeRequestModel is the model the agent is compiled against. The
 	// conventions allow it on an agent span only when the agent is bound to one
 	// model, which a compiled kagent agent is.
-	AttributeRequestModel = string(semconv.GenAIRequestModelKey)
+	AttributeRequestModel = string(conv.GenAIRequestModelKey)
 	// AttributeConversationID is the A2A context that groups a conversation.
-	AttributeConversationID = string(semconv.GenAIConversationIDKey)
+	AttributeConversationID = string(conv.GenAIConversationIDKey)
 	// AttributeTaskID is the A2A task an invocation executes. The conventions
 	// have no task identity, so it stays in the A2A namespace.
-	AttributeTaskID = "a2a.task.id"
+	AttributeTaskID = string(conv.A2ATaskIDKey)
 	// AttributeUserID is the gateway-established user, absent when no trusted
 	// identity reached the runtime.
 	AttributeUserID = string(semconv.EnduserIDKey)
 	// AttributeMethod is the A2A method that started the invocation.
-	AttributeMethod = "a2a.method"
+	AttributeMethod = string(conv.A2AMethodKey)
 	// AttributeTaskState is the A2A state execution actually reported.
-	AttributeTaskState = "a2a.task.state"
+	AttributeTaskState = string(conv.A2ATaskStateKey)
 	// AttributeSegment distinguishes the first execution of a task from the
 	// segments that continue it after an approval or question.
-	AttributeSegment = "kagent.invocation.segment"
+	AttributeSegment = string(conv.KagentInvocationSegmentKey)
 	// AttributeDisposition records how a segment stopped when that is not
 	// visible from the task state, such as an abandoned client stream.
-	AttributeDisposition = "kagent.invocation.disposition"
+	AttributeDisposition = string(conv.KagentInvocationDispositionKey)
 	// AttributeInputMessages and AttributeOutputMessages carry bounded turn
 	// content in the conventions' message shape, recorded only under the
 	// content-capture opt-in. The truncation flags live in kagent's namespace
@@ -64,20 +64,20 @@ const (
 	// a nested document cannot hold a string and an object at the same path:
 	// ClickHouse renders both and a reader parsing the result keeps only the
 	// last, dropping the captured text, and Elasticsearch rejects the mapping.
-	AttributeInputMessages   = string(semconv.GenAIInputMessagesKey)
-	AttributeInputTruncated  = "kagent.capture.input_truncated"
-	AttributeOutputMessages  = string(semconv.GenAIOutputMessagesKey)
-	AttributeOutputTruncated = "kagent.capture.output_truncated"
+	AttributeInputMessages   = string(conv.GenAIInputMessagesKey)
+	AttributeInputTruncated  = string(conv.KagentCaptureInputTruncatedKey)
+	AttributeOutputMessages  = string(conv.GenAIOutputMessagesKey)
+	AttributeOutputTruncated = string(conv.KagentCaptureOutputTruncatedKey)
 	// AttributeErrorType is a safe failure category. It never carries provider
 	// responses, credentials, or captured content.
 	AttributeErrorType = string(semconv.ErrorTypeKey)
 	// AttributeLinkRelationship describes why a segment links to another span.
-	AttributeLinkRelationship = "kagent.invocation.relationship"
+	AttributeLinkRelationship = string(conv.KagentInvocationRelationshipKey)
 )
 
 // OperationInvokeAgent is the GenAI operation a native harness invocation
 // span reports.
-const OperationInvokeAgent = "invoke_agent"
+const OperationInvokeAgent = conv.GenAIOperationNameInvokeAgent
 
 // TransportSpanName names the wrapper span of a runtime whose invocation
 // span comes from the runtime itself.
@@ -85,26 +85,26 @@ const TransportSpanName = "a2a.request"
 
 // Segment values for AttributeSegment.
 const (
-	SegmentInitial = "initial"
-	SegmentResumed = "resumed"
+	SegmentInitial = conv.KagentInvocationSegmentInitial
+	SegmentResumed = conv.KagentInvocationSegmentResumed
 )
 
 // Disposition values for AttributeDisposition.
 const (
 	// DispositionAbandoned means the A2A event consumer stopped reading. It is
 	// deliberately distinct from cancellation, which the client must request.
-	DispositionAbandoned = "abandoned"
+	DispositionAbandoned = conv.KagentInvocationDispositionAbandoned
 	// DispositionCanceled means cancellation was requested for this task.
-	DispositionCanceled = "canceled"
+	DispositionCanceled = conv.KagentInvocationDispositionCanceled
 	// DispositionInterrupted means the execution context ended without a
 	// cancellation request, such as a runtime shutting down mid-turn.
-	DispositionInterrupted = "interrupted"
+	DispositionInterrupted = conv.KagentInvocationDispositionInterrupted
 )
 
 // RelationshipResumeOrigin marks the link from a resumed segment back to the
 // segment that parked the task. A link states a relationship; it does not
 // reparent spans or transfer ownership of token usage.
-const RelationshipResumeOrigin = "resume_origin"
+const RelationshipResumeOrigin = conv.KagentInvocationRelationshipResumeOrigin
 
 // Runtime identifies the runtime that executes an agent. Its values name what
 // produces the model and tool spans beneath an invocation, since that is what
@@ -113,9 +113,9 @@ const RelationshipResumeOrigin = "resume_origin"
 type Runtime string
 
 const (
-	RuntimeADKGo  Runtime = "adk-go"
-	RuntimeClaude Runtime = "claude"
-	RuntimeCodex  Runtime = "codex"
+	RuntimeADKGo  Runtime = conv.KagentRuntimeADKGo
+	RuntimeClaude Runtime = conv.KagentRuntimeClaude
+	RuntimeCodex  Runtime = conv.KagentRuntimeCodex
 )
 
 // NativeHarness reports whether the runtime wraps a native coding agent whose

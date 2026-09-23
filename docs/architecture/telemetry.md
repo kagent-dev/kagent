@@ -4,6 +4,47 @@ Kagent exports OpenTelemetry traces from agent runtimes when a user enables
 them. This document describes what a runtime produces, so consumers can rely on
 it without reading runtime internals.
 
+## Contract
+
+The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/registry).
+It defines every `kagent.*` and `a2a.*` attribute, and it references each
+upstream attribute kagent writes, with kagent's requirement level and notes.
+Everything else is generated from it:
+
+- [Telemetry contract reference](telemetry-contract.md), the attribute, span and
+  resource tables
+- `go/pkg/telemetry/conv`, the Go constants
+- `kagent.core.telemetry.conv`, the Python constants
+- `telemetry/resolved.yaml`, the resolved registry, so a contract change shows up
+  in review
+
+| Concept | Attributes | Where |
+| --- | --- | --- |
+| Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime emits none of its own |
+| Runtime | `kagent.runtime` | Resource |
+| Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | Resource and invoke_agent span |
+| Provider and model | `gen_ai.provider.name`, `gen_ai.request.model` | Resource and invoke_agent span, for harnesses compiled against one model |
+| Conversation, task, user | `gen_ai.conversation.id`, `a2a.task.id`, `enduser.id` | Request spans. Never on a resource or a metric |
+| Segment | `kagent.invocation.segment`, `kagent.invocation.disposition`, link `kagent.invocation.relationship` | Request spans |
+| Outcome | status, `error.type`, `a2a.task.state` | Request spans |
+| Content | `gen_ai.input.messages`, `gen_ai.output.messages`, `kagent.capture.*_truncated` | invoke_agent and inference spans, under the capture opt-in |
+| Usage | `gen_ai.usage.*` | Inference spans, from the runtime's own instrumentation |
+
+The registry describes the contract the runtimes are moving to. The next section
+says what each runtime emits today, and [Blind spots](#blind-spots) lists where
+the two still differ.
+
+## Who emits what
+
+| Runtime | `kagent.runtime` | Request span | `invoke_agent` | Inference spans | Keys outside the contract |
+| --- | --- | --- | --- | --- | --- |
+| Go ADK | `adk-go` | `otelhttp` SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's own, plus kagent's `invocation` span in the `gcp.vertex.agent` scope | `kagent.user_id`, `gen_ai.task.id`, `kagent.app_name`, `a2a.message.metadata.*`, `gcp.vertex.agent.*` |
+| Claude Code, Codex | `claude`, `codex` | `otelhttp` SERVER span | kagent's wrapper, `invoke_agent <agent>` | The native runtime's own | None |
+| Python ADK | absent | FastAPI SERVER span | The ADK's own | The ADK's `generate_content`, plus OpenLLMetry client spans | `kagent.user_id`, `gen_ai.task.id` |
+| LangGraph | absent | FastAPI SERVER span | None | OpenLLMetry | `kagent.user_id`, `gen_ai.task.id` |
+| CrewAI | absent | FastAPI SERVER span | OpenLLMetry CrewAI | OpenLLMetry | `kagent.user_id`, `gen_ai.task.id` |
+| OpenAI Agents | absent | FastAPI SERVER span | OpenLLMetry OpenAI Agents | OpenLLMetry OpenAI Agents | None |
+
 ## Enabling export
 
 The controller resolves telemetry from its own process environment and compiles
@@ -41,17 +82,17 @@ user-supplied variable.
 Other `OTEL_*` variables remain available for per-Harness tuning through
 `Harness.spec.env`, including `OTEL_RESOURCE_ATTRIBUTES`.
 
-## Conventions
+## Conventions and versioning
 
-Attribute names follow the OpenTelemetry GenAI semantic conventions at version
-1.41.0, and every tracer kagent creates declares that schema URL. The pin is
-deliberate: 1.41.0 is the last release of the main conventions to carry the
-GenAI registry, so it is the last one with a Go package of typed keys. The GenAI
-conventions now live in their own repository, and the pin moves when that
-repository publishes a release with a Go package. Names the conventions define
-are taken from that package rather than spelled out, so the constants in
-`go/pkg/tracing` cannot drift from the declared version. Only the `kagent.*` and
-`a2a.*` names are kagent's own, and they are listed below.
+The registry depends on the core semantic conventions at v1.44.0 and on the
+GenAI conventions, which live in their own repository and have no release yet,
+pinned by commit in `telemetry/registry/manifest.yaml`. The `gen_ai.*` names in
+the generated constants come from that pin. Core names such as `service.*`,
+`enduser.id` and `error.type` come from the newest core Go package,
+`semconv/v1.43.0`, which is also the version the OpenTelemetry SDK uses, and
+every tracer kagent creates declares its schema URL. Only the `kagent.*` and
+`a2a.*` names are kagent's own. All of them are `development` until the v1.x
+contract is declared stable.
 
 ## The invocation span
 
@@ -75,24 +116,9 @@ counts turns rather than agent invocations counts `kagent.invocation.segment`,
 which only the request span carries, whichever runtime produced the trace. The
 ADK also keeps an `invocation` span of its own beneath the request span.
 
-| Attribute | Meaning |
-| --- | --- |
-| `gen_ai.operation.name` | `invoke_agent` on a native harness request span. Absent on an ADK request span |
-| `kagent.runtime` | `adk-go`, `claude`, or `codex`: the runtime that produced the spans beneath this one. The Go ADK also carries it on its resource, so its own `invoke_agent` reports it |
-| `gen_ai.agent.name` | The compiled agent identity, `<template>-<harness>` |
-| `gen_ai.agent.id` | The same identity qualified by namespace, `<namespace>/<template>-<harness>` |
-| `gen_ai.provider.name` | The model provider the agent is compiled against, in the conventions' vocabulary. Harness runtimes only |
-| `gen_ai.request.model` | The model the agent is compiled against. Harness runtimes only; the ADK reports the model on each model span |
-| `gen_ai.conversation.id` | The A2A context ID the gateway assigned |
-| `a2a.task.id` | The A2A task ID the gateway assigned |
-| `enduser.id` | The authenticated user, when the gateway forwarded one |
-| `a2a.method` | `SendMessage` or `SendStreamingMessage` |
-| `a2a.task.state` | The state execution actually reported. Its absence does not mean success |
-| `kagent.invocation.segment` | `initial` or `resumed` |
-| `kagent.invocation.disposition` | `canceled`, `abandoned`, or `interrupted`, when the task state does not say it. See below |
-| `error.type` | A safe failure category. Never a provider response, credential, or captured content |
-| `gen_ai.input.messages`, `gen_ai.output.messages` | Bounded turn content in the conventions' message shape, present only under the capture opt-in. Each output message carries the `finish_reason` the conventions require |
-| `kagent.capture.input_truncated`, `kagent.capture.output_truncated` | Whether that content was shortened |
+The attributes, their values and their requirement levels are in the
+[contract reference](telemetry-contract.md). Today the request span also carries
+`kagent.runtime`, which the contract keeps on the resource only.
 
 The provider and model on this span stand in for what a native runtime does not
 report. Codex records token usage on a span that names no model, so without the
@@ -110,7 +136,7 @@ resource, since one runtime process serves many of each.
 
 The ADK runtime additionally stamps `kagent.user_id`, `gen_ai.task.id`,
 `gen_ai.conversation.id` and `kagent.app_name` on the spans beneath the
-invocation, as it always has; the Python runtimes stamp the same keys. Those
+invocation, as it always has; the Python runtimes stamp the first three. Those
 descendant keys move to the names above together with a Python invocation span,
 so the two runtimes change in one step rather than diverging further.
 
@@ -208,8 +234,49 @@ way to ask the pinned image which version it understands.
 Publish the controller image and the harness images from the same commit, and
 when one digest moves, move the others in the same change.
 
-## Known limitations
+## Changing the contract
 
+Edit the registry, then regenerate and commit the result:
+
+```bash
+make semconv-check      # Weaver validation, shared and kagent policies
+make semconv-generate   # constants, reference, resolved snapshot
+make semconv-verify     # both, plus the policy tests and a drift check (CI)
+```
+
+The kagent policies in `telemetry/policies` enforce that kagent defines
+attributes only in the `kagent.` and `a2a.` namespaces, that request identity
+never reaches a resource or a metric, that every kagent span references
+`error.type`, and that no metric name carries a unit or `_total` suffix. Each
+policy has a fixture under `telemetry/policies/testdata` that it must reject.
+Weaver runs from the version pinned in `telemetry/versions.env`, through a local
+binary of exactly that version or the pinned image.
+
+A rename or removal shows up as a diff in `telemetry/resolved.yaml` and the
+generated files. Once an attribute is declared stable, the check also runs the
+upstream backwards-compatibility policy against the last release.
+
+## Lint exceptions
+
+- `a2a.*` is not a registered OpenTelemetry namespace. kagent owns it until the
+  conventions define A2A attributes.
+- `gen_ai.provider.name` takes `ollama` and `sap.ai_core`, which the conventions
+  do not list. The attribute is an open enum.
+- `error.type` uses a bounded kagent vocabulary, listed in the reference.
+
+## Blind spots
+
+- The runtimes still emit the keys listed under
+  [Who emits what](#who-emits-what) that are outside the contract. They are
+  removed when the Go and Python runtimes move to the contract.
+- The Python runtimes declare no `kagent.runtime` and open no `invoke_agent`
+  span, and the Python ADK counts model usage twice.
+- Nothing yet compares emitted telemetry with the registry. The registry checks
+  names, the Go and Python code uses the generated constants, and a live check
+  against end-to-end telemetry is planned.
+- Runtimes on Substrate set no `service.instance.id`. An Actor can be restored
+  from a snapshot, so an identity generated in the process would be wrong or
+  shared.
 - Native span export completeness at process shutdown is a separate concern from
   the Go wrapper's export, and is tracked against the native runtimes.
 - Ownership of native work started after an approval is ambiguous by

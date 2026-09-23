@@ -122,6 +122,7 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
+	@echo "Tools Weaver : $(WEAVER_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
@@ -151,6 +152,42 @@ proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail
 	@if test -n "$$(git status --porcelain -- $(PROTO_GENERATED_PATHS))"; then \
 		echo "Generated protobuf files are out of date:"; \
 		git status --short -- $(PROTO_GENERATED_PATHS); \
+		exit 1; \
+	fi
+
+##@ Telemetry contract
+
+include telemetry/versions.env
+
+WEAVER := telemetry/weaver.sh
+SEMCONV_REGISTRY := telemetry/registry
+SEMCONV_GENERATE := $(WEAVER) registry generate -r $(SEMCONV_REGISTRY) --v2 -t telemetry/templates
+SEMCONV_GENERATED_PATHS := go/pkg/telemetry/conv python/packages/kagent-core/src/kagent/core/telemetry/_conv.py docs/architecture/telemetry-contract.md telemetry/resolved.yaml
+
+.PHONY: semconv-check
+semconv-check: ## Validate the telemetry registry with Weaver and the kagent policies
+	$(WEAVER) registry check -r $(SEMCONV_REGISTRY) --v2 \
+		--policy '$(WEAVER_PACKAGES)[policies/check/naming_conventions]' \
+		--policy '$(WEAVER_PACKAGES)[policies/check/stability]' \
+		--policy telemetry/policies
+
+.PHONY: semconv-policies-test
+semconv-policies-test: ## Check that each kagent telemetry policy rejects its fixture
+	telemetry/policies/test.sh
+
+.PHONY: semconv-generate
+semconv-generate: ## Generate the telemetry conventions, the contract reference, and the resolved snapshot
+	$(SEMCONV_GENERATE) go go/pkg/telemetry/conv
+	$(SEMCONV_GENERATE) python python/packages/kagent-core/src/kagent/core/telemetry
+	$(SEMCONV_GENERATE) markdown docs/architecture
+	$(SEMCONV_GENERATE) yaml telemetry
+	gofmt -w go/pkg/telemetry/conv
+
+.PHONY: semconv-verify
+semconv-verify: semconv-check semconv-policies-test semconv-generate ## Check the telemetry registry and fail when generated output drifts
+	@if test -n "$$(git status --porcelain -- $(SEMCONV_GENERATED_PATHS))"; then \
+		echo "Generated telemetry conventions are out of date. Run 'make semconv-generate' and commit the result:"; \
+		git status --short -- $(SEMCONV_GENERATED_PATHS); \
 		exit 1; \
 	fi
 

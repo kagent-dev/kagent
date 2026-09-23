@@ -1,0 +1,2515 @@
+refinements:
+  entities:
+  - brief: An agent runtime compiled by kagent.
+    description:
+    - brief: The human-readable name of the invoked GenAI agent.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: The provider the agent is compiled against.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model configured for the agent.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: The model the agent is compiled against.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The runtime that produces the model and tool spans of an agent.
+      key: kagent.runtime
+      note: |
+        Every runtime declares it on its resource. The name of a Harness object is not its runtime.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The Go ADK runtime.
+          id: adk_go
+          stability: development
+          value: adk-go
+        - brief: The Python ADK runtime.
+          id: adk_python
+          stability: development
+          value: adk-python
+        - brief: The Claude Code harness.
+          id: claude
+          stability: development
+          value: claude
+        - brief: The Codex harness.
+          id: codex
+          stability: development
+          value: codex
+        - brief: The LangGraph runtime.
+          id: langgraph
+          stability: development
+          value: langgraph
+        - brief: The CrewAI runtime.
+          id: crewai
+          stability: development
+          value: crewai
+        - brief: The OpenAI Agents SDK runtime.
+          id: openai_agents
+          stability: development
+          value: openai-agents
+        - brief: A bring-your-own image built on kagent-core.
+          id: byo
+          stability: development
+          value: byo
+    id: kagent.agent
+    identity:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    note: |
+      Conversation, task and user identity never appear here, since one runtime process serves many of each.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    type: kagent.agent
+  events: []
+  metrics: []
+  spans:
+  - attributes:
+    - brief: The A2A method that started the invocation.
+      key: a2a.method
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A unary A2A request.
+          id: send_message
+          stability: development
+          value: SendMessage
+        - brief: A streaming A2A request.
+          id: send_streaming_message
+          stability: development
+          value: SendStreamingMessage
+    - brief: The A2A task that an invocation executes.
+      examples:
+      - 0f6a7c1e-3d2b-4b8e-9a51-2c7d8e4f1a90
+      key: a2a.task.id
+      note: |
+        The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A task.
+      stability: development
+      type: string
+    - brief: The A2A task state that execution reported.
+      key: a2a.task.state
+      note: |
+        The values are the A2A v1 wire names. An absent state does not mean success.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: Execution reported a task state.
+      stability: development
+      type:
+        members:
+        - brief: The task was accepted.
+          id: submitted
+          stability: development
+          value: TASK_STATE_SUBMITTED
+        - brief: The task is running.
+          id: working
+          stability: development
+          value: TASK_STATE_WORKING
+        - brief: The task finished.
+          id: completed
+          stability: development
+          value: TASK_STATE_COMPLETED
+        - brief: The task failed.
+          id: failed
+          stability: development
+          value: TASK_STATE_FAILED
+        - brief: The task was canceled.
+          id: canceled
+          stability: development
+          value: TASK_STATE_CANCELED
+        - brief: The task waits for an approval or an answer.
+          id: input_required
+          stability: development
+          value: TASK_STATE_INPUT_REQUIRED
+        - brief: The agent rejected the task.
+          id: rejected
+          stability: development
+          value: TASK_STATE_REJECTED
+        - brief: The task waits for authentication.
+          id: auth_required
+          stability: development
+          value: TASK_STATE_AUTH_REQUIRED
+    - brief: Client address - domain name if available without reverse DNS lookup; otherwise, IP address or UNIX domain socket name.
+      examples:
+      - 83.164.160.102
+      key: client.address
+      note: |
+        The IP address of the original client behind all proxies, if known (e.g. from [Forwarded#for](https://developer.mozilla.org/docs/Web/HTTP/Headers/Forwarded#for), [X-Forwarded-For](https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Forwarded-For), or a similar header). Otherwise, the immediate client peer address.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: The port of whichever client was captured in `client.address`.
+      examples:
+      - 65123
+      key: client.port
+      note: |
+        When observed from the server side, and when communicating through an intermediary, `client.port` SHOULD represent the client port behind any intermediaries,  for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: stable
+      type: int
+    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
+      examples:
+      - username
+      key: enduser.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The invocation failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
+      examples:
+      - conv_5j66UpCpwteGg4YSxUnt7lPY
+      key: gen_ai.conversation.id
+      note: The A2A context ID.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A context.
+      stability: development
+      type: string
+    - brief: |
+        The size of the request payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size.
+      examples: 3495
+      key: http.request.body.size
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: development
+      type: int
+    - brief: |
+        HTTP request headers, `\u003ckey\u003e` being the normalized HTTP Header name (lowercase), the value being the header values.
+      examples:
+      - - application/json
+      - - 1.2.3.4
+        - 1.2.3.5
+      key: http.request.header
+      note: |
+        Instrumentations SHOULD require an explicit configuration of which headers are to be captured.
+        Including all request headers can be a security risk - explicit configuration helps avoid leaking sensitive information.
+
+        The `User-Agent` header is already captured in the `user_agent.original` attribute.
+        Users MAY explicitly configure instrumentations to capture them even though it is not recommended.
+
+        The attribute value MUST consist of either multiple header values as an array of strings
+        or a single-item array containing a possibly comma-concatenated string, depending on the way
+        the HTTP library provides access to headers.
+
+        Examples:
+
+        - A header `Content-Type: application/json` SHOULD be recorded as the `http.request.header.content-type`
+          attribute with value `["application/json"]`.
+        - A header `X-Forwarded-For: 1.2.3.4, 1.2.3.5` SHOULD be recorded as the `http.request.header.x-forwarded-for`
+          attribute with value `["1.2.3.4", "1.2.3.5"]` or `["1.2.3.4, 1.2.3.5"]` depending on the HTTP library.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      sampling_relevant: true
+      stability: stable
+      type: template[string[]]
+    - brief: HTTP request method.
+      examples:
+      - GET
+      - POST
+      - HEAD
+      key: http.request.method
+      note: |
+        HTTP request method value SHOULD be "known" to the instrumentation.
+        By default, this convention defines "known" methods as the ones listed in [RFC9110](https://www.rfc-editor.org/rfc/rfc9110.html#name-methods),
+        the PATCH method defined in [RFC5789](https://www.rfc-editor.org/rfc/rfc5789.html)
+        and the QUERY method defined in [httpbis-safe-method-w-body](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/?include_text=1).
+
+        If the HTTP request method is not known to instrumentation, it MUST set the `http.request.method` attribute to `_OTHER`.
+
+        If the HTTP instrumentation could end up converting valid HTTP request methods to `_OTHER`, then it MUST provide a way to override
+        the list of known HTTP methods. If this override is done via environment variable, then the environment variable MUST be named
+        OTEL_INSTRUMENTATION_HTTP_KNOWN_METHODS and support a comma-separated list of case-sensitive known HTTP methods.
+
+        ![Development](https://img.shields.io/badge/-development-blue)
+        If this override is done via declarative configuration, then the list MUST be configurable via the `known_methods` property
+        (an array of case-sensitive strings with minimum items 0) under `.instrumentation/development.general.http.client` and/or
+        `.instrumentation/development.general.http.server`.
+
+        In either case, this list MUST be a full override of the default known methods,
+        it is not a list of known methods in addition to the defaults.
+
+        HTTP method names are case-sensitive and `http.request.method` attribute value MUST match a known HTTP method name exactly.
+        Instrumentations for specific web frameworks that consider HTTP methods to be case insensitive, SHOULD populate a canonical equivalent.
+        Tracing instrumentations that do so, MUST also set `http.request.method_original` to the original value.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: required
+      sampling_relevant: true
+      stability: stable
+      type:
+        members:
+        - brief: CONNECT method.
+          id: connect
+          stability: stable
+          value: CONNECT
+        - brief: DELETE method.
+          id: delete
+          stability: stable
+          value: DELETE
+        - brief: GET method.
+          id: get
+          stability: stable
+          value: GET
+        - brief: HEAD method.
+          id: head
+          stability: stable
+          value: HEAD
+        - brief: OPTIONS method.
+          id: options
+          stability: stable
+          value: OPTIONS
+        - brief: PATCH method.
+          id: patch
+          stability: stable
+          value: PATCH
+        - brief: POST method.
+          id: post
+          stability: stable
+          value: POST
+        - brief: PUT method.
+          id: put
+          stability: stable
+          value: PUT
+        - brief: TRACE method.
+          id: trace
+          stability: stable
+          value: TRACE
+        - brief: QUERY method.
+          id: query
+          stability: development
+          value: QUERY
+        - brief: Any HTTP method that the instrumentation has no prior knowledge of.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: Original HTTP method sent by the client in the request line.
+      examples:
+      - GeT
+      - ACL
+      - foo
+      key: http.request.method_original
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If and only if it\u0027s different than `http.request.method`.
+      stability: stable
+      type: string
+    - brief: |
+        The total size of the request in bytes. This should be the total number of bytes sent over the wire, including the request line (HTTP/1.1), framing (HTTP/2 and HTTP/3), headers, and request body if any.
+      examples: 1437
+      key: http.request.size
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: development
+      type: int
+    - brief: |
+        The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size.
+      examples: 3495
+      key: http.response.body.size
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: development
+      type: int
+    - brief: |
+        HTTP response headers, `\u003ckey\u003e` being the normalized HTTP Header name (lowercase), the value being the header values.
+      examples:
+      - - application/json
+      - - abc
+        - def
+      key: http.response.header
+      note: |
+        Instrumentations SHOULD require an explicit configuration of which headers are to be captured.
+        Including all response headers can be a security risk - explicit configuration helps avoid leaking sensitive information.
+
+        Users MAY explicitly configure instrumentations to capture them even though it is not recommended.
+
+        The attribute value MUST consist of either multiple header values as an array of strings
+        or a single-item array containing a possibly comma-concatenated string, depending on the way
+        the HTTP library provides access to headers.
+
+        Examples:
+
+        - A header `Content-Type: application/json` header SHOULD be recorded as the `http.request.response.content-type`
+          attribute with value `["application/json"]`.
+        - A header `My-custom-header: abc, def` header SHOULD be recorded as the `http.response.header.my-custom-header`
+          attribute with value `["abc", "def"]` or `["abc, def"]` depending on the HTTP library.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: stable
+      type: template[string[]]
+    - brief: |
+        The total size of the response in bytes. This should be the total number of bytes sent over the wire, including the status line (HTTP/1.1), framing (HTTP/2 and HTTP/3), headers, and response body and trailers if any.
+      examples: 1437
+      key: http.response.size
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: development
+      type: int
+    - brief: \u0027[HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6).\u0027
+      examples:
+      - 200
+      key: http.response.status_code
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If and only if one was received/sent.
+      stability: stable
+      type: int
+    - brief: |
+        The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders.
+      examples:
+      - /users/:userID?
+      - my-controller/my-action/{id?}
+      key: http.route
+      note: |
+        MUST NOT be populated when this is not supported by the HTTP server framework as the route attribute should have low-cardinality and the URI path can NOT substitute it.
+        SHOULD include the [application root](/docs/http/http-spans.md#http-server-definitions) if there is one.
+
+        A static path segment is a part of the route template with a fixed, low-cardinality value. This includes literal strings like `/users/` and placeholders that
+        are constrained to a finite, predefined set of values, e.g. `{controller}` or `{action}`.
+
+        A dynamic path segment is a placeholder for a value that can have high cardinality and is not constrained to a predefined list like static path segments.
+
+        Instrumentations SHOULD use routing information provided by the corresponding web framework. They SHOULD pick the most precise source of routing information and MAY
+        support custom route formatting. Instrumentations SHOULD document the format and the API used to obtain the route string.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If and only if it\u0027s available
+      stability: stable
+      type: string
+    - brief: How a segment stopped, when the task state does not say it.
+      key: kagent.invocation.disposition
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The task state does not say how the segment stopped.
+      stability: development
+      type:
+        members:
+        - brief: A client asked to cancel the task.
+          id: canceled
+          stability: development
+          value: canceled
+        - brief: The A2A event consumer stopped reading before execution finished.
+          id: abandoned
+          stability: development
+          value: abandoned
+        - brief: The execution context ended without a cancellation request.
+          id: interrupted
+          stability: development
+          value: interrupted
+    - brief: Whether an execution starts a task or continues it.
+      key: kagent.invocation.segment
+      note: |
+        A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The first execution of a task.
+          id: initial
+          stability: development
+          value: initial
+        - brief: An execution that continues a task after an approval or a question.
+          id: resumed
+          stability: development
+          value: resumed
+    - brief: Local socket address. Useful in case of a multi-IP host.
+      examples:
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: network.local.address
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: stable
+      type: string
+    - brief: Local socket port. Useful in case of a multi-port host.
+      examples:
+      - 65123
+      key: network.local.port
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: stable
+      type: int
+    - brief: Peer address of the network connection - IP address or UNIX domain socket name.
+      examples:
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: network.peer.address
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: Peer port number of the network connection.
+      examples:
+      - 65123
+      key: network.peer.port
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        recommended: If `network.peer.address` is set.
+      stability: stable
+      type: int
+    - brief: \u0027[OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent.\u0027
+      examples:
+      - http
+      - spdy
+      key: network.protocol.name
+      note: The value SHOULD be normalized to lowercase.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If not `http` and `network.protocol.version` is set.
+      stability: stable
+      type: string
+    - brief: The actual version of the protocol used for network communication.
+      examples:
+      - \u00271.0\u0027
+      - \u00271.1\u0027
+      - \u00272\u0027
+      - \u00273\u0027
+      key: network.protocol.version
+      note: |
+        If protocol version is subject to negotiation (for example using [ALPN](https://www.rfc-editor.org/rfc/rfc7301.html)), this attribute SHOULD be set to the negotiated version. If the actual protocol version is not known, this attribute SHOULD NOT be set.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: |
+        [OSI transport layer](https://wikipedia.org/wiki/Transport_layer) or [inter-process communication method](https://wikipedia.org/wiki/Inter-process_communication).
+      examples:
+      - tcp
+      - udp
+      key: network.transport
+      note: |
+        Generally `tcp` for `HTTP/1.0`, `HTTP/1.1`, and `HTTP/2`. Generally `udp` for `HTTP/3`. Other obscure implementations are possible.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: stable
+      type:
+        members:
+        - brief: TCP
+          id: tcp
+          stability: stable
+          value: tcp
+        - brief: UDP
+          id: udp
+          stability: stable
+          value: udp
+        - brief: Named or anonymous pipe.
+          id: pipe
+          stability: stable
+          value: pipe
+        - brief: UNIX domain socket
+          id: unix
+          stability: stable
+          value: unix
+        - brief: QUIC
+          id: quic
+          stability: stable
+          value: quic
+    - brief: |
+        Name of the local HTTP server that received the request.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        See [Setting `server.address` and `server.port` attributes](/docs/http/http-spans.md#setting-serveraddress-and-serverport-attributes).
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: |
+        Port of the local HTTP server that received the request.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        See [Setting `server.address` and `server.port` attributes](/docs/http/http-spans.md#setting-serveraddress-and-serverport-attributes).
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If available and `server.address` is set.
+      sampling_relevant: true
+      stability: stable
+      type: int
+    - brief: |
+        The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component
+      examples:
+      - /search
+      key: url.path
+      note: |
+        Sensitive content provided in `url.path` SHOULD be scrubbed when instrumentations can identify it.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: required
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: |
+        The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component
+      examples:
+      - q=OpenTelemetry
+      key: url.query
+      note: |
+        Sensitive content provided in `url.query` SHOULD be scrubbed when instrumentations can identify it.
+
+        ![Development](https://img.shields.io/badge/-development-blue)
+        Query string values for the following keys SHOULD be redacted by default and replaced by the value `REDACTED`:
+
+        * [`X-Amz-Signature`](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-authentication-methods.html)
+        * [`X-Amz-Credential`](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-authentication-methods.html)
+        * [`X-Amz-Security-Token`](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-authentication-methods.html)
+        * [`sig`](https://learn.microsoft.com/azure/storage/common/storage-sas-overview#sas-token)
+        * [`X-Goog-Signature`](https://cloud.google.com/storage/docs/access-control/signed-urls)
+
+        This list is subject to change over time.
+
+        Matching of query parameter keys against the sensitive list SHOULD be case-sensitive.
+
+        Instrumentation MAY provide a way to override this list via declarative configuration.
+        If so, it SHOULD use the `sensitive_query_parameters` property
+        (an array of case-sensitive strings with minimum items 0) under
+        `.instrumentation/development.general.sanitization.url`.
+        This list is a full override of the default sensitive query parameter keys,
+        it is not a list of keys in addition to the defaults.
+
+        When a query string value is redacted, the query string key SHOULD still be preserved, e.g.
+        `q=OpenTelemetry\u0026sig=REDACTED`.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If and only if one was received/sent.
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: |
+        The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol.
+      examples:
+      - http
+      - https
+      key: url.scheme
+      note: |
+        The scheme of the original client request, if known (e.g. from [Forwarded#proto](https://developer.mozilla.org/docs/Web/HTTP/Headers/Forwarded#proto), [X-Forwarded-Proto](https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Forwarded-Proto), or a similar header). Otherwise, the scheme of the immediate peer request.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: required
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: |
+        Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client.
+      examples:
+      - CERN-LineMode/2.15 libwww/2.17b3
+      - Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1
+      - YourApp/1.0.0 grpc-java-okhttp/1.27.2
+      key: user_agent.original
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: |
+        Specifies the category of synthetic traffic, such as tests or bots.
+      key: user_agent.synthetic.type
+      note: |
+        This attribute MAY be derived from the contents of the `user_agent.original` attribute. Components that populate the attribute are responsible for determining what they consider to be synthetic bot or test traffic. This attribute can either be set for self-identification purposes, or on telemetry detected to be generated as a result of a synthetic request. This attribute is useful for distinguishing between genuine client traffic and synthetic traffic generated by bots or tests.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: opt_in
+      stability: development
+      type:
+        members:
+        - brief: Bot source.
+          id: bot
+          stability: development
+          value: bot
+        - brief: Synthetic test source.
+          id: test
+          stability: development
+          value: test
+    brief: The instrumentation SERVER span of an A2A request over HTTP.
+    id: kagent.a2a.http.server
+    kind: server
+    name:
+      note: kagent.a2a.http.server
+    note: kagent adds request identity and outcome to the span the HTTP instrumentation opens.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+    type: http.server
+  - attributes:
+    - brief: The A2A method that started the invocation.
+      key: a2a.method
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A unary A2A request.
+          id: send_message
+          stability: development
+          value: SendMessage
+        - brief: A streaming A2A request.
+          id: send_streaming_message
+          stability: development
+          value: SendStreamingMessage
+    - brief: The A2A task that an invocation executes.
+      examples:
+      - 0f6a7c1e-3d2b-4b8e-9a51-2c7d8e4f1a90
+      key: a2a.task.id
+      note: |
+        The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A task.
+      stability: development
+      type: string
+    - brief: The A2A task state that execution reported.
+      key: a2a.task.state
+      note: |
+        The values are the A2A v1 wire names. An absent state does not mean success.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: Execution reported a task state.
+      stability: development
+      type:
+        members:
+        - brief: The task was accepted.
+          id: submitted
+          stability: development
+          value: TASK_STATE_SUBMITTED
+        - brief: The task is running.
+          id: working
+          stability: development
+          value: TASK_STATE_WORKING
+        - brief: The task finished.
+          id: completed
+          stability: development
+          value: TASK_STATE_COMPLETED
+        - brief: The task failed.
+          id: failed
+          stability: development
+          value: TASK_STATE_FAILED
+        - brief: The task was canceled.
+          id: canceled
+          stability: development
+          value: TASK_STATE_CANCELED
+        - brief: The task waits for an approval or an answer.
+          id: input_required
+          stability: development
+          value: TASK_STATE_INPUT_REQUIRED
+        - brief: The agent rejected the task.
+          id: rejected
+          stability: development
+          value: TASK_STATE_REJECTED
+        - brief: The task waits for authentication.
+          id: auth_required
+          stability: development
+          value: TASK_STATE_AUTH_REQUIRED
+    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
+      examples:
+      - username
+      key: enduser.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - DEADLINE_EXCEEDED
+      - java.net.UnknownHostException
+      - \u0027-32602\u0027
+      key: error.type
+      note: |
+        A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The invocation failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
+      examples:
+      - conv_5j66UpCpwteGg4YSxUnt7lPY
+      key: gen_ai.conversation.id
+      note: The A2A context ID.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A context.
+      stability: development
+      type: string
+    - brief: How a segment stopped, when the task state does not say it.
+      key: kagent.invocation.disposition
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The task state does not say how the segment stopped.
+      stability: development
+      type:
+        members:
+        - brief: A client asked to cancel the task.
+          id: canceled
+          stability: development
+          value: canceled
+        - brief: The A2A event consumer stopped reading before execution finished.
+          id: abandoned
+          stability: development
+          value: abandoned
+        - brief: The execution context ended without a cancellation request.
+          id: interrupted
+          stability: development
+          value: interrupted
+    - brief: Whether an execution starts a task or continues it.
+      key: kagent.invocation.segment
+      note: |
+        A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The first execution of a task.
+          id: initial
+          stability: development
+          value: initial
+        - brief: An execution that continues a task after an approval or a question.
+          id: resumed
+          stability: development
+          value: resumed
+    - brief: Peer address of the network connection - IP address or UNIX domain socket name.
+      examples:
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: network.peer.address
+      note: |
+        If a RPC involved multiple network calls (for example retries), the last contacted address SHOULD be used.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: Peer port number of the network connection.
+      examples:
+      - 65123
+      key: network.peer.port
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        recommended: If `network.peer.address` is set.
+      stability: stable
+      type: int
+    - brief: The fully-qualified logical name of the method from the RPC interface perspective.
+      examples:
+      - com.example.ExampleService/exampleMethod
+      - EchoService/Echo
+      - _OTHER
+      key: rpc.method
+      note: |
+        The method name MAY have unbounded cardinality in edge or error cases.
+
+        Some RPC frameworks or libraries provide a fixed set of recognized methods
+        for client stubs and server implementations. Instrumentations for such
+        frameworks MUST set this attribute to the original method name only
+        when the method is recognized by the framework or library.
+
+        When the method is not recognized, for example, when the server receives
+        a request for a method that is not predefined on the server, or when
+        instrumentation is not able to reliably detect if the method is predefined,
+        the attribute MUST be set to `_OTHER`.
+
+        If the RPC instrumentation could end up converting valid RPC methods to
+        `_OTHER`, then it SHOULD provide a way to configure the list of recognized
+        RPC methods.
+
+        The `rpc.method` can be different from the name of any implementing
+        method/function.
+        The `code.function.name` attribute may be used to record the fully-qualified
+        method actually executing the call on the server side, or the
+        RPC client stub method on the client side.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: if available.
+      sampling_relevant: true
+      stability: release_candidate
+      type: string
+    - brief: |
+        The original name of the method used by the client.
+      examples:
+      - com.myservice.EchoService/catchAll
+      - com.myservice.EchoService/unknownMethod
+      - InvalidMethod
+      key: rpc.method_original
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If and only if it\u0027s different than `rpc.method`.
+      stability: release_candidate
+      type: string
+    - brief: Status code of the RPC returned by the RPC server or generated by the client
+      examples:
+      - OK
+      - DEADLINE_EXCEEDED
+      - \u0027-32602\u0027
+      key: rpc.response.status_code
+      note: |
+        Usually it represents an error code, but may also represent partial success, warning, or differentiate between various types of successful outcomes.
+        Semantic conventions for individual RPC frameworks SHOULD document what `rpc.response.status_code` means in the context of that system and which values are considered to represent errors.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: if available.
+      stability: release_candidate
+      type: string
+    - brief: The Remote Procedure Call (RPC) system.
+      key: rpc.system.name
+      note: |
+        The client and server RPC systems may differ for the same RPC interaction. For example, a client may use Apache Dubbo or Connect RPC to communicate with a server that uses gRPC since both protocols provide compatibility with gRPC.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: required
+      sampling_relevant: true
+      stability: release_candidate
+      type:
+        members:
+        - brief: \u0027[gRPC](https://grpc.io/)\u0027
+          id: grpc
+          stability: release_candidate
+          value: grpc
+        - brief: \u0027[Apache Dubbo](https://dubbo.apache.org/)\u0027
+          id: dubbo
+          stability: release_candidate
+          value: dubbo
+        - brief: \u0027[Connect RPC](https://connectrpc.com/)\u0027
+          id: connectrpc
+          stability: development
+          value: connectrpc
+        - brief: \u0027[JSON-RPC](https://www.jsonrpc.org/)\u0027
+          id: jsonrpc
+          stability: development
+          value: jsonrpc
+    - brief: |
+        A string identifying a group of RPC server instances request is sent to.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        May contain a DNS name, an endpoint and path in the service registry, local socket name or an IP address.
+        Semantic conventions for individual RPC systems SHOULD document how to populate this attribute.
+        When address is an IP address, instrumentations SHOULD NOT do a reverse DNS lookup to obtain a DNS name and SHOULD set `server.address` to the provided IP address.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If available.
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: Server port number.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: if applicable and if `server.address` is set.
+      sampling_relevant: true
+      stability: stable
+      type: int
+    brief: The instrumentation SERVER span of an A2A request over gRPC.
+    id: kagent.a2a.rpc.server
+    kind: server
+    name:
+      note: kagent.a2a.rpc.server
+    note: kagent adds request identity and outcome to the span the gRPC instrumentation opens.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+    type: rpc.call.server
+  - attributes:
+    - brief: The A2A method that started the invocation.
+      key: a2a.method
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A unary A2A request.
+          id: send_message
+          stability: development
+          value: SendMessage
+        - brief: A streaming A2A request.
+          id: send_streaming_message
+          stability: development
+          value: SendStreamingMessage
+    - brief: The A2A task that an invocation executes.
+      examples:
+      - 0f6a7c1e-3d2b-4b8e-9a51-2c7d8e4f1a90
+      key: a2a.task.id
+      note: |
+        The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A task.
+      stability: development
+      type: string
+    - brief: The A2A task state that execution reported.
+      key: a2a.task.state
+      note: |
+        The values are the A2A v1 wire names. An absent state does not mean success.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: Execution reported a task state.
+      stability: development
+      type:
+        members:
+        - brief: The task was accepted.
+          id: submitted
+          stability: development
+          value: TASK_STATE_SUBMITTED
+        - brief: The task is running.
+          id: working
+          stability: development
+          value: TASK_STATE_WORKING
+        - brief: The task finished.
+          id: completed
+          stability: development
+          value: TASK_STATE_COMPLETED
+        - brief: The task failed.
+          id: failed
+          stability: development
+          value: TASK_STATE_FAILED
+        - brief: The task was canceled.
+          id: canceled
+          stability: development
+          value: TASK_STATE_CANCELED
+        - brief: The task waits for an approval or an answer.
+          id: input_required
+          stability: development
+          value: TASK_STATE_INPUT_REQUIRED
+        - brief: The agent rejected the task.
+          id: rejected
+          stability: development
+          value: TASK_STATE_REJECTED
+        - brief: The task waits for authentication.
+          id: auth_required
+          stability: development
+          value: TASK_STATE_AUTH_REQUIRED
+    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
+      examples:
+      - username
+      key: enduser.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The invocation failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The free-form description of the invoked GenAI agent.
+      examples:
+      - Helps with math problems
+      - Generates fiction stories
+      key: gen_ai.agent.description
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: When available.
+      stability: development
+      type: string
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The human-readable name of the invoked GenAI agent.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level: required
+      sampling_relevant: true
+      stability: development
+      type: string
+    - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
+      examples:
+      - conv_5j66UpCpwteGg4YSxUnt7lPY
+      key: gen_ai.conversation.id
+      note: The A2A context ID.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A context.
+      stability: development
+      type: string
+    - brief: The data source identifier.
+      examples:
+      - H7STPQYOND
+      key: gen_ai.data_source.id
+      note: |
+        Data sources are used by AI agents and RAG applications to store grounding data. A data source may be an external database, object store, document collection, website, or any other storage system used by the GenAI agent or application. The `gen_ai.data_source.id` SHOULD match the identifier used by the GenAI system rather than a name specific to the external storage, such as a database or object store. Semantic conventions referencing `gen_ai.data_source.id` MAY also leverage additional attributes, such as `db.*`, to further identify and describe the data source.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If applicable.
+      stability: development
+      type: string
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-input-messages.json
+      brief: |
+        The chat history provided to the model as an input.
+      examples:
+      - |
+        [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "content": "Weather in Paris?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "call_VSPygqKTWdrhaFErNvMV18Yl",
+                "name": "get_weather",
+                "arguments": {
+                  "location": "Paris"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "call_VSPygqKTWdrhaFErNvMV18Yl",
+                "response": "rainy, 57°F"
+              }
+            ]
+          }
+        ]
+      key: gen_ai.input.messages
+      note: |
+        Bounded turn content, recorded only under `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `invoke_agent`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      sampling_relevant: true
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-output-messages.json
+      brief: Messages returned by the model where each message represents a specific model response (choice, candidate).
+      examples:
+      - |
+        [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "content": "The weather in Paris is currently rainy with a temperature of 57°F."
+              }
+            ]
+          }
+        ]
+      key: gen_ai.output.messages
+      note: |
+        Bounded turn content, recorded only under `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: Represents the content type requested by the client.
+      key: gen_ai.output.type
+      note: |
+        This attribute SHOULD be used when the client requests output of a specific type. The model may return zero or more outputs of this type.
+        This attribute specifies the output modality and not the actual output format. For example, if an image is requested, the actual output could be a URL pointing to an image file.
+        Additional output format details may be recorded in the future in the `gen_ai.output.{type}.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: When applicable and if the request includes an output format.
+      stability: development
+      type:
+        members:
+        - brief: Plain text
+          id: text
+          stability: development
+          value: text
+        - brief: JSON object with known or unknown schema
+          id: json
+          stability: development
+          value: json
+        - brief: Image
+          id: image
+          stability: development
+          value: image
+        - brief: Speech
+          id: speech
+          stability: development
+          value: speech
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        kagent also writes `ollama` and `sap.ai_core`, which the conventions do not list.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The target number of candidate completions to return.
+      examples:
+      - 3
+      key: gen_ai.request.choice.count
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If available, in the request, and !=1.
+      stability: development
+      type: int
+    - brief: The frequency penalty setting for the GenAI request.
+      examples:
+      - 0.1
+      key: gen_ai.request.frequency_penalty
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: The maximum number of tokens the model generates for a request.
+      examples:
+      - 100
+      key: gen_ai.request.max_tokens
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The name of the GenAI model configured for the agent.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The ADK runtimes report the model on each inference span instead.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      sampling_relevant: true
+      stability: development
+      type: string
+    - brief: The presence penalty setting for the GenAI request.
+      examples:
+      - 0.1
+      key: gen_ai.request.presence_penalty
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: Requests with same seed value more likely to return same result.
+      examples:
+      - 100
+      key: gen_ai.request.seed
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If applicable and if the request includes a seed.
+      stability: development
+      type: int
+    - brief: List of sequences that the model will use to stop generating further tokens.
+      examples:
+      - - forest
+        - lived
+      key: gen_ai.request.stop_sequences
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string[]
+    - brief: The temperature setting for the GenAI request.
+      examples:
+      - 0.0
+      key: gen_ai.request.temperature
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: The top_p sampling setting for the GenAI request.
+      examples:
+      - 1.0
+      key: gen_ai.request.top_p
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: Array of reasons the model stopped generating tokens, corresponding to each generation received.
+      examples:
+      - - stop
+      - - stop
+        - length
+      - - stop
+        - length
+        - error
+      key: gen_ai.response.finish_reasons
+      note: |
+        Values correspond to generations in the same order as the returned
+        choices/candidates.
+
+        Each position SHOULD contain the finish reason for the corresponding
+        choice/candidate. If a finish reason was expected but not received, for
+        example because generation failed, was cancelled, or a stream ended before
+        the final event, instrumentations SHOULD report `error` for that position
+        instead of omitting it.
+
+        `error` indicates that the generation ended abnormally, whether reported
+        by the provider or inferred by the instrumentation.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string[]
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-system-instructions.json
+      brief: The system message or instructions provided to the GenAI model separately from the chat history.
+      examples:
+      - |
+        [
+          {
+            "type": "text",
+            "content": "You are an Agent that greet users, always use greetings tool to respond"
+          }
+        ]
+      - |
+        [
+          {
+            "type": "text",
+            "content": "You are a language translator."
+          },
+          {
+            "type": "text",
+            "content": "Your mission is to translate text in English to French."
+          }
+        ]
+      key: gen_ai.system_instructions
+      note: |
+        This attribute SHOULD be used when the corresponding provider or API
+        allows to provide system instructions or messages separately from the
+        chat history.
+
+        Instructions that are part of the chat history SHOULD be recorded in
+        `gen_ai.input.messages` attribute instead.
+
+        Instrumentations MAY provide a way for users to filter or truncate
+        system instructions.
+
+        \u003e [!Warning]
+        \u003e This attribute may contain sensitive information.
+
+        See [Recording content on attributes](/docs/gen-ai/gen-ai-spans.md#recording-content-on-attributes)
+        section for more details.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-tool-definitions.json
+      brief: The list of tool definitions available to the GenAI agent or model.
+      examples:
+      - |
+        [
+          {
+            "type": "function",
+            "name": "get_current_weather",
+            "description": "Get the current weather in a given location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": {
+                  "type": "string",
+                  "description": "The city and state, e.g. San Francisco, CA"
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "celsius",
+                    "fahrenheit"
+                  ]
+                }
+              },
+              "required": [
+                "location",
+                "unit"
+              ]
+            }
+          }
+        ]
+      key: gen_ai.tool.definitions
+      note: |
+        \u003e [!WARNING]
+        \u003e This attribute may contain sensitive information.
+
+        Since this attribute could be large, it\u0027s NOT RECOMMENDED to populate
+        non-required properties by default. Instrumentations MAY provide a way
+        to enable populating optional properties.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: The number of tokens used in the GenAI input (prompt).
+      examples:
+      - 100
+      key: gen_ai.usage.input_tokens
+      note: |
+        This value SHOULD include all types of input tokens, including cached tokens.
+        Instrumentations SHOULD make a best effort to populate this value, using a total
+        provided by the provider when available or, depending on the provider API,
+        by summing different token types parsed from the provider output.
+
+        When the provider reports both billed token counts and model-consumed
+        token counts (for example, Cohere exposes both `usage.billed_units` and
+        `usage.tokens`), instrumentations SHOULD report the billed count so the
+        value matches the units the customer is charged for.
+
+        Detailed usage attributes are subsets of total and aggregate counts. For example,
+        if a request has 100 text tokens (40 cached) and 200 image tokens:
+        - `gen_ai.usage.input_tokens`: 300
+        - `gen_ai.usage.cache_read.input_tokens`: 40
+        - `gen_ai.usage.text.input_tokens`: 100
+        - `gen_ai.usage.text.cache_read.input_tokens`: 40
+        - `gen_ai.usage.image.input_tokens`: 200
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The number of tokens used in the GenAI response (completion).
+      examples:
+      - 180
+      key: gen_ai.usage.output_tokens
+      note: |
+        When the provider reports both billed token counts and model-consumed
+        token counts (for example, Cohere exposes both `usage.billed_units` and
+        `usage.tokens`), instrumentations SHOULD report the billed count so the
+        value matches the units the customer is charged for.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: Whether the captured input messages were shortened to the capture budget.
+      key: kagent.capture.input_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.input.messages is present.
+      stability: development
+      type: boolean
+    - brief: Whether the captured output messages were shortened to the capture budget.
+      key: kagent.capture.output_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.output.messages is present.
+      stability: development
+      type: boolean
+    - brief: How a segment stopped, when the task state does not say it.
+      key: kagent.invocation.disposition
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The task state does not say how the segment stopped.
+      stability: development
+      type:
+        members:
+        - brief: A client asked to cancel the task.
+          id: canceled
+          stability: development
+          value: canceled
+        - brief: The A2A event consumer stopped reading before execution finished.
+          id: abandoned
+          stability: development
+          value: abandoned
+        - brief: The execution context ended without a cancellation request.
+          id: interrupted
+          stability: development
+          value: interrupted
+    - brief: Whether an execution starts a task or continues it.
+      key: kagent.invocation.segment
+      note: |
+        A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The first execution of a task.
+          id: initial
+          stability: development
+          value: initial
+        - brief: An execution that continues a task after an approval or a question.
+          id: resumed
+          stability: development
+          value: resumed
+    brief: One execution segment of a kagent agent.
+    id: kagent.invoke_agent.internal
+    kind: internal
+    name:
+      note: |
+        **Span name** SHOULD be `invoke_agent {gen_ai.agent.name}` if `gen_ai.agent.name` is readily available.
+        When `gen_ai.agent.name` is not available, it SHOULD be `invoke_agent`.
+        Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format.
+    note: |
+      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    type: gen_ai.invoke_agent.internal
+registry:
+  attribute_groups:
+  - attributes:
+    - brief: Whether the captured input messages were shortened to the capture budget.
+      key: kagent.capture.input_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.input.messages is present.
+      stability: development
+      type: boolean
+    - brief: Whether the captured output messages were shortened to the capture budget.
+      key: kagent.capture.output_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.output.messages is present.
+      stability: development
+      type: boolean
+    brief: Whether captured turn content was shortened.
+    id: kagent.capture
+    note: |
+      The content itself is `gen_ai.input.messages` and `gen_ai.output.messages` on the invoke_agent span, since a complex attribute cannot be part of a group.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+  - attributes:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The human-readable name of the invoked GenAI agent.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        kagent also writes `ollama` and `sap.ai_core`, which the conventions do not list.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model configured for the agent.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The ADK runtimes report the model on each inference span instead.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    brief: The compiled agent an invocation belongs to.
+    id: kagent.identity
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+  - attributes:
+    - brief: The A2A task state that execution reported.
+      key: a2a.task.state
+      note: |
+        The values are the A2A v1 wire names. An absent state does not mean success.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: Execution reported a task state.
+      stability: development
+      type:
+        members:
+        - brief: The task was accepted.
+          id: submitted
+          stability: development
+          value: TASK_STATE_SUBMITTED
+        - brief: The task is running.
+          id: working
+          stability: development
+          value: TASK_STATE_WORKING
+        - brief: The task finished.
+          id: completed
+          stability: development
+          value: TASK_STATE_COMPLETED
+        - brief: The task failed.
+          id: failed
+          stability: development
+          value: TASK_STATE_FAILED
+        - brief: The task was canceled.
+          id: canceled
+          stability: development
+          value: TASK_STATE_CANCELED
+        - brief: The task waits for an approval or an answer.
+          id: input_required
+          stability: development
+          value: TASK_STATE_INPUT_REQUIRED
+        - brief: The agent rejected the task.
+          id: rejected
+          stability: development
+          value: TASK_STATE_REJECTED
+        - brief: The task waits for authentication.
+          id: auth_required
+          stability: development
+          value: TASK_STATE_AUTH_REQUIRED
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The invocation failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: How a segment stopped, when the task state does not say it.
+      key: kagent.invocation.disposition
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The task state does not say how the segment stopped.
+      stability: development
+      type:
+        members:
+        - brief: A client asked to cancel the task.
+          id: canceled
+          stability: development
+          value: canceled
+        - brief: The A2A event consumer stopped reading before execution finished.
+          id: abandoned
+          stability: development
+          value: abandoned
+        - brief: The execution context ended without a cancellation request.
+          id: interrupted
+          stability: development
+          value: interrupted
+    brief: How an invocation ended.
+    id: kagent.outcome
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+  - attributes:
+    - brief: The A2A method that started the invocation.
+      key: a2a.method
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A unary A2A request.
+          id: send_message
+          stability: development
+          value: SendMessage
+        - brief: A streaming A2A request.
+          id: send_streaming_message
+          stability: development
+          value: SendStreamingMessage
+    - brief: The A2A task that an invocation executes.
+      examples:
+      - 0f6a7c1e-3d2b-4b8e-9a51-2c7d8e4f1a90
+      key: a2a.task.id
+      note: |
+        The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric.
+      provenance:
+        path: telemetry/registry/a2a.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A task.
+      stability: development
+      type: string
+    - brief: Unique identifier of an end user in the system. It maybe a username, email address, or other identifier.
+      examples:
+      - username
+      key: enduser.id
+      note: |
+        Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: A trusted identity reached the runtime.
+      stability: development
+      type: string
+    - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
+      examples:
+      - conv_5j66UpCpwteGg4YSxUnt7lPY
+      key: gen_ai.conversation.id
+      note: The A2A context ID.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A context.
+      stability: development
+      type: string
+    - brief: Whether an execution starts a task or continues it.
+      key: kagent.invocation.segment
+      note: |
+        A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The first execution of a task.
+          id: initial
+          stability: development
+          value: initial
+        - brief: An execution that continues a task after an approval or a question.
+          id: resumed
+          stability: development
+          value: resumed
+    brief: The A2A request an invocation serves.
+    id: kagent.request
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+  attributes:
+  - brief: The A2A method that started the invocation.
+    key: a2a.method
+    provenance:
+      path: telemetry/registry/a2a.yaml
+    stability: development
+    type:
+      members:
+      - brief: A unary A2A request.
+        id: send_message
+        stability: development
+        value: SendMessage
+      - brief: A streaming A2A request.
+        id: send_streaming_message
+        stability: development
+        value: SendStreamingMessage
+  - brief: The A2A task that an invocation executes.
+    examples:
+    - 0f6a7c1e-3d2b-4b8e-9a51-2c7d8e4f1a90
+    key: a2a.task.id
+    note: |
+      The GenAI conventions have no task identity, so it stays in the A2A namespace. Never on a resource or a metric.
+    provenance:
+      path: telemetry/registry/a2a.yaml
+    stability: development
+    type: string
+  - brief: The A2A task state that execution reported.
+    key: a2a.task.state
+    note: |
+      The values are the A2A v1 wire names. An absent state does not mean success.
+    provenance:
+      path: telemetry/registry/a2a.yaml
+    stability: development
+    type:
+      members:
+      - brief: The task was accepted.
+        id: submitted
+        stability: development
+        value: TASK_STATE_SUBMITTED
+      - brief: The task is running.
+        id: working
+        stability: development
+        value: TASK_STATE_WORKING
+      - brief: The task finished.
+        id: completed
+        stability: development
+        value: TASK_STATE_COMPLETED
+      - brief: The task failed.
+        id: failed
+        stability: development
+        value: TASK_STATE_FAILED
+      - brief: The task was canceled.
+        id: canceled
+        stability: development
+        value: TASK_STATE_CANCELED
+      - brief: The task waits for an approval or an answer.
+        id: input_required
+        stability: development
+        value: TASK_STATE_INPUT_REQUIRED
+      - brief: The agent rejected the task.
+        id: rejected
+        stability: development
+        value: TASK_STATE_REJECTED
+      - brief: The task waits for authentication.
+        id: auth_required
+        stability: development
+        value: TASK_STATE_AUTH_REQUIRED
+  - brief: Whether the captured input messages were shortened to the capture budget.
+    key: kagent.capture.input_truncated
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: boolean
+  - brief: Whether the captured output messages were shortened to the capture budget.
+    key: kagent.capture.output_truncated
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: boolean
+  - brief: How a segment stopped, when the task state does not say it.
+    key: kagent.invocation.disposition
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: A client asked to cancel the task.
+        id: canceled
+        stability: development
+        value: canceled
+      - brief: The A2A event consumer stopped reading before execution finished.
+        id: abandoned
+        stability: development
+        value: abandoned
+      - brief: The execution context ended without a cancellation request.
+        id: interrupted
+        stability: development
+        value: interrupted
+  - brief: Why a segment links to another span.
+    key: kagent.invocation.relationship
+    note: |
+      A link attribute. A link states a relationship. It does not reparent spans and it does not move the token usage recorded under the linked span.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: The link from a resumed segment to the segment that started the native turn.
+        id: resume_origin
+        stability: development
+        value: resume_origin
+  - brief: Whether an execution starts a task or continues it.
+    key: kagent.invocation.segment
+    note: |
+      A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: The first execution of a task.
+        id: initial
+        stability: development
+        value: initial
+      - brief: An execution that continues a task after an approval or a question.
+        id: resumed
+        stability: development
+        value: resumed
+  - brief: The runtime that produces the model and tool spans of an agent.
+    key: kagent.runtime
+    note: |
+      Every runtime declares it on its resource. The name of a Harness object is not its runtime.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: The Go ADK runtime.
+        id: adk_go
+        stability: development
+        value: adk-go
+      - brief: The Python ADK runtime.
+        id: adk_python
+        stability: development
+        value: adk-python
+      - brief: The Claude Code harness.
+        id: claude
+        stability: development
+        value: claude
+      - brief: The Codex harness.
+        id: codex
+        stability: development
+        value: codex
+      - brief: The LangGraph runtime.
+        id: langgraph
+        stability: development
+        value: langgraph
+      - brief: The CrewAI runtime.
+        id: crewai
+        stability: development
+        value: crewai
+      - brief: The OpenAI Agents SDK runtime.
+        id: openai_agents
+        stability: development
+        value: openai-agents
+      - brief: A bring-your-own image built on kagent-core.
+        id: byo
+        stability: development
+        value: byo
+  entities:
+  - brief: An agent runtime compiled by kagent.
+    description:
+    - brief: The human-readable name of the invoked GenAI agent.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: The provider the agent is compiled against.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model configured for the agent.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: The model the agent is compiled against.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The runtime that produces the model and tool spans of an agent.
+      key: kagent.runtime
+      note: |
+        Every runtime declares it on its resource. The name of a Harness object is not its runtime.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The Go ADK runtime.
+          id: adk_go
+          stability: development
+          value: adk-go
+        - brief: The Python ADK runtime.
+          id: adk_python
+          stability: development
+          value: adk-python
+        - brief: The Claude Code harness.
+          id: claude
+          stability: development
+          value: claude
+        - brief: The Codex harness.
+          id: codex
+          stability: development
+          value: codex
+        - brief: The LangGraph runtime.
+          id: langgraph
+          stability: development
+          value: langgraph
+        - brief: The CrewAI runtime.
+          id: crewai
+          stability: development
+          value: crewai
+        - brief: The OpenAI Agents SDK runtime.
+          id: openai_agents
+          stability: development
+          value: openai-agents
+        - brief: A bring-your-own image built on kagent-core.
+          id: byo
+          stability: development
+          value: byo
+    identity:
+    - brief: The unique and stable identifier of the GenAI hosted agent resource.
+      examples:
+      - asst_5j66UpCpwteGg4YSxUnt7lPY
+      - arn:aws:bedrock:us-east-1:123:agent/42
+      - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
+      key: gen_ai.agent.id
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    note: |
+      Conversation, task and user identity never appear here, since one runtime process serves many of each.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    type: kagent.agent
+  events: []
+  metrics: []
+  spans: []
+schema_url: https://kagent.dev/schemas/telemetry/0.1.0
