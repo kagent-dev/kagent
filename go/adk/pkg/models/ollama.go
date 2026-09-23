@@ -102,8 +102,8 @@ func isOllamaCloudModel(modelName string) bool {
 // when it decides whether to emit the Secret reference, and credential
 // compilation when it decides whether a gateway binding exists. Three
 // independent copies of this predicate previously disagreed, which turned a
-// valid configuration into
-// either a denied egress call or a hard credential error.
+// valid configuration into either a denied egress call or a hard credential
+// error.
 //
 // An explicit host normally wins: that is how an operator points at another
 // machine, a container, or an authenticated proxy. The exception is a host that
