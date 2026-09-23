@@ -1,0 +1,43 @@
+# This file is maintained centrally at
+# https://github.com/giantswarm/github/blob/main/languages/go/.pre-commit-config.yaml
+
+minimum_pre_commit_version: '2.17'
+repos:
+  # shell scripts
+  - repo: https://github.com/detailyang/pre-commit-shell
+    rev: '1.0.5'
+    hooks:
+      - id: shell-lint
+        args: [ --format=json ]
+        exclude: ".*\\.template"
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: ".*testdata/.*"
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+        exclude: ".*testdata/.*"
+
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+      - id: go-mod-tidy
+      - id: golangci-lint
+        args:
+          - -E=gosec
+          - -E=goconst
+          - -E=govet
+          # timeout is needed for CI
+          - --timeout=300s
+          # List all issues found
+          - --max-same-issues=0
+          - --max-issues-per-linter=0
+      - id: go-imports
+        args: [ -local, github.com/giantswarm/kagent-upstream ]

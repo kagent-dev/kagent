@@ -4,6 +4,7 @@
 // the pinned upstream release and every re-pin would have to carry or revert
 // it. Dependencies move when the line is re-pinned; see FORK.md.
 {
+  reviewers: ['teemow'],
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   enabled: false,
 }
