@@ -192,9 +192,22 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'rewrite \^/my\\\.ui\(/\.\*\)\$ \$1 last;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'rewrite \^/my\\\.ui\$ / last;'
 
   - it: should not rewrite paths without ui.basePath
     template: ui-nginx-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'rewrite '
+
+  - it: should not rewrite paths when ui.basePath is the root
+    template: ui-nginx-configmap.yaml
+    set:
+      ui:
+        basePath: /
     asserts:
       - notMatchRegex:
           path: data["nginx.conf"]

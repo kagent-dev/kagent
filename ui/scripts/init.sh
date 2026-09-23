@@ -32,8 +32,10 @@ ENABLE_MOCK_UI="${ENABLE_MOCK_UI:-false}"
 # Public path prefix when a reverse proxy serves the UI under a sub-path, e.g. /ui.
 BASE_PATH="${KAGENT_UI_BASE_PATH:-}"
 BASE_PATH="${BASE_PATH%/}"
-if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || [[ "$BASE_PATH" =~ (^|/)\.\.?(/|$) ]]; then
-  echo "init.sh: KAGENT_UI_BASE_PATH='${BASE_PATH}' is not a path like /ui; serving at the root" >&2
+# Keep in sync with the ui.basePath check in helm/kagent/templates/ui-deployment.yaml.
+if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || [[ "$BASE_PATH" =~ (^|/)\.\.?(/|$) ]] \
+  || [[ "$BASE_PATH" =~ ^/(api|a2a|assets|health|env-config\.js|index\.html|mockServiceWorker\.js)(/|$) ]]; then
+  echo "init.sh: KAGENT_UI_BASE_PATH='${BASE_PATH}' is not a path like /ui, or starts with a path nginx serves; serving at the root" >&2
   BASE_PATH=""
 fi
 

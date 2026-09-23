@@ -384,6 +384,27 @@ tests:
       - failedTemplate:
           errorMessage: ui.basePath must be a path like /ui
 
+  - it: should reject a ui.basePath that starts with a path nginx serves
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /assets/ui
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
+
+  - it: should accept a ui.basePath that only shares a prefix with a served path
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /apis
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_UI_BASE_PATH
+            value: "/apis"
+
   - it: should reflect overridden auth and stream settings
     template: ui-deployment.yaml
     set:
