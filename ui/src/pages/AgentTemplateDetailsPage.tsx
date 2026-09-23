@@ -37,6 +37,7 @@ import {
   useInvalidateAgentTemplates,
   type AgentTemplateHarnessStatus,
 } from "@/api";
+import { pairRevisionCondition } from "./agentTemplateRevision";
 
 const { Text, Paragraph } = Typography;
 
@@ -288,15 +289,18 @@ export function AgentTemplateDetailsPage() {
       },
       {
         /*
-         * The controller's own `Ready` condition for this pair. Its reason is carried
-         * verbatim — `ActorTemplatePending` and `Ready` are what the cluster says, and
-         * paraphrasing them would make the message unsearchable against controller logs.
+         * The earliest failed controller stage for this pair, or Ready when none failed.
+         * Looking only for Ready hides compiler failures: structured output on a Codex
+         * or Claude harness, for example, stops at Compatible=False and has no Ready
+         * condition to display. The controller's reason and message are carried verbatim
+         * so the UI cannot drift from the compiler's compatibility decision.
          */
         title: "Revision state",
         key: "state",
         render: (_, row) => {
-          const ready = (row.conditions ?? []).find((entry) => entry.type === "Ready");
-          if (!ready) {
+          const conditions = row.conditions ?? [];
+          const condition = pairRevisionCondition(conditions);
+          if (!condition) {
             return (
               <Tooltip title="The controller has recorded no Ready condition for this pair yet. That is not a failure — a pair it has not observed looks exactly like this.">
                 <Tag>Not reported</Tag>
@@ -304,11 +308,26 @@ export function AgentTemplateDetailsPage() {
             );
           }
           return (
-            <Tooltip title={ready.message}>
-              <Tag color={ready.status === "True" ? "success" : "warning"}>
-                {ready.status === "True" ? "Ready" : (ready.reason ?? "Not ready")}
+            <Space orientation="vertical" size={2}>
+              <Tag
+                color={
+                  condition.status === "True"
+                    ? "success"
+                    : condition.type === "Ready"
+                      ? "warning"
+                      : "error"
+                }
+              >
+                {condition.status === "True"
+                  ? "Ready"
+                  : (condition.reason ?? `${condition.type} failed`)}
               </Tag>
-            </Tooltip>
+              {condition.message ? (
+                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  {condition.message}
+                </Text>
+              ) : null}
+            </Space>
           );
         },
       },

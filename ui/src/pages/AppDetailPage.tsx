@@ -120,8 +120,15 @@ export function AppDetailPage() {
           />
         ) : null}
 
-        {/* Absence is only meaningful once the read finished and succeeded. */}
-        {appName && !servers.error && !servers.isLoading && matches.length === 0 ? (
+        {/* Absence is only meaningful once the read finished and succeeded, and
+            `!isLoading` alone does not mean that: an idle read reports it false with
+            nothing in it, so this announced "No such app" about a list it had not
+            asked for. See `useApiResource`. */}
+        {appName &&
+        !servers.error &&
+        !servers.isLoading &&
+        servers.data !== undefined &&
+        matches.length === 0 ? (
           <Alert
             type="warning"
             showIcon

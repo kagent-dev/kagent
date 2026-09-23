@@ -212,6 +212,9 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}
+		if template.Spec.OutputSchemaFrom != nil {
+			configMaps[template.Spec.OutputSchemaFrom.Name] = struct{}{}
+		}
 		if template.Spec.PromptTemplate != nil {
 			for _, source := range template.Spec.PromptTemplate.DataSources {
 				configMaps[source.Name] = struct{}{}

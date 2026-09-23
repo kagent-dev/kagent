@@ -237,6 +237,10 @@ type HarnessCapabilities struct {
 	InputRequired bool `json:"inputRequired"`
 	// +required
 	Approvals bool `json:"approvals"`
+	// StructuredOutput reports whether the pinned adapter can enforce a root
+	// JSON output contract and emit it as an A2A DataPart.
+	// +required
+	StructuredOutput bool `json:"structuredOutput"`
 
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set

@@ -12,10 +12,14 @@ import (
 // the kagent, Codex, and Claude harnesses. The gateway replaces the private
 // interface while preserving these runtime capabilities.
 func ManagedAgentCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
+	outputModes := []string{"text"}
+	if template.Spec.OutputSchema != nil || template.Spec.OutputSchemaFrom != nil {
+		outputModes = []string{"application/json"}
+	}
 	return &a2atype.AgentCard{
 		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
 		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
 		Capabilities:        a2atype.AgentCapabilities{Streaming: true, Extensions: []a2atype.AgentExtension{apia2a.HITLExtension()}},
-		Skills:              []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
+		Skills:              []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: outputModes,
 	}
 }

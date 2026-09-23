@@ -45,7 +45,7 @@ func runTurn(t *testing.T, responses []model.LLMResponse) ([]*a2atype.TaskArtifa
 		t.Fatalf("agent.New() error = %v", err)
 	}
 
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName:        appName,
 		SessionService: adksession.InMemoryService(),
 		Logger:         slog.New(slog.DiscardHandler),
@@ -54,6 +54,9 @@ func runTurn(t *testing.T, responses []model.LLMResponse) ([]*a2atype.TaskArtifa
 			Agent:   agent,
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 	reqCtx := &a2asrv.ExecutorContext{
 		TaskID:    "task-1",
 		ContextID: "context-1",
