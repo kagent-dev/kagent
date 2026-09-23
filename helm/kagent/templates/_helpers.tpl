@@ -390,7 +390,7 @@ oauth2-proxy to evaluate, instead of trying to evaluate it itself). It is
 forwarded to kagent's branded /login page.
 */}}
 {{- define "kagent.oauth2ProxySignInHTML" -}}
-{{- /* The oauth2-proxy checksum renders this with the subchart's values, which have no `ui`. */ -}}
+{{- /* The oauth2-proxy checksum renders this without `ui`, so a basePath change alone doesn't roll the pod. */ -}}
 {{- $base := trimSuffix "/" ((.Values.ui | default dict).basePath | default "") -}}
 <!DOCTYPE html>
 <html>

@@ -121,7 +121,11 @@ export function envIsSet(key: keyof EnvironmentVariables): boolean {
   return typeof value === "string" && value.length > 0;
 }
 
-/** Prefixes a root-relative path with `BASE_PATH`; absolute URLs pass through. */
+/** Prefixes a root-relative path with `BASE_PATH`; absolute and already-prefixed URLs pass through. */
 export function withBasePath(url: string): string {
-  return url.startsWith("/") && !url.startsWith("//") ? `${env("BASE_PATH")}${url}` : url;
+  const base = env("BASE_PATH");
+  if (!url.startsWith("/") || url.startsWith("//") || url === base || url.startsWith(`${base}/`)) {
+    return url;
+  }
+  return `${base}${url}`;
 }
