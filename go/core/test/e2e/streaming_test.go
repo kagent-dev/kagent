@@ -8,6 +8,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestAgentInstanceStreamingResumeAndPersistence(t *testing.T) {
@@ -131,7 +132,7 @@ func sendStreaming(t *testing.T, fixture *interactionFixture, text string) strea
 func toolEvents(parts []*a2atype.Part) []toolEvent {
 	var events []toolEvent
 	for _, part := range parts {
-		partType, _ := part.Metadata["kagent_type"].(string)
+		partType, _ := part.Metadata[apia2a.PartTypeMetadataKey].(string)
 		if partType != "function_call" && partType != "function_response" {
 			continue
 		}

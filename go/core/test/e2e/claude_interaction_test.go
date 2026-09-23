@@ -20,7 +20,7 @@ import (
 
 const claudeE2EHarness = "claude-e2e"
 
-//go:embed mocks/invoke_claude_agent.json mocks/invoke_claude_builtin_tools.json mocks/invoke_claude_local_subagent.json mocks/invoke_claude_resources.json
+//go:embed mocks/invoke_claude_builtin_tools.json mocks/invoke_claude_local_subagent.json mocks/invoke_claude_resources.json
 var claudeInteractionMocks embed.FS
 
 func TestE2EClaudeMockBuiltinToolEvents(t *testing.T) {

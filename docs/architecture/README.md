@@ -71,6 +71,7 @@ quiescence. It reaches Actors through the private runtime network.
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [A2A gateway](a2a-gateway.md)
+- [A2A metadata](a2a-metadata.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)
 - [MCP](mcp.md)
 - [A2A agent tools](a2a-subagents.md)

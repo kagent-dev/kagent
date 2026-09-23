@@ -237,7 +237,7 @@ func assertToolActivity(t *testing.T, events []a2atype.Event, partType string, w
 			continue
 		}
 		part := update.Artifact.Parts[0]
-		if part.Metadata["kagent_type"] != partType {
+		if part.Metadata[apia2a.PartTypeMetadataKey] != partType {
 			continue
 		}
 		if got := part.Data(); !reflect.DeepEqual(got, want) {

@@ -91,15 +91,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
 			}
-			// Preserve the artifact's protocol type while giving current A2A clients a
-			// common ordering key. A2A #2129 will replace this with native artifact
-			// start/end generations and a task timeline.
+			// Preserve the artifact's protocol type and assign kagent's ordering key.
 			if processed.Artifact != nil {
 				position := event.Timestamp
 				if position.IsZero() {
 					position = time.Now()
 				}
-				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
+				apia2a.SetTimelinePosition(processed.Artifact, position)
 			}
 			return transformStructuredOutput(output, rootName, event, processed)
 		},
@@ -325,12 +323,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
-				position := time.Now().UTC()
-				if update.Status.Timestamp != nil {
-					position = update.Status.Timestamp.UTC()
-				}
-				update.Status.Message.SetMeta(apia2a.TimelinePositionMetadataKey, position.Format(time.RFC3339Nano))
 			}
+			// Status messages are outbound timeline items regardless of whether they
+			// represent HITL, validation failures, or another runtime status.
+			stampStatusMessageTimeline(event)
+			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
 				flushTurnSpans(ctx, invocationSpan)
 			}
@@ -339,6 +336,18 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			}
 		}
 	}
+}
+
+func stampStatusMessageTimeline(event a2atype.Event) {
+	update, ok := event.(*a2atype.TaskStatusUpdateEvent)
+	if !ok || update.Status.Message == nil {
+		return
+	}
+	position := time.Now().UTC()
+	if update.Status.Timestamp != nil {
+		position = update.Status.Timestamp.UTC()
+	}
+	apia2a.SetTimelinePosition(update.Status.Message, position)
 }
 
 // endsTurn reports whether an event is the last one a turn produces: a terminal
@@ -417,7 +426,15 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 
 // Cancel delegates cancellation to the upstream executor.
 func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
-	return e.builtin.Cancel(ctx, reqCtx)
+	return func(yield func(a2atype.Event, error) bool) {
+		for event, err := range e.builtin.Cancel(ctx, reqCtx) {
+			stampStatusMessageTimeline(event)
+			canonicalizeADKEvent(event)
+			if !yield(event, err) {
+				return
+			}
+		}
+	}
 }
 
 // Cleanup preserves the upstream executor's subagent cleanup behavior.

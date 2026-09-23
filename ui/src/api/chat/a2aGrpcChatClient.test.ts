@@ -25,6 +25,7 @@ import {
 } from "@/generated/a2a_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
 
 const CONVERSATION = {
@@ -53,11 +54,20 @@ const text = (value: string) => ({ content: { case: "text" as const, value } });
 const data = (
   value: Record<string, unknown>,
   options: { mediaType?: string; metadata?: Record<string, unknown> } = {},
-) => ({
-  content: { case: "data" as const, value: fromJson(ValueSchema, value as never) },
-  mediaType: options.mediaType ?? "",
-  metadata: options.metadata,
-});
+) => {
+  const partType = "args" in value
+    ? "function_call"
+    : "response" in value
+      ? "function_response"
+      : undefined;
+  return {
+    content: { case: "data" as const, value: fromJson(ValueSchema, value as never) },
+    mediaType: options.mediaType ?? "",
+    metadata:
+      options.metadata ??
+      (partType ? { [A2A_METADATA.partType]: partType } : undefined),
+  };
+};
 
 /** A `working` status update carrying one message. */
 function statusFrame(options: {
@@ -404,65 +414,6 @@ describe("A2AGrpcChatClient.send", () => {
     const user = transcript(events).filter((message) => message.role === "user");
     expect(user).toHaveLength(1);
     expect(textOf(user[0])).toBe("why is checkout crashlooping?");
-  });
-
-  it("coalesces a reply streamed as partial chunks into one message", async () => {
-    // Each chunk is a whole message with a messageId of its own — delivered as they
-    // arrive, one reply became a column of bubbles, one per word. What relates them
-    // is `adk_invocation_id`.
-    const chunk = (id: string, value: string) => ({
-      messageId: id,
-      role: Role.AGENT,
-      parts: [text(value)],
-      metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
-    });
-
-    const events = await turn([
-      statusFrame({ message: chunk("c1", "The checkout ") }),
-      statusFrame({ message: chunk("c2", "pod is out ") }),
-      statusFrame({ message: chunk("c3", "of memory.") }),
-    ]);
-
-    const agent = transcript(events).filter((message) => message.role === "agent");
-    expect(agent).toHaveLength(1);
-    expect(textOf(agent[0])).toBe("The checkout pod is out of memory.");
-  });
-
-  it("replaces the streamed reply with the server's final one rather than adding it", async () => {
-    // The complete message repeats every word already streamed, under a messageId of
-    // its own. Emitted as a new message it printed the answer twice; emitted under
-    // the streamed id it is a replacement, and the authority sits with the backend.
-    const events = await turn([
-      statusFrame({
-        message: {
-          messageId: "c1",
-          role: Role.AGENT,
-          parts: [text("The checkout ")],
-          metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
-        },
-      }),
-      statusFrame({
-        message: {
-          messageId: "c2",
-          role: Role.AGENT,
-          parts: [text("pod is out of memory.")],
-          metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
-        },
-      }),
-      statusFrame({
-        state: TaskState.COMPLETED,
-        message: {
-          messageId: "final",
-          role: Role.AGENT,
-          parts: [text("The checkout pod is out of memory.")],
-          metadata: { adk_invocation_id: "inv-1" },
-        },
-      }),
-    ]);
-
-    const agent = transcript(events).filter((message) => message.role === "agent");
-    expect(agent).toHaveLength(1);
-    expect(textOf(agent[0])).toBe("The checkout pod is out of memory.");
   });
 
   it("does not deliver the answer twice when an artifact repeats it", async () => {
@@ -874,6 +825,60 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
+  it("orders a canonically positioned approval between its tool call and result", async () => {
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              ...position("2026-01-01T00:00:00.000000002Z"),
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [{ id: "call-1", name: "delete_pod", args: {} }],
+              },
+            },
+          },
+          {
+            messageId: "approval",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              ...position("2026-01-01T00:00:00.000000003Z"),
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "call-1", approved: true }],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          {
+            artifactId: "call",
+            parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
+            metadata: position("2026-01-01T00:00:00.000000001Z"),
+          },
+          {
+            artifactId: "result",
+            parts: [data({ id: "call-1", name: "delete_pod", response: { result: "deleted" } })],
+            metadata: position("2026-01-01T00:00:00.000000004Z"),
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual(["call", "approval", "result"]);
+  });
+
   it("replays a completed ask_user exchange as one structured record", async () => {
     serveTasks([
       {
@@ -1041,7 +1046,7 @@ describe("A2AGrpcChatClient.history", () => {
   });
 
   it("orders messages and artifacts by their timeline positions", async () => {
-    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
         id: "task-1",
@@ -1066,7 +1071,7 @@ describe("A2AGrpcChatClient.history", () => {
   });
 
   it("replays text on both sides of tool activity in its original order", async () => {
-    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
         id: "task-1",
@@ -1103,7 +1108,7 @@ describe("A2AGrpcChatClient.history", () => {
   });
 
   it("does not use text as identity for positioned artifacts", async () => {
-    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
         id: "task-1",
@@ -1308,7 +1313,12 @@ describe("A2AGrpcChatClient.history", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].parts).toEqual([
       { kind: "text", text: "alpha beta" },
-      { kind: "data", dataKind: "tool_call", data: { name: "lookup", args: {} } },
+      {
+        kind: "data",
+        dataKind: "tool_call",
+        data: { name: "lookup", args: {} },
+        metadata: { [A2A_METADATA.partType]: "function_call" },
+      },
       { kind: "text", text: " gamma delta" },
     ]);
   });

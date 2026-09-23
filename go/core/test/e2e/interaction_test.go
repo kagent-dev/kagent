@@ -49,7 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-//go:embed mocks/invoke_agent.json mocks/invoke_golang_adk_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json
+//go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json
 var interactionMocks embed.FS
 
 const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string"}},"required":["answer","explanation"],"additionalProperties":false}`
@@ -835,7 +835,7 @@ func startMockLLMConfig(t *testing.T, cfg mockllm.Config) string {
 
 func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
 	t.Helper()
-	cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_golang_adk_agent.json", interactionMocks)
+	cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_agent.json", interactionMocks)
 	if err != nil {
 		t.Fatalf("load mock LLM response: %v", err)
 	}

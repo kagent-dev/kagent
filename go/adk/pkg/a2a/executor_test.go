@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"log/slog"
 
@@ -128,7 +129,7 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 		t.Fatalf("delegated message = %#v, want one FunctionResponse", builtin.message)
 	}
 	part := builtin.message.Parts[0]
-	if got, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey); got != A2ADataPartMetadataTypeFunctionResponse {
+	if got := part.Metadata[apia2a.PartTypeMetadataKey]; got != A2ADataPartMetadataTypeFunctionResponse {
 		t.Fatalf("delegated part type = %#v, want function_response", got)
 	}
 	if got := asDataPart(part)[PartKeyID]; got != "confirm-1" {
@@ -180,6 +181,38 @@ func TestKAgentExecutor_TranslatesADKPauseAtA2ABoundary(t *testing.T) {
 	}
 	if len(got.Status.Message.Parts) != 1 || got.Status.Message.Parts[0].Text() == "" {
 		t.Fatalf("public pause leaked non-text parts: %#v", got.Status.Message.Parts)
+	}
+}
+
+func TestKAgentExecutor_StampsStructuredOutputFailureMessage(t *testing.T) {
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "ctx-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("answer")),
+	}
+	timestamp := time.Date(2026, time.September, 23, 12, 34, 56, 789, time.UTC)
+	completed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil)
+	completed.Status.Timestamp = &timestamp
+	builtin := &recordingExecutor{events: []a2atype.Event{completed}}
+	executor := &KAgentExecutor{
+		builtin:                 builtin,
+		logger:                  slog.New(slog.DiscardHandler),
+		structuredOutputEnabled: true,
+	}
+
+	var got *a2atype.TaskStatusUpdateEvent
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		got, _ = event.(*a2atype.TaskStatusUpdateEvent)
+	}
+
+	if got == nil || got.Status.State != a2atype.TaskStateFailed || got.Status.Message == nil {
+		t.Fatalf("status update = %#v, want failed status with validation message", got)
+	}
+	position, ok := apia2a.TimelinePosition(got.Status.Message)
+	if !ok || !position.Equal(timestamp) {
+		t.Fatalf("timeline position = %v, %v; want %v", position, ok, timestamp)
 	}
 }
 

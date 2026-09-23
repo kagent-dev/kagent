@@ -19,7 +19,7 @@ import (
 
 const codexE2EHarness = "codex-e2e"
 
-//go:embed mocks/invoke_codex_agent.json mocks/invoke_codex_builtin_tools.json mocks/invoke_codex_resources.json
+//go:embed mocks/invoke_codex_builtin_tools.json mocks/invoke_codex_resources.json
 var codexInteractionMocks embed.FS
 
 func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {

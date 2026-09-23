@@ -32,9 +32,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
-const TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
-
 type instanceStore interface {
 	GetAgentInstanceByID(context.Context, string) (*apiv1alpha1.AgentInstance, error)
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -508,14 +505,13 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req == nil || req.Message == nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
 	}
-	apia2a.ClearStoredTask(req.Message)
+	apia2a.SanitizeCallerRequest(req)
 	if req.Message.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
 	}
 	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetContextId() {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
-	delete(req.Message.Metadata, apia2a.TimelinePositionMetadataKey)
 	if req.Message.TaskID != "" {
 		return g.prepareReply(ctx, instance, req)
 	}
@@ -525,17 +521,14 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
 	}
 	receivedAt := time.Now().UTC()
-	req.Message.SetMeta(apia2a.TimelinePositionMetadataKey, receivedAt.Format(time.RFC3339Nano))
+	apia2a.SetTimelinePosition(req.Message, receivedAt)
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
 	createdAt := receivedAt
 	if submitted.Status.Timestamp != nil {
 		createdAt = submitted.Status.Timestamp.UTC()
 	}
-	if submitted.Metadata == nil {
-		submitted.Metadata = map[string]any{}
-	}
-	submitted.Metadata[TaskCreatedAtMetadataKey] = createdAt.Format(time.RFC3339Nano)
+	apia2a.SetTaskCreatedAt(submitted, createdAt)
 	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
 	if errors.Is(err, database.ErrConflict) && instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY && instance.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		if err = g.reconcileActiveTask(ctx, instance); err == nil {
@@ -556,7 +549,7 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
 	}
-	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
+	apia2a.SetTimelinePosition(message, time.Now())
 	continuation, err := g.store.ContinueAgentInstanceTask(ctx, instance.GetId(), requestHash, message)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
@@ -654,12 +647,6 @@ func taskForResult(submitted *a2atype.Task, result a2atype.SendMessageResult) (*
 		if result == nil {
 			return nil, a2atype.NewError(a2atype.ErrInternalError, "runtime returned an empty task")
 		}
-		if createdAt, ok := submitted.Metadata[TaskCreatedAtMetadataKey]; ok {
-			if result.Metadata == nil {
-				result.Metadata = map[string]any{}
-			}
-			result.Metadata[TaskCreatedAtMetadataKey] = createdAt
-		}
 		return taskForEvent(submitted, result)
 	case *a2atype.Message:
 		if result == nil {
@@ -696,6 +683,12 @@ func taskForEvent(task *a2atype.Task, event a2atype.Event) (*a2atype.Task, error
 	updated, err := a2aevent.ApplyUpdate(task, event)
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, fmt.Sprintf("apply runtime task event: %v", err))
+	}
+	if createdAt, ok := task.Metadata[apia2a.TaskCreatedAtMetadataKey]; ok {
+		if updated.Metadata == nil {
+			updated.Metadata = map[string]any{}
+		}
+		updated.Metadata[apia2a.TaskCreatedAtMetadataKey] = createdAt
 	}
 	/*
 	 * The runtime may send a whole task, and it does not always remember as much as

@@ -188,13 +188,13 @@ type remoteA2AState struct {
 // can't be silently forgotten in one branch while present in another.
 // functiontool.New infers the tool's output schema from this type.
 type remoteA2AResponse struct {
-	Result              string         `json:"result,omitempty"`
-	Error               string         `json:"error,omitempty"`
-	Status              string         `json:"status,omitempty"`
-	WaitingFor          string         `json:"waiting_for,omitempty"`
-	Subagent            string         `json:"subagent,omitempty"`
-	SubagentSessionID   string         `json:"subagent_session_id,omitempty"`
-	KAgentUsageMetadata map[string]any `json:"kagent_usage_metadata,omitempty"`
+	Result            string         `json:"result,omitempty"`
+	Error             string         `json:"error,omitempty"`
+	Status            string         `json:"status,omitempty"`
+	WaitingFor        string         `json:"waiting_for,omitempty"`
+	Subagent          string         `json:"subagent,omitempty"`
+	SubagentSessionID string         `json:"subagent_session_id,omitempty"`
+	Usage             map[string]any `json:"usage,omitempty"`
 }
 
 // NewKAgentRemoteA2ATool creates a function tool that calls a remote A2A agent
@@ -445,7 +445,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 				SubagentSessionID: contextID,
 			}
 			if usage := extractUsageFromTask(r); usage != nil {
-				ret.KAgentUsageMetadata = usage
+				ret.Usage = usage
 			}
 			return ret, nil
 		}
@@ -508,13 +508,13 @@ func withOTelTransport(c *http.Client) *http.Client {
 	return &cp
 }
 
-// extractUsageFromTask extracts kagent_usage_metadata from a completed task.
+// extractUsageFromTask extracts public usage metadata from a completed task.
 // Port of _remote_a2a_tool.py:_extract_usage_from_task().
 func extractUsageFromTask(task *a2atype.Task) map[string]any {
 	if task == nil || task.Metadata == nil {
 		return nil
 	}
-	usage, ok := task.Metadata["kagent_usage_metadata"].(map[string]any)
+	usage, ok := task.Metadata[kagenta2a.UsageMetadataKey].(map[string]any)
 	if ok && len(usage) > 0 {
 		return usage
 	}

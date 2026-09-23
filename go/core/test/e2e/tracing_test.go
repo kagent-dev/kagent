@@ -250,12 +250,12 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			name: "claude", harness: claudeTracingE2EHarness, templateLabel: "claude-tracing",
 			runtime: tracing.RuntimeClaude, provider: "anthropic",
 			modelURL: func(t *testing.T) string {
-				return reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
+				return reachableServerURL(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), "")
 			},
 			createModel: func(t *testing.T, baseURL string) *v1alpha3.ModelConfig {
 				return createClaudeMockModel(t, interactionKubeClient(t), baseURL)
 			},
-			prompt: "Return exactly CLAUDE_MOCK_FIRST.",
+			prompt: "What is 2+2?",
 			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
 				t.Helper()
 				for _, captured := range receiver.selectSpans(traceID, "", "", "", nil) {
@@ -270,12 +270,12 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			name: "codex", harness: codexTracingE2EHarness, templateLabel: "codex-tracing",
 			runtime: tracing.RuntimeCodex, provider: "openai",
 			modelURL: func(t *testing.T) string {
-				return reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
+				return startInteractionMock(t)
 			},
 			createModel: func(t *testing.T, baseURL string) *v1alpha3.ModelConfig {
 				return createCodexMockModel(t, interactionKubeClient(t), baseURL)
 			},
-			prompt: "Return exactly CODEX_MOCK_FIRST.",
+			prompt: "What is 2+2?",
 			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
 				t.Helper()
 				for _, captured := range receiver.selectSpans(traceID, "", "", "", nil) {
