@@ -500,6 +500,18 @@ jobs:
         working-directory: ./ui
         run: yarn test:pw
 
+      # What a failed attempt leaves behind: its screenshot and video, and the trace of
+      # its retry. The log names the step that timed out; only the trace shows what was
+      # on the page under the pointer while it did, and the runner discards it otherwise.
+      - name: Keep the browser suite's evidence of a failed run
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-test-results
+          path: ui/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
   build:
     env:
