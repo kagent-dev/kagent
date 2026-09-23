@@ -137,7 +137,7 @@ KIND_CLUSTER_NAME ?= kagent
 
 .PHONY: e2e
 e2e: core/bin/kagent-local ## Run end-to-end tests.
-	@kind get clusters 2>/dev/null | rg -q -x -F '$(KIND_CLUSTER_NAME)' || { \
+	@kind get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER_NAME)' || { \
 	  echo "Error: kind cluster '$(KIND_CLUSTER_NAME)' not found. Run 'make create-kind-cluster' first." >&2; \
 	  exit 1; \
 	}
