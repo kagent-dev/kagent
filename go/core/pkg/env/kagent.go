@@ -147,14 +147,14 @@ var (
 
 	DatabaseSchema = RegisterStringVar(
 		"POSTGRES_DATABASE_SCHEMA",
-		"public",
+		"kagent",
 		"PostgreSQL schema for Kagent tables.",
 		ComponentDatabase,
 	)
 
 	DatabaseVectorSchema = RegisterStringVar(
 		"POSTGRES_VECTOR_SCHEMA",
-		"public",
+		"extensions",
 		"Schema where the shared pgvector extension is installed.",
 		ComponentDatabase,
 	)

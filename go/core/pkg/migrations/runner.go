@@ -42,42 +42,38 @@ type Source struct {
 	PreCheck      func(url string) error
 }
 
-// BuiltinSources returns the built-in migration sources.
+// BuiltinSources returns the built-in migration sources in the default schemas.
 func BuiltinSources(vectorEnabled bool) []Source {
+	return BuiltinSourcesInSchema(vectorEnabled, "kagent", "extensions")
+}
+
+// BuiltinSourcesInSchema returns the built-in sources with their table and
+// pgvector schemas selected independently. Empty values use the defaults.
+func BuiltinSourcesInSchema(vectorEnabled bool, schema, vectorSchema string) []Source {
+	if schema == "" {
+		schema = "kagent"
+	}
+	if vectorSchema == "" {
+		vectorSchema = "extensions"
+	}
 	sources := []Source{{
 		Name:          "core",
+		Schema:        schema,
 		TrackingTable: coreTrackingTable,
 		FS:            FS,
 		Dir:           "core",
 	}}
 	if vectorEnabled {
+		sources[0].VectorSchema = vectorSchema
 		sources = append(sources, Source{
 			Name:          "vector",
-			VectorSchema:  "public",
+			Schema:        schema,
+			VectorSchema:  vectorSchema,
 			TrackingTable: vectorTrackingTable,
 			FS:            FS,
 			Dir:           "vector",
-			PreCheck:      pgvectorPreCheck("public"),
+			PreCheck:      pgvectorPreCheck(vectorSchema),
 		})
-	}
-	return sources
-}
-
-// BuiltinSourcesInSchema returns the built-in sources with their table and
-// pgvector schemas selected independently.
-func BuiltinSourcesInSchema(vectorEnabled bool, schema, vectorSchema string) []Source {
-	if vectorSchema == "" {
-		vectorSchema = "public"
-	}
-	sources := BuiltinSources(vectorEnabled)
-	for i := range sources {
-		sources[i].Schema = schema
-		if vectorEnabled {
-			sources[i].VectorSchema = vectorSchema
-		}
-	}
-	if vectorEnabled {
-		sources[1].PreCheck = pgvectorPreCheck(vectorSchema)
 	}
 	return sources
 }
@@ -347,8 +343,8 @@ func validateSources(sources []Source) error {
 			if err := validateIdentifier("pgvector schema", src.VectorSchema); err != nil {
 				return fmt.Errorf("source %s: %w", src.Name, err)
 			}
-			if src.Schema == "" && src.VectorSchema != "public" {
-				return fmt.Errorf("source %s needs a table schema when pgvector uses a non-public schema", src.Name)
+			if src.Schema == "" {
+				return fmt.Errorf("source %s needs a table schema when pgvector is enabled", src.Name)
 			}
 		}
 		if err := validateIdentifier("tracking table", src.TrackingTable); err != nil {

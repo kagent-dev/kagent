@@ -22,6 +22,7 @@ import (
 // sources are reread for every new physical connection.
 // Pool fields are optional: nil leaves the corresponding pgxpool.Config value
 // from ParseConfig unchanged (pgx library defaults).
+// Schema is required when vectors are enabled; VectorSchema defaults to extensions.
 type PostgresConfig struct {
 	URL             string
 	Role            string
@@ -131,10 +132,10 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 	}
 	vectorSchema := cfg.VectorSchema
 	if vectorSchema == "" {
-		vectorSchema = "public"
+		vectorSchema = "extensions"
 	}
-	if cfg.VectorEnabled && cfg.Schema == "" && vectorSchema != "public" {
-		return nil, errors.New("database schema is required when pgvector uses a non-public schema")
+	if cfg.VectorEnabled && cfg.Schema == "" {
+		return nil, errors.New("database schema is required when pgvector is enabled")
 	}
 	var searchPath string
 	if cfg.Schema != "" {

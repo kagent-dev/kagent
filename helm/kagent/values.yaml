@@ -117,10 +117,10 @@ database:
     # install sharing a database; bundled bootstrap requires kagent_owner.
     role: kagent_owner
     # -- Schema for Kagent tables.
-    schema: public
+    schema: kagent
     # -- Schema for the shared pgvector extension. Existing installations must match this value.
     # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
-    vectorSchema: public
+    vectorSchema: extensions
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.

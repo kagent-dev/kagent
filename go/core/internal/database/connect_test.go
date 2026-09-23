@@ -292,6 +292,8 @@ func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 	config, err := poolConfig(&PostgresConfig{
 		URL:             "postgres://user:password@database:5432/app?sslmode=disable",
 		VectorEnabled:   true,
+		Schema:          "public",
+		VectorSchema:    "public",
 		MaxConns:        &maxConns,
 		MinConns:        &minConns,
 		MaxConnIdleTime: &idleTime,
@@ -305,6 +307,15 @@ func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 	assert.Equal(t, minConns, config.MinConns)
 	assert.Equal(t, idleTime, config.MaxConnIdleTime)
 	assert.Equal(t, lifetime, config.MaxConnLifetime)
+}
+
+func TestPoolConfigRequiresTableSchemaForVectors(t *testing.T) {
+	_, err := poolConfig(&PostgresConfig{
+		URL:           "postgres://user:password@database:5432/app?sslmode=disable",
+		VectorEnabled: true,
+		VectorSchema:  "public",
+	})
+	require.ErrorContains(t, err, "database schema is required")
 }
 
 func writeDatabaseURL(t *testing.T, path, url string) {

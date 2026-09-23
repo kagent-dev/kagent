@@ -146,7 +146,6 @@ func TestBootstrapSharesPgvectorAcrossSchemas(t *testing.T) {
 			AdminPassword:  adminConfig.Password,
 			Schema:         schema,
 			VectorEnabled:  true,
-			VectorSchema:   "extensions",
 		}))
 		require.NoError(t, migrations.RunUpAsRole(t.Context(), appDSN.String(), OwnerRoleName,
 			migrations.BuiltinSourcesInSchema(true, schema, "extensions")))
@@ -173,7 +172,7 @@ func TestBootstrapSharesPgvectorAcrossSchemas(t *testing.T) {
 	assert.False(t, thirdSchemaExists)
 
 	pool, err := Connect(t.Context(), &PostgresConfig{
-		URL: appDSN.String(), Role: OwnerRoleName, Schema: "tenant_two", VectorSchema: "extensions", VectorEnabled: true,
+		URL: appDSN.String(), Role: OwnerRoleName, Schema: "tenant_two", VectorEnabled: true,
 	})
 	require.NoError(t, err)
 	defer pool.Close()

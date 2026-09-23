@@ -2,7 +2,7 @@
 -- Run as an administrator inside a transaction after setting these transaction-local
 -- settings: kagent.bootstrap_username, kagent.bootstrap_password,
 -- kagent.bootstrap_schema, kagent.bootstrap_vector_enabled, and optionally
--- kagent.bootstrap_vector_schema (default public). Optionally set
+-- kagent.bootstrap_vector_schema (default extensions). Optionally set
 -- kagent.bootstrap_owner_role (default kagent_owner) for a manually
 -- provisioned install.
 -- The bundled bootstrap supplies its fixed development credentials and schema.
@@ -15,7 +15,7 @@ DECLARE
     schema_name text := current_setting('kagent.bootstrap_schema');
     owner_role text := COALESCE(NULLIF(current_setting('kagent.bootstrap_owner_role', true), ''), 'kagent_owner');
     vector_enabled boolean := current_setting('kagent.bootstrap_vector_enabled')::boolean;
-    vector_schema text := COALESCE(NULLIF(current_setting('kagent.bootstrap_vector_schema', true), ''), 'public');
+    vector_schema text := COALESCE(NULLIF(current_setting('kagent.bootstrap_vector_schema', true), ''), 'extensions');
     installed_vector_schema text;
     role_attrs record;
     schema_owner text;

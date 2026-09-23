@@ -759,12 +759,12 @@ tests:
           path: data.POSTGRES_DATABASE_ROLE
           value: tenant_owner
 
-  - it: should use the public PostgreSQL schema by default
+  - it: should use the kagent PostgreSQL schema by default
     template: controller-configmap.yaml
     asserts:
       - equal:
           path: data.POSTGRES_DATABASE_SCHEMA
-          value: public
+          value: kagent
 
   - it: should allow a custom PostgreSQL schema
     template: controller-configmap.yaml
@@ -775,14 +775,21 @@ tests:
           path: data.POSTGRES_DATABASE_SCHEMA
           value: kagent_custom
 
-  - it: should configure the pgvector extension schema
+  - it: should use the extensions schema for pgvector by default
     template: controller-configmap.yaml
-    set:
-      database.postgres.vectorSchema: extensions
     asserts:
       - equal:
           path: data.POSTGRES_VECTOR_SCHEMA
           value: extensions
+
+  - it: should allow an existing pgvector extension in public
+    template: controller-configmap.yaml
+    set:
+      database.postgres.vectorSchema: public
+    asserts:
+      - equal:
+          path: data.POSTGRES_VECTOR_SCHEMA
+          value: public
 
   - it: should not set DB pool env vars by default
     template: controller-configmap.yaml

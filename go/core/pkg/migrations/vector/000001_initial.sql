@@ -18,7 +18,7 @@ CREATE INDEX idx_memory_expires_at ON memory(expires_at);
 -- +goose StatementBegin
 DO $vector$
 DECLARE
-    vector_schema text := COALESCE(NULLIF(current_setting('kagent.vector_schema', true), ''), 'public');
+    vector_schema text := COALESCE(NULLIF(current_setting('kagent.vector_schema', true), ''), 'extensions');
 BEGIN
     EXECUTE format('ALTER TABLE memory ADD COLUMN embedding %I.vector(768)', vector_schema);
     EXECUTE format('CREATE INDEX idx_memory_embedding_hnsw ON memory USING hnsw (embedding %I.vector_cosine_ops)', vector_schema);

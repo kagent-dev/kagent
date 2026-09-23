@@ -24,12 +24,13 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 ### Substrate PostgreSQL
 
 The default install uses one PostgreSQL instance and one `kagent` database.
-Kagent uses the `public` schema by default. Substrate uses the `substrate` schema.
+Kagent uses the `kagent` schema by default. Substrate uses the `substrate` schema.
 This identity layout requires a fresh database; upgrading an existing database to it is unsupported.
 When vectors are enabled, `database.postgres.vectorSchema` names the one schema
-that holds the shared pgvector extension (default `public`). All Kagent installs
+that holds the shared pgvector extension (default `extensions`). All Kagent installs
 using the same database must select that schema. For an external database,
-install pgvector there before running migrations and grant the application role
+install pgvector there before running migrations, or set `vectorSchema` to its
+existing location (such as `public`). Grant the application role
 `USAGE` on the extension schema. Set `POSTGRES_VECTOR_SCHEMA` to the same value
 when running the database CLI outside the chart.
 When separate from Kagent's table schema, the pgvector schema stays out of its

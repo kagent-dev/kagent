@@ -17,9 +17,9 @@ type Client struct {
 }
 
 // NewClient wraps an existing PostgreSQL pool without connecting or migrating. The caller
-// owns the pool and must close it. The optional pgvector schema defaults to public.
+// owns the pool and must close it. The optional pgvector schema defaults to extensions.
 func NewClient(db *pgxpool.Pool, vectorSchema ...string) *Client {
-	schema := "public"
+	schema := "extensions"
 	if len(vectorSchema) > 0 && vectorSchema[0] != "" {
 		schema = vectorSchema[0]
 	}

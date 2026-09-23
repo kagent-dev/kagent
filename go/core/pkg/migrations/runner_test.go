@@ -284,7 +284,7 @@ func TestPgvectorSchemaMismatchFailsBeforeMigrations(t *testing.T) {
 
 func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	dsn := startTestDB(t)
-	sources := BuiltinSources(true)
+	sources := BuiltinSourcesInSchema(true, "public", "public")
 
 	if err := RunUp(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial RunUp: %v", err)
@@ -529,6 +529,7 @@ func TestValidateSources(t *testing.T) {
 		{Name: "", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
 		{Name: "test", TrackingTable: "Bad-Table", FS: valid.FS, Dir: valid.Dir},
 		{Name: "test", Schema: "Bad-Schema", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
+		{Name: "test", VectorSchema: "public", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
 	}
 	for _, source := range tests {
 		if err := validateSources([]Source{source}); err == nil {
@@ -554,17 +555,24 @@ func TestBuiltinTrackingTables(t *testing.T) {
 	if sources[1].TrackingTable != vectorTrackingTable {
 		t.Fatalf("vector source = %+v", sources[1])
 	}
+	if sources[0].Schema != "kagent" || sources[1].VectorSchema != "extensions" {
+		t.Fatalf("default schemas = %q, %q", sources[0].Schema, sources[1].VectorSchema)
+	}
 }
 
 func TestBuiltinSourcesInSchema(t *testing.T) {
-	sources := BuiltinSourcesInSchema(true, "kagent", "extensions")
+	sources := BuiltinSourcesInSchema(true, "tenant_schema", "shared_extensions")
 	for _, source := range sources {
-		if source.Schema != "kagent" {
+		if source.Schema != "tenant_schema" {
 			t.Fatalf("source %q schema = %q", source.Name, source.Schema)
 		}
-		if source.VectorSchema != "extensions" {
+		if source.VectorSchema != "shared_extensions" {
 			t.Fatalf("source %q vector schema = %q", source.Name, source.VectorSchema)
 		}
+	}
+	defaults := BuiltinSourcesInSchema(true, "", "")
+	if defaults[0].Schema != "kagent" || defaults[1].VectorSchema != "extensions" {
+		t.Fatalf("default schemas = %q, %q", defaults[0].Schema, defaults[1].VectorSchema)
 	}
 }
 
