@@ -405,9 +405,20 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 // withDefaultScheme makes a bare host:port an absolute URL. The Ollama host
 // field accepts either form, but net/url reads the bare one as a scheme, so a
 // caller that wants a hostname from it has to normalize first.
+//
+// A bare host defaults to http, which is right for a daemon (host:port on a
+// private address). It is wrong for ollama.com's API, which serves HTTPS only:
+// Cloudflare answers the http form with a redirect, and Go turns a 301 into a
+// GET, so the POST /api/chat that should carry the request comes back 405
+// Method Not Allowed. The cloud endpoint therefore has to be normalized to
+// https here, which is what the runtime's own copy of this does — the two
+// disagreed, and the actor was pinned to http://api.ollama.com.
 func withDefaultScheme(host string) string {
 	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
 		return host
+	}
+	if models.IsOllamaCloudEndpoint(host) {
+		return "https://" + host
 	}
 	return "http://" + host
 }

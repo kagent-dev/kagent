@@ -181,3 +181,31 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 		})
 	}
 }
+
+// A bare host defaults to http, which is right for a daemon but wrong for
+// ollama.com's API: it serves HTTPS only, an http request is answered with a
+// redirect, and Go turns a 301 into a GET, so POST /api/chat came back
+// 405 Method Not Allowed. The runtime's own copy of this already preferred
+// https for the cloud endpoint; this is the compiler agreeing with it.
+func TestWithDefaultScheme(t *testing.T) {
+	tests := []struct {
+		host string
+		want string
+	}{
+		// The cloud endpoint is HTTPS-only, and a bare host is how it is written.
+		{host: "api.ollama.com", want: "https://api.ollama.com"},
+		{host: "ollama.com", want: "https://ollama.com"},
+		// An explicit scheme is never rewritten, including http, which is a
+		// deliberate choice by the operator rather than a default.
+		{host: "https://api.ollama.com", want: "https://api.ollama.com"},
+		{host: "http://api.ollama.com", want: "http://api.ollama.com"},
+		// A daemon is plain http on a private address, and keeps that.
+		{host: "host.docker.internal:11434", want: "http://host.docker.internal:11434"},
+		{host: "gpu-box.lan:11434", want: "http://gpu-box.lan:11434"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			require.Equal(t, tt.want, withDefaultScheme(tt.host))
+		})
+	}
+}
