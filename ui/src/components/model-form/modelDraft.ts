@@ -120,22 +120,30 @@ const NUMERIC_PARAM_KEYS = new Set([
 ]);
 
 /**
+ * Parameters the CRD types as booleans. The form offers them as a choice rather
+ * than free text, and leaving the choice empty keeps the provider's default.
+ */
+export const BOOLEAN_PARAM_KEYS = new Set(["think"]);
+
+/**
  * The provider block from the form's flat string values.
  *
- * Empty values are dropped rather than sent blank, and the few numeric fields are
- * parsed so the controller receives the type its CRD declares. A numeric field
- * that will not parse is left out — validation flags it before this runs.
+ * Empty values are dropped rather than sent blank, and the few numeric and boolean
+ * fields are parsed so the controller receives the type its CRD declares. A value
+ * that will not parse is left out — validation flags a numeric one before this runs.
  */
 export function coerceParams(
   params: Record<string, string>,
-): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
   for (const [key, raw] of Object.entries(params)) {
     const value = raw.trim();
     if (!value) continue;
     if (NUMERIC_PARAM_KEYS.has(key)) {
       const parsed = Number(value);
       if (!Number.isNaN(parsed)) out[key] = parsed;
+    } else if (BOOLEAN_PARAM_KEYS.has(key)) {
+      if (value === "true" || value === "false") out[key] = value === "true";
     } else {
       out[key] = value;
     }

@@ -117,6 +117,28 @@ func TestCreateLLM_AnthropicPromptCaching(t *testing.T) {
 	}
 }
 
+// TestCreateLLM_OllamaThink verifies the think switch of the config reaches the
+// Ollama model, which sends it as the chat request's think field.
+func TestCreateLLM_OllamaThink(t *testing.T) {
+	var cfg adk.AgentConfig
+	configJSON := `{"model": {"type": "ollama", "model": "qwen3.5:2b", "think": false}}`
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+
+	llm, err := CreateLLM(context.Background(), cfg.Model)
+	if err != nil {
+		t.Fatalf("CreateLLM: %v", err)
+	}
+	om, ok := llm.(*models.OllamaModel)
+	if !ok {
+		t.Fatalf("model is %T, want *models.OllamaModel", llm)
+	}
+	if om.Config.Think == nil || *om.Config.Think {
+		t.Errorf("Config.Think = %v, want false", om.Config.Think)
+	}
+}
+
 // TestConfigDeserialization_AllTypes verifies every model type deserializes with
 // the correct model name preserved.
 func TestConfigDeserialization_AllTypes(t *testing.T) {

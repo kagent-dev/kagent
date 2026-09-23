@@ -37,6 +37,7 @@ export interface AzureOpenAIConfig {
 export interface OllamaConfig {
   host?: string;
   options?: Record<string, string>;
+  think?: boolean;
 }
 
 export interface GeminiConfig {

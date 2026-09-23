@@ -352,6 +352,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				Headers: model.Spec.DefaultHeaders,
 			},
 			Options: model.Spec.Ollama.Options,
+			Think:   model.Spec.Ollama.Think,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)

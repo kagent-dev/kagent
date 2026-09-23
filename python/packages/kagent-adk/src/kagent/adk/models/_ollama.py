@@ -139,12 +139,16 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
     variable (set by the kagent controller from ModelConfig.ollama.host).
     Falls back to ``http://localhost:11434`` if the variable is not set.
 
+    ``think`` is sent as the chat request's top-level ``think`` field. None sends
+    none, so a model with the thinking capability thinks (Ollama's default).
+
     Ollama does not require an API key; api_key_passthrough is accepted in the
     config for interface compatibility but has no effect.
     """
 
     type: Literal["ollama"] = "ollama"
     ollama_options: Optional[dict[str, object]] = None
+    think: Optional[bool] = None
     default_headers: Optional[dict[str, str]] = None
     api_key_passthrough: Optional[bool] = None
 
@@ -192,6 +196,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
                     messages=messages,
                     tools=tools,
                     options=self.ollama_options or None,
+                    think=self.think,
                     stream=True,
                 )
                 async for chunk in response:
@@ -231,6 +236,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
                     messages=messages,
                     tools=tools,
                     options=self.ollama_options or None,
+                    think=self.think,
                     stream=False,
                 )
                 parts = []
@@ -260,6 +266,7 @@ def create_ollama_llm(
     model: str,
     options: dict[str, object] | None,
     extra_headers: dict[str, str],
+    think: Optional[bool] = None,
     tls_disable_verify: Optional[bool] = None,
     tls_ca_cert_path: Optional[str] = None,
     tls_disable_system_cas: Optional[bool] = None,
@@ -274,6 +281,7 @@ def create_ollama_llm(
     return KAgentOllamaLlm(
         model=model,
         ollama_options=options or None,
+        think=think,
         default_headers=extra_headers or {},
         tls_disable_verify=tls_disable_verify,
         tls_ca_cert_path=tls_ca_cert_path,

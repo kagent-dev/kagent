@@ -96,7 +96,7 @@ func TestMarshalJSON_OmitemptyFields(t *testing.T) {
 		{
 			name:       "Ollama zero-valued omitempty fields omitted",
 			model:      &Ollama{BaseModel: BaseModel{Model: "llama3"}},
-			wantAbsent: []string{"headers", "options", "api_key_passthrough"},
+			wantAbsent: []string{"headers", "options", "think", "api_key_passthrough"},
 		},
 	}
 
@@ -256,6 +256,20 @@ func TestMarshalJSON_TypeSpecificFields(t *testing.T) {
 		}
 	})
 
+	t.Run("Ollama think", func(t *testing.T) {
+		data, err := json.Marshal(&Ollama{BaseModel: BaseModel{Model: "qwen3.5:2b"}, Think: new(false)})
+		if err != nil {
+			t.Fatalf("MarshalJSON() error = %v", err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if think, ok := raw["think"]; !ok || think != false {
+			t.Errorf("think = %v (present %v), want false", think, ok)
+		}
+	})
+
 	t.Run("Bedrock region", func(t *testing.T) {
 		m := &Bedrock{
 			BaseModel: BaseModel{Model: "claude-v2"},
@@ -404,6 +418,7 @@ func TestParseModel_Roundtrip(t *testing.T) {
 			model: &Ollama{
 				BaseModel: BaseModel{Model: "llama3", Headers: map[string]string{"User-Agent": "test"}},
 				Options:   map[string]string{"num_ctx": "2048", "temperature": "0.8"},
+				Think:     new(false),
 			},
 			wantType: ModelTypeOllama,
 		},

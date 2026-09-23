@@ -337,6 +337,15 @@ type OllamaConfig struct {
 	// Options for the Ollama API
 	// +optional
 	Options map[string]string `json:"options,omitempty"`
+
+	// Think switches a thinking model's reasoning on or off. It is sent as the
+	// top-level `think` field of every chat request, not as an option. Unset
+	// leaves Ollama's default, under which a model with the thinking capability
+	// (Qwen3, DeepSeek-R1, Granite 4.2, ...) thinks before every answer. Set it
+	// to false for an agent whose model should answer directly. Ollama refuses
+	// true for a model without the thinking capability.
+	// +optional
+	Think *bool `json:"think,omitempty"`
 }
 
 // GeminiConfig contains Gemini (AI Studio, API-key) specific configuration options

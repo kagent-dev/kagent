@@ -268,6 +268,8 @@ func (g *GeminiAnthropic) GetType() string {
 type Ollama struct {
 	BaseModel
 	Options map[string]string `json:"options,omitempty"`
+	// Think is sent as the chat request's top-level `think` field; nil sends none.
+	Think *bool `json:"think,omitempty"`
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {

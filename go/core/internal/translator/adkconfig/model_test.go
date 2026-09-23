@@ -244,3 +244,33 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslateOllamaThink(t *testing.T) {
+	off, on := false, true
+	tests := []struct {
+		name  string
+		think *bool
+	}{
+		{name: "unset", think: nil},
+		{name: "off", think: &off},
+		{name: "on", think: &on},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := &translator.ResolvedModelConfig{
+				Config: &v1alpha3.ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+					Spec: v1alpha3.ModelConfigSpec{
+						Provider: v1alpha3.ModelProviderOllama, Model: "qwen3.5:2b",
+						Ollama: &v1alpha3.OllamaConfig{Host: "http://ollama:11434", Think: tt.think},
+					},
+				},
+			}
+			got, _, err := translateModel(resolved)
+			require.NoError(t, err)
+			ollama, ok := got.(*adk.Ollama)
+			require.True(t, ok, "model is %T, want *adk.Ollama", got)
+			require.Equal(t, tt.think, ollama.Think)
+		})
+	}
+}

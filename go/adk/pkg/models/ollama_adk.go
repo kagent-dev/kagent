@@ -48,29 +48,28 @@ func (m *OllamaModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 			tools = convertGenaiToolsToOllama(req.Config.Tools)
 		}
 
+		chatReq := &api.ChatRequest{
+			Model:    modelName,
+			Messages: messages,
+			Tools:    tools,
+			Options:  options,
+			Stream:   &stream,
+			Think:    ollamaThink(m.Config.Think),
+		}
 		if stream {
-			m.generateStreaming(ctx, modelName, messages, tools, options, yield)
+			m.generateStreaming(ctx, chatReq, yield)
 		} else {
-			m.generateNonStreaming(ctx, modelName, messages, tools, options, yield)
+			m.generateNonStreaming(ctx, chatReq, yield)
 		}
 	}
 }
 
 // generateStreaming handles streaming responses from Ollama.
-func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, messages []api.Message, tools []api.Tool, options map[string]any, yield func(*model.LLMResponse, error) bool) {
+func (m *OllamaModel) generateStreaming(ctx context.Context, chatReq *api.ChatRequest, yield func(*model.LLMResponse, error) bool) {
 	var aggregatedText strings.Builder
 	// Ollama streams tool calls in intermediate chunks (done=false), not in the
 	// final done=true chunk, so accumulate them across all chunks.
 	var aggregatedToolCalls []api.ToolCall
-
-	streamValue := true
-	chatReq := &api.ChatRequest{
-		Model:    modelName,
-		Messages: messages,
-		Tools:    tools,
-		Options:  options,
-		Stream:   &streamValue,
-	}
 
 	err := m.Client.Chat(ctx, chatReq, func(resp api.ChatResponse) error {
 		// Accumulate tool calls from any chunk that carries them.
@@ -160,16 +159,7 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 }
 
 // generateNonStreaming handles non-streaming responses from Ollama.
-func (m *OllamaModel) generateNonStreaming(ctx context.Context, modelName string, messages []api.Message, tools []api.Tool, options map[string]any, yield func(*model.LLMResponse, error) bool) {
-	streamValue := false
-	chatReq := &api.ChatRequest{
-		Model:    modelName,
-		Messages: messages,
-		Tools:    tools,
-		Options:  options,
-		Stream:   &streamValue,
-	}
-
+func (m *OllamaModel) generateNonStreaming(ctx context.Context, chatReq *api.ChatRequest, yield func(*model.LLMResponse, error) bool) {
 	var finalResponse api.ChatResponse
 	err := m.Client.Chat(ctx, chatReq, func(resp api.ChatResponse) error {
 		finalResponse = resp
@@ -232,6 +222,16 @@ func (m *OllamaModel) generateNonStreaming(ctx context.Context, modelName string
 		UsageMetadata: usageMetadata,
 	}
 	yield(response, nil)
+}
+
+// ollamaThink is the chat request's think field for a configured switch. Nil
+// leaves the field out, so Ollama applies its default: a model with the thinking
+// capability thinks.
+func ollamaThink(think *bool) *api.ThinkValue {
+	if think == nil {
+		return nil
+	}
+	return &api.ThinkValue{Value: *think}
 }
 
 // convertGenaiContentsToOllamaMessages converts genai.Content to Ollama message format.

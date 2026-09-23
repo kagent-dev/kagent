@@ -62,6 +62,27 @@ describe("buildModelPayload — provider params", () => {
   });
 });
 
+describe("buildModelPayload — boolean params", () => {
+  it("sends Ollama's think as a boolean and leaves it out when unset", () => {
+    const ollama = (think: string) =>
+      buildModelPayload(
+        draft({ provider: "Ollama", model: "qwen3.5", params: { think } }),
+      ).spec.ollama;
+    expect(ollama("false")).toEqual({ think: false });
+    expect(ollama("true")).toEqual({ think: true });
+    expect(ollama("")).toBeUndefined();
+  });
+
+  it("round-trips a stored think through the draft", () => {
+    const d = modelDraftFrom({
+      ref: "kagent/qwen",
+      spec: { provider: "Ollama", model: "qwen3.5:2b", ollama: { think: false } },
+    });
+    expect(d.params).toEqual({ think: "false" });
+    expect(buildModelPayload(d).spec.ollama).toEqual({ think: false });
+  });
+});
+
 describe("buildModelPayload — authentication modes", () => {
   it("apiKey: sends an inline key and lets the backend name the Secret", () => {
     const req = buildModelPayload(draft({ authType: "apiKey", apiKey: "sk-123" }));

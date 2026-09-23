@@ -20,6 +20,7 @@ type OllamaConfig struct {
 	Host    string            // Ollama server host (e.g., http://localhost:11434)
 	APIKey  string            // Gateway placeholder for Ollama Cloud; empty for a local daemon
 	Options map[string]string // Ollama-specific options (temperature, top_p, num_ctx, etc.)
+	Think   *bool             // The chat request's think field; nil leaves the model's default
 }
 
 // Ollama's two endpoints, mirroring the routing rules in pi-go. Which one a

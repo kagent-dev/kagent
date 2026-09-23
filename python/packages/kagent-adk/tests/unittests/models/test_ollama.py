@@ -121,6 +121,37 @@ class TestKAgentOllamaLlm:
         assert mock_client.chat.call_args.kwargs["options"] == opts
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("think", [None, False, True])
+    async def test_generate_content_forwards_think(self, think, stream):
+        llm = KAgentOllamaLlm(model="qwen3.5:2b", think=think)
+
+        mock_response = mock.MagicMock()
+        mock_response.message.content = "hi"
+        mock_response.message.tool_calls = []
+        mock_response.done = True
+        mock_response.done_reason = "stop"
+        mock_response.prompt_eval_count = None
+        mock_response.eval_count = None
+
+        async def chunks():
+            yield mock_response
+
+        mock_client = mock.AsyncMock()
+        mock_client.chat = mock.AsyncMock(return_value=chunks() if stream else mock_response)
+
+        request = mock.MagicMock()
+        request.model = "qwen3.5:2b"
+        request.contents = []
+        request.config = None
+
+        with mock.patch.object(type(llm), "_client", new_callable=lambda: property(lambda self: mock_client)):
+            responses = [r async for r in llm.generate_content_async(request, stream=stream)]
+
+        assert mock_client.chat.call_args.kwargs["think"] is think
+        assert responses[-1].content.parts[0].text == "hi"
+
+    @pytest.mark.asyncio
     async def test_generate_content_streaming_accumulates_tool_calls_before_done_chunk(self):
         llm = KAgentOllamaLlm(model="llama3.2:latest")
 
@@ -234,3 +265,12 @@ class TestCreateOllamaLlm:
         # Options are type-coerced by _convert_ollama_options before reaching create_ollama_llm
         assert result.ollama_options["temperature"] == 0.8
         assert result.ollama_options["top_p"] == 0.9
+        assert result.think is None
+
+    def test_create_llm_from_ollama_model_config_think(self):
+        from kagent.adk.types import Ollama, _create_llm_from_model_config
+
+        config = Ollama.model_validate({"type": "ollama", "model": "qwen3.5:2b", "think": False})
+        result = _create_llm_from_model_config(config)
+        assert isinstance(result, KAgentOllamaLlm)
+        assert result.think is False

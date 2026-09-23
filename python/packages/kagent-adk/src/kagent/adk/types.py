@@ -330,6 +330,8 @@ class GeminiAnthropic(BaseLLM):
 
 class Ollama(BaseLLM):
     options: dict[str, str] | None = None
+    # Sent as the chat request's top-level ``think`` field; None sends none.
+    think: bool | None = None
     type: Literal["ollama"]
 
 
@@ -752,6 +754,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return create_ollama_llm(
             model=model_config.model,
             options=ollama_options,
+            think=model_config.think,
             extra_headers=extra_headers,
             **_transport_kwargs(model_config),
         )
