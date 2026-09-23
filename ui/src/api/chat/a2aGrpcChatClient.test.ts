@@ -825,6 +825,60 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
+  it("orders a canonically positioned approval between its tool call and result", async () => {
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              ...position("2026-01-01T00:00:00.000000002Z"),
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [{ id: "call-1", name: "delete_pod", args: {} }],
+              },
+            },
+          },
+          {
+            messageId: "approval",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              ...position("2026-01-01T00:00:00.000000003Z"),
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "call-1", approved: true }],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          {
+            artifactId: "call",
+            parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
+            metadata: position("2026-01-01T00:00:00.000000001Z"),
+          },
+          {
+            artifactId: "result",
+            parts: [data({ id: "call-1", name: "delete_pod", response: { result: "deleted" } })],
+            metadata: position("2026-01-01T00:00:00.000000004Z"),
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual(["call", "approval", "result"]);
+  });
+
   it("replays a completed ask_user exchange as one structured record", async () => {
     serveTasks([
       {
