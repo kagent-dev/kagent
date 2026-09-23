@@ -36,6 +36,18 @@ where semantics match; Harness does not reference or consume SandboxTemplate.
    Sandbox identity, with lifecycle admission and explicit ambiguous-start
    handling. Expose scratch tools through the existing MCP service with verified
    caller identity and delegation. Validate against live Substrate Actors.
+6. **Prepared assets — follow-up.** Extend standalone SandboxTemplate preparation
+   with pinned repositories, skill files, reference documents, and datasets.
+   Reuse ArtifactSource and the existing fetchers where their semantics match;
+   keep generic asset materialization separate from skill loading. Download and
+   validate assets in the preparation runtime before snapshotting, include their
+   immutable identities and target paths in the revision, and expose names and
+   paths through sandbox inspection/MCP. Verify that new sandboxes inherit their
+   own files, resume preserves edits without re-fetching, and failed preparation
+   cannot publish partial content. AgentTemplate continues to select agent skills.
+   Dependency installation and arbitrary setup commands remain later work. This
+   follow-up adds no fields or runtime behavior to the initial catalog PR; the
+   design's prepared-assets section describes the proposed API and boundaries.
 
 ## Catalog boundary
 
