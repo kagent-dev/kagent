@@ -26,8 +26,9 @@ remains current. A superseded caller gets a conflict and issues no runtime work,
 even when the new operation has the same state and kind. There is no historical
 lifecycle result archive or pruning requirement. Creation retries return current
 instance state; already-at-target Suspend/Resume requests are successful no-ops.
-Neither requires an old operation receipt. A2A message deduplication and event
-replay have their own durable history requirements and are unchanged.
+Neither requires an old operation receipt. A2A turns use their own durable turn
+and owner identities on the current task. Lifecycle operations and non-settled
+A2A turns are distinct, mutually exclusive kinds of runtime ownership.
 
 An unclaimed operation can retry preparation; Delete may supersede it. Preparation
 failure invalidates its generation. Once claimed, an operation never expires. A
@@ -53,8 +54,11 @@ Explicit suspend and resume update the logical lifecycle state. Deletion closes 
 admission, stops and deletes the Actor, then tombstones the instance. The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
-This serialization covers explicit lifecycle calls only: A2A, Pause, Quiesce, and
-checkpoint execution still need shared ownership before multi-replica gateway use.
+Explicit Suspend, Resume, and Delete cannot begin while an A2A turn is non-settled,
+and A2A admission and claims cannot begin while a lifecycle operation or checkpoint
+creation is active. Checkpoint reservation also requires the latest turn to be
+settled. Internal Pause and Quiesce remain part of the current owned A2A turn rather
+than becoming independent lifecycle operations.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without instance-local execution claims. PostgreSQL tests with controlled
@@ -69,9 +73,14 @@ Quiescence suspends compute and returns the exact snapshot identity while leavin
 the AgentInstance logically ready. Substrate ingress resumes a suspended Actor
 automatically when the next interaction arrives.
 
-Runtime calls and quiescence are serialized by an in-memory coordinator so a
-late suspend cannot race a new turn in one process. This intentionally limits the
-gateway to one replica until coordination is moved to a shared store.
+Each accepted initial message or continuation creates an `ADMITTED` turn in
+PostgreSQL with the normalized runtime request. A gateway must claim that exact turn
+before execution and records `ISSUED` before any runtime call. Only its owner may
+persist progress, issue cancellation, enter `QUIESCING`, or settle the turn. An
+expired unissued claim may transfer; an issued turn never transfers automatically,
+because lease expiry cannot prove that an external call stopped. Process-local task
+runs emit payload-free commit notifications for observers and do not authorize
+runtime work.
 
 ```mermaid
 sequenceDiagram
@@ -81,14 +90,17 @@ sequenceDiagram
     participant Workflow as AgentInstance workflow
     participant Actor as Substrate Actor
     Client->>Gateway: send or continue A2A task
+    Gateway->>DB: admit and claim durable turn
+    Gateway->>DB: mark turn issued
     Gateway->>Actor: invoke (ingress resumes if suspended)
     Actor-->>Gateway: quiescent event
+    Gateway->>DB: mark turn quiescing
     Gateway->>Actor: close runtime stream
     Gateway->>Workflow: quiesce instance
     Workflow->>Actor: suspend
     Actor-->>Workflow: exact snapshot identity
     Workflow-->>Gateway: snapshot boundary
-    Gateway->>DB: store task + event + snapshot atomically
+    Gateway->>DB: store task + event + snapshot and settle turn atomically
     DB-->>Gateway: committed
     Gateway-->>Client: publish quiescent event
     Note over Workflow,Actor: AgentInstance remains logically ready
