@@ -1538,8 +1538,14 @@ function ChatEntry({
             tells two of them apart. antd only raises it when the text actually clips. */}
         <Text
           // The title alone, not the row's label: the age is already legible in the
-          // row, and what the ellipsis hides is the name. To the right, so it opens
-          // into the page rather than back over the list it is explaining one of.
+          // row, and what the ellipsis hides is the name.
+          //
+          // Above the row, because to the right of the name is this row's own menu
+          // button. Opened there, the tooltip covered the button, and a pointer moving
+          // from the name to the menu landed on the tooltip instead — which kept it
+          // open, with the button unreachable under it until the pointer left the row.
+          // Above, it covers the row before this one for as long as the pointer rests
+          // on the name, and nothing of this row.
           ellipsis={{
             tooltip: {
               title: conversationTitle(instance, autoTitle),

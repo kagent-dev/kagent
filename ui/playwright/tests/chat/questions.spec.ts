@@ -28,9 +28,11 @@ const AGENT_CHAT = agentChat(instances.ready);
 
 /*
  * A journey in one test, so it gets the lifecycle budget rather than the default.
- * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`.
+ * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`:
+ * twelve steps around five page loads, each an app boot that takes ten seconds and
+ * more on a loaded Firefox runner, so twice the budget.
  */
-test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT * 2 });
 
 test("chat: a question is asked, answered, given up, and answered with the keyboard", async ({
   page,
