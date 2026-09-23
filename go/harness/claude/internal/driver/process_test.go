@@ -141,10 +141,8 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 		t.Errorf("arguments = %q, want %q", args, want)
 	}
 	for _, required := range []string{
-		"--bare\n",
 		"--dangerously-skip-permissions\n",
 		"--strict-mcp-config\n",
-		"--tools\n" + bareBuiltinTools + "\n",
 	} {
 		if !strings.Contains(string(args), required) {
 			t.Errorf("arguments do not contain required fixed policy flag %q", strings.TrimSpace(required))
@@ -157,7 +155,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 		t.Error("arguments do not contain compiler-owned MCP configuration")
 	}
 	if !strings.Contains(string(args), "--add-dir\n"+skillRoot+"\n") {
-		t.Error("arguments do not expose compiler-owned skills to bare mode")
+		t.Error("arguments do not expose compiler-owned skills")
 	}
 	if !strings.Contains(string(args), "--plugin-dir\n"+filepath.Join(dir, "plugin-a")+"\n") {
 		t.Error("arguments do not load the native plugin directory")

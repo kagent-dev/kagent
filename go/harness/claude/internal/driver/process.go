@@ -15,11 +15,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 )
 
-// bareBuiltinTools is the intentionally small built-in surface available in
-// bare mode. This controls tool availability only; MCP approval policy remains
-// exclusively defined by the generated permissions.ask rules.
-const bareBuiltinTools = "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch"
-
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
 // process. Actor-owned paths and environment are supplied by the adapter.
 type ProcessConfig struct {
@@ -124,8 +119,6 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--verbose",
 		"--include-partial-messages",
 		"--strict-mcp-config",
-		"--tools", bareBuiltinTools,
-		"--bare",
 		"--dangerously-skip-permissions",
 	}
 	if d.config.ApprovalBroker != nil {
@@ -148,8 +141,8 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		args = append(args, "--mcp-config", d.config.MCPConfigPath)
 	}
 	if d.config.SkillRoot != "" {
-		// Bare mode skips implicit skill discovery. --add-dir loads only the
-		// compiler-selected skills materialized beneath SkillRoot/.claude/skills.
+		// --add-dir exposes compiler-selected skills materialized beneath
+		// SkillRoot/.claude/skills.
 		args = append(args, "--add-dir", d.config.SkillRoot)
 	}
 	for _, dir := range d.config.PluginDirs {

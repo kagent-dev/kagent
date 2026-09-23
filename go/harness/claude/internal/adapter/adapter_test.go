@@ -79,7 +79,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		}
 	}
 	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
-		t.Fatalf("arguments do not expose materialized skills to bare mode: %s", args)
+		t.Fatalf("arguments do not expose materialized skills: %s", args)
 	}
 }
 
@@ -135,7 +135,6 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	}
 	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
 	for _, required := range []string{
-		"--bare",
 		"--setting-sources\n\n",
 		"--settings\n" + filepath.Join(ephemeralDir, "settings.json"),
 		"--dangerously-skip-permissions",
@@ -145,7 +144,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 			t.Fatalf("approval arguments do not contain %q: %s", required, args)
 		}
 	}
-	for _, forbidden := range []string{"--permission-mode", "dontAsk"} {
+	for _, forbidden := range []string{"--bare", "--permission-mode", "dontAsk"} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("approval arguments contain %q: %s", forbidden, args)
 		}
