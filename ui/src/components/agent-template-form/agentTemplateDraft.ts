@@ -3,15 +3,14 @@
  *
  * ## The property that matters most here
  *
- * **An edit must not delete what the form does not show.** `AgentTemplateSpec` has
- * eight fields and this form authors five of them; `skills`, `plugins` and
+ * **An edit must not delete what the form does not show.** This form authors the
+ * common interactive fields; `skills`, `plugins` and
  * `promptTemplate` are rich enough — three artifact-source shapes, each with its own
  * strict CEL pattern — that authoring them is its own piece of work.
  *
  * Building an update out of the fields a form displays silently drops the rest. That
- * has already happened in this repository once, on the agent form, and the fix there
- * (`agentUpdatePayload`) is the same one taken here: `specFromDraft` merges into the
- * spec it was given rather than constructing a fresh one, so a template carrying
+ * has already happened in this repository once. `specFromDraft` therefore merges
+ * into the spec it was given rather than constructing a fresh one, so a template carrying
  * skills survives an edit that never mentioned them.
  *
  * `agentTemplateDraft.test.ts` pins that, because it is invisible on screen — the
@@ -30,6 +29,8 @@ export interface McpToolDraft {
   serverRef: string;
   /** The tool names selected. Empty means every tool the server exposes. */
   tools: string[];
+  /** Pause before each invocation of a tool this binding exposes. */
+  requireApproval?: boolean;
 }
 
 /** One sub-agent binding, flattened for a form to hold. */
@@ -46,6 +47,9 @@ export interface AgentToolDraft {
 /** Where the system prompt comes from. The CRD rejects both at once. */
 export type PromptSource = "inline" | "configMap";
 
+/** Whether terminal output is prose or constrained by a JSON Schema. */
+export type OutputSource = "text" | "inline" | "configMap";
+
 export interface AgentTemplateDraft {
   name: string;
   namespace: string;
@@ -56,6 +60,11 @@ export interface AgentTemplateDraft {
   systemPrompt: string;
   systemPromptConfigMap: string;
   systemPromptKey: string;
+  outputSource: OutputSource;
+  /** Pretty-printed JSON while loaded; kept as text so incomplete edits remain editable. */
+  outputSchema: string;
+  outputSchemaConfigMap: string;
+  outputSchemaKey: string;
   mcpTools: McpToolDraft[];
   agentTools: AgentToolDraft[];
   /**
@@ -79,6 +88,10 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
     systemPrompt: "",
     systemPromptConfigMap: "",
     systemPromptKey: "",
+    outputSource: "text",
+    outputSchema: "",
+    outputSchemaConfigMap: "",
+    outputSchemaKey: "",
     mcpTools: [],
     agentTools: [],
     labels: [],
@@ -102,11 +115,22 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
     systemPrompt: spec.systemPrompt ?? "",
     systemPromptConfigMap: spec.systemPromptFrom?.name ?? "",
     systemPromptKey: spec.systemPromptFrom?.key ?? "",
+    outputSource: spec.outputSchemaFrom
+      ? "configMap"
+      : spec.outputSchema
+        ? "inline"
+        : "text",
+    outputSchema: spec.outputSchema
+      ? JSON.stringify(spec.outputSchema, null, 2)
+      : "",
+    outputSchemaConfigMap: spec.outputSchemaFrom?.name ?? "",
+    outputSchemaKey: spec.outputSchemaFrom?.key ?? "",
     mcpTools: tools
       .filter((binding) => binding.mcp)
       .map((binding) => ({
         serverRef: binding.mcp?.server.name ?? "",
         tools: [...(binding.mcp?.tools ?? [])],
+        requireApproval: binding.mcp?.requireApproval,
       })),
     agentTools: tools
       .filter((binding) => binding.agent)
@@ -143,6 +167,8 @@ export function specFromDraft(
           // The only kind the CRD's enum allows.
           server: { kind: "RemoteMCPServer" as const, name: bareName(tool.serverRef) },
           ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
+          // omitempty on the CRD: false is the default, so only true is sent.
+          ...(tool.requireApproval ? { requireApproval: true } : {}),
         },
       })),
     ...draft.agentTools
@@ -184,6 +210,29 @@ export function specFromDraft(
   } else {
     delete spec.systemPromptFrom;
     setOrDelete(spec, "systemPrompt", draft.systemPrompt.trim());
+  }
+
+  /*
+   * Output sources have the same exactly-one shape as prompt sources, with one
+   * additional state: ordinary text output means neither schema field is present.
+   * Parsing happens here only after `draftProblems` has admitted the value. Keeping
+   * invalid JSON out of the resource also makes this function safe for callers that
+   * build a preview before enabling Save.
+   */
+  if (draft.outputSource === "configMap") {
+    delete spec.outputSchema;
+    const name = draft.outputSchemaConfigMap.trim();
+    const key = draft.outputSchemaKey.trim();
+    if (name && key) spec.outputSchemaFrom = { name, key };
+    else delete spec.outputSchemaFrom;
+  } else if (draft.outputSource === "inline") {
+    delete spec.outputSchemaFrom;
+    const schema = parseOutputSchema(draft.outputSchema);
+    if (schema) spec.outputSchema = schema;
+    else delete spec.outputSchema;
+  } else {
+    delete spec.outputSchema;
+    delete spec.outputSchemaFrom;
   }
 
   // An empty list is removed rather than sent: `tools: []` and no `tools` mean the
@@ -236,6 +285,28 @@ export function draftProblems(
       );
     }
   }
+  if (draft.outputSource === "configMap") {
+    const name = draft.outputSchemaConfigMap.trim();
+    const key = draft.outputSchemaKey.trim();
+    if (name === "" || key === "") {
+      problems.push(
+        "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
+      );
+    }
+  }
+  if (draft.outputSource === "inline") {
+    const text = draft.outputSchema.trim();
+    if (text === "") {
+      problems.push("An inline output schema is required.");
+    } else {
+      const schema = parseOutputSchema(text);
+      if (!schema) {
+        problems.push("The inline output schema must be a valid JSON object.");
+      } else if (schema.type !== "object") {
+        problems.push('The output schema must have "type": "object" at its root.');
+      }
+    }
+  }
   for (const tool of draft.agentTools) {
     if (tool.name.trim() !== "" && tool.description.trim() === "") {
       problems.push(
@@ -250,6 +321,19 @@ export function draftProblems(
 function bareName(ref: string): string {
   const slash = ref.lastIndexOf("/");
   return slash === -1 ? ref : ref.slice(slash + 1);
+}
+
+/** Parses only the object-valued JSON shape the public API accepts. */
+function parseOutputSchema(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    return value as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

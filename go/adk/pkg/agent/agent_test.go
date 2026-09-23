@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/stretchr/testify/require"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -254,6 +254,57 @@ func TestModelName_ReturnsModelNotProvider(t *testing.T) {
 	})
 }
 
+// TestCreateLLMConfig_Mistral verifies that createLLM wires an *adk.Mistral
+// into a MistralModel whose inner OpenAI client keeps the model name (not the
+// type discriminator "mistral") and inherits the Mistral base URL.
+func TestCreateLLMConfig_Mistral(t *testing.T) {
+	t.Setenv("MISTRAL_API_KEY", "test-key")
+	t.Setenv("MISTRAL_API_BASE", "")
+
+	configJSON := `{
+		"model": {
+			"type": "mistral",
+			"model": "mistral-large-latest",
+			"base_url": "https://api.mistral.ai/v1",
+			"temperature": 0.5,
+			"max_tokens": 1024
+		},
+		"description": "test",
+		"instruction": "test"
+	}`
+
+	var cfg adk.AgentConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	mistral, ok := cfg.Model.(*adk.Mistral)
+	if !ok {
+		t.Fatalf("model is %T, want *adk.Mistral", cfg.Model)
+	}
+	if mistral.Model != "mistral-large-latest" {
+		t.Errorf("model = %q, want %q", mistral.Model, "mistral-large-latest")
+	}
+	if mistral.BaseUrl != "https://api.mistral.ai/v1" {
+		t.Errorf("base_url = %q, want %q", mistral.BaseUrl, "https://api.mistral.ai/v1")
+	}
+
+	llm, err := CreateLLM(t.Context(), cfg.Model)
+	if err != nil {
+		t.Fatalf("CreateLLM returned error: %v", err)
+	}
+	mm, ok := llm.(*models.MistralModel)
+	if !ok {
+		t.Fatalf("CreateLLM returned %T, want *models.MistralModel", llm)
+	}
+	if mm.Name() != "mistral-large-latest" {
+		t.Errorf("Name() = %q, want %q", mm.Name(), "mistral-large-latest")
+	}
+	if mm.Name() == "mistral" {
+		t.Error("Name() returns provider name 'mistral' instead of model name — this causes 404s from the Mistral API")
+	}
+}
+
 // TestConfigDeserialization_Bedrock verifies that a Bedrock config deserializes
 // correctly with the model name and region preserved.
 func TestConfigDeserialization_Bedrock(t *testing.T) {
@@ -298,7 +349,7 @@ func TestCreateLLM_BedrockTimeouts(t *testing.T) {
 		ConnectTimeout: &connect,
 	}
 
-	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	llm, err := CreateLLM(context.Background(), m)
 	if err != nil {
 		t.Fatalf("CreateLLM: %v", err)
 	}
@@ -322,7 +373,7 @@ func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
 		Region:    "us-east-1",
 	}
 
-	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	llm, err := CreateLLM(context.Background(), m)
 	if err != nil {
 		t.Fatalf("CreateLLM: %v", err)
 	}
@@ -462,5 +513,28 @@ func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 	}
 	if len(root.SubAgents()) != 1 || root.SubAgents()[0].Name() != "researcher" || root.SubAgents()[0].Description() != "research" {
 		t.Fatalf("sub-agents = %#v", root.SubAgents())
+	}
+}
+
+func TestUsesRawOutputSchema(t *testing.T) {
+	tests := []struct {
+		name  string
+		model adk.Model
+		want  bool
+	}{
+		{name: "OpenAI", model: &adk.OpenAI{}, want: true},
+		{name: "Azure OpenAI", model: &adk.AzureOpenAI{}, want: true},
+		{name: "Anthropic", model: &adk.Anthropic{}, want: true},
+		{name: "Anthropic on Vertex", model: &adk.GeminiAnthropic{}, want: true},
+		{name: "Bedrock Converse", model: &adk.Bedrock{}, want: true},
+		{name: "Foundry OpenAI", model: &adk.Foundry{}, want: true},
+		{name: "Foundry Anthropic", model: &adk.Foundry{APIFormat: adk.FoundryAPIFormatAnthropic}, want: true},
+		{name: "Gemini", model: &adk.Gemini{}, want: false},
+		{name: "Ollama", model: &adk.Ollama{}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, usesRawOutputSchema(test.model))
+		})
 	}
 }

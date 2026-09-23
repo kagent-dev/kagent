@@ -8,12 +8,13 @@ import {
   Segmented,
   Select,
   Space,
+  Tooltip,
   Typography,
   Upload,
 } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Trash2, Upload as UploadIcon } from "lucide-react";
+import { Info, Plus, Trash2, Upload as UploadIcon } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { SubmitError } from "@/components/common/SubmitError";
 import {
@@ -30,7 +31,7 @@ import {
   validateMcpServerForm,
 } from "@/components/mcp/mcpServerRequest";
 import { paths } from "@/router/routes";
-import { apiClient } from "@/api";
+import { apiClient, useInvalidateMcpServers } from "@/api";
 
 const { Text } = Typography;
 
@@ -54,6 +55,7 @@ export function McpServerNewPage() {
   const [caCertFileName, setCaCertFileName] = useState<string>();
   const [caCertError, setCaCertError] = useState<string>();
   const navigate = useNavigate();
+  const invalidateServers = useInvalidateMcpServers();
 
   const set = <K extends keyof McpServerFormValues>(
     key: K,
@@ -148,6 +150,9 @@ export function McpServerNewPage() {
     setSaving(true);
     try {
       await apiClient.mcpServers.create(toCreateRequest(values));
+      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
+      await invalidateServers().catch(() => {});
       // Straight to the list, which is where the new server can actually be
       // seen — a success message on a form the user is still looking at proves
       // less than the row itself.
@@ -331,13 +336,31 @@ export function McpServerNewPage() {
               ) : null}
 
               <Form.Item>
-                <Checkbox
-                  data-testid="mcp-streamable"
-                  checked={values.streamableHttp}
-                  onChange={(event) => set("streamableHttp", event.target.checked)}
-                >
-                  Use streamable HTTP instead of SSE
-                </Checkbox>
+                <Space size={6}>
+                  <Checkbox
+                    data-testid="mcp-streamable"
+                    checked={values.streamableHttp}
+                    onChange={(event) => set("streamableHttp", event.target.checked)}
+                  >
+                    Use streamable HTTP instead of SSE
+                  </Checkbox>
+                  {/* Named as an example rather than a list: which harnesses refuse SSE
+                      is theirs to change, and a list here would go stale silently. */}
+                  <Tooltip title="Some harnesses, like Codex, only accept streamable HTTP.">
+                    <Info
+                      size={14}
+                      data-testid="mcp-streamable-info"
+                      aria-label="Some harnesses, like Codex, only accept streamable HTTP."
+                      tabIndex={0}
+                      css={{
+                        display: "block",
+                        color: theme.color.textMuted,
+                        cursor: "help",
+                        "&:hover, &:focus-visible": { color: theme.color.text },
+                      }}
+                    />
+                  </Tooltip>
+                </Space>
               </Form.Item>
 
               <Form.Item

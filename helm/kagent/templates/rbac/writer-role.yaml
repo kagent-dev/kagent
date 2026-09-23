@@ -4,12 +4,9 @@
   resources:
   - harnesses
   - agenttemplates
-  - sandboxagents
-  - agentharnesses
   - modelconfigs
   - modelproviderconfigs
   - toolservers
-  - memories
   - remotemcpservers
   - mcpservers
   verbs:
@@ -22,12 +19,9 @@
   resources:
   - harnesses/finalizers
   - agenttemplates/finalizers
-  - sandboxagents/finalizers
-  - agentharnesses/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
-  - memories/finalizers
   - remotemcpservers/finalizers
   - mcpservers/finalizers
   verbs:
@@ -77,21 +71,12 @@
   - update
   - patch
   - delete
-- apiGroups:
-  - ate.dev
-  resources:
-  - actortemplates
-  verbs:
-  - create
-  - update
-  - patch
-  - delete
 {{- end -}}
 
 {{- include "kagent.rbac.validate" . -}}
-{{- if .Values.rbac.namespaces }}
-{{- $namespaces := .Values.rbac.namespaces | uniq | sortAlpha }}
-{{- range $namespace := $namespaces }}
+{{- $rbacNamespaces := include "kagent.rbacNamespaces" . | fromJsonArray }}
+{{- if $rbacNamespaces }}
+{{- range $namespace := $rbacNamespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

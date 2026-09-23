@@ -11,8 +11,8 @@ import type { AgentTemplate } from "@/api/domain/agentTemplates";
 /**
  * The agent-template draft, and the one property that is invisible on screen.
  *
- * An edit form shows five of `AgentTemplateSpec`'s eight fields. Building the update
- * out of what it shows deletes the other three — `skills`, `plugins`,
+ * An edit form still omits three rich `AgentTemplateSpec` fields. Building the update
+ * out of only what it shows deletes those fields — `skills`, `plugins`,
  * `promptTemplate` — and the API accepts that happily. Nothing on the page changes,
  * no error is raised, and the loss only appears on the cluster.
  *
@@ -39,11 +39,17 @@ function templateWithExtras(): AgentTemplate {
         modelConfig: { name: "gpt" },
         description: "A template with fields no form shows.",
         systemPrompt: "Be brief.",
+        outputSchema: {
+          type: "object",
+          properties: { status: { type: "string" } },
+          required: ["status"],
+        },
         tools: [
           {
             mcp: {
               server: { kind: "RemoteMCPServer", name: "tools" },
               tools: ["k8s_get_pods"],
+              requireApproval: true,
             },
           },
         ],
@@ -87,6 +93,7 @@ describe("the agent template draft", () => {
 
     expect(spec.modelConfig).toEqual({ name: "gpt" });
     expect(spec.systemPrompt).toBe("Be brief.");
+    expect(spec.outputSchema).toEqual(template.resource.spec.outputSchema);
     expect(spec.tools).toEqual(template.resource.spec.tools);
   });
 
@@ -134,6 +141,39 @@ describe("the agent template draft", () => {
     expect(toInline).not.toHaveProperty("systemPromptFrom");
   });
 
+  it("round-trips each output mode without ever sending both schema sources", () => {
+    const template = templateWithExtras();
+    const inlineDraft = draftFromTemplate(template);
+
+    expect(inlineDraft.outputSource).toBe("inline");
+    expect(JSON.parse(inlineDraft.outputSchema)).toEqual(
+      template.resource.spec.outputSchema,
+    );
+    const inline = specFromDraft(inlineDraft, template.resource.spec);
+    expect(inline.outputSchema).toEqual(template.resource.spec.outputSchema);
+    expect(inline).not.toHaveProperty("outputSchemaFrom");
+
+    inlineDraft.outputSource = "configMap";
+    inlineDraft.outputSchemaConfigMap = "schemas";
+    inlineDraft.outputSchemaKey = "result.json";
+    const fromConfigMap = specFromDraft(inlineDraft, inline);
+    expect(fromConfigMap.outputSchemaFrom).toEqual({
+      name: "schemas",
+      key: "result.json",
+    });
+    expect(fromConfigMap).not.toHaveProperty("outputSchema");
+
+    const configMapDraft = draftFromTemplate({
+      ...template,
+      resource: { ...template.resource, spec: fromConfigMap },
+    });
+    expect(configMapDraft.outputSource).toBe("configMap");
+    configMapDraft.outputSource = "text";
+    const text = specFromDraft(configMapDraft, fromConfigMap);
+    expect(text).not.toHaveProperty("outputSchema");
+    expect(text).not.toHaveProperty("outputSchemaFrom");
+  });
+
   it("keeps an MCP binding with no selection because it exposes every server tool", () => {
     const draft = emptyDraft("kagent");
     draft.modelConfig = "gpt";
@@ -160,6 +200,16 @@ describe("the agent template draft", () => {
     const spec = specFromDraft(draftFromTemplate(template), template.resource.spec);
 
     expect(spec.tools).toEqual(template.resource.spec.tools);
+  });
+
+  it("omits requireApproval when it is off, because the CRD's default is false", () => {
+    const draft = emptyDraft("kagent");
+    draft.modelConfig = "gpt";
+    draft.mcpTools = [{ serverRef: "kagent/tools", tools: [], requireApproval: false }];
+
+    expect(specFromDraft(draft).tools?.[0].mcp).toEqual({
+      server: { kind: "RemoteMCPServer", name: "tools" },
+    });
   });
 
   it("sends an MCP server by bare name, as the CRD's reference is same-namespace", () => {
@@ -189,6 +239,36 @@ describe("the agent template draft", () => {
     draft.promptSource = "configMap";
     draft.systemPromptConfigMap = "prompts";
     expect(draftProblems(draft, { isCreate: true })).toHaveLength(1);
+  });
+
+  it("reports incomplete or malformed structured-output configuration", () => {
+    const draft = emptyDraft("kagent");
+    draft.name = "t";
+    draft.modelConfig = "gpt";
+    draft.outputSource = "inline";
+
+    expect(draftProblems(draft, { isCreate: true })).toContain(
+      "An inline output schema is required.",
+    );
+
+    draft.outputSchema = "not json";
+    expect(draftProblems(draft, { isCreate: true })).toContain(
+      "The inline output schema must be a valid JSON object.",
+    );
+
+    draft.outputSchema = '{"type":"string"}';
+    expect(draftProblems(draft, { isCreate: true })).toContain(
+      'The output schema must have "type": "object" at its root.',
+    );
+
+    draft.outputSchema = '{"type":"object"}';
+    expect(draftProblems(draft, { isCreate: true })).toEqual([]);
+
+    draft.outputSource = "configMap";
+    draft.outputSchemaConfigMap = "schemas";
+    expect(draftProblems(draft, { isCreate: true })).toContain(
+      "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
+    );
   });
 
   it("carries labels through, because they decide whether anything runs it", () => {

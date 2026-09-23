@@ -21,6 +21,7 @@ import type { OperationId, OperationInput } from "@/api/operations";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
 import { MOCK_INSTANCE_CREATOR } from "./fixtures";
+import { DISPOSABLE_CHECKPOINT, SEEDED_CHECKPOINT } from "./state";
 
 beforeAll(() => setApiTransport(mockTransport));
 afterAll(() => setApiTransport(undefined));
@@ -34,22 +35,6 @@ function setScenario(scenario: "ok" | "empty" | "error"): void {
 beforeEach(() => setScenario("ok"));
 afterEach(() => clearApiExtensions());
 
-/** An agent draft, in the shape a form produces. */
-const agentDraft = (name: string) => ({
-  apiVersion: "kagent.dev/v1alpha3",
-  kind: "SandboxAgent",
-  metadata: { name, namespace: "kagent" },
-  spec: {
-    type: "Declarative" as const,
-    description: `the ${name} agent`,
-    declarative: {
-      systemMessage: "be useful",
-      modelConfig: "default-model-config",
-      tools: [],
-    },
-  },
-});
-
 /**
  * A plausible input for every operation.
  *
@@ -58,12 +43,13 @@ const agentDraft = (name: string) => ({
  * the whole surface.
  */
 const INPUTS = {
-  "agents.list": {},
-  "agents.get": { namespace: "kagent", name: "k8s-agent" },
-  "agents.create": { resource: agentDraft("swept-agent") },
-  "agents.update": { resource: agentDraft("swept-agent") },
-  "agents.delete": { namespace: "kagent", name: "swept-agent" },
-
+  "scheduledRuns.list": {},
+  "scheduledRuns.get": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
+  "scheduledRuns.create": { requestId: "sweep-schedule", harness: { namespace: "kagent", name: "k8s-agent" }, agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.update": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000002", etag: "d686bd1d-9124-4e96-8df7-000000000002", config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.delete": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000003" },
+  "scheduledRuns.trigger": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001", requestId: "sweep-trigger" },
+  "scheduledRuns.executions": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
   "models.list": {},
   "models.get": { namespace: "kagent", name: "default-model-config" },
   "models.create": {
@@ -114,38 +100,37 @@ const INPUTS = {
    * on an instance that already has one in flight. Suspending and resuming the same
    * row here would be a race with itself.
    */
-  "agentInstances.list": { namespace: "kagent" },
+  "agentInstances.list": {},
   "agentInstances.get": {
-    namespace: "kagent",
+
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   },
   "agentInstances.suspend": {
-    namespace: "analytics",
+
     id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
   },
   "agentInstances.resume": {
-    namespace: "kagent",
+
     id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
   },
   "agentInstances.shares.list": {
-    namespace: "kagent",
+
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   },
   "agentInstances.shares.create": {
-    namespace: "kagent",
+
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
     permission: "readOnly",
   },
   // The seeded share, not one the sweep created: the sweep runs everything at once,
   // so revoking the create above would be a race with it.
   "agentInstances.shares.revoke": {
-    namespace: "kagent",
+
     shareId: "mock-instance-share-seed",
   },
   "agentInstances.create": {
-    namespace: "kagent",
-    harness: "k8s-agent",
-    agentTemplate: "k8s-agent-7f3a91c",
+    harness: { namespace: "kagent", name: "k8s-agent" },
+    agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
     // Required by the controller, and by the fixture backend for the same reason.
     requestId: "swept-create",
   },
@@ -153,7 +138,7 @@ const INPUTS = {
   // once, and deleting one another operation is reading would be a race. This one is
   // touched by nothing else here.
   "agentInstances.delete": {
-    namespace: "kagent",
+
     // The scratch instance, which exists for this. It has to be one the mock caller
     // *created*: deleting is scoped to the creator exactly as reading is, so the
     // barely-written record this used to name — whose creator is nobody — now
@@ -203,7 +188,7 @@ const INPUTS = {
   "agentTemplates.delete": { namespace: "kagent", name: "support-triage-2b91d0e" },
 
   "agentInstances.rename": {
-    namespace: "kagent",
+
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
     // A real name rather than an empty one: an empty name is valid and would prove
     // only that the call is wired, where this also proves the validation accepts
@@ -211,8 +196,42 @@ const INPUTS = {
     name: "Renamed by the fixture suite",
   },
 
+  // Forking reads the source and writes a new row, so it races nothing above.
+  "agentInstances.fork": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-fork",
+    name: "Forked by the fixture suite",
+  },
+
+  /*
+   * The seeded boundary, so forking one has something to fork without ordering this
+   * suite: every operation here runs concurrently and none may depend on another.
+   */
+  "agentInstances.checkpoints.create": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-checkpoint",
+  },
+  "agentInstances.checkpoints.list": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
+  "agentInstances.checkpoints.fork": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    requestId: "fixture-suite-checkpoint-fork",
+    name: "Forked from a checkpoint by the fixture suite",
+  },
+
+  /*
+   * The seeded boundary again. The disposable one is deleted below, and a rename
+   * racing that delete would fail on a row that is legitimately gone; renaming the
+   * seeded one only changes what the concurrent fork ends up titled.
+   */
+  "agentInstances.checkpoints.rename": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    name: "Renamed by the fixture suite",
+  },
+
+  // The disposable boundary: deleting the seeded one would race the fork case above.
+  "agentInstances.checkpoints.delete": { checkpointId: DISPOSABLE_CHECKPOINT.id },
+
   "namespaces.list": {},
-  "substrate.status": {},
   "substrate.summary": {},
   "substrate.actors": {},
   "substrate.workers": {},
@@ -243,36 +262,31 @@ describe("the fixture backend", () => {
     expect(failures.filter(Boolean)).toEqual([]);
   });
 
-  it("reads a created agent back, and stops listing a deleted one", async () => {
-    await invoke("agents.create", { resource: agentDraft("written-agent") });
-
-    const listed = await invoke("agents.list", {});
-    expect(listed.map((row) => row.agent.metadata.name)).toContain("written-agent");
-
-    // Resolved from the referenced ModelConfig, the way the controller resolves it:
-    // a new row that left it blank would read differently from every other row.
-    const created = listed.find((row) => row.agent.metadata.name === "written-agent");
-    expect(created?.model).toBe("gpt-4.1");
-
-    const read = await invoke("agents.get", {
-      namespace: "kagent",
-      name: "written-agent",
+  it("serves upstream substrate messages through the UI conversions", async () => {
+    const [summary, page] = await Promise.all([
+      invoke("substrate.summary", {}),
+      invoke("substrate.actors", {}),
+    ]);
+    expect(summary.actorTemplates[0]).toMatchObject({
+      name: "coder-template",
+      phase: "Ready",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=default-pool",
     });
-    expect(read.agent.spec.description).toBe("the written-agent agent");
-
-    await invoke("agents.delete", { namespace: "kagent", name: "written-agent" });
-    const after = await invoke("agents.list", {});
-    expect(after.map((row) => row.agent.metadata.name)).not.toContain("written-agent");
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
+      atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
+    });
+    expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
   });
 
-  it("finds a harness when the caller does not know which kind it is", async () => {
-    // `agents.get` asks for a sandbox agent first; the fake must answer that with a
-    // 404 for a harness, or the fallback never runs and the harness is unreachable.
-    const harness = await invoke("agents.get", {
-      namespace: "analytics",
-      name: "reporting-agent",
-    });
-    expect(harness.agentKind).toBe("AgentHarness");
+  it("preserves continuation through a worker page with no namespace matches", async () => {
+    const first = await invoke("substrate.workers", { namespace: "platform", limit: 1 });
+    expect(first.workers).toEqual([]);
+    expect(first.nextPageToken).toBeDefined();
+    const last = await invoke("substrate.workers", { namespace: "platform", limit: 1, pageToken: first.nextPageToken });
+    expect(last.workers).toEqual([]);
+    expect(last.nextPageToken).toBeUndefined();
   });
 
   /*
@@ -305,7 +319,9 @@ describe("the fixture backend", () => {
 
   it("lists only the prompt libraries in the namespace asked about", async () => {
     const scoped = await invoke("prompts.list", { namespace: "platform" });
-    expect(scoped.map((row) => row.name)).toEqual(["incident-playbooks"]);
+    expect(scoped.map((row) => ({ namespace: row.namespace, name: row.name }))).toEqual([
+      { namespace: "platform", name: "incident-playbooks" },
+    ]);
 
     const all = await invoke("prompts.list", {});
     expect(all.length).toBeGreaterThan(scoped.length);
@@ -324,13 +340,13 @@ describe("the fixture backend", () => {
 
     it("records a suspend, so the list and the record agree afterwards", async () => {
       const before = await invoke("agentInstances.get", {
-        namespace: "kagent",
+
         id: READY,
       });
       expect(before.state).toBe("ready");
 
       const suspended = await invoke("agentInstances.suspend", {
-        namespace: "kagent",
+
         id: READY,
       });
       expect(suspended.state).toBe("suspended");
@@ -339,11 +355,11 @@ describe("the fixture backend", () => {
       // follows.
       expect(suspended.operation).toBe("unspecified");
 
-      const listed = await invoke("agentInstances.list", { namespace: "kagent" });
+      const listed = await invoke("agentInstances.list", {});
       expect(listed.find((row) => row.id === READY)?.state).toBe("suspended");
 
       const resumed = await invoke("agentInstances.resume", {
-        namespace: "kagent",
+
         id: READY,
       });
       expect(resumed.state).toBe("ready");
@@ -351,7 +367,7 @@ describe("the fixture backend", () => {
 
     it("refuses a suspend from a state the controller would refuse", async () => {
       const error = await invoke("agentInstances.suspend", {
-        namespace: "kagent",
+
         id: FAILED,
       }).catch((reason: unknown) => reason);
 
@@ -361,7 +377,7 @@ describe("the fixture backend", () => {
 
     it("refuses a second operation while one is already in flight", async () => {
       const error = await invoke("agentInstances.resume", {
-        namespace: "kagent",
+
         id: MID_OPERATION,
       }).catch((reason: unknown) => reason);
 
@@ -369,23 +385,10 @@ describe("the fixture backend", () => {
       expect((error as ApiError).message).toMatch(/conflicting lifecycle operation/);
     });
 
-    /*
-     * The namespace is part of an instance's address, not a filter over a larger
-     * list — `validateNamespace` on the controller rejects an empty one outright.
-     * A fake that treated it as "everything" would hide a page that forgot to pass
-     * one until the page met a cluster.
-     */
-    it("will not list instances without a namespace", async () => {
-      const error = await invoke("agentInstances.list", { namespace: "" }).catch(
-        (reason: unknown) => reason,
-      );
-      expect((error as ApiError).code).toBe("InvalidArgument");
-    });
-
     it("lists other people's instances only when asked", async () => {
-      const mine = await invoke("agentInstances.list", { namespace: "kagent" });
+      const mine = await invoke("agentInstances.list", {});
       const everyone = await invoke("agentInstances.list", {
-        namespace: "kagent",
+
         allCreators: true,
       });
 
@@ -394,12 +397,9 @@ describe("the fixture backend", () => {
       expect(everyone.some((row) => row.creator !== MOCK_INSTANCE_CREATOR)).toBe(true);
     });
 
-    it("keeps each namespace to itself", async () => {
-      const analytics = await invoke("agentInstances.list", {
-        namespace: "analytics",
-      });
-      expect(analytics.length).toBeGreaterThan(0);
-      expect(analytics.every((row) => row.namespace === "analytics")).toBe(true);
+    it("lists conversations from targets in multiple namespaces", async () => {
+      const rows = await invoke("agentInstances.list", {});
+      expect(new Set(rows.map(row => row.agentTemplate?.split("/")[0])).size).toBeGreaterThan(1);
     });
   });
 
@@ -407,14 +407,13 @@ describe("the fixture backend", () => {
     beforeEach(() => setScenario("empty"));
 
     it("empties the lists", async () => {
-      expect(await invoke("agents.list", {})).toEqual([]);
       expect(await invoke("models.list", {})).toEqual([]);
       expect(await invoke("namespaces.list", {})).toEqual([]);
     });
 
     it("answers a single resource with a 404, which is the state a page renders", async () => {
       await expect(
-        invoke("agents.get", { namespace: "kagent", name: "k8s-agent" }),
+        invoke("models.get", { namespace: "kagent", name: "default-model-config" }),
       ).rejects.toMatchObject({ status: 404 });
     });
   });
@@ -423,25 +422,24 @@ describe("the fixture backend", () => {
     beforeEach(() => setScenario("error"));
 
     it("fails a read as the API would, and says it was asked to", async () => {
-      const error = await invoke("agents.list", {}).catch((reason: unknown) => reason);
+      const error = await invoke("models.list", {}).catch((reason: unknown) => reason);
 
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).status).toBe(500);
       expect((error as ApiError).message).toContain("asked to fail");
       // Named so a failing screenshot says which call broke.
-      expect((error as ApiError).message).toContain("AgentService/ListAgents");
+      expect((error as ApiError).message).toContain("ModelService/ListModelConfigs");
     });
 
     it("fails a write too, so a form's failure path is reachable", async () => {
       await expect(
-        invoke("agents.create", { resource: agentDraft("never-created") }),
+        invoke("models.create", {
+          payload: {
+            ref: "kagent/never-created",
+            spec: { model: "gpt-4.1", provider: "OpenAI" },
+          },
+        }),
       ).rejects.toBeInstanceOf(ApiError);
-
-      setScenario("ok");
-      const listed = await invoke("agents.list", {});
-      expect(listed.map((row) => row.agent.metadata.name)).not.toContain(
-        "never-created",
-      );
     });
   });
 });

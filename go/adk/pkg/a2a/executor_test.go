@@ -3,17 +3,26 @@ package a2a
 import (
 	"context"
 	"iter"
+	"maps"
+	"slices"
+	"strings"
 	"testing"
+
+	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -58,18 +67,18 @@ func (e *recordingExecutor) Cleanup(context.Context, *a2asrv.ExecutorContext, a2
 
 func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 	const appName = "test-app"
-	decision := hitlDecisionMessage(&ToolApprovalResponse{
+	decision := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{{ID: "confirm-1", Approved: true}},
+		Approvals: []apia2a.ToolApproval{{ID: "confirm-1", Approved: true}},
 	})
 	storedTask := &a2atype.Task{
 		ID:        "task-1",
 		ContextID: "ctx-1",
 		Status: a2atype.TaskStatus{
 			State: a2atype.TaskStateInputRequired,
-			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &ToolApprovalRequest{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &apia2a.ToolApprovalRequest{
 				Type: HITLTypeToolApprovalRequest,
-				Tools: []HitlTool{{
+				Tools: []apia2a.HITLTool{{
 					ID: "confirm-1", CallID: "call-1", Name: "delete_file",
 					Args: map[string]any{"path": "/tmp/x"},
 				}},
@@ -84,7 +93,7 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 		StoredTask: storedTask,
 	}
 	builtin := &recordingExecutor{}
-	executor := &KAgentExecutor{builtin: builtin, appName: appName, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, appName: appName, logger: slog.New(slog.DiscardHandler)}
 
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
@@ -146,7 +155,7 @@ func TestKAgentExecutor_TranslatesADKPauseAtA2ABoundary(t *testing.T) {
 	builtin := &recordingExecutor{events: []a2atype.Event{
 		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, internalMessage),
 	}}
-	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
 
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
@@ -180,7 +189,7 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	final := a2atype.NewArtifactEvent(reqCtx, a2atype.NewTextPart("hello"))
 	final.LastChunk = true
 	builtin := &recordingExecutor{events: []a2atype.Event{final}}
-	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
 
 	var got []a2atype.Event
 	for event, err := range executor.Execute(context.Background(), reqCtx) {
@@ -196,6 +205,326 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	update, ok := got[0].(*a2atype.TaskArtifactUpdateEvent)
 	if !ok || !update.LastChunk || len(update.Artifact.Parts) != 1 || update.Artifact.Parts[0].Text() != "hello" {
 		t.Fatalf("final artifact = %#v, want content-bearing lastChunk event", got[0])
+	}
+}
+
+func TestTransformStructuredOutputParsesFinalTextWhenADKOutputIsUnset(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
+		SHA256:     "schema-digest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author: "root",
+		LLMResponse: model.LLMResponse{
+			Content:      genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+			FinishReason: genai.FinishReasonStop,
+		},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(`{"answer":4}`))
+	err = transformStructuredOutput(output, "root", event, update)
+	if err != nil {
+		t.Fatalf("transformStructuredOutput() error = %v", err)
+	}
+	if len(update.Artifact.Parts) != 1 || update.Artifact.Parts[0].MediaType != "application/json" {
+		t.Fatalf("structured artifact = %#v", update.Artifact)
+	}
+	want := map[string]any{"answer": float64(4)}
+	if got := update.Artifact.Parts[0].Data(); !maps.Equal(got.(map[string]any), want) {
+		t.Fatalf("structured data = %#v, want %#v", got, want)
+	}
+	if got, ok := apia2a.StructuredOutputSchemaSHA256(update.Artifact.Parts[0]); !ok || got != "schema-digest" {
+		t.Fatalf("schema digest = %#v", got)
+	}
+}
+
+func TestNewKAgentExecutorRejectsInvalidOutputSchema(t *testing.T) {
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		Logger: slog.New(slog.DiscardHandler),
+		Output: &apiadk.OutputConfig{JSONSchema: []byte(`{`)},
+	})
+	if err == nil || executor != nil {
+		t.Fatalf("NewKAgentExecutor() = %#v, %v; want a construction error", executor, err)
+	}
+}
+
+func TestNewKAgentExecutorRequiresRootAgent(t *testing.T) {
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{Logger: slog.New(slog.DiscardHandler)})
+	if err == nil || executor != nil {
+		t.Fatalf("NewKAgentExecutor() = %#v, %v; want a construction error", executor, err)
+	}
+}
+
+func TestStructuredOutputPartConverterDropsOnlyRootPartials(t *testing.T) {
+	converter := structuredOutputPartConverter(&structuredOutput{}, "root")
+	partial := &adksession.Event{
+		Author:      "root",
+		LLMResponse: model.LLMResponse{Partial: true},
+	}
+	got, err := converter(context.Background(), partial, genai.NewPartFromText("partial JSON"))
+	if err != nil || got != nil {
+		t.Fatalf("root partial conversion = %#v, error %v; want nil", got, err)
+	}
+
+	partial.Author = "tool-agent"
+	got, err = converter(context.Background(), partial, genai.NewPartFromText("tool progress"))
+	if err != nil || got == nil || got.Text() != "tool progress" {
+		t.Fatalf("non-root partial conversion = %#v, error %v", got, err)
+	}
+}
+
+func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"secret":{"type":"integer"}},"required":["secret"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author: "root",
+		LLMResponse: model.LLMResponse{
+			Content:      genai.NewContentFromText(`{"secret":"do-not-log"}`, genai.RoleModel),
+			FinishReason: genai.FinishReasonStop,
+		},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"})
+	err = transformStructuredOutput(output, "root", event, update)
+	if err == nil || strings.Contains(err.Error(), "do-not-log") {
+		t.Fatalf("validation error = %v", err)
+	}
+}
+
+func TestTransformStructuredOutputRejectsIncompleteResponse(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author: "root",
+		LLMResponse: model.LLMResponse{
+			Content:      genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+			FinishReason: genai.FinishReasonMaxTokens,
+		},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(`{"answer":4}`))
+	err = transformStructuredOutput(output, "root", event, update)
+	if err == nil || !strings.Contains(err.Error(), "did not complete") {
+		t.Fatalf("transformStructuredOutput() error = %v, want incomplete-output error", err)
+	}
+}
+
+func TestTransformStructuredOutputAcceptsNormalFinishReasons(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
+		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		reason genai.FinishReason
+	}{
+		{name: "empty", reason: ""},
+		{name: "unspecified", reason: genai.FinishReasonUnspecified},
+		{name: "stop", reason: genai.FinishReasonStop},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			event := &adksession.Event{
+				Author: "root",
+				LLMResponse: model.LLMResponse{
+					Content:      genai.NewContentFromText(`{"answer":4}`, genai.RoleModel),
+					FinishReason: test.reason,
+				},
+			}
+			update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{}, a2atype.NewTextPart(`{"answer":4}`))
+			if err := transformStructuredOutput(output, "root", event, update); err != nil {
+				t.Fatalf("transformStructuredOutput() error = %v", err)
+			}
+			if len(update.Artifact.Parts) != 1 || !apia2a.IsStructuredOutputPart(update.Artifact.Parts[0]) {
+				t.Fatalf("artifact parts = %#v, want structured output", update.Artifact.Parts)
+			}
+		})
+	}
+}
+
+func TestTransformStructuredOutputIgnoresSkipSummarizationEvent(t *testing.T) {
+	output, err := resolveStructuredOutput(&apiadk.OutputConfig{JSONSchema: []byte(`{"type":"object"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &adksession.Event{
+		Author:  "root",
+		Actions: adksession.EventActions{SkipSummarization: true},
+		LLMResponse: model.LLMResponse{
+			Content: genai.NewContentFromText("not a structured result", genai.RoleModel),
+		},
+	}
+	update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{}, a2atype.NewTextPart("not a structured result"))
+	if err := transformStructuredOutput(output, "root", event, update); err != nil {
+		t.Fatalf("transformStructuredOutput() error = %v", err)
+	}
+	if update.Artifact.Parts[0].Text() != "not a structured result" {
+		t.Fatalf("artifact was transformed: %#v", update.Artifact.Parts)
+	}
+}
+
+func TestKAgentExecutorStructuredOutputAllowsHITLPause(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		toolArgs map[string]any
+		isAsk    bool
+	}{
+		{
+			name:     "tool approval",
+			toolName: "delete_file",
+			toolArgs: map[string]any{"path": "/tmp/x"},
+		},
+		{
+			name:     "ask user",
+			toolName: "ask_user",
+			toolArgs: map[string]any{"questions": []any{map[string]any{"question": "Which namespace?"}}},
+			isAsk:    true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			agent, err := adkagent.New(adkagent.Config{
+				Name: "structured-agent",
+				Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+					return func(yield func(*adksession.Event, error) bool) {
+						call := genai.NewPartFromFunctionCall(toolconfirmation.FunctionCallName, map[string]any{
+							"originalFunctionCall": map[string]any{
+								"name": test.toolName,
+								"id":   "tool-call",
+								"args": test.toolArgs,
+							},
+							"toolConfirmation": map[string]any{
+								"hint":      "Human input required",
+								"confirmed": false,
+							},
+						})
+						call.FunctionCall.ID = "confirmation-call"
+						yield(&adksession.Event{
+							Author:             ic.Agent().Name(),
+							InvocationID:       ic.InvocationID(),
+							LLMResponse:        model.LLMResponse{Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{call}}},
+							LongRunningToolIDs: []string{"confirmation-call"},
+						}, nil)
+					}
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+				AppName:        "test-app",
+				SessionService: adksession.InMemoryService(),
+				Logger:         slog.New(slog.DiscardHandler),
+				RunnerConfig:   runner.Config{AppName: "test-app", Agent: agent},
+				Output: &apiadk.OutputConfig{
+					JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+					SHA256:     "schema-digest",
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+				a2atype.SvcParamExtensions: {HITLExtensionURI},
+			}))
+			if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+				t.Fatal(err)
+			}
+			reqCtx := &a2asrv.ExecutorContext{
+				TaskID:    "task-1",
+				ContextID: "context-1",
+				Message:   a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue")),
+			}
+
+			var pause *a2atype.TaskStatusUpdateEvent
+			for event, err := range executor.Execute(ctx, reqCtx) {
+				if err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+				if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok {
+					if update.Status.State == a2atype.TaskStateFailed {
+						t.Fatalf("structured HITL pause failed: %#v", update.Status.Message)
+					}
+					if update.Status.State == a2atype.TaskStateInputRequired {
+						pause = update
+					}
+				}
+			}
+			if pause == nil || pause.Status.Message == nil {
+				t.Fatalf("pause = %#v, want input-required status", pause)
+			}
+			if test.isAsk {
+				if request := GetAskUserRequest(pause.Status.Message); request == nil || len(request.Questions) != 1 {
+					t.Fatalf("ask-user request = %#v", request)
+				}
+			} else if request := GetToolApprovalRequest(pause.Status.Message); request == nil || len(request.Tools) != 1 {
+				t.Fatalf("tool-approval request = %#v", request)
+			}
+		})
+	}
+}
+
+func TestKAgentExecutorFailsCompletedStructuredOutputWithoutResult(t *testing.T) {
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "structured-agent",
+		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				yield(&adksession.Event{
+					Author:       ic.Agent().Name(),
+					InvocationID: ic.InvocationID(),
+					LLMResponse: model.LLMResponse{
+						Content:      &genai.Content{Role: genai.RoleModel},
+						FinishReason: genai.FinishReasonStop,
+					},
+				}, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService := adksession.InMemoryService()
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName:        "test-app",
+		SessionService: sessionService,
+		Logger:         slog.New(slog.DiscardHandler),
+		RunnerConfig:   runner.Config{AppName: "test-app", Agent: agent},
+		Output: &apiadk.OutputConfig{
+			JSONSchema: []byte(`{"type":"object"}`),
+			SHA256:     "schema-digest",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "context-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("answer")),
+	}
+
+	var terminal *a2atype.TaskStatusUpdateEvent
+	for event, err := range executor.Execute(t.Context(), reqCtx) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State.Terminal() {
+			terminal = update
+		}
+	}
+	if terminal == nil || terminal.Status.State != a2atype.TaskStateFailed || terminal.Status.Message == nil {
+		t.Fatalf("terminal status = %#v, want failed status with an error message", terminal)
 	}
 }
 
@@ -239,15 +568,18 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	}
 
 	sessionService := adksession.InMemoryService()
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName:        appName,
 		SessionService: sessionService,
-		Logger:         logr.Discard(),
+		Logger:         slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{
 			AppName: appName,
 			Agent:   agent,
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 	reqCtx := &a2asrv.ExecutorContext{
 		TaskID:    "task-1",
 		ContextID: contextID,
@@ -315,7 +647,10 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 				}
 				yield(&adksession.Event{
 					Author: ic.Agent().Name(), InvocationID: ic.InvocationID(), Branch: ic.Branch(),
-					LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("resumed", genai.RoleModel)},
+					LLMResponse: model.LLMResponse{
+						Content:      genai.NewContentFromText(`{"answer":"resumed"}`, genai.RoleModel),
+						FinishReason: genai.FinishReasonStop,
+					},
 				}, nil)
 			}
 		},
@@ -324,10 +659,17 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 		t.Fatalf("agent.New() error = %v", err)
 	}
 	sessionService := adksession.InMemoryService()
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName: appName, SessionService: sessionService, Logger: logr.Discard(),
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName: appName, SessionService: sessionService, Logger: slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
+		Output: &apiadk.OutputConfig{
+			JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+			SHA256:     "schema-digest",
+		},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
 	}))
@@ -348,8 +690,11 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 			pause = update
 		}
 	}
+	if pause == nil {
+		t.Fatalf("pause = %#v, want extension input-required", pause)
+	}
 	req := GetToolApprovalRequest(pause.Status.Message)
-	if pause == nil || req == nil {
+	if req == nil {
 		t.Fatalf("pause = %#v, want extension input-required", pause)
 	}
 	if _, ok := pause.Status.Message.Metadata[apia2a.TimelinePositionMetadataKey].(string); !ok {
@@ -359,9 +704,9 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 		t.Fatalf("pause tools = %#v, want per-approval correlation", req.Tools)
 	}
 
-	decision := hitlDecisionMessage(&ToolApprovalResponse{
+	decision := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{{ID: "confirmation-call", Approved: true}},
+		Approvals: []apia2a.ToolApproval{{ID: "confirmation-call", Approved: true}},
 	})
 	decision.TaskID, decision.ContextID = "hitl-task", contextID
 	stored := &a2atype.Task{
@@ -370,16 +715,108 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	resume := &a2asrv.ExecutorContext{
 		TaskID: "hitl-task", ContextID: contextID, Message: decision, StoredTask: stored,
 	}
-	var resumedText string
+	var resumedJSON string
 	for event, err := range executor.Execute(ctx, resume) {
 		if err != nil {
 			t.Fatalf("resume Execute() error = %v", err)
 		}
 		if artifact, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && len(artifact.Artifact.Parts) > 0 {
-			resumedText = artifact.Artifact.Parts[0].Text()
+			for _, part := range artifact.Artifact.Parts {
+				if !apia2a.IsStructuredOutputPart(part) {
+					continue
+				}
+				resumedJSON, err = apia2a.StructuredOutputJSON(part)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
 	}
-	if resumedText != "resumed" || invocations != 2 {
-		t.Fatalf("resumed text = %q, invocations = %d", resumedText, invocations)
+	if resumedJSON != `{"answer":"resumed"}` || invocations != 2 {
+		t.Fatalf("resumed output = %q, invocations = %d", resumedJSON, invocations)
+	}
+}
+
+// installRecordingTracer routes the global tracer through a batch processor into
+// an in-memory exporter, so a test can tell "buffered" from "exported": only a
+// flush moves spans from the one to the other within the test's lifetime.
+func installRecordingTracer(t *testing.T) *tracetest.InMemoryExporter {
+	t.Helper()
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(prev)
+		_ = tp.Shutdown(context.Background())
+	})
+	return exporter
+}
+
+// exportedByState runs one two-event turn and records how many spans the
+// exporter held at the moment each event reached the consumer.
+func exportedByState(t *testing.T, exporter *tracetest.InMemoryExporter) map[a2atype.TaskState]int {
+	t.Helper()
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "ctx-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+	}
+	builtin := &recordingExecutor{events: []a2atype.Event{
+		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil),
+		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil),
+	}}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
+
+	seen := map[a2atype.TaskState]int{}
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		update, ok := event.(*a2atype.TaskStatusUpdateEvent)
+		if !ok {
+			t.Fatalf("event = %T, want *TaskStatusUpdateEvent", event)
+		}
+		seen[update.Status.State] = len(exporter.GetSpans())
+	}
+	return seen
+}
+
+// On a checkpoint/suspend runtime the consumer of the terminal event is the
+// gateway, which closes its stream on receipt, and the actor is frozen right
+// after. Whatever is still buffered at that moment never reaches the collector,
+// so the spans must already be exported when the terminal event is yielded, and
+// the invocation span must be among them.
+func TestKAgentExecutor_ExportsSpansBeforeYieldingTheTerminalEvent(t *testing.T) {
+	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
+	exporter := installRecordingTracer(t)
+
+	seen := exportedByState(t, exporter)
+
+	if seen[a2atype.TaskStateWorking] != 0 {
+		t.Fatalf("spans exported before a working update = %d, want 0 (a mid-turn flush is churn)", seen[a2atype.TaskStateWorking])
+	}
+	if seen[a2atype.TaskStateCompleted] == 0 {
+		t.Fatal("no span exported before the terminal event was yielded; a checkpoint at that point freezes them in the snapshot")
+	}
+	var names []string
+	for _, span := range exporter.GetSpans() {
+		names = append(names, span.Name)
+	}
+	if !slices.Contains(names, "invocation") {
+		t.Fatalf("exported spans = %v, want the invocation span among them", names)
+	}
+}
+
+// Without the opt-in the batch exporter's timer is the export path, as it is
+// everywhere the process is not frozen after a response, and a per-turn flush
+// would add export churn and response-tail latency for nothing.
+func TestKAgentExecutor_LeavesSpansToTheBatcherWithoutTheOptIn(t *testing.T) {
+	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "")
+	exporter := installRecordingTracer(t)
+
+	seen := exportedByState(t, exporter)
+
+	if seen[a2atype.TaskStateCompleted] != 0 {
+		t.Fatalf("spans exported before the terminal event = %d, want 0 without KAGENT_PRE_RESPONSE_TRACE_FLUSH", seen[a2atype.TaskStateCompleted])
 	}
 }

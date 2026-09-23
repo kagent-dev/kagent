@@ -1,6 +1,7 @@
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  applyExtensionBranding,
   applyExtensionFieldValues,
   buildSidebarSections,
   defineExtensionFormField,
@@ -22,7 +23,7 @@ import {
   validateExtensionFieldValues,
 } from "./index";
 import type { AppExtensionConfig } from "./index";
-import { apiBaseUrl, clearApiExtensions, invoke, resolveEndpoint } from "@/api";
+import { apiBaseUrl, clearApiExtensions, invoke } from "@/api";
 // The two appliers are internal to the data layer — the HTTP client is their
 // only production caller — so they come from the module rather than the barrel.
 import {
@@ -33,7 +34,7 @@ import type { ApiCallId, ApiRequestContext, ApiResponseContext } from "@/api";
 import type { NavItem } from "@/components/Structure/navItems";
 import { reservedRoutePaths } from "@/router/router";
 
-// These four capabilities — endpoint resolution, payload mapping, sidebar
+// These capabilities — payload mapping, sidebar
 // ordering and config validation — have no rendered surface of their own, so
 // this is where they are checked.
 
@@ -52,13 +53,13 @@ describe("installExtensionApi", () => {
 
   const requestContext = (
     call: ApiCallId,
-    url = `${apiBaseUrl}/kagent.api.v1alpha1.AgentService/ListAgents`,
+    url = `${apiBaseUrl}/kagent.api.v1alpha1.ModelService/ListModelConfigs`,
   ): ApiRequestContext => ({ endpoint: call, method: "POST", url, headers: {} });
 
   const responseContext = (call: ApiCallId): ApiResponseContext => ({
     endpoint: call,
     status: 200,
-    url: "/api/kagent.api.v1alpha1.AgentService/ListAgents",
+    url: "/api/kagent.api.v1alpha1.ModelService/ListModelConfigs",
   });
 
   it("installs nothing and undoes cleanly when there is no extension", () => {
@@ -98,41 +99,26 @@ describe("installExtensionApi", () => {
     ).resolves.not.toEqual([{ name: "extension", status: "Active" }]);
   });
 
-  it("points an HTTP endpoint at the extension's path", () => {
-    installExtensionApi({ endpoints: { "chat.a2a": "/v2/a2a" } });
-    expect(resolveEndpoint("chat.a2a", { namespace: "kagent", name: "k8s" })).toBe(
-      "/v2/a2a",
-    );
-  });
-
-  it("undoes an endpoint override", () => {
-    const undo = installExtensionApi({ endpoints: { "chat.a2a": "/v2/a2a" } });
-    undo();
-    expect(resolveEndpoint("chat.a2a", { namespace: "kagent", name: "k8s" })).toBe(
-      "/a2a/kagent/k8s",
-    );
-  });
-
   it("rewrites the base URL prefix of a request", async () => {
     installExtensionApi({ baseUrl: "https://example.test/v1/" });
-    const result = await applyRequestTransforms(requestContext("agents.list"));
+    const result = await applyRequestTransforms(requestContext("models.list"));
     expect(result.url).toBe(
-      "https://example.test/v1/kagent.api.v1alpha1.AgentService/ListAgents",
+      "https://example.test/v1/kagent.api.v1alpha1.ModelService/ListModelConfigs",
     );
   });
 
   it("leaves a URL that is not under the app's base alone", async () => {
     installExtensionApi({ baseUrl: "https://example.test" });
     const result = await applyRequestTransforms(
-      requestContext("agents.list", "https://elsewhere.test/agents"),
+      requestContext("models.list", "https://elsewhere.test/models"),
     );
-    expect(result.url).toBe("https://elsewhere.test/agents");
+    expect(result.url).toBe("https://elsewhere.test/models");
   });
 
   it("applies a per-call request transform only to its own call", async () => {
     installExtensionApi({
       transforms: {
-        "agents.list": {
+        "models.list": {
           request: (context) => ({
             ...context,
             headers: { ...context.headers, "x-example": "1" },
@@ -141,10 +127,10 @@ describe("installExtensionApi", () => {
       },
     });
 
-    const matched = await applyRequestTransforms(requestContext("agents.list"));
+    const matched = await applyRequestTransforms(requestContext("models.list"));
     expect(matched.headers).toEqual({ "x-example": "1" });
 
-    const other = await applyRequestTransforms(requestContext("models.list"));
+    const other = await applyRequestTransforms(requestContext("namespaces.list"));
     expect(other.headers).toEqual({});
   });
 
@@ -156,7 +142,7 @@ describe("installExtensionApi", () => {
       }),
     });
 
-    for (const call of ["agents.list", "models.list", "chat.a2a"] as const) {
+    for (const call of ["models.list", "namespaces.list"] as const) {
       const result = await applyRequestTransforms(requestContext(call, "/x"));
       expect(result.headers).toEqual({ authorization: "Bearer t" });
     }
@@ -176,27 +162,27 @@ describe("installExtensionApi", () => {
       },
     });
 
-    await applyRequestTransforms(requestContext("agents.list"));
+    await applyRequestTransforms(requestContext("models.list"));
     expect(seen).toBe(
-      "https://example.test/v1/kagent.api.v1alpha1.AgentService/ListAgents",
+      "https://example.test/v1/kagent.api.v1alpha1.ModelService/ListModelConfigs",
     );
   });
 
   it("reshapes a response for its own call and no other", async () => {
     installExtensionApi({
       transforms: {
-        "agents.list": {
+        "models.list": {
           response: (body) => (body as { items: unknown }).items,
         },
       },
     });
 
     expect(
-      await applyResponseTransforms({ items: [1, 2] }, responseContext("agents.list")),
+      await applyResponseTransforms({ items: [1, 2] }, responseContext("models.list")),
     ).toEqual([1, 2]);
     // A different call's payload passes through untouched.
     expect(
-      await applyResponseTransforms({ items: [1, 2] }, responseContext("models.list")),
+      await applyResponseTransforms({ items: [1, 2] }, responseContext("namespaces.list")),
     ).toEqual({ items: [1, 2] });
   });
 });
@@ -432,12 +418,58 @@ describe("composing several installed extensions", () => {
     ]);
 
     const result = await applyRequestTransforms(
-      { endpoint: "agents.list", method: "POST", url: "/x", headers: {} },
+      { endpoint: "models.list", method: "POST", url: "/x", headers: {} },
     );
 
     expect(result.headers).toEqual({ "x-first": "1", "x-second": "2" });
     undo();
     clearApiExtensions();
+  });
+});
+
+describe("applyExtensionBranding", () => {
+  const favicon = () => document.querySelector<HTMLLinkElement>("link[data-app-favicon]");
+
+  beforeEach(() => {
+    // Head first: replacing its contents drops the <title> element with everything else,
+    // which resets `document.title` to "".
+    document.head.innerHTML = '<link rel="icon" data-app-favicon href="/favicon.svg" />';
+    document.title = "kagent";
+  });
+
+  it("leaves the application's own title and icon alone when an extension sets neither", () => {
+    applyExtensionBranding({});
+
+    // Not reset to a default: every extension would otherwise have to restate the
+    // branding it was perfectly happy with.
+    expect(document.title).toBe("kagent");
+    expect(favicon()?.getAttribute("href")).toBe("/favicon.svg");
+  });
+
+  it("retargets the shipped link rather than adding a second one", () => {
+    applyExtensionBranding({ appName: "My Product", faviconUrl: "/my-mark.svg" });
+
+    expect(document.title).toBe("My Product");
+    expect(document.querySelectorAll("link[data-app-favicon]")).toHaveLength(1);
+    expect(favicon()?.href).toContain("/my-mark.svg");
+  });
+
+  it("still applies the icon when the host page shipped no link to retarget", () => {
+    document.head.innerHTML = "";
+
+    applyExtensionBranding({ faviconUrl: "/my-mark.svg" });
+    // Twice: the link it creates carries the marker, so the second call retargets the
+    // first rather than leaving two icons for the browser to choose between.
+    applyExtensionBranding({ faviconUrl: "/other-mark.svg" });
+
+    expect(document.querySelectorAll('link[rel="icon"]')).toHaveLength(1);
+    expect(favicon()?.href).toContain("/other-mark.svg");
+  });
+
+  it("does not advertise SVG for an icon that is not one", () => {
+    applyExtensionBranding({ faviconUrl: "/my-mark.png" });
+
+    expect(favicon()?.getAttribute("type")).toBe("");
   });
 });
 
@@ -562,6 +594,24 @@ describe("validateExtensionConfig", () => {
     expect(() => validateExtensionConfig(config)).toThrow(
       /declared twice/,
     );
+  });
+
+  it("rejects duplicate agent rail keys", () => {
+    const config: AppExtensionConfig = {
+      ...base,
+      agentRailItems: [extensionItem("dup", 10), extensionItem("dup", 20)],
+    };
+    expect(() => validateExtensionConfig(config)).toThrow(/declared twice/);
+  });
+
+  it("rejects an agent rail key that is one of the application's own", () => {
+    // Contributing `newChat` would sit a second entry beside the one it was
+    // presumably meant to change, and `agentRailOverrides` is how that is done.
+    const config: AppExtensionConfig = {
+      ...base,
+      agentRailItems: [extensionItem("newChat", 10)],
+    };
+    expect(() => validateExtensionConfig(config)).toThrow(/agentRailOverrides/);
   });
 
   it("reports every problem in one throw", () => {

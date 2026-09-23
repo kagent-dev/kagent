@@ -3,7 +3,6 @@ package grpcserver
 import (
 	"testing"
 
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc/codes"
@@ -21,18 +20,18 @@ func TestAgentInstanceServicePoliciesMatchTheirEffect(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		method string
-		want   AccessMode
+		want   pkgauth.AccessMode
 	}{
-		{name: "create", method: apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName, want: AccessCreate},
-		{name: "get", method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, want: AccessRead},
-		{name: "list", method: apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName, want: AccessRead},
-		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, want: AccessUpdate},
-		{name: "suspend", method: apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName, want: AccessUpdate},
-		{name: "resume", method: apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName, want: AccessUpdate},
-		{name: "delete", method: apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName, want: AccessDelete},
-		{name: "create share", method: apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName, want: AccessCreate},
-		{name: "list shares", method: apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName, want: AccessRead},
-		{name: "revoke share", method: apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName, want: AccessDelete},
+		{name: "create", method: apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "get", method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, want: pkgauth.AccessRead},
+		{name: "list", method: apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName, want: pkgauth.AccessRead},
+		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "suspend", method: apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "resume", method: apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "delete", method: apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName, want: pkgauth.AccessDelete},
+		{name: "create share", method: apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "list shares", method: apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName, want: pkgauth.AccessRead},
+		{name: "revoke share", method: apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName, want: pkgauth.AccessDelete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := policies[test.method]
@@ -73,9 +72,7 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			shareStore := &testShareStore{
-				instanceShare: &dbpkg.AgentInstanceShare{
-					InstanceID: testInstanceID, Permission: test.permission, OwnerUserID: "owner",
-				},
+				instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+test.permission])}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
 			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies())

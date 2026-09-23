@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	toolKind              = "Tool"
 	toolAPIVersion        = "kagent.api/v1alpha1"
 	mcpAPIVersion         = "mcp.kagent.dev/v1alpha1"
 	mcpInputSchemaKind    = "MCPInputSchema"

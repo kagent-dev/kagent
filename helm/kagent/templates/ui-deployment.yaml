@@ -28,10 +28,7 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.ui.podLabels | default dict) (include "kagent.ui.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" .) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.ui.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -66,8 +63,8 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.ui.image.registry | default .Values.registry  }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
+          image: {{ include "kagent.uiImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.ui.image.pullPolicy) }}
           {{- /* The UI is a static bundle; these are read by init.sh, which
                  renders them into the config.json the browser fetches at
                  startup. Nothing here is consumed by a server process. */}}

@@ -28,8 +28,8 @@ import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
 import type { ChatEvent, ChatMessage } from "./types";
 
 const CONVERSATION = {
-  namespace: "kagent",
   id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  contextId: "8f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
 };
 
 afterEach(() => setApiTransport(undefined));
@@ -50,8 +50,13 @@ const text = (value: string) => ({ content: { case: "text" as const, value } });
  * the point, since the client reading one as if it were JSON is the bug this file
  * caught.
  */
-const data = (value: Record<string, unknown>) => ({
+const data = (
+  value: Record<string, unknown>,
+  options: { mediaType?: string; metadata?: Record<string, unknown> } = {},
+) => ({
   content: { case: "data" as const, value: fromJson(ValueSchema, value as never) },
+  mediaType: options.mediaType ?? "",
+  metadata: options.metadata,
 });
 
 /** A `working` status update carrying one message. */
@@ -63,6 +68,7 @@ function statusFrame(options: {
     role: Role;
     parts: (ReturnType<typeof text> | ReturnType<typeof data>)[];
     metadata?: Record<string, unknown>;
+    extensions?: string[];
   };
   seconds?: bigint;
 }) {
@@ -71,7 +77,7 @@ function statusFrame(options: {
       case: "statusUpdate" as const,
       value: {
         taskId: options.taskId ?? "task-1",
-        contextId: CONVERSATION.id,
+        contextId: CONVERSATION.contextId,
         status: {
           state: options.state ?? TaskState.WORKING,
           message: options.message,
@@ -83,7 +89,10 @@ function statusFrame(options: {
 }
 
 /** Serves one scripted turn and returns everything the client emitted. */
-async function turn(frames: unknown[]): Promise<ChatEvent[]> {
+async function turn(
+  frames: unknown[],
+  input: Partial<Parameters<A2AGrpcChatClient["send"]>[0]> = {},
+): Promise<ChatEvent[]> {
   serve(({ service }) => {
     service(A2AService, {
       sendStreamingMessage: async function* () {
@@ -96,6 +105,7 @@ async function turn(frames: unknown[]): Promise<ChatEvent[]> {
   for await (const event of new A2AGrpcChatClient().send({
     conversation: CONVERSATION,
     text: "why is checkout crashlooping?",
+    ...input,
   })) {
     events.push(event);
   }
@@ -249,6 +259,134 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it("shows only the interactive card when ask_user parks the turn", async () => {
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate",
+          value: {
+            taskId: "task-1",
+            artifact: {
+              artifactId: "ask-call",
+              parts: [data({ name: "ask_user", args: { questions: [] } })],
+            },
+          },
+        },
+      },
+      statusFrame({
+        state: TaskState.INPUT_REQUIRED,
+        message: {
+          messageId: "ask-request",
+          role: Role.AGENT,
+          parts: [text("What size would you like?")],
+          extensions: ["https://kagent.dev/extensions/hitl/v1"],
+          metadata: {
+            "https://kagent.dev/extensions/hitl/v1": {
+              type: "ask_user_request",
+              id: "ask-1",
+              questions: [{ question: "What size?", choices: ["Large"] }],
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status",
+      state: "input_required",
+      taskId: "task-1",
+      awaiting: {
+        kind: "ask_user",
+        taskId: "task-1",
+        requestId: "ask-1",
+        questions: [{ question: "What size?", choices: ["Large"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
+  it("does not render ADK's confirmation-required FunctionResponse as an error", async () => {
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "confirmation-result",
+          role: Role.AGENT,
+          parts: [
+            data({
+              name: "k8s_get_resources",
+              response: {
+                error:
+                  'error tool "k8s_get_resources" requires confirmation, please approve or reject',
+              },
+            }),
+          ],
+        },
+      }),
+    ]);
+
+    expect(transcript(events)).toEqual([]);
+  });
+
+  it("keeps a structured approval request out of the message transcript", async () => {
+    const events = await turn([
+      statusFrame({
+        state: TaskState.INPUT_REQUIRED,
+        message: {
+          messageId: "approval-request",
+          role: Role.AGENT,
+          parts: [text("Tool request approval")],
+          extensions: ["https://kagent.dev/extensions/hitl/v1"],
+          metadata: {
+            "https://kagent.dev/extensions/hitl/v1": {
+              type: "tool_approval_request",
+              tools: [{ id: "approval-1", name: "delete_pod", args: {} }],
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status",
+      state: "input_required",
+      taskId: "task-1",
+      awaiting: {
+        kind: "tool_approval",
+        taskId: "task-1",
+        tools: [{ id: "approval-1", name: "delete_pod", args: {} }],
+        hint: undefined,
+        askedBy: undefined,
+      },
+    });
+  });
+
+  it("does not let echoed fallback text replace a locally rendered decision", async () => {
+    const events = await turn(
+      [
+        statusFrame({
+          state: TaskState.SUBMITTED,
+          message: {
+            messageId: "approval-response",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "approval-1", approved: true }],
+              },
+            },
+          },
+        }),
+      ],
+      { messageId: "approval-response" },
+    );
+
+    expect(transcript(events)).toEqual([]);
+  });
+
   it("delivers the user's own message exactly once", async () => {
     const echoed = {
       messageId: "m-user",
@@ -343,7 +481,7 @@ describe("A2AGrpcChatClient.send", () => {
           case: "artifactUpdate" as const,
           value: {
             taskId: "task-1",
-            contextId: CONVERSATION.id,
+            contextId: CONVERSATION.contextId,
             artifact: {
               artifactId: "a-1",
               parts: [text("3 pods are running.")],
@@ -367,7 +505,7 @@ describe("A2AGrpcChatClient.send", () => {
           case: "artifactUpdate" as const,
           value: {
             taskId: "task-1",
-            contextId: CONVERSATION.id,
+            contextId: CONVERSATION.contextId,
             artifact: { artifactId: "a-1", parts: [text("Only in the artifact.")] },
             lastChunk: true,
           },
@@ -397,7 +535,7 @@ describe("A2AGrpcChatClient.send", () => {
         case: "artifactUpdate" as const,
         value: {
           taskId: "task-1",
-          contextId: CONVERSATION.id,
+          contextId: CONVERSATION.contextId,
           artifact: { artifactId: "a-1", parts: [text(value)] },
           ...flags,
         },
@@ -435,7 +573,7 @@ describe("A2AGrpcChatClient.send", () => {
         case: "artifactUpdate" as const,
         value: {
           taskId: "task-1",
-          contextId: CONVERSATION.id,
+          contextId: CONVERSATION.contextId,
           artifact: { artifactId: "a-1", parts: [text(value)] },
           ...flags,
         },
@@ -455,6 +593,63 @@ describe("A2AGrpcChatClient.send", () => {
     expect(
       events.filter((event) => event.type === "delta").map((event) => event.text),
     ).toEqual(["two"]);
+  });
+
+  it("keeps text runs on opposite sides of tool activity separate", async () => {
+    const artifact = (
+      id: string,
+      parts: (ReturnType<typeof text> | ReturnType<typeof data>)[],
+    ) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: id, parts },
+        },
+      },
+    });
+    const events = await turn([
+      artifact("text-before", [text("I will inspect it.")]),
+      artifact("call-1", [
+        data({ name: "command_execution", args: { command: "pwd" } }),
+      ]),
+      artifact("result-1", [
+        data({ name: "command_execution", response: { result: "/workspace" } }),
+      ]),
+      artifact("text-after", [text("The workspace is ready.")]),
+    ]);
+
+    const messages = transcript(events).filter((message) => message.role === "agent");
+    expect(messages.map((message) => message.id)).toEqual([
+      "text-before",
+      "call-1",
+      "result-1",
+      "text-after",
+    ]);
+    expect(
+      messages.flatMap((message) =>
+        message.parts.map((part) => (part.kind === "data" ? part.dataKind : part.kind)),
+      ),
+    ).toEqual(["text", "tool_call", "tool_result", "text"]);
+  });
+
+  it("keeps distinct artifacts even when their text is identical", async () => {
+    const artifact = (id: string) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: id, parts: [text("same text")] },
+        },
+      },
+    });
+    const events = await turn([artifact("first"), artifact("second")]);
+
+    expect(
+      transcript(events)
+        .filter((message) => message.role === "agent")
+        .map((message) => message.id),
+    ).toEqual(["first", "second"]);
   });
 
   it("labels a tool call and its result distinguishably", async () => {
@@ -478,6 +673,74 @@ describe("A2AGrpcChatClient.send", () => {
     const parts = transcript(events).flatMap((message) => message.parts);
     const kinds = parts.map((part) => (part.kind === "data" ? part.dataKind : part.kind));
     expect(kinds).toEqual(["tool_call", "tool_result"]);
+  });
+
+  it("keeps a streamed JSON result distinct from tool traffic", async () => {
+    const result = data(
+      { payload: { customerId: "12345" }, status: "success" },
+      {
+        mediaType: "application/json",
+        metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
+      },
+    );
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate" as const,
+          value: {
+            taskId: "task-1",
+            contextId: CONVERSATION.contextId,
+            artifact: { artifactId: "answer", parts: [result] },
+            lastChunk: true,
+          },
+        },
+      },
+      statusFrame({ state: TaskState.COMPLETED }),
+    ]);
+
+    const part = transcript(events)
+      .flatMap((message) => message.parts)
+      .find((candidate) => candidate.kind === "data");
+    expect(part).toEqual({
+      kind: "data",
+      dataKind: "structured_output",
+      data: { payload: { customerId: "12345" }, status: "success" },
+      mediaType: "application/json",
+      metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
+    });
+  });
+
+  it('keeps structured output whose user data contains name "ask_user"', async () => {
+    const result = data(
+      { name: "ask_user", answer: 4 },
+      {
+        mediaType: "application/json",
+        metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
+      },
+    );
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate" as const,
+          value: {
+            taskId: "task-1",
+            contextId: CONVERSATION.contextId,
+            artifact: { artifactId: "answer", parts: [result] },
+            lastChunk: true,
+          },
+        },
+      },
+      statusFrame({ state: TaskState.COMPLETED }),
+    ]);
+
+    const structured = transcript(events)
+      .flatMap((message) => message.parts)
+      .find(
+        (part) => part.kind === "data" && part.dataKind === "structured_output",
+      );
+    expect(structured).toMatchObject({
+      data: { name: "ask_user", answer: 4 },
+    });
   });
 
   it("reports the turn reaching completion", async () => {
@@ -536,11 +799,11 @@ describe("A2AGrpcChatClient.send", () => {
 
     // Both halves of the address, because the gateway routes on the metadata rather
     // than on a path — a gRPC method has no path to put them in.
-    expect(namespaceHeader).toBe(CONVERSATION.namespace);
+    expect(namespaceHeader).toBeNull();
     expect(idHeader).toBe(CONVERSATION.id);
     // The instance's own id is the conversation's context, and the gateway refuses a
     // value that is neither empty nor its own.
-    expect(sent?.message?.contextId).toBe(CONVERSATION.id);
+    expect(sent?.message?.contextId).toBe(CONVERSATION.contextId);
     expect(sent?.message?.role).toBe(Role.USER);
   });
 });
@@ -554,12 +817,235 @@ describe("A2AGrpcChatClient.history", () => {
     });
   }
 
+  it("replays a completed approval as one structured record without protocol text", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [
+                  { id: "approval-1", name: "delete_pod", args: { name: "old" } },
+                ],
+              },
+            },
+          },
+          {
+            messageId: "response",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "approval-1", approved: true }],
+              },
+            },
+          },
+        ],
+        artifacts: [],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: "response",
+        role: "user",
+        parts: [
+          {
+            kind: "tool_approval",
+            approval: {
+              tools: [{ id: "approval-1", name: "delete_pod", args: { name: "old" } }],
+              decisions: [{ id: "approval-1", approved: true, rejectionReason: undefined }],
+              askedBy: undefined,
+            },
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it("replays a completed ask_user exchange as one structured record", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("What size would you like?")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "ask_user_request",
+                id: "ask-1",
+                questions: [{ question: "What size?", choices: ["Small", "Large"] }],
+              },
+            },
+          },
+          {
+            messageId: "response",
+            role: Role.USER,
+            parts: [text("Large")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "ask_user_response",
+                id: "ask-1",
+                answers: [{ answer: ["Large"] }],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          { artifactId: "call", parts: [data({ name: "ask_user", args: {} })] },
+          {
+            artifactId: "result",
+            parts: [data({ name: "ask_user", response: { result: "Large" } })],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: "response",
+        role: "user",
+        parts: [
+          {
+            kind: "ask_user",
+            interaction: {
+              questions: [
+                {
+                  question: "What size?",
+                  choices: ["Small", "Large"],
+                  multiple: false,
+                },
+              ],
+              answers: [["Large"]],
+              askedBy: undefined,
+            },
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it("renders an unpaired legacy rejection as not run rather than failed", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "rejected",
+            parts: [
+              data({
+                name: "k8s_get_resources",
+                response: { error: 'error tool "k8s_get_resources" call is rejected' },
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0].parts).toEqual([
+      expect.objectContaining({ kind: "data", dataKind: "tool_not_run" }),
+    ]);
+  });
+
+  it("hides a rejected FunctionResponse when the structured decision records it", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [{ id: "approval-1", name: "delete_pod", args: {} }],
+              },
+            },
+          },
+          {
+            messageId: "response",
+            role: Role.USER,
+            parts: [text("Rejected: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [
+                  {
+                    id: "approval-1",
+                    approved: false,
+                    rejection_reason: "Production is serving traffic",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          {
+            artifactId: "rejected-result",
+            parts: [
+              data({
+                name: "delete_pod",
+                response: { error: 'error tool "delete_pod" call is rejected' },
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].parts).toEqual([
+      expect.objectContaining({
+        kind: "tool_approval",
+        approval: expect.objectContaining({
+          decisions: [
+            {
+              id: "approval-1",
+              approved: false,
+              rejectionReason: "Production is serving traffic",
+            },
+          ],
+        }),
+      }),
+    ]);
+  });
+
   it("orders messages and artifacts by their timeline positions", async () => {
     const position = (value: string) => ({ "kagent.dev/timeline-position": value });
     serveTasks([
       {
         id: "task-1",
-        contextId: CONVERSATION.id,
+        contextId: CONVERSATION.contextId,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [
           { messageId: "u0", role: Role.USER, parts: [text("start")], metadata: position("1") },
@@ -574,7 +1060,67 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages.map((message) => message.id)).toEqual(["u0", "a0", "a1", "u1", "a2"]);
+    // The raw ask_user call participates in ordering internally, then is removed
+    // from the rendered transcript.
+    expect(messages.map((message) => message.id)).toEqual(["u0", "a1", "u1", "a2"]);
+  });
+
+  it("replays text on both sides of tool activity in its original order", async () => {
+    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          { messageId: "user", role: Role.USER, parts: [text("inspect")], metadata: position("1") },
+        ],
+        artifacts: [
+          { artifactId: "text-before", parts: [text("I will inspect it.")], metadata: position("2") },
+          {
+            artifactId: "call",
+            parts: [data({ name: "command_execution", args: { command: "pwd" } })],
+            metadata: position("3"),
+          },
+          {
+            artifactId: "result",
+            parts: [data({ name: "command_execution", response: { result: "/workspace" } })],
+            metadata: position("4"),
+          },
+          { artifactId: "text-after", parts: [text("The workspace is ready.")], metadata: position("5") },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual([
+      "user",
+      "text-before",
+      "call",
+      "result",
+      "text-after",
+    ]);
+  });
+
+  it("does not use text as identity for positioned artifacts", async () => {
+    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          { messageId: "user", role: Role.USER, parts: [text("repeat")], metadata: position("1") },
+        ],
+        artifacts: [
+          { artifactId: "first", parts: [text("same text")], metadata: position("2") },
+          { artifactId: "second", parts: [text("same text")], metadata: position("3") },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual(["user", "first", "second"]);
   });
 
   it("keeps a tool call and its result apart when replaying", async () => {
@@ -584,7 +1130,7 @@ describe("A2AGrpcChatClient.history", () => {
     serveTasks([
       {
         id: "task-1",
-        contextId: CONVERSATION.id,
+        contextId: CONVERSATION.contextId,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [
           {
@@ -610,7 +1156,7 @@ describe("A2AGrpcChatClient.history", () => {
     serveTasks([
       {
         id: "task-1",
-        contextId: CONVERSATION.id,
+        contextId: CONVERSATION.contextId,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [{ messageId: "m1", role: Role.USER, parts: [text("hello")] }],
         artifacts: [],
@@ -626,7 +1172,7 @@ describe("A2AGrpcChatClient.history", () => {
     serveTasks([
       {
         id: "task-1",
-        contextId: CONVERSATION.id,
+        contextId: CONVERSATION.contextId,
         status: {
           state: TaskState.COMPLETED,
           timestamp: { seconds: 1767225600n },
@@ -659,7 +1205,7 @@ describe("A2AGrpcChatClient.history", () => {
      */
     const task = {
       id: "task-1",
-      contextId: CONVERSATION.id,
+      contextId: CONVERSATION.contextId,
       status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
       history: [
         { messageId: "m1", role: Role.USER, parts: [text("how many pods?")] },
@@ -688,7 +1234,7 @@ describe("A2AGrpcChatClient.history", () => {
     serveTasks([
       {
         id: "task-1",
-        contextId: CONVERSATION.id,
+        contextId: CONVERSATION.contextId,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [{ messageId: "m1", role: Role.AGENT, parts: [text("3 pods")] }],
         artifacts: [{ artifactId: "a-1", parts: [text("3 pods")] }],
@@ -699,6 +1245,74 @@ describe("A2AGrpcChatClient.history", () => {
     expect(messages).toHaveLength(1);
   });
 
+  it("restores a persisted structured result with its contract metadata", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "answer",
+            parts: [
+              data(
+                { status: "success" },
+                {
+                  mediaType: "application/json",
+                  metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
+                },
+              ),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0]?.parts[0]).toEqual({
+      kind: "data",
+      dataKind: "structured_output",
+      data: { status: "success" },
+      mediaType: "application/json",
+      metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123" },
+    });
+  });
+
+  it("coalesces persisted artifact chunks without crossing structured parts", async () => {
+    // `append: true` is projected by the gateway as several parts on one artifact.
+    // Those are transport chunks, not separate prose blocks, so reopening a task
+    // must look like the single message that the live stream accumulated.
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "a-1",
+            parts: [
+              text("alpha"),
+              text(" beta"),
+              data({ name: "lookup", args: {} }),
+              text(" gamma"),
+              text(" delta"),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].parts).toEqual([
+      { kind: "text", text: "alpha beta" },
+      { kind: "data", dataKind: "tool_call", data: { name: "lookup", args: {} } },
+      { kind: "text", text: " gamma delta" },
+    ]);
+  });
+
   it("follows every page of a long conversation", async () => {
     // A conversation shown with its first page only, saying nothing, is the quiet
     // half-truth this codebase keeps having to undo.
@@ -706,7 +1320,7 @@ describe("A2AGrpcChatClient.history", () => {
       tasks: [
         {
           id,
-          contextId: CONVERSATION.id,
+          contextId: CONVERSATION.contextId,
           status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
           history: [{ messageId: `m-${id}`, role: Role.USER, parts: [text(id)] }],
           artifacts: [],

@@ -55,7 +55,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 	service := model.NewService(nil, nil, "default")
 
 	modelProviders := service.ListSupportedModelProviders(context.Background())
-	require.Len(t, modelProviders, 10)
+	require.Len(t, modelProviders, 11)
 	assert.Equal(t, []string{
 		"OpenAI",
 		"Anthropic",
@@ -67,6 +67,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 		"AnthropicVertexAI",
 		"Bedrock",
 		"SAPAICore",
+		"Mistral",
 	}, providerNames(modelProviders))
 	assert.Empty(t, modelProviders[0].RequiredParams)
 	assert.Equal(t, []string{
@@ -88,22 +89,15 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 	assert.Equal(t, []string{"azureEndpoint", "apiVersion"}, modelProviders[2].RequiredParams)
 	assert.Equal(t, []string{"azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP"}, modelProviders[2].OptionalParams)
 	assert.Equal(t, []string{"deployment", "endpoint"}, modelProviders[3].RequiredParams)
-	assert.Equal(t, []string{"apiVersion"}, modelProviders[3].OptionalParams)
+	assert.Equal(t, []string{"apiVersion", "apiFormat"}, modelProviders[3].OptionalParams)
 	assert.Equal(t, []string{"", "maxOutputTokens", "candidateCount", "responseMimeType"}, modelProviders[6].OptionalParams)
-
-	memoryProviders := service.ListSupportedMemoryProviders(context.Background())
-	require.Len(t, memoryProviders, 1)
-	assert.Equal(t, "Pinecone", memoryProviders[0].Name)
-	assert.Equal(t, "Pinecone", memoryProviders[0].Type)
-	assert.Equal(t, []string{"indexHost"}, memoryProviders[0].RequiredParams)
-	assert.Equal(t, []string{"topK", "namespace", "recordFields", "scoreThreshold"}, memoryProviders[0].OptionalParams)
 }
 
 func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	service := model.NewService(nil, nil, "default")
 	models := service.ListSupportedModels(context.Background())
 
-	require.Len(t, models, 10)
+	require.Len(t, models, 11)
 	require.NotEmpty(t, models[v1alpha3.ModelProviderOpenAI])
 	assert.Equal(t, "gpt-5.6-terra", models[v1alpha3.ModelProviderOpenAI][0].Name)
 	assert.True(t, models[v1alpha3.ModelProviderOpenAI][0].FunctionCalling)

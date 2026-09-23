@@ -359,7 +359,7 @@ def _extract_jwt_expiry(token: str) -> Optional[int]:
         # Decode without verification (we only need the expiry claim)
         decoded = jwt.decode(token, options={"verify_signature": False})
         expiry = decoded.get("exp")
-        if expiry:
+        if expiry is not None:
             logger.debug(f"Extracted JWT expiry: {expiry}")
             return int(expiry)
 

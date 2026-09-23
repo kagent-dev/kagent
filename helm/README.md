@@ -19,6 +19,7 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ol
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
 ### Using Make
@@ -43,9 +44,8 @@ make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
 ```
 
 The Make target regenerates protobuf bindings, rebuilds all local images, and
-rolls the controller and UI before installing. The UI uses the controller's
-native gRPC application API on port `8084`; controller port `8083` remains for
-A2A, MCP, ACP, and operational HTTP endpoints.
+rolls the controller and UI before installing. Native gRPC, gRPC-Web, A2A, MCP,
+and operational HTTP endpoints share controller port `8083`.
 
 ### Using kagent cli
 

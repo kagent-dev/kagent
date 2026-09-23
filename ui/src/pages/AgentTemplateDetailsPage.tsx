@@ -34,9 +34,10 @@ import {
   useAgentConversations,
   isNotFound,
   useAgentTemplate,
-  useAgentTemplates,
+  useInvalidateAgentTemplates,
   type AgentTemplateHarnessStatus,
 } from "@/api";
+import { pairRevisionCondition } from "./agentTemplateRevision";
 
 const { Text, Paragraph } = Typography;
 
@@ -85,14 +86,7 @@ export function AgentTemplateDetailsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const template = useAgentTemplate(namespace, name);
-  /*
-   * The list this page returns to.
-   *
-   * Held so a delete can invalidate it before navigating: the list is cached, and
-   * landing on it without re-reading shows the template that was just removed — which
-   * reads as a delete that silently failed.
-   */
-  const templates = useAgentTemplates(namespace);
+  const invalidateTemplates = useInvalidateAgentTemplates();
 
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -224,9 +218,12 @@ export function AgentTemplateDetailsPage() {
       });
       // Re-read before leaving edit mode, so the read-only view below is the saved
       // copy. The other order shows the values that were just replaced, which reads
-      // as a save that did not take.
-      await template.refresh();
-      await templates.refresh();
+      // as a save that did not take. The sweep reaches the list and the agents derived
+      // from it, which this page's own read does not.
+      // Swallowed: `refresh` rethrows, so an unguarded re-read here would land in the
+      // catch below and report a save that succeeded as one that failed.
+      await template.refresh().catch(() => {});
+      await invalidateTemplates();
       toast.success(`Agent template ${updated.name} saved`);
       setEditingRef(undefined);
       setEdited(undefined);
@@ -245,9 +242,9 @@ export function AgentTemplateDetailsPage() {
     );
   }
 
-  /** Back to the list, having re-read it — this page is about an object that is gone. */
+  /** Back to the list — this page is about an object that is gone. */
   async function afterDelete(): Promise<void> {
-    await templates.refresh();
+    await invalidateTemplates();
     // See the note on the same navigation after a create: the list narrows on `ns`, and
     // the bare `/agent-templates` route is a redirect that carries no query string.
     navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(namespace ?? "")}`);
@@ -292,15 +289,18 @@ export function AgentTemplateDetailsPage() {
       },
       {
         /*
-         * The controller's own `Ready` condition for this pair. Its reason is carried
-         * verbatim — `ActorTemplatePending` and `Ready` are what the cluster says, and
-         * paraphrasing them would make the message unsearchable against controller logs.
+         * The earliest failed controller stage for this pair, or Ready when none failed.
+         * Looking only for Ready hides compiler failures: structured output on a Codex
+         * or Claude harness, for example, stops at Compatible=False and has no Ready
+         * condition to display. The controller's reason and message are carried verbatim
+         * so the UI cannot drift from the compiler's compatibility decision.
          */
         title: "Revision state",
         key: "state",
         render: (_, row) => {
-          const ready = (row.conditions ?? []).find((entry) => entry.type === "Ready");
-          if (!ready) {
+          const conditions = row.conditions ?? [];
+          const condition = pairRevisionCondition(conditions);
+          if (!condition) {
             return (
               <Tooltip title="The controller has recorded no Ready condition for this pair yet. That is not a failure — a pair it has not observed looks exactly like this.">
                 <Tag>Not reported</Tag>
@@ -308,11 +308,26 @@ export function AgentTemplateDetailsPage() {
             );
           }
           return (
-            <Tooltip title={ready.message}>
-              <Tag color={ready.status === "True" ? "success" : "warning"}>
-                {ready.status === "True" ? "Ready" : (ready.reason ?? "Not ready")}
+            <Space orientation="vertical" size={2}>
+              <Tag
+                color={
+                  condition.status === "True"
+                    ? "success"
+                    : condition.type === "Ready"
+                      ? "warning"
+                      : "error"
+                }
+              >
+                {condition.status === "True"
+                  ? "Ready"
+                  : (condition.reason ?? `${condition.type} failed`)}
               </Tag>
-            </Tooltip>
+              {condition.message ? (
+                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  {condition.message}
+                </Text>
+              ) : null}
+            </Space>
           );
         },
       },
@@ -343,13 +358,8 @@ export function AgentTemplateDetailsPage() {
         /*
          * Counted, and only because the server can narrow it.
          *
-         * This was a seam, on the reasoning that `ListAgentInstances` could not answer
-         * "conversations with *this* template". Two corrections since. An instance does
-         * carry labels — its template's, copied at create — but `match_labels` still
-         * cannot answer it: admission labels are shared by construction, so filtering on
-         * one returns every template that harness admits. What closed the seam is the
-         * `agent_template` / `harness` filter that landed, which resolves through the
-         * prepared revision.
+         * The agent_template / harness filters resolve through the prepared revision
+         * to count conversations for this exact pair.
          *
          * One read per row is affordable *here* and nowhere else: a template has a
          * handful of pairs. The same per-row read on the agents list would be one

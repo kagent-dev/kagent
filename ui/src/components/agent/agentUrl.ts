@@ -1,16 +1,7 @@
 import { paths } from "@/router/routes";
 
-/**
- * How an agent is addressed: a namespace and an instance id.
- *
- * An agent *is* an `AgentInstance`, and an instance has no name — its id is a
- * UUID, which is what every one of its RPCs takes alongside the namespace. So this
- * carries an id where it used to carry a name, and the id is what appears in a URL.
- */
-export interface AgentRef {
-  namespace: string;
-  id: string;
-}
+/** A conversation identified by UUID. */
+export interface AgentRef { id: string; }
 
 /**
  * Links to an agent's surfaces, from a ref that may not be complete yet.
@@ -23,10 +14,8 @@ export interface AgentRef {
  * somewhere sensible.
  */
 function fill(template: string, ref: Partial<AgentRef>): string {
-  if (!ref.namespace || !ref.id) return paths.agents;
-  return template
-    .replace(":namespace", encodeURIComponent(ref.namespace))
-    .replace(":id", encodeURIComponent(ref.id));
+  if (!ref.id) return paths.agents;
+  return template.replace(":id", encodeURIComponent(ref.id));
 }
 
 /**

@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
@@ -149,9 +148,8 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			// value is the model name, while the Foundry deployment name is set
 			// separately in the model config.
 			//
-			// Claude (Anthropic) models on Foundry are served via the Anthropic
-			// Messages API rather than this OpenAI-compatible surface, so they are
-			// intentionally omitted here; Claude-on-Foundry support is coming later.
+			// Claude models on Foundry are served over the Anthropic Messages API;
+			// set spec.foundry.apiFormat to Anthropic when using them.
 			{Name: "gpt-4.1", FunctionCalling: true},
 			{Name: "gpt-4.1-mini", FunctionCalling: true},
 			{Name: "gpt-4.1-nano", FunctionCalling: true},
@@ -166,6 +164,12 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "Mistral-large", FunctionCalling: true},
 			{Name: "cohere-command-a", FunctionCalling: true},
 			{Name: "grok-3", FunctionCalling: true},
+			// Claude models on Foundry (Anthropic Messages API).
+			{Name: "claude-opus-4-8", FunctionCalling: true},
+			{Name: "claude-opus-5", FunctionCalling: true},
+			{Name: "claude-sonnet-5", FunctionCalling: true},
+			{Name: "claude-sonnet-4-6", FunctionCalling: true},
+			{Name: "claude-haiku-4-5", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderOllama: {
 			// FunctionCalling flags corrected: recent Ollama builds of these models
@@ -285,6 +289,18 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			// SAP
 			{Name: "sap-abap-1", FunctionCalling: false},
 		},
+		v1alpha3.ModelProviderMistral: {
+			{Name: "mistral-large-latest", FunctionCalling: true},
+			{Name: "mistral-medium-latest", FunctionCalling: true},
+			{Name: "mistral-small-latest", FunctionCalling: true},
+			{Name: "magistral-medium-latest", FunctionCalling: true},
+			{Name: "magistral-small-latest", FunctionCalling: true},
+			{Name: "codestral-latest", FunctionCalling: true},
+			{Name: "ministral-8b-latest", FunctionCalling: true},
+			{Name: "ministral-3b-latest", FunctionCalling: true},
+			{Name: "pixtral-large-latest", FunctionCalling: true},
+			{Name: "open-mistral-nemo", FunctionCalling: true},
+		},
 	}
 }
 
@@ -303,6 +319,7 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 		{v1alpha3.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha3.AnthropicVertexAIConfig]()},
 		{v1alpha3.ModelProviderBedrock, reflect.TypeFor[v1alpha3.BedrockConfig]()},
 		{v1alpha3.ModelProviderSAPAICore, reflect.TypeFor[v1alpha3.SAPAICoreConfig]()},
+		{v1alpha3.ModelProviderMistral, reflect.TypeFor[v1alpha3.MistralConfig]()},
 	}
 
 	providers := []ProviderDefinition{}
@@ -311,25 +328,6 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 			string(providerData.providerEnum),
 			getStructJSONKeys(providerData.configType),
 			getRequiredKeysForModelProvider(providerData.providerEnum),
-		))
-	}
-	return providers
-}
-
-func (s *Service) ListSupportedMemoryProviders(context.Context) []ProviderDefinition {
-	providersData := []struct {
-		providerEnum v1alpha1.MemoryProvider
-		configType   reflect.Type
-	}{
-		{v1alpha1.Pinecone, reflect.TypeFor[v1alpha1.PineconeConfig]()},
-	}
-
-	providers := []ProviderDefinition{}
-	for _, providerData := range providersData {
-		providers = append(providers, providerDefinition(
-			string(providerData.providerEnum),
-			getStructJSONKeys(providerData.configType),
-			getRequiredKeysForMemoryProvider(providerData.providerEnum),
 		))
 	}
 	return providers
@@ -425,15 +423,6 @@ func getRequiredKeysForModelProvider(providerType v1alpha3.ModelProvider) []stri
 		return []string{"deployment", "endpoint"}
 	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderOllama:
 		return []string{}
-	default:
-		return []string{}
-	}
-}
-
-func getRequiredKeysForMemoryProvider(providerType v1alpha1.MemoryProvider) []string {
-	switch providerType {
-	case v1alpha1.Pinecone:
-		return []string{"indexHost"}
 	default:
 		return []string{}
 	}

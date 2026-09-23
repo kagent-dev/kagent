@@ -174,19 +174,22 @@ export function ModelForm({
     [providers.data],
   );
   const providerSelectOptions = useMemo(() => {
-    const base = providerList.map((item) => ({
-      value: item.type,
-      label: providerDisplayName(item.type),
-    }));
-
-    const seen = new Set(base.map((item) => item.value));
-    const extras = additionalProviderOptions.filter((item) => {
+    // One option per provider *type*, because that is what the draft stores.
+    const seen = new Set<string>();
+    const keepFirst = (item: { value: string }) => {
       if (seen.has(item.value)) return false;
       seen.add(item.value);
       return true;
-    });
+    };
 
-    return [...base, ...extras];
+    const base = providerList
+      .map((item) => ({
+        value: item.type,
+        label: providerDisplayName(item.type),
+      }))
+      .filter(keepFirst);
+
+    return [...base, ...additionalProviderOptions.filter(keepFirst)];
   }, [providerList, additionalProviderOptions]);
   const selectedProvider = useMemo(
     () => providerList.find((item) => item.type === draft.provider),
@@ -561,6 +564,9 @@ export function ModelForm({
                     />
                   </Space>
                 }
+                /* Required to create and not to edit, which is what the label says
+                   too: an edit that leaves this blank keeps the key already stored. */
+                required={!isEdit}
                 validateStatus={
                   submitted &&
                   !isEdit &&

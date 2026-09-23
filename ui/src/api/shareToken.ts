@@ -29,8 +29,6 @@ const SHARE_HEADER = "X-Share-Token";
 /** Which conversation a registered instance share is for. */
 let sharedInstance: { key: string; token: string } | undefined;
 
-const instanceKey = (namespace: string, id: string) => `${namespace}/${id}`;
-
 /**
  * The share token to send for this conversation, if one is registered.
  *
@@ -39,10 +37,9 @@ const instanceKey = (namespace: string, id: string) => `${namespace}/${id}`;
  * visitor is signed in as themselves for the rest of the app.
  */
 export function agentInstanceShareToken(
-  namespace: string,
   id: string,
 ): string | undefined {
-  const key = instanceKey(namespace, id);
+  const key = id;
   return sharedInstance?.key === key ? sharedInstance.token : undefined;
 }
 
@@ -55,13 +52,12 @@ export function agentInstanceShareToken(
  * as an anonymous read, and which looks like success.
  */
 export function useAgentInstanceShareToken(
-  namespace: string | undefined,
   id: string | undefined,
   token: string | undefined,
 ) {
   useLayoutEffect(() => {
-    if (!namespace || !id || !token) return;
-    sharedInstance = { key: instanceKey(namespace, id), token };
+    if (!id || !token) return;
+    sharedInstance = { key: id, token };
     /*
      * And on the ordinary operations too, not only on the chat client.
      *
@@ -73,13 +69,13 @@ export function useAgentInstanceShareToken(
      */
     const unregister = registerApiTransform({
       name: "agentInstanceShareToken",
-      request: (context) => withInstanceShareToken(context, namespace, id, token),
+      request: (context) => withInstanceShareToken(context, id, token),
     });
     return () => {
       sharedInstance = undefined;
       unregister();
     };
-  }, [namespace, id, token]);
+  }, [id, token]);
 }
 
 /**
@@ -109,15 +105,14 @@ const INSTANCE_OPERATIONS = new Set<ApiCallId>([
  */
 export function withInstanceShareToken(
   context: ApiRequestContext,
-  namespace: string,
   id: string,
   token: string,
 ): ApiRequestContext {
   if (!INSTANCE_OPERATIONS.has(context.endpoint)) return context;
   const message = context.message as
-    | { namespace?: unknown; agentInstanceId?: unknown }
+    | { agentInstanceId?: unknown }
     | undefined;
-  if (message?.namespace !== namespace || message?.agentInstanceId !== id) {
+  if (message?.agentInstanceId !== id) {
     return context;
   }
   return { ...context, headers: { ...context.headers, [SHARE_HEADER]: token } };

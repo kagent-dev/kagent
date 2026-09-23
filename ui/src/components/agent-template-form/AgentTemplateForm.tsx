@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import {
   Alert,
   Button,
+  Checkbox,
   Form,
   Input,
   Select,
@@ -23,6 +24,7 @@ import {
 import {
   draftProblems,
   type AgentTemplateDraft,
+  type OutputSource,
 } from "./agentTemplateDraft";
 
 const { Text, Paragraph } = Typography;
@@ -157,6 +159,11 @@ export function AgentTemplateForm({
     return (harnesses.data ?? []).filter((harness) => admitsLabels(harness, labels));
   }, [draft.labels, harnesses.data]);
 
+  const structuredOutputUnsupportedBy = useMemo(
+    () => wouldAdmit.filter((harness) => harness.runtime !== "kagent"),
+    [wouldAdmit],
+  );
+
   /*
    * With one harness on the cluster, a new template is labelled for it without being
    * asked.
@@ -218,6 +225,11 @@ export function AgentTemplateForm({
         {isCreate ? (
           <Form.Item
             label="Name"
+            /* Unconditional: this field only exists while creating, and the only
+               caller that creates does not render read-only, so `!readOnly` was a
+               condition that could not be false. The model configuration below is the
+               genuinely conditional one. */
+            required
             extra="A Kubernetes object name, so it cannot be changed afterwards."
           >
             <Input
@@ -232,6 +244,10 @@ export function AgentTemplateForm({
 
         <Form.Item
           label="Model configuration"
+          /* Marked required only while the form authors: read-only is the details page
+             showing a template that already has a model, and an asterisk there would be
+             asking a reader for something the template has. */
+          required={!readOnly}
           extra="The only field the CRD requires. It names a ModelConfig in this template's own namespace."
         >
           <div data-testid="template-form-model">
@@ -333,10 +349,87 @@ export function AgentTemplateForm({
           </Space>
         </Form.Item>
 
+        <Form.Item
+          label="Output format"
+          extra="Structured output constrains only the successful final answer when this template runs as a root agent. It currently requires a kagent harness."
+        >
+          <Space orientation="vertical" size={8} css={{ display: "flex" }}>
+            <div data-testid="template-form-output-source">
+              <Select
+                css={{ minWidth: 240 }}
+                value={draft.outputSource}
+                onChange={(value: OutputSource) => set("outputSource", value)}
+                options={[
+                  { value: "text", title: "Text", label: "Text" },
+                  {
+                    value: "inline",
+                    title: "Inline JSON Schema",
+                    label: "Inline JSON Schema",
+                  },
+                  {
+                    value: "configMap",
+                    title: "JSON Schema from a ConfigMap",
+                    label: "JSON Schema from a ConfigMap",
+                  },
+                ]}
+                {...readOnlySelect}
+              />
+            </div>
+
+            {draft.outputSource === "inline" ? (
+              <Input.TextArea
+                data-testid="template-form-output-schema"
+                value={draft.outputSchema}
+                onChange={(event) => set("outputSchema", event.target.value)}
+                autoSize={{ minRows: readOnly ? 1 : 8, maxRows: 20 }}
+                placeholder={placeholder(
+                  '{\n  "type": "object",\n  "properties": {\n    "status": { "type": "string" }\n  },\n  "required": ["status"]\n}',
+                )}
+                css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+                {...readOnlyInput}
+              />
+            ) : draft.outputSource === "configMap" ? (
+              <Space size={8}>
+                <Input
+                  data-testid="template-form-output-configmap"
+                  value={draft.outputSchemaConfigMap}
+                  onChange={(event) =>
+                    set("outputSchemaConfigMap", event.target.value)
+                  }
+                  placeholder={placeholder("ConfigMap name")}
+                  {...readOnlyInput}
+                />
+                <Input
+                  data-testid="template-form-output-key"
+                  value={draft.outputSchemaKey}
+                  onChange={(event) => set("outputSchemaKey", event.target.value)}
+                  placeholder={placeholder("Key")}
+                  {...readOnlyInput}
+                />
+              </Space>
+            ) : readOnly ? (
+              none("Successful final answers are returned as text.")
+            ) : null}
+
+            {draft.outputSource !== "text" &&
+            structuredOutputUnsupportedBy.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                data-testid="template-form-output-compatibility"
+                title="Some matching harnesses do not support structured output"
+                description={`${structuredOutputUnsupportedBy
+                  .map((harness) => harness.name)
+                  .join(", ")} will report this template as incompatible. The controller remains the source of truth for compatibility.`}
+              />
+            ) : null}
+          </Space>
+        </Form.Item>
+
         {/* Tools — MCP servers */}
         <Form.Item
           label="Tools from MCP servers"
-          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server."
+          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server. Require approval pauses before each of those tools runs."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             {readOnly && draft.mcpTools.length === 0
@@ -355,14 +448,27 @@ export function AgentTemplateForm({
                     const next = [...draft.mcpTools];
                     // The tools belong to the server, so changing it clears them
                     // rather than leaving names the new server does not have.
-                    next[index] = { serverRef: value, tools: [] };
+                    next[index] = {
+                      serverRef: value,
+                      tools: [],
+                      requireApproval: next[index].requireApproval,
+                    };
                     set("mcpTools", next);
                   }}
-                  options={(servers.data ?? []).map((server) => ({
-                    value: server.ref,
-                    title: server.ref,
-                    label: server.ref,
-                  }))}
+                  options={(servers.data ?? []).map((server) => {
+                    // Only a RemoteMCPServer can be bound — the compiler resolves no
+                    // other kind. Command servers stay listed, so one that cannot be
+                    // picked reads as a limitation rather than a missing row.
+                    const bindable = server.groupKind.startsWith("RemoteMCPServer");
+                    return {
+                      value: server.ref,
+                      title: bindable
+                        ? server.ref
+                        : `${server.ref} — a command server cannot be bound to an agent`,
+                      label: bindable ? server.ref : `${server.ref} (command server)`,
+                      disabled: !bindable,
+                    };
+                  })}
                   {...readOnlySelect}
                 />
                 <Select
@@ -398,6 +504,24 @@ export function AgentTemplateForm({
                   }))}
                   {...readOnlySelect}
                 />
+                {readOnly ? (
+                  tool.requireApproval ? <Tag>Requires approval</Tag> : null
+                ) : (
+                  <Checkbox
+                    checked={Boolean(tool.requireApproval)}
+                    data-testid={`template-form-mcp-approval-${index}`}
+                    onChange={(event) => {
+                      const next = [...draft.mcpTools];
+                      next[index] = {
+                        ...next[index],
+                        requireApproval: event.target.checked,
+                      };
+                      set("mcpTools", next);
+                    }}
+                  >
+                    Require approval
+                  </Checkbox>
+                )}
                 {readOnly ? null : (
                   <Button
                     type="text"

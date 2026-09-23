@@ -10,12 +10,9 @@
  *
  * ## What a conversation is
  *
- * An `AgentInstance`. Not a session — there is no session id here. The gateway
- * routes on two headers rather than on a path, files every task under the
- * instance as its A2A `contextId`, and answers `ListTasks` with that
- * conversation's turns. So the instance is the address, the context and the
- * transcript at once, and `ChatConversationRef` carries the two halves the
- * headers need.
+ * The gateway routes and scopes history by the instance ID header. Its bound
+ * A2A context ID is separate and survives a fork. Chat caches use the instance
+ * ID so branches sharing a context cannot share a transcript.
  *
  * ## Why this is so much shorter than the client it replaces
  *
@@ -72,7 +69,9 @@ import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
 import {
   HITL_EXTENSION_HEADER,
   HITL_EXTENSION_URI,
+  readAskUserResponse,
   readHitlRequest,
+  readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
 import { agentInstanceShareToken } from "../shareToken";
@@ -90,16 +89,7 @@ import type {
   SendMessageInput,
 } from "./types";
 
-/**
- * The two headers the gateway routes on.
- *
- * `route()` in `go/core/v2/a2agateway/gateway.go` requires exactly one of each
- * and validates them — the namespace as a DNS-1123 label, the id as a UUID — so a
- * malformed pair is `InvalidRequest` rather than a call that reaches the wrong
- * agent. Sent as call metadata rather than baked into a URL because a gRPC method
- * is addressed by its descriptor: there is no path here to put them in.
- */
-const NAMESPACE_HEADER = "x-kagent-agent-instance-namespace";
+/** The gateway requires exactly one instance ID header and validates it as a UUID. */
 const INSTANCE_ID_HEADER = "x-kagent-agent-instance-id";
 
 /** The header the controller validates a share token from. */
@@ -121,6 +111,7 @@ const HISTORY_PAGE_LIMIT = 50;
  * https://github.com/a2aproject/A2A/pull/2129
  */
 const TIMELINE_POSITION_METADATA_KEY = "kagent.dev/timeline-position";
+const OUTPUT_SCHEMA_SHA256_METADATA_KEY = "kagent.dev/a2a/output-schema-sha256";
 
 /** Ids for the messages the wire did not name. */
 let counter = 0;
@@ -132,8 +123,8 @@ function nextId(prefix: string): string {
 /**
  * Whether a task stopped to wait on the reader rather than because it is running.
  *
- * The controller's own predicate, copied: `TaskParkedAwaitingUser` in
- * `go/api/database/client.go` is these two states and no others. Such a task is
+ * The gateway resumes tasks in these two states in
+ * `go/core/internal/a2agateway/gateway.go`. Such a task is
  * non-terminal, so it holds the instance's single active-task slot and every
  * further message is refused — and the reader has to be told that rather than
  * discovering it by being turned away.
@@ -195,7 +186,19 @@ function toPart(part: A2APart): ChatPart | undefined {
       return undefined;
     }
     const data = value as Record<string, unknown>;
-    return { kind: "data", dataKind: dataKindOf(data), data };
+    return {
+      kind: "data",
+      dataKind: dataKindOf(
+        data,
+        part.mediaType,
+        part.metadata as Record<string, unknown> | undefined,
+      ),
+      data,
+      ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+      ...(part.metadata
+        ? { metadata: part.metadata as Record<string, unknown> }
+        : {}),
+    };
   }
   // A file part, by url or raw bytes. Nothing renders one yet, and inventing a
   // placeholder would put a broken attachment in a transcript that has none.
@@ -205,20 +208,102 @@ function toPart(part: A2APart): ChatPart | undefined {
 /**
  * What a data part represents.
  *
- * Read from the payload's own shape rather than from a `kind` the wire does not
- * carry: the runtime emits a tool call as `{name, args}` and its result as
- * `{name, response}`. Anything else is passed through as `unknown` and rendered
- * as structured data, which is honest — it is data, and this build does not know
- * what kind.
+ * A structured terminal answer has an explicit runtime-owned signature: JSON media
+ * type plus the digest of the schema that was enforced. Tool traffic has no wire
+ * discriminator, so it is read from the payload shape the runtime emits:
+ * `{name, args}` for a call and `{name, response}` for its result. Requiring both
+ * pieces of the output signature avoids relabelling an arbitrary JSON tool payload
+ * as the agent's final answer.
  */
-function dataKindOf(data: Record<string, unknown>): ChatDataPart["dataKind"] {
+function dataKindOf(
+  data: Record<string, unknown>,
+  mediaType: string,
+  metadata: Record<string, unknown> | undefined,
+): ChatDataPart["dataKind"] {
+  if (
+    mediaType.split(";", 1)[0]?.trim().toLowerCase() === "application/json" &&
+    typeof metadata?.[OUTPUT_SCHEMA_SHA256_METADATA_KEY] === "string"
+  ) {
+    return "structured_output";
+  }
   if ("args" in data) return "tool_call";
   if ("response" in data || "result" in data) return "tool_result";
   return "unknown";
 }
 
 function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
-  return (parts ?? []).map(toPart).filter((part): part is ChatPart => part !== undefined);
+  const result: ChatPart[] = [];
+  for (const source of parts ?? []) {
+    const part = toPart(source);
+    if (part === undefined) continue;
+
+    const previous = result.at(-1);
+    if (part.kind === "text" && previous?.kind === "text") {
+      previous.text += part.text;
+      continue;
+    }
+    result.push(part);
+  }
+  return result;
+}
+
+type ControlFlowResult = "confirmation_required" | "rejected";
+
+/**
+ * Removes runtime control-plane artifacts from what the transcript renders.
+ *
+ * ADK currently reports confirmation as an errored FunctionResponse. Those
+ * responses are instructions to the runtime, not failed tool executions. Match
+ * only the two complete compatibility strings observed on the wire; a broad
+ * substring check could hide a real tool error that merely discusses approval.
+ */
+function visibleParts(
+  parts: readonly ChatPart[],
+  options: { hideRejected?: boolean | ReadonlySet<string> } = {},
+): ChatPart[] {
+  const visible: ChatPart[] = [];
+  for (const part of parts) {
+    if (part.kind !== "data") {
+      visible.push(part);
+      continue;
+    }
+    if (part.dataKind !== "structured_output" && part.data.name === "ask_user") {
+      continue;
+    }
+
+    const control = controlFlowResult(part);
+    if (control === "confirmation_required") continue;
+    if (control === "rejected") {
+      const name = typeof part.data.name === "string" ? part.data.name : "";
+      if (
+        options.hideRejected === true ||
+        (options.hideRejected instanceof Set && options.hideRejected.has(name))
+      ) {
+        continue;
+      }
+      visible.push({ ...part, dataKind: "tool_not_run" });
+      continue;
+    }
+    visible.push(part);
+  }
+  return visible;
+}
+
+function controlFlowResult(part: ChatDataPart): ControlFlowResult | undefined {
+  if (part.dataKind !== "tool_result") return undefined;
+  const response = part.data.response;
+  if (typeof response !== "object" || response === null || Array.isArray(response)) {
+    return undefined;
+  }
+  const error = (response as Record<string, unknown>).error;
+  if (typeof error !== "string") return undefined;
+
+  const name = typeof part.data.name === "string" ? part.data.name : undefined;
+  const confirmation = /^error tool "([^"]+)" requires confirmation, please approve or reject$/.exec(error);
+  if (confirmation && (!name || confirmation[1] === name)) return "confirmation_required";
+  const rejected = /^error tool "([^"]+)" call is rejected$/.exec(error);
+  if (rejected && (!name || rejected[1] === name)) return "rejected";
+  return undefined;
 }
 
 /** The prose of a set of parts, for comparing a reply against the artifact repeating it. */
@@ -271,7 +356,6 @@ export class A2AGrpcChatClient implements ChatClient {
    */
   private callOptions(conversation: ChatConversationRef, signal?: AbortSignal) {
     const headers: Record<string, string> = {
-      [NAMESPACE_HEADER]: conversation.namespace,
       [INSTANCE_ID_HEADER]: conversation.id,
       /*
        * Activate the human-in-the-loop extension, on every call.
@@ -294,7 +378,7 @@ export class A2AGrpcChatClient implements ChatClient {
      * untouched. `shareToken.ts` holds the registration for both kinds of share so
      * there is still only one place a token is spent from.
      */
-    const share = agentInstanceShareToken(conversation.namespace, conversation.id);
+    const share = agentInstanceShareToken(conversation.id);
     if (share) headers[SHARE_HEADER] = share;
     return { signal, headers };
   }
@@ -321,10 +405,8 @@ export class A2AGrpcChatClient implements ChatClient {
       for (let page = 0; page < HISTORY_PAGE_LIMIT; page += 1) {
         const response = await client.listTasks(
           {
-            // The instance's own id is its context id, so this is a belt-and-braces
-            // narrowing: the gateway already scopes the read to the routed instance
-            // and answers empty for any other context.
-            contextId: conversation.id,
+            // History is scoped by the instance header; context is an optional filter.
+            contextId: conversation.contextId,
             pageToken,
             // Artifacts carry the final text of a reply, which for a completed turn
             // may be the only place it exists.
@@ -383,10 +465,8 @@ export class A2AGrpcChatClient implements ChatClient {
         messageId: input.messageId || nextId("msg"),
         role: Role.USER,
         parts: [{ content: { case: "text" as const, value: text } }],
-        // The gateway overwrites this with the instance id and refuses a value
-        // that is neither empty nor the instance's own, so sending it is a
-        // statement of which conversation this belongs to rather than a request.
-        contextId: conversation.id,
+        // An omitted context resolves to the routed instance's bound context.
+        contextId: conversation.contextId,
         /*
          * An answer declares the extension on the message itself.
          *
@@ -418,13 +498,15 @@ export class A2AGrpcChatClient implements ChatClient {
     // again as the final artifact — so an artifact repeating text already shown is
     // dropped. Recorded as the accumulated text rather than per chunk, because the
     // artifact repeats the whole answer.
-    const seen = new Set<string>();
+    let statusReply = "";
     // The stream may echo the user's own message; when it does it must be emitted
     // only once. (This controller does not: measured on 2026-08-24, a turn carries
     // no message frame for it at all, and the caller's optimistic copy is what the
     // reader sees. The id it was sent under is what makes an echo land on that copy
     // rather than beside it.)
-    const delivered = new Set<string>();
+    // The caller already rendered the message it named. Suppress an echo under
+    // that id so fallback HITL prose cannot replace the richer local decision card.
+    const delivered = new Set<string>(input.messageId ? [input.messageId] : []);
 
     /**
      * The text assembled so far for each artifact still being streamed.
@@ -442,9 +524,9 @@ export class A2AGrpcChatClient implements ChatClient {
      *
      * A local, not a field and not a module-level map: it belongs to this turn and
      * must not outlive it. The artifact that closes the turn repeats the whole
-     * answer, so it is the accumulation that has to be recorded in `seen`, not each
-     * chunk — recording only chunks let the artifact through and printed the answer
-     * a second time.
+     * answer, so it is the accumulation that has to be recorded in `statusReply`,
+     * not each chunk — recording only chunks let the artifact through and printed
+     * the answer a second time.
      */
     let streamedText = "";
 
@@ -470,7 +552,7 @@ export class A2AGrpcChatClient implements ChatClient {
           };
           const status = event.status;
           const message = status?.message;
-          const parts = toParts(message?.parts);
+          const parts = visibleParts(toParts(message?.parts), { hideRejected: true });
           const state = turnState(status?.state);
           /*
            * The question, when this is the frame that parked the turn.
@@ -487,7 +569,11 @@ export class A2AGrpcChatClient implements ChatClient {
                 })
               : undefined;
 
-          if (message && parts.length > 0) {
+          if (
+            message &&
+            parts.length > 0 &&
+            (awaiting === undefined || awaiting.kind === "unknown")
+          ) {
             const role = message.role === Role.AGENT ? "agent" : "user";
             const isTextOnly = parts.every((part) => part.kind === "text");
             const invocation = invocationOf(message, event.taskId);
@@ -501,7 +587,7 @@ export class A2AGrpcChatClient implements ChatClient {
                 runId = invocation;
                 streamedId = message.messageId || nextId("message");
                 streamedText = chunk;
-                if (streamedText !== "") seen.add(streamedText);
+                statusReply = streamedText;
                 yield {
                   type: "message",
                   message: {
@@ -514,7 +600,7 @@ export class A2AGrpcChatClient implements ChatClient {
                 };
               } else if (chunk !== "") {
                 streamedText += chunk;
-                seen.add(streamedText);
+                statusReply = streamedText;
                 yield { type: "delta", messageId: streamedId, text: chunk };
               }
 
@@ -538,7 +624,7 @@ export class A2AGrpcChatClient implements ChatClient {
 
             if (closesRun) {
               const body = textOf(parts);
-              if (body !== "") seen.add(body);
+              statusReply = body;
               yield {
                 type: "message",
                 message: { id, role: "agent", parts, createdAt, taskId: event.taskId },
@@ -559,8 +645,7 @@ export class A2AGrpcChatClient implements ChatClient {
             if (!delivered.has(id)) {
               delivered.add(id);
               if (role === "agent") {
-                const body = textOf(parts);
-                if (body !== "") seen.add(body);
+                statusReply = textOf(parts);
               }
               yield {
                 type: "message",
@@ -608,7 +693,9 @@ export class A2AGrpcChatClient implements ChatClient {
             append?: boolean;
             lastChunk?: boolean;
           };
-          const parts = toParts(event.artifact?.parts);
+          const parts = visibleParts(toParts(event.artifact?.parts), {
+            hideRejected: true,
+          });
           if (parts.length === 0) continue;
 
           const body = textOf(parts);
@@ -620,13 +707,9 @@ export class A2AGrpcChatClient implements ChatClient {
             if (event.append) {
               const whole = (artifacts.get(artifactId) ?? "") + body;
               artifacts.set(artifactId, whole);
-              // The accumulation, not the chunk: what a later frame repeats is the
-              // whole answer, and that is what has to be recognised as already shown.
-              if (whole !== "") seen.add(whole);
               yield { type: "delta", messageId: id, text: body };
             } else {
               artifacts.set(artifactId, body);
-              if (body !== "") seen.add(body);
               yield {
                 type: "message",
                 message: {
@@ -644,11 +727,17 @@ export class A2AGrpcChatClient implements ChatClient {
           // First sight of this artifact. Dropped when it merely repeats prose the
           // reader has already been shown as status text — the same reply arriving
           // twice, which is the behaviour this branch was originally written for.
-          if (body !== "" && seen.has(body)) continue;
+          if (body !== "" && statusReply === body) {
+            statusReply = "";
+            continue;
+          }
+          // Text equality is only a compatibility check between adjacent wire
+          // representations of one reply. It is not artifact identity and must
+          // not survive across a real artifact or tool boundary.
+          statusReply = "";
 
           const id = artifactId || nextId("artifact");
           artifacts.set(id, body);
-          if (body !== "") seen.add(body);
           yield {
             type: "message",
             message: {
@@ -668,8 +757,6 @@ export class A2AGrpcChatClient implements ChatClient {
           for (const message of messagesFromTask(task)) {
             if (delivered.has(message.id)) continue;
             delivered.add(message.id);
-            const body = textOf(message.parts);
-            if (body !== "") seen.add(body);
             yield { type: "message", message };
           }
           yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
@@ -678,7 +765,7 @@ export class A2AGrpcChatClient implements ChatClient {
 
         if (payload.case === "message") {
           const message = payload.value as A2AMessage;
-          const parts = toParts(message.parts);
+          const parts = visibleParts(toParts(message.parts), { hideRejected: true });
           if (parts.length === 0) continue;
           const id = message.messageId || nextId("message");
           if (delivered.has(id)) continue;
@@ -740,9 +827,60 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
   const positioned: { message: ChatMessage; position?: string }[] = [];
   const taken = new Set<string>();
   const createdAt = statusTime(task.status);
+  let pendingApproval: Extract<PendingRequest, { kind: "tool_approval" }> | undefined;
+  const pendingQuestions = new Map<
+    string,
+    Extract<PendingRequest, { kind: "ask_user" }>
+  >();
+  const hasCompleteTimeline = [...task.history, ...(task.status?.message ? [task.status.message] : []), ...task.artifacts]
+    .every((entry) => timelinePosition(entry.metadata) !== undefined);
 
   const push = (message: A2AMessage) => {
-    const parts = toParts(message.parts);
+    const request = readHitlRequest(task.id, message.metadata, message.extensions);
+    if (request?.kind === "tool_approval") {
+      // The request's TextPart is descriptive protocol fallback. While pending the
+      // actionable card renders from task state; once answered the response below
+      // becomes the single, compact transcript record.
+      pendingApproval = request;
+      return;
+    }
+
+    if (request?.kind === "ask_user") {
+      // Like tool approval, the status message's text is protocol fallback. Keep
+      // the structured request until its correlated answer arrives, then render
+      // the whole exchange as one durable record.
+      pendingQuestions.set(request.requestId, request);
+      return;
+    }
+
+    const decisions = readToolApprovalResponse(message.metadata, message.extensions);
+    const answer = readAskUserResponse(message.metadata, message.extensions);
+    const question = answer ? pendingQuestions.get(answer.requestId) : undefined;
+    const parts: ChatPart[] = decisions
+      ? [
+          {
+            kind: "tool_approval",
+            approval: {
+              tools: pendingApproval?.tools ?? [],
+              decisions,
+              askedBy: pendingApproval?.askedBy,
+            },
+          },
+        ]
+      : answer
+        ? [
+            {
+              kind: "ask_user",
+              interaction: {
+                questions: question?.questions ?? [],
+                answers: answer.answers,
+                askedBy: question?.askedBy,
+              },
+            },
+          ]
+      : toParts(message.parts);
+    if (decisions) pendingApproval = undefined;
+    if (answer) pendingQuestions.delete(answer.requestId);
     if (parts.length === 0) return;
     const identity =
       message.messageId || JSON.stringify(message.parts.map((part) => part.content));
@@ -806,7 +944,10 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
   for (const artifact of task.artifacts) {
     const parts = toParts(artifact.parts);
     const body = textOf(parts);
-    if (parts.length === 0 || (body !== "" && shown.has(body))) continue;
+    if (
+      parts.length === 0 ||
+      (!hasCompleteTimeline && body !== "" && shown.has(body))
+    ) continue;
     const converted: ChatMessage = {
       // Derived, for the reason given against the message id above: an unnamed
       // artifact renamed on every read is an artifact the merge cannot recognise.
@@ -822,13 +963,31 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
 
   // New records carry one server-authored order across history and artifacts.
   // Keep the positional inference below for records written before this bridge.
+  let ordered: ChatMessage[];
   if (positioned.length > 0 && positioned.every(({ position }) => position !== undefined)) {
-    return positioned
+    ordered = positioned
       .sort((left, right) => left.position!.localeCompare(right.position!))
       .map(({ message }) => message);
+  } else {
+    ordered = interleaveTaskMessages(opening, answers, agent);
   }
 
-  return interleaveTaskMessages(opening, answers, agent);
+  const rejectedTools = new Set<string>();
+  for (const message of ordered) {
+    for (const part of message.parts) {
+      if (part.kind !== "tool_approval") continue;
+      const names = new Map(part.approval.tools.map((tool) => [tool.id, tool.name]));
+      for (const decision of part.approval.decisions) {
+        if (!decision.approved) rejectedTools.add(names.get(decision.id) ?? "");
+      }
+    }
+  }
+  return ordered
+    .map((message) => ({
+      ...message,
+      parts: visibleParts(message.parts, { hideRejected: rejectedTools }),
+    }))
+    .filter((message) => message.parts.length > 0);
 }
 
 function timelinePosition(metadata: JsonObject | undefined): string | undefined {

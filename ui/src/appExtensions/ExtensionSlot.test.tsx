@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppExtensionsProvider, ExtensionSlot } from "./index";
 import type { AppExtensionConfig } from "./index";
 
@@ -208,5 +208,36 @@ describe("ExtensionSlot with several extensions installed", () => {
 
     expect(screen.getByText("a:kagent")).toBeVisible();
     expect(screen.getByText("b:kagent")).toBeVisible();
+  });
+});
+
+describe("ExtensionSlot with a contribution that throws", () => {
+  it("drops the broken one and keeps the other extension's", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken: AppExtensionConfig = {
+      id: "broken",
+      name: "Broken",
+      slots: {
+        app_agents_agentsList_pageHeader_actions: () => {
+          throw new Error("broken extension");
+        },
+      },
+    };
+    const working: AppExtensionConfig = {
+      id: "working",
+      name: "Working",
+      slots: {
+        app_agents_agentsList_pageHeader_actions: () => (
+          <button type="button">Export</button>
+        ),
+      },
+    };
+
+    renderWithExtensions(
+      [broken, working],
+      <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />,
+    );
+
+    expect(screen.getByRole("button", { name: "Export" })).toBeVisible();
   });
 });

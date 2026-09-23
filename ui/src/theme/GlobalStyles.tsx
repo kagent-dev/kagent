@@ -48,18 +48,33 @@ export function GlobalStyles() {
          * Table rows are not assumed interactive. Hover treatment and pointer cursor
          * are opt-in via the clickable-table-row class so static data tables do not imply
          * a click target.
+         *
+         * Matched on the cell class antd paints the hover from rather than on a hovered
+         * row's cells, which is what this rule used to say. A virtual table has no table
+         * markup at all — its body is divs — so the old tr/td selector could not reach
+         * one, and the substrate page's actors and workers went on lighting up under the
+         * pointer while every other static table had stopped. The class is on the cells
+         * of both bodies, so one rule covers both.
+         *
+         * Selected rows need no exception of their own. The one table in the app with
+         * row selection is the conversations list, where a row is selectable exactly
+         * when it is openable — an unopenable row gets a disabled checkbox — so every
+         * row that can be selected already carries clickable-table-row, and this rule
+         * has passed it by before selection is reached.
          */
         .ant-table-wrapper
           .ant-table-tbody
-          > tr.ant-table-row:not(.clickable-table-row):hover
-          > td {
+          .ant-table-row:not(.clickable-table-row)
+          > .ant-table-cell-row-hover {
           background: inherit;
         }
 
+        /* Written against the cell class for the same reason as the rule above: a
+           virtual body has no table cell for a tr/td selector to find. */
         .ant-table-wrapper
           .ant-table-tbody
-          > tr.ant-table-row.clickable-table-row
-          > td {
+          .ant-table-row.clickable-table-row
+          > .ant-table-cell {
           cursor: pointer;
         }
 
@@ -75,12 +90,15 @@ export function GlobalStyles() {
          * Tinted with the brand colour rather than made a lighter grey: the row is
          * already grey when hovered, and another grey a few percent lighter is a
          * difference nobody notices under a moving finger.
+         *
+         * At 40% rather than the 30% it carried: the stronger row hover it now has to
+         * beat left the two within 1.12:1 of each other on the light theme.
          */
         .ant-table-wrapper
           .ant-table-tbody
-          > tr.ant-table-row.clickable-table-row:active
-          > td {
-          background: ${theme.color.primary}4D;
+          .ant-table-row.clickable-table-row:active
+          > .ant-table-cell {
+          background: ${theme.color.primary}66;
         }
 
         /*
@@ -91,8 +109,10 @@ export function GlobalStyles() {
          * action, and the smaller one won on the mouse. It keeps its shape and its
          * plus/minus, and takes the row's states.
          */
+        /* Class-based for the reason the hover rules above are: a virtual body has no
+           tr for this to match, so keying off the row class covers both bodies. */
         .ant-table-wrapper
-          tr.clickable-table-row
+          .ant-table-row.clickable-table-row
           .ant-table-row-expand-icon {
           cursor: pointer;
           transition: none;
