@@ -1,0 +1,9 @@
+// The Giant Swarm line of kagent-dev/kagent. Renovate is off here on
+// purpose: this line is an upstream release plus the carried patches, so
+// upstream owns the dependency graph. A bump opened here would diverge from
+// the pinned upstream release and every re-pin would have to carry or revert
+// it. Dependencies move when the line is re-pinned; see FORK.md.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  enabled: false,
+}
