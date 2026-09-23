@@ -2,7 +2,6 @@ package tools
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -299,8 +298,6 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		}
 
 		tools = append(tools, listFilesTool, grepFileTool)
-	} else {
-		slog.Debug("omitting list_files/grep_file tools: " + enableFileSearchToolsEnv + " not enabled")
 	}
 
 	desc := bashDescription
