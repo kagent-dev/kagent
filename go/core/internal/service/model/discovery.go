@@ -62,7 +62,7 @@ type ProviderModelsResult struct {
 // decides cloud routing.
 //
 // The two used to be maintained separately: the catalog advertised bare names
-// while models.IsOllamaCloudModel recognised only the ":cloud" tag, so picking
+// while cloud routing recognised only the ":cloud" tag, so picking
 // a listed cloud model routed it to the local daemon. Deriving both from
 // models.OllamaCloudModels makes a cloud entry unable to appear in the catalog
 // without also being routed to the cloud.

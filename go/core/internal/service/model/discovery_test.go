@@ -285,13 +285,13 @@ func TestOllamaCatalogCoversCloudAndLocal(t *testing.T) {
 	// tag for either, so a cloud-suffixed entry would route to an endpoint that
 	// cannot serve it.
 	for _, name := range local {
-		assert.False(t, models.IsOllamaCloudModel(name),
+		assert.False(t, models.OllamaReachesCloud(name, "", true),
 			"%q is a local model and must not be treated as a cloud tag", name)
 	}
 
 	// The cloud subset must be reachable through the cloud routing rule.
 	for _, name := range cloud {
-		assert.True(t, models.IsOllamaCloudModel(name+":cloud"),
+		assert.True(t, models.OllamaReachesCloud(name+":cloud", "", true),
 			"%q should route to the cloud when tagged", name)
 	}
 }

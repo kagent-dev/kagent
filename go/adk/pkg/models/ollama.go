@@ -18,7 +18,7 @@ type OllamaConfig struct {
 	TransportConfig
 	Model   string
 	Host    string            // Ollama server host (e.g., http://localhost:11434)
-	APIKey  string            // Ollama Cloud API key; empty for a local daemon
+	APIKey  string            // Gateway placeholder for Ollama Cloud; empty for a local daemon
 	Options map[string]string // Ollama-specific options (temperature, top_p, num_ctx, etc.)
 }
 
@@ -38,11 +38,11 @@ const (
 // OllamaCloudModels names the models served by api.ollama.com, as returned by
 // GET https://api.ollama.com/api/tags. This is the single source of truth for
 // cloud membership: the controller's model catalog renders its Ollama cloud
-// entries from it, and IsOllamaCloudModel consults it, so the list a user picks
+// entries from it, and isOllamaCloudModel consults it, so the list a user picks
 // from and the rule that routes their choice cannot drift apart.
 //
 // A bare catalog name is a cloud model. The ":cloud" suffix is also accepted
-// (see IsOllamaCloudModel) because a signed-in local daemon proxies the same
+// (see isOllamaCloudModel) because a signed-in local daemon proxies the same
 // model under that tag.
 var OllamaCloudModels = []string{
 	"kimi-k2.6",
@@ -76,7 +76,7 @@ var ollamaCloudModelSet = func() map[string]bool {
 	return set
 }()
 
-// IsOllamaCloudModel reports whether an Ollama model name is a cloud model.
+// isOllamaCloudModel reports whether an Ollama model name is a cloud model.
 //
 // A name is cloud when it is one of the catalog's cloud models, or when it
 // carries a ":cloud"/"-cloud" tag. Both forms have to count: the catalog lists
@@ -87,7 +87,7 @@ var ollamaCloudModelSet = func() map[string]bool {
 //
 // The tag rule is a suffix test on purpose, so a name that merely contains
 // "cloud" stays local (cloudy-llm:7b is not a cloud model).
-func IsOllamaCloudModel(modelName string) bool {
+func isOllamaCloudModel(modelName string) bool {
 	if ollamaCloudModelSet[modelName] {
 		return true
 	}
@@ -99,21 +99,19 @@ func IsOllamaCloudModel(modelName string) bool {
 //
 // This is the one definition of the routing rule, and every component that has
 // to agree with it calls it: the runtime when it picks an endpoint, the compiler
-// when it decides whether to mount OLLAMA_API_KEY, and credential compilation
-// when it decides whether a gateway binding exists. Three independent copies of
-// this predicate previously disagreed, which turned a valid configuration into
+// when it decides whether to emit the Secret reference, and credential
+// compilation when it decides whether a gateway binding exists. Three
+// independent copies of this predicate previously disagreed, which turned a
+// valid configuration into
 // either a denied egress call or a hard credential error.
 //
-// An explicit host always wins: that is how an operator points at another
-// machine, a container, or an authenticated proxy. A credential is required
-// because api.ollama.com answers 401 before it looks at the model.
 // An explicit host normally wins: that is how an operator points at another
 // machine, a container, or an authenticated proxy. The exception is a host that
 // *is* ollama.com's endpoint — writing `host: api.ollama.com` is the cloud route
 // spelled out longhand, and the runtime still expects a bearer token for it
 // (NewOllamaModel takes the token from IsOllamaCloudEndpoint). Treating every
-// explicit host as local left that configuration with no key mounted and no
-// credential binding, so the request went out unauthenticated and 401'd.
+// explicit host as local left that configuration with no Secret reference and
+// no credential binding, so the request went out unauthenticated and 401'd.
 //
 // A credential is required because api.ollama.com answers 401 before it looks at
 // the model.
@@ -121,7 +119,7 @@ func OllamaReachesCloud(modelName, host string, hasCredential bool) bool {
 	if host != "" && !IsOllamaCloudEndpoint(host) {
 		return false
 	}
-	return hasCredential && IsOllamaCloudModel(modelName)
+	return hasCredential && isOllamaCloudModel(modelName)
 }
 
 // IsOllamaCloudEndpoint reports whether an endpoint is ollama.com's hosted API.
@@ -258,6 +256,32 @@ func convertOllamaOptions(opts map[string]string) map[string]any {
 	return converted
 }
 
+// withOllamaAuthorization returns the transport config to build the client with.
+//
+// Only the cloud endpoint carries a credential, and the value here is the
+// gateway placeholder rather than the Secret: Substrate replaces the header at
+// egress. A local daemon keeps whatever the operator configured and never
+// acquires an Authorization header from the key, so exporting OLLAMA_API_KEY for
+// a cloud model cannot start authenticating local calls.
+//
+// The headers map is copied before the credential is set, so the caller's
+// TransportConfig is not mutated and a stale Authorization header cannot
+// outrank the placeholder.
+func withOllamaAuthorization(tc TransportConfig, host, apiKey string) TransportConfig {
+	if !IsOllamaCloudEndpoint(host) || apiKey == "" {
+		return tc
+	}
+	headers := make(map[string]string, len(tc.Headers)+1)
+	for name, value := range tc.Headers {
+		if !strings.EqualFold(name, "Authorization") {
+			headers[name] = value
+		}
+	}
+	headers["Authorization"] = "Bearer " + apiKey
+	tc.Headers = headers
+	return tc
+}
+
 // NewOllamaModel creates a new Ollama model instance with a logger.
 // It uses the native Ollama SDK client for full option support.
 func NewOllamaModel(ctx context.Context, config *OllamaConfig) (*OllamaModel, error) {
@@ -275,11 +299,7 @@ func NewOllamaModel(ctx context.Context, config *OllamaConfig) (*OllamaModel, er
 	}
 
 	// Only the cloud carries a key; a local daemon must keep sending none.
-	token := ""
-	if IsOllamaCloudEndpoint(host) {
-		token = config.APIKey
-	}
-	httpClient, err := BuildHTTPClientWithBearer(config.TransportConfig, token)
+	httpClient, err := BuildHTTPClient(withOllamaAuthorization(config.TransportConfig, host, config.APIKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Ollama HTTP client: %w", err)
 	}

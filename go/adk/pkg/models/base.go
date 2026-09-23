@@ -30,14 +30,6 @@ type TransportConfig struct {
 // BuildHTTPClient creates an http.Client with the full transport stack:
 // TLS → custom headers → trace propagation → timeout.
 func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
-	return BuildHTTPClientWithBearer(tc, "")
-}
-
-// BuildHTTPClientWithBearer is BuildHTTPClient with a static bearer token added
-// to every request. The token is layered *inside* the custom headers so an
-// explicitly configured API key outranks a same-named default header, which
-// would otherwise replace the credential silently.
-func BuildHTTPClientWithBearer(tc TransportConfig, token string) (*http.Client, error) {
 	transport, err := BuildTLSTransport(
 		http.DefaultTransport,
 		tc.TLSInsecureSkipVerify,
@@ -57,8 +49,6 @@ func BuildHTTPClientWithBearer(tc TransportConfig, token string) (*http.Client, 
 			return nil, err
 		}
 	}
-
-	transport = withBearerToken(transport, token)
 
 	if len(tc.Headers) > 0 {
 		transport = &headerTransport{base: transport, headers: tc.Headers}
@@ -124,33 +114,6 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(req)
-}
-
-// bearerTransport injects a static Authorization: Bearer header into every
-// request. It is applied outside headerTransport so an explicitly configured API
-// key wins over a same-named entry in the operator's default headers.
-type bearerTransport struct {
-	base  http.RoundTripper
-	token string
-}
-
-func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	req.Header.Set("Authorization", "Bearer "+t.token)
-	return t.base.RoundTrip(req)
-}
-
-// withBearerToken wraps a transport so every request carries the token. An empty
-// token leaves the transport untouched, which keeps a provider that needs no
-// credential from sending an Authorization header at all.
-func withBearerToken(base http.RoundTripper, token string) http.RoundTripper {
-	if token == "" {
-		return base
-	}
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return &bearerTransport{base: base, token: token}
 }
 
 // parametersJsonSchemaToMap converts a genai.FunctionDeclaration.ParametersJsonSchema value

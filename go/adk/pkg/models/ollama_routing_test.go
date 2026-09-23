@@ -1,6 +1,7 @@
 package models
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -53,7 +54,7 @@ func TestResolveOllamaEndpoint(t *testing.T) {
 	}
 }
 
-func TestIsOllamaCloudModel(t *testing.T) {
+func TestOllamaCloudModel(t *testing.T) {
 	cloud := []string{"minimax-m3:cloud", "deepseek-v4-flash:0731-cloud", "gpt-oss:120b-cloud"}
 	// "cloud" has to be the tag, not merely present in the name.
 	local := []string{"llama3.2", "cloudy-llm:7b", "nimbus-cloud-13b:q4", "llama3.3:70b"}
@@ -65,13 +66,13 @@ func TestIsOllamaCloudModel(t *testing.T) {
 	cloud = append(cloud, OllamaCloudModels...)
 
 	for _, m := range cloud {
-		if !IsOllamaCloudModel(m) {
-			t.Errorf("IsOllamaCloudModel(%q) = false, want true", m)
+		if !isOllamaCloudModel(m) {
+			t.Errorf("isOllamaCloudModel(%q) = false, want true", m)
 		}
 	}
 	for _, m := range local {
-		if IsOllamaCloudModel(m) {
-			t.Errorf("IsOllamaCloudModel(%q) = true, want false", m)
+		if isOllamaCloudModel(m) {
+			t.Errorf("isOllamaCloudModel(%q) = true, want false", m)
 		}
 	}
 }
@@ -148,66 +149,69 @@ func TestIsOllamaCloudEndpoint(t *testing.T) {
 	}
 }
 
-// withBearerToken is what carries OLLAMA_API_KEY to the cloud; an empty key must
-// leave the client untouched so a local daemon still receives no Authorization.
-func TestWithBearerToken(t *testing.T) {
-	send := func(client *http.Client) string {
-		t.Helper()
-		var got string
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			got = r.Header.Get("Authorization")
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer srv.Close()
-		resp, err := client.Get(srv.URL)
-		if err != nil {
-			t.Fatalf("GET: %v", err)
-		}
-		resp.Body.Close()
-		return got
+// The gateway placeholder travels to the cloud on the existing TransportConfig
+// header path, and only there. A local route must acquire no Authorization
+// header from the key, and a stale default header must not survive on one that
+// does carry the placeholder.
+func TestWithOllamaAuthorization(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		apiKey  string
+		headers map[string]string
+		want    string
+	}{
+		{name: "cloud endpoint takes the placeholder", host: ollamaCloudURL, apiKey: "placeholder", want: "Bearer placeholder"},
+		{name: "bare cloud host takes the placeholder", host: "api.ollama.com", apiKey: "placeholder", want: "Bearer placeholder"},
+		{name: "cloud endpoint without a key sends nothing", host: ollamaCloudURL},
+		{name: "local daemon never takes the key", host: ollamaLocalURL, apiKey: "placeholder"},
+		{name: "operator host never takes the key", host: "http://gpu-box.lan:11434", apiKey: "placeholder"},
+		{
+			// The placeholder is the credential; a stale default header would
+			// silently replace it.
+			name: "placeholder replaces a stale authorization", host: ollamaCloudURL, apiKey: "placeholder",
+			headers: map[string]string{"Authorization": "stale"}, want: "Bearer placeholder",
+		},
 	}
 
-	t.Run("injects the bearer token", func(t *testing.T) {
-		client, err := BuildHTTPClientWithBearer(TransportConfig{}, "ollama_secret")
-		if err != nil {
-			t.Fatalf("BuildHTTPClientWithBearer: %v", err)
-		}
-		if got := send(client); got != "Bearer ollama_secret" {
-			t.Errorf("Authorization = %q, want %q", got, "Bearer ollama_secret")
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := map[string]string(nil)
+			if tt.headers != nil {
+				original = maps.Clone(tt.headers)
+			}
+			got := withOllamaAuthorization(TransportConfig{Headers: tt.headers}, tt.host, tt.apiKey)
+			if value := got.Headers["Authorization"]; value != tt.want {
+				t.Errorf("Authorization = %q, want %q", value, tt.want)
+			}
+			if tt.headers != nil && !maps.Equal(tt.headers, original) {
+				t.Errorf("caller headers mutated: %v, want %v", tt.headers, original)
+			}
+		})
+	}
+}
 
-	t.Run("an empty token adds no header", func(t *testing.T) {
-		client, err := BuildHTTPClientWithBearer(TransportConfig{}, "")
-		if err != nil {
-			t.Fatalf("BuildHTTPClientWithBearer: %v", err)
-		}
-		if got := send(client); got != "" {
-			t.Errorf("Authorization = %q, want no header", got)
-		}
-	})
+// The config returned by withOllamaAuthorization has to survive the real client
+// stack, or the placeholder would be set and never sent.
+func TestWithOllamaAuthorizationReachesTheWire(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
 
-	t.Run("the key wins over a same-named default header", func(t *testing.T) {
-		// The explicit API key is the operator's intent; a stale Authorization in
-		// defaultHeaders must not silently replace it.
-		client, err := BuildHTTPClientWithBearer(
-			TransportConfig{Headers: map[string]string{"Authorization": "stale"}}, "fresh")
-		if err != nil {
-			t.Fatalf("BuildHTTPClientWithBearer: %v", err)
-		}
-		if got := send(client); got != "Bearer fresh" {
-			t.Errorf("Authorization = %q, want the API key to win", got)
-		}
-	})
+	client, err := BuildHTTPClient(withOllamaAuthorization(TransportConfig{}, ollamaCloudURL, "placeholder"))
+	if err != nil {
+		t.Fatalf("BuildHTTPClient: %v", err)
+	}
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	response.Body.Close()
 
-	t.Run("the key survives a non-Authorization default header", func(t *testing.T) {
-		client, err := BuildHTTPClientWithBearer(
-			TransportConfig{Headers: map[string]string{"X-Tenant": "acme"}}, "fresh")
-		if err != nil {
-			t.Fatalf("BuildHTTPClientWithBearer: %v", err)
-		}
-		if got := send(client); got != "Bearer fresh" {
-			t.Errorf("Authorization = %q, want %q", got, "Bearer fresh")
-		}
-	})
+	if got != "Bearer placeholder" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer placeholder")
+	}
 }
