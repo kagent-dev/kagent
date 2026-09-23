@@ -42,7 +42,7 @@ helm/                            installation charts
 ## Workflow
 
 1. Read the relevant roadmap PR and trace existing callers before editing.
-2. Reuse current compiler, service, database, and runtime code where its behavior matches the new boundary.
+2. Before adding a helper or public function, search for an equivalent in the owning package and its callers; reuse existing transport and credential paths when they fit. Keep model credentials as Secret references, not plaintext ModelConfig or serialized agent fields; Substrate injects them at the egress gateway.
 3. Keep generated code generated; edit source types, protobufs, SQL, or templates first.
 4. Add the smallest check that proves new behavior. Tests tied only to removed APIs should be deleted rather than translated.
 5. Run focused tests first, then the relevant repository checks.
