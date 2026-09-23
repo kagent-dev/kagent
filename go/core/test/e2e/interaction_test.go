@@ -260,6 +260,12 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	if fork.GetId() == fixture.instanceID || fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 		t.Fatalf("fork = %+v", fork)
 	}
+	listed, err = fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
+		AgentInstanceId: fork.GetId(),
+	})
+	if err != nil || len(listed.GetCheckpoints()) != 1 || listed.GetCheckpoints()[0].GetId() != checkpoint.GetId() {
+		t.Fatalf("inherited checkpoints = %+v, error %v", listed.GetCheckpoints(), err)
+	}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
@@ -328,14 +334,6 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
 		t.Fatalf("nested fork lost checkpoint memory: %+v", nestedTask)
 	}
-	if _, err := fixture.instances.DeleteAgentInstance(nestedCtx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: nestedID}); err != nil {
-		t.Fatalf("delete nested fork: %v", err)
-	}
-	if _, err := fixture.checkpoints.DeleteCheckpoint(forkCtx, &apiv1alpha1.DeleteCheckpointRequest{
-		CheckpointId: forkCheckpoint.GetCheckpoint().GetId(),
-	}); err != nil {
-		t.Fatalf("delete fresh fork checkpoint: %v", err)
-	}
 	forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client}
 	_, _, forkTask := forkFixture.send(t, "What was the answer before the checkpoint?")
 	if forkTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(forkTask), "The answer is 4.") {
@@ -346,10 +344,46 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("delete fork AgentInstance: %v", err)
 	}
-	if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
-		CheckpointId: checkpoint.GetId(),
-	}); err != nil {
-		t.Fatalf("delete checkpoint: %v", err)
+	listed, err = fixture.checkpoints.ListCheckpoints(nestedCtx, &apiv1alpha1.ListCheckpointsRequest{AgentInstanceId: nestedID})
+	if err != nil || len(listed.GetCheckpoints()) != 2 {
+		t.Fatalf("nested checkpoints after ancestor deletion = %+v, error %v", listed.GetCheckpoints(), err)
+	}
+	wantIDs := map[string]bool{checkpoint.GetId(): true, forkCheckpoint.GetCheckpoint().GetId(): true}
+	for _, inherited := range listed.GetCheckpoints() {
+		if !wantIDs[inherited.GetId()] {
+			t.Fatalf("unexpected inherited checkpoint %s", inherited.GetId())
+		}
+		delete(wantIDs, inherited.GetId())
+	}
+	if _, err := fixture.instances.DeleteAgentInstance(nestedCtx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: nestedID}); err != nil {
+		t.Fatalf("delete nested fork: %v", err)
+	}
+	// Both deleted instance IDs still resolve their complete checkpoint lineage,
+	// including a nested fork that never created a checkpoint of its own.
+	for _, instanceID := range []string{fork.GetId(), nestedID} {
+		remaining := map[string]bool{checkpoint.GetId(): true, forkCheckpoint.GetCheckpoint().GetId(): true}
+		var pageToken string
+		for page := range 2 {
+			listed, err := fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
+				AgentInstanceId: instanceID, Page: &apiv1alpha1.PageRequest{Limit: 1, PageToken: pageToken},
+			})
+			if err != nil || len(listed.GetCheckpoints()) != 1 || !remaining[listed.GetCheckpoints()[0].GetId()] {
+				t.Fatalf("deleted instance %s checkpoint page = %+v, error %v", instanceID, listed, err)
+			}
+			delete(remaining, listed.GetCheckpoints()[0].GetId())
+			pageToken = listed.GetPage().GetNextPageToken()
+			if (pageToken == "") != (page == 1) {
+				t.Fatalf("deleted instance %s page %d token = %q", instanceID, page, pageToken)
+			}
+		}
+	}
+	// Deleting instances retains their histories and the checkpoints they inherit.
+	for _, id := range []string{checkpoint.GetId(), forkCheckpoint.GetCheckpoint().GetId()} {
+		if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
+			CheckpointId: id,
+		}); status.Code(err) != codes.NotFound {
+			t.Fatalf("delete retained checkpoint %s = %v, want NotFound", id, err)
+		}
 	}
 }
 

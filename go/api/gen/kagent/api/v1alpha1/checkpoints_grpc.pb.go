@@ -33,6 +33,9 @@ const (
 type CheckpointServiceClient interface {
 	CreateCheckpoint(ctx context.Context, in *CreateCheckpointRequest, opts ...grpc.CallOption) (*CreateCheckpointResponse, error)
 	GetCheckpoint(ctx context.Context, in *GetCheckpointRequest, opts ...grpc.CallOption) (*GetCheckpointResponse, error)
+	// Lists ready checkpoints from the instance's history and inherited prefixes.
+	// Checkpoints retain their originating instance IDs, including after deletion
+	// of the originating or listed instance.
 	ListCheckpoints(ctx context.Context, in *ListCheckpointsRequest, opts ...grpc.CallOption) (*ListCheckpointsResponse, error)
 	DeleteCheckpoint(ctx context.Context, in *DeleteCheckpointRequest, opts ...grpc.CallOption) (*DeleteCheckpointResponse, error)
 	ForkAgentInstance(ctx context.Context, in *ForkAgentInstanceRequest, opts ...grpc.CallOption) (*ForkAgentInstanceResponse, error)
@@ -113,6 +116,9 @@ func (c *checkpointServiceClient) UpdateCheckpointName(ctx context.Context, in *
 type CheckpointServiceServer interface {
 	CreateCheckpoint(context.Context, *CreateCheckpointRequest) (*CreateCheckpointResponse, error)
 	GetCheckpoint(context.Context, *GetCheckpointRequest) (*GetCheckpointResponse, error)
+	// Lists ready checkpoints from the instance's history and inherited prefixes.
+	// Checkpoints retain their originating instance IDs, including after deletion
+	// of the originating or listed instance.
 	ListCheckpoints(context.Context, *ListCheckpointsRequest) (*ListCheckpointsResponse, error)
 	DeleteCheckpoint(context.Context, *DeleteCheckpointRequest) (*DeleteCheckpointResponse, error)
 	ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*ForkAgentInstanceResponse, error)

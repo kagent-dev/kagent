@@ -153,11 +153,12 @@ import {
   deleteCheckpoint,
   generatedCheckpointName,
   readCheckpoints,
+  recordCheckpointFork,
   renameCheckpoint,
   saveCheckpoint,
 } from "./state";
 import type { MockCheckpoint } from "./state";
-import { mockForkTranscript, mockLatestTaskId } from "@/api/chat/mockChatClient";
+import { mockForkTranscript, mockLatestTaskId, mockTranscriptOf } from "@/api/chat/mockChatClient";
 
 /** What a fake is told about the call it is answering. */
 interface MockCall {
@@ -1025,6 +1026,9 @@ on(CheckpointService.method.forkAgentInstance, (input, call) => {
     updatedAt: now,
   });
   mockForkTranscript(source.id, forked.id, checkpoint.headTaskId);
+  recordCheckpointFork(source.id, forked.id,
+    mockTranscriptOf(forked.id).flatMap((message) => message.taskId ? [message.taskId] : []),
+  );
   return { agentInstance: agentInstanceMessage(forked) };
 });
 

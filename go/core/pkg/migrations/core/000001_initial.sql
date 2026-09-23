@@ -65,13 +65,28 @@ CREATE TABLE agent_template_harness_pair (
 CREATE INDEX agent_template_harness_pair_name_idx
     ON agent_template_harness_pair (namespace, agent_template_name, harness_name);
 
-CREATE TABLE a2a_context (
-    id         UUID        PRIMARY KEY,
-    user_id    TEXT        NOT NULL CHECK (user_id <> ''),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    context_id UUID        NOT NULL,
-    CONSTRAINT a2a_context_binding_key UNIQUE (id, context_id)
+-- Each row owns one history branch; forks preserve the public A2A context_id.
+CREATE TABLE agent_history (
+    id                      UUID        PRIMARY KEY,
+    -- Historical provenance, retained after the instance is deleted.
+    instance_id             UUID        NOT NULL UNIQUE,
+    user_id                 TEXT        NOT NULL CHECK (user_id <> ''),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    context_id              UUID        NOT NULL,
+    parent_history_id       UUID,
+    -- ForkAgentInstance validates the cutoff against the parent's events in its transaction.
+    parent_history_sequence BIGINT,
+    CONSTRAINT agent_history_binding_key UNIQUE (id, user_id, context_id),
+    CONSTRAINT agent_history_instance_binding_key UNIQUE (id, instance_id, user_id, context_id),
+    CONSTRAINT agent_history_parent_binding_fkey
+        FOREIGN KEY (parent_history_id, user_id, context_id)
+        REFERENCES agent_history(id, user_id, context_id) ON DELETE RESTRICT,
+    CHECK ((parent_history_id IS NULL) = (parent_history_sequence IS NULL)),
+    CHECK (parent_history_id <> id),
+    CHECK (parent_history_sequence > 0)
 );
+CREATE INDEX agent_history_parent_history_idx ON agent_history (parent_history_id, parent_history_sequence)
+    WHERE parent_history_id IS NOT NULL;
 
 CREATE TABLE agent_instance_checkpoint (
     id                     UUID        PRIMARY KEY,
@@ -86,14 +101,14 @@ CREATE TABLE agent_instance_checkpoint (
     tag_uid                TEXT        NOT NULL DEFAULT '',
     state                  TEXT        NOT NULL,
     data                   BYTEA       NOT NULL,
-    source_history_id      UUID        NOT NULL REFERENCES a2a_context(id) ON DELETE RESTRICT,
+    source_history_id      UUID        NOT NULL REFERENCES agent_history(id) ON DELETE RESTRICT,
     prepared_revision      TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     CHECK (snapshot_content_scope IN ('FULL', 'DATA')),
     CHECK (state IN ('CREATING', 'READY', 'FAILED', 'DELETING')),
     UNIQUE (user_id, request_id)
 );
-CREATE INDEX agent_instance_checkpoint_list_idx
-    ON agent_instance_checkpoint (source_instance_id, id);
+CREATE INDEX agent_instance_checkpoint_history_idx
+    ON agent_instance_checkpoint (source_history_id, history_sequence);
 CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';
@@ -121,7 +136,8 @@ CREATE TABLE agent_instance (
         (prepared_revision IS NULL AND operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED')),
     history_id           UUID        NOT NULL,
     CONSTRAINT agent_instance_context_binding_fkey
-        FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
+        FOREIGN KEY (history_id, id, user_id, context_id)
+        REFERENCES agent_history(id, instance_id, user_id, context_id) ON DELETE RESTRICT,
     CONSTRAINT agent_instance_history_key UNIQUE (history_id),
     CONSTRAINT agent_instance_operation_check
         CHECK (operation IN ('AGENT_INSTANCE_OPERATION_UNSPECIFIED', 'AGENT_INSTANCE_OPERATION_CREATE',
@@ -145,7 +161,7 @@ CREATE INDEX agent_instance_share_instance_idx
     ON agent_instance_share (instance_id, id);
 
 CREATE TABLE agent_instance_task (
-    history_id             UUID        CONSTRAINT agent_instance_task_instance_id_not_null NOT NULL REFERENCES a2a_context(id) ON DELETE CASCADE,
+    history_id             UUID        CONSTRAINT agent_instance_task_instance_id_not_null NOT NULL REFERENCES agent_history(id) ON DELETE CASCADE,
     id                     TEXT        NOT NULL,
     state                  TEXT        NOT NULL,
     status_timestamp       TIMESTAMPTZ,
@@ -179,7 +195,7 @@ CREATE UNIQUE INDEX agent_instance_task_message_idx
 
 CREATE TABLE agent_instance_task_event (
     sequence   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    history_id UUID        CONSTRAINT agent_instance_task_event_instance_id_not_null NOT NULL REFERENCES a2a_context(id) ON DELETE CASCADE,
+    history_id UUID        CONSTRAINT agent_instance_task_event_instance_id_not_null NOT NULL REFERENCES agent_history(id) ON DELETE CASCADE,
     task_id    TEXT,
     data       BYTEA       NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -280,7 +296,7 @@ DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
 DROP TABLE agent_instance_checkpoint;
-DROP TABLE a2a_context;
+DROP TABLE agent_history;
 DROP TABLE agent_template_harness_pair;
 DROP TABLE runtime_revision;
 DROP TABLE toolserver;

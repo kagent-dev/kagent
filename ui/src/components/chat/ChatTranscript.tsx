@@ -88,9 +88,7 @@ export function ChatTranscript({
   /**
    * The conversation being shown, handed to each message.
    *
-   * Only used by contributions at the per-message point: a message id means something
-   * to this client, while anything asking a backend about the work behind a message is
-   * keyed by the conversation and the turn.
+   * Also determines which checkpoints were created here and may expose rename/delete.
    */
   sessionId?: string;
 }) {
@@ -354,6 +352,8 @@ export function ChatTranscript({
           ));
           const checkpointId = group.checkpointId;
           if (checkpointId) {
+            const checkpoint = checkpointsById?.get(checkpointId);
+            const isLocal = Boolean(checkpoint && checkpoint.agentInstanceId === sessionId);
             drawn.push(
               <div
                 key={`checkpoint-${checkpointId}`}
@@ -368,11 +368,15 @@ export function ChatTranscript({
               >
                 <CheckpointDivider
                   checkpointId={checkpointId}
-                  checkpoint={checkpointsById?.get(checkpointId)}
+                  checkpoint={checkpoint}
                   onOpen={onOpenCheckpoint && (() => onOpenCheckpoint(checkpointId))}
                   onFork={onFork && (() => onFork(checkpointId))}
-                  onRename={onRenameCheckpoint && (() => onRenameCheckpoint(checkpointId))}
-                  onDelete={onDeleteCheckpoint && (() => onDeleteCheckpoint(checkpointId))}
+                  onRename={
+                    isLocal && onRenameCheckpoint ? () => onRenameCheckpoint(checkpointId) : undefined
+                  }
+                  onDelete={
+                    isLocal && onDeleteCheckpoint ? () => onDeleteCheckpoint(checkpointId) : undefined
+                  }
                 />
               </div>,
             );

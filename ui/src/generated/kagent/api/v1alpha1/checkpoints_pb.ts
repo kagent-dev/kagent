@@ -29,6 +29,9 @@ export type Checkpoint = Message<"kagent.api.v1alpha1.Checkpoint"> & {
   id: string;
 
   /**
+   * The instance that created this checkpoint. For an inherited checkpoint this
+   * differs from the instance requested in ListCheckpoints.
+   *
    * @generated from field: string agent_instance_id = 2;
    */
   agentInstanceId: string;
@@ -153,6 +156,9 @@ export const GetCheckpointResponseSchema: GenMessage<GetCheckpointResponse> = /*
  */
 export type ListCheckpointsRequest = Message<"kagent.api.v1alpha1.ListCheckpointsRequest"> & {
   /**
+   * The instance whose local and inherited checkpoints to list. Its retained
+   * history remains listable after the instance is deleted.
+   *
    * @generated from field: string agent_instance_id = 1;
    */
   agentInstanceId: string;
@@ -360,6 +366,10 @@ export const CheckpointService: GenService<{
     output: typeof GetCheckpointResponseSchema;
   },
   /**
+   * Lists ready checkpoints from the instance's history and inherited prefixes.
+   * Checkpoints retain their originating instance IDs, including after deletion
+   * of the originating or listed instance.
+   *
    * @generated from rpc kagent.api.v1alpha1.CheckpointService.ListCheckpoints
    */
   listCheckpoints: {

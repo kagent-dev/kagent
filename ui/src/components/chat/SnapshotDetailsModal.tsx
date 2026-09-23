@@ -49,7 +49,7 @@ export function SnapshotDetailsModal({
   onRenamed,
 }: {
   checkpoint: Checkpoint;
-  /** The conversation it was taken in, which the extension point is keyed by. */
+  /** The conversation being viewed; inherited checkpoints originate elsewhere. */
   instanceId: string;
   onClose: () => void;
   /** Opens a new conversation holding the transcript up to here. */
@@ -69,6 +69,7 @@ export function SnapshotDetailsModal({
   const [isBusy, setBusy] = useState(false);
   const label = snapshotLabel(checkpoint);
   const forkable = canForkFrom(checkpoint);
+  const isLocal = checkpoint.agentInstanceId === instanceId;
   const state = STATE_APPEARANCE[checkpoint.state];
 
   async function act(run: () => void | Promise<void>) {
@@ -106,16 +107,18 @@ export function SnapshotDetailsModal({
               children: (
                 <Space size={4}>
                   <Text data-testid="snapshot-details-name">{label}</Text>
-                  <Tooltip title="Rename this snapshot">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<Pencil size={13} />}
-                      onClick={() => setRenaming(true)}
-                      data-testid="snapshot-details-rename"
-                      aria-label="Rename this snapshot"
-                    />
-                  </Tooltip>
+                  {isLocal ? (
+                    <Tooltip title="Rename this snapshot">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<Pencil size={13} />}
+                        onClick={() => setRenaming(true)}
+                        data-testid="snapshot-details-rename"
+                        aria-label="Rename this snapshot"
+                      />
+                    </Tooltip>
+                  ) : null}
                 </Space>
               ),
             },
@@ -220,32 +223,34 @@ export function SnapshotDetailsModal({
             </span>
           </Tooltip>
 
-          <Popconfirm
-            title="Delete this snapshot?"
-            description="The saved runtime goes with it and nothing brings it back. Chats already forked from here are kept."
-            overlayStyle={{ maxWidth: 320 }}
-            okText="Delete"
-            okButtonProps={{ danger: true, "data-testid": "snapshot-details-delete-confirm" }}
-            cancelText="Cancel"
-            cancelButtonProps={{ "data-testid": "snapshot-details-delete-cancel" }}
-            onConfirm={() => void act(() => onDelete(checkpoint.id))}
-          >
-            <Button
-              danger
-              icon={<Eraser size={14} />}
-              disabled={isBusy}
-              data-testid="snapshot-details-delete"
-              css={{
-                "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
-                  background: theme.color.dangerBg,
-                  borderColor: theme.color.dangerBorder,
-                },
-                "&:active:not(:disabled)": { background: theme.color.dangerBg, opacity: 0.85 },
-              }}
+          {isLocal ? (
+            <Popconfirm
+              title="Delete this snapshot?"
+              description="The saved runtime goes with it and nothing brings it back. Chats already forked from here are kept."
+              overlayStyle={{ maxWidth: 320 }}
+              okText="Delete"
+              okButtonProps={{ danger: true, "data-testid": "snapshot-details-delete-confirm" }}
+              cancelText="Cancel"
+              cancelButtonProps={{ "data-testid": "snapshot-details-delete-cancel" }}
+              onConfirm={() => void act(() => onDelete(checkpoint.id))}
             >
-              Delete
-            </Button>
-          </Popconfirm>
+              <Button
+                danger
+                icon={<Eraser size={14} />}
+                disabled={isBusy}
+                data-testid="snapshot-details-delete"
+                css={{
+                  "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
+                    background: theme.color.dangerBg,
+                    borderColor: theme.color.dangerBorder,
+                  },
+                  "&:active:not(:disabled)": { background: theme.color.dangerBg, opacity: 0.85 },
+                }}
+              >
+                Delete
+              </Button>
+            </Popconfirm>
+          ) : null}
         </Space>
 
         {/* Part of the record rather than something floating under it, which is what
@@ -269,7 +274,7 @@ export function SnapshotDetailsModal({
 
       {/* Mounted only while open, which is what seeds the box with the stored name
           without an effect to put it there — see `RenameConversationDialog`. */}
-      {isRenaming ? (
+      {isLocal && isRenaming ? (
         <SnapshotRenameDialog
           checkpoint={checkpoint}
           onClose={() => setRenaming(false)}
