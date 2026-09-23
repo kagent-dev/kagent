@@ -32,7 +32,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		t.Helper()
 		events, err := queryMany(ctx, q, `
 			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+			    request_hash, turn_id, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
 			    history_id = $1 ORDER BY sequence
 		`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
 		require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	// A source task changing or even losing its view must not affect an old fork.
 	events, err := queryMany(ctx, q, `
 		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+		    request_hash, turn_id, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
 		    history_id = $1 ORDER BY sequence
 	`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
 	require.NoError(t, err)

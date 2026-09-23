@@ -496,6 +496,19 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
+	turnID := uuid.New()
+	_, err = db.Exec(ctx, `
+		UPDATE agent_instance_task
+		SET turn_id = $2, turn_phase = 'SETTLED', turn_request = $3, turn_previous_task = $4
+		WHERE history_id = (SELECT history_id FROM agent_instance WHERE id = $1) AND id = 'task-1'
+	`, source.GetId(), turnID, []byte("accepted request"), []byte("waiting task"))
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `
+		UPDATE agent_instance_task_event SET turn_id = $2
+		WHERE history_id = (SELECT history_id FROM agent_instance WHERE id = $1)
+		  AND task_id = 'task-1' AND initial_message_id = 'message-1'
+	`, source.GetId(), turnID)
+	require.NoError(t, err)
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", AgentInstanceId: source.GetId()}, "alice", "checkpoint-request-1")
 	if err != nil {
 		t.Fatal(err)
@@ -558,15 +571,38 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	var initialMessageID *string
 	var requestHash []byte
 	var snapshotUID string
+	var copiedTurnID, copiedTurnOwnerID *uuid.UUID
+	var copiedTurnPhase *string
+	var copiedTurnRequest, copiedPreviousTask []byte
+	var copiedTurnOwnerExpiry *time.Time
+	var copiedCancelRequested bool
 	if err := db.QueryRow(ctx, `
-		SELECT initial_message_id, request_hash, snapshot_uri
+		SELECT initial_message_id, request_hash, snapshot_uri, turn_id, turn_phase, turn_request,
+		    turn_previous_task, turn_owner_id, turn_owner_expires_at, turn_cancel_requested
 		FROM agent_instance_task WHERE history_id = (SELECT history_id FROM agent_instance WHERE id = $1) AND id = $2
-	`, fork.GetId(), copied.ID).Scan(&initialMessageID, &requestHash, &snapshotUID); err != nil {
+	`, fork.GetId(), copied.ID).Scan(&initialMessageID, &requestHash, &snapshotUID, &copiedTurnID,
+		&copiedTurnPhase, &copiedTurnRequest, &copiedPreviousTask, &copiedTurnOwnerID,
+		&copiedTurnOwnerExpiry, &copiedCancelRequested); err != nil {
 		t.Fatal(err)
 	}
 	if initialMessageID == nil || *initialMessageID != first.History[0].ID || string(requestHash) != "message-request-1" || snapshotUID != "s3://tags/checkpoint" {
 		t.Fatalf("copied persistence metadata = message %v hash %v snapshot %q", initialMessageID, requestHash, snapshotUID)
 	}
+	require.Nil(t, copiedTurnID)
+	require.Nil(t, copiedTurnPhase)
+	require.Nil(t, copiedTurnRequest)
+	require.Nil(t, copiedPreviousTask)
+	require.Nil(t, copiedTurnOwnerID)
+	require.Nil(t, copiedTurnOwnerExpiry)
+	require.False(t, copiedCancelRequested)
+	var copiedReceiptTurnID uuid.UUID
+	err = db.QueryRow(ctx, `
+		SELECT turn_id FROM agent_instance_task_event
+		WHERE history_id = (SELECT history_id FROM agent_instance WHERE id = $1)
+		  AND task_id = $2 AND initial_message_id = $3
+	`, fork.GetId(), copied.ID, first.History[0].ID).Scan(&copiedReceiptTurnID)
+	require.NoError(t, err)
+	require.Equal(t, turnID, copiedReceiptTurnID)
 	replayed, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", "ignored")
 	if err != nil || created || replayed.GetId() != fork.GetId() {
 		t.Fatalf("replayed fork = %+v, created %v, error %v", replayed, created, err)

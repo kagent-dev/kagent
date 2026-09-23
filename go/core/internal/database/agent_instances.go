@@ -293,6 +293,12 @@ func (c *Client) TransitionAgentInstance(
 			WHERE agent_instance.id = $4
 			  AND agent_instance.state = $5
 			  AND agent_instance.operation = $6
+			  AND NOT EXISTS (
+			    SELECT 1 FROM agent_instance_task current_turn
+			    WHERE current_turn.history_id = agent_instance.history_id
+			      AND current_turn.turn_phase IS NOT NULL
+			      AND current_turn.turn_phase <> 'SETTLED'
+			  )
 			  AND (
 			    $6::text <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
 			    OR NOT EXISTS (
@@ -349,6 +355,18 @@ func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
 		}
 		if row.OperationID != nil && row.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED.String() {
 			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)
+		}
+		activeTurn, err := queryOne(ctx, tx, `
+			SELECT EXISTS (
+			    SELECT 1 FROM agent_instance_task
+			    WHERE history_id = $1 AND turn_phase IS NOT NULL AND turn_phase <> 'SETTLED'
+			)
+		`, pgx.RowTo[bool], row.HistoryID)
+		if err != nil {
+			return err
+		}
+		if activeTurn {
+			return fmt.Errorf("AgentInstance has an active task turn: %w", ErrConflict)
 		}
 		instance, err := toAgentInstance(row)
 		if err != nil {

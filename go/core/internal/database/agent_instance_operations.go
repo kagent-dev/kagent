@@ -95,6 +95,9 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance SET operation = $2, data = $3, operation_id = $5, executor_id = NULL WHERE id = $1
 			AND NOT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $1 AND state = 'CREATING')
+			AND NOT EXISTS (
+			    SELECT 1 FROM agent_instance_task WHERE history_id = $4
+			    AND turn_phase IS NOT NULL AND turn_phase <> 'SETTLED')
 			AND ($2::text <> 'AGENT_INSTANCE_OPERATION_SUSPEND' OR NOT EXISTS (
 			    SELECT 1 FROM agent_instance_task WHERE history_id = $4
 			    AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED',
@@ -123,10 +126,13 @@ func (c *Client) ClaimAgentInstanceOperation(ctx context.Context, instanceID str
 		return false, fmt.Errorf("lifecycle generation and executor IDs are required")
 	}
 	tag, err := c.db.Exec(ctx, `
-		UPDATE agent_instance SET executor_id = $3
-		WHERE id = $1 AND operation_id = $2 AND executor_id IS NULL
+		UPDATE agent_instance i SET executor_id = $3
+		WHERE i.id = $1 AND operation_id = $2 AND executor_id IS NULL
 		  AND operation <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
 		  AND state <> 'AGENT_INSTANCE_STATE_DELETED'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM agent_instance_task t WHERE t.history_id = i.history_id
+		      AND t.turn_phase IS NOT NULL AND t.turn_phase <> 'SETTLED')
 	`, instanceID, id, executorID)
 	return tag.RowsAffected() == 1, err
 }

@@ -19,6 +19,29 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// TaskAdmission identifies the durable execution turn created for an accepted message.
+// Retries return the receipt's original turn even when the task has since advanced.
+type TaskAdmission struct {
+	Task   *a2a.Task
+	TurnID uuid.UUID
+}
+
+type admittedTaskTurn struct {
+	id      uuid.UUID
+	request []byte
+}
+
+// AdmitAgentInstanceTask atomically stores a task, its creation event, retry receipt,
+// and complete normalized execution request.
+func (c *Client) AdmitAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, request *a2a.SendMessageRequest, task *a2a.Task) (*TaskAdmission, error) {
+	requestData, err := marshalSendMessageRequest(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode admitted AgentInstance task request: %w", err)
+	}
+	admission, _, err := c.createAgentInstanceTask(ctx, instanceID, requestHash, task, &admittedTaskTurn{id: uuid.New(), request: requestData})
+	return admission, err
+}
+
 // CreateAgentInstanceTask atomically stores a task, its creation event, and initial
 // messages for a READY instance with no lifecycle operation. It requires an initial
 // message and matching context. Reusing the initial message ID returns the stored task if
@@ -27,6 +50,14 @@ import (
 // boolean reports a new reservation; callers authorize access and invoke the runtime
 // separately.
 func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
+	admission, created, err := c.createAgentInstanceTask(ctx, instanceID, requestHash, task, nil)
+	if admission == nil {
+		return nil, created, err
+	}
+	return admission.Task, created, err
+}
+
+func (c *Client) createAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task, turn *admittedTaskTurn) (*TaskAdmission, bool, error) {
 	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
@@ -45,6 +76,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 	}
 
 	result := task
+	turnID := uuid.Nil
 	created := false
 	var historyID uuid.UUID
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
@@ -61,7 +93,9 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		}
 		existing, err := queryOne(ctx, tx, `
 			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence,
+			    turn_id, turn_phase, turn_request, turn_previous_task, turn_owner_id, turn_owner_expires_at,
+			    turn_cancel_requested, position
 			FROM agent_instance_task WHERE history_id = $1 AND initial_message_id = $2
 		`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, message.ID)
 		if err == nil {
@@ -72,6 +106,16 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			if err != nil {
 				return err
 			}
+			receiptTurnID, receiptErr := queryOne(ctx, tx, `
+				SELECT turn_id FROM agent_instance_task_event
+				WHERE history_id = $1 AND task_id = $2 AND task_position IS NOT NULL
+			`, pgx.RowTo[*uuid.UUID], historyID, existing.ID)
+			if receiptErr != nil && !errors.Is(receiptErr, pgx.ErrNoRows) {
+				return fmt.Errorf("get AgentInstance task admission receipt: %w", receiptErr)
+			}
+			if receiptTurnID != nil {
+				turnID = *receiptTurnID
+			}
 			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result}, nil)
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -80,20 +124,32 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance %s cannot accept a task in state %s with operation %s: %w", instanceID, instance.State, instance.Operation, ErrConflict)
 		}
+		var admittedTurnID *uuid.UUID
+		var turnPhase *string
+		var turnRequest []byte
+		if turn != nil {
+			admittedTurnID, turnID, turnRequest = &turn.id, turn.id, turn.request
+			phase := "ADMITTED"
+			turnPhase = &phase
+		}
 		row, err := queryOne(ctx, tx, `
 			INSERT INTO agent_instance_task (
-			    history_id, id, state, status_timestamp, data, initial_message_id, request_hash
+			    history_id, id, state, status_timestamp, data, initial_message_id, request_hash,
+			    turn_id, turn_phase, turn_request
 			)
-			SELECT $1, $2, $3, $4, $5, $6, $7
+			SELECT $1, $2, $3, $4, $5, $6, $7, $9, $10, $11
 			WHERE NOT EXISTS (
 			    SELECT 1 FROM agent_instance_checkpoint
 			    WHERE source_instance_id = $8 AND state = 'CREATING'
 			)
 			RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence,
+			    turn_id, turn_phase, turn_request, turn_previous_task, turn_owner_id, turn_owner_expires_at,
+			    turn_cancel_requested, position
 		`,
 			pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID), string(task.Status.State),
 			task.Status.Timestamp, taskData, &message.ID, requestHash, instance.ID,
+			admittedTurnID, turnPhase, turnRequest,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
@@ -112,6 +168,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			TaskPosition:     &row.Position,
 			InitialMessageID: row.InitialMessageID,
 			RequestHash:      row.RequestHash,
+			TurnID:           admittedTurnID,
 			CreatedAt:        &row.CreatedAt,
 		}); err != nil {
 			return fmt.Errorf("record task creation: %w", err)
@@ -122,7 +179,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 	if err != nil {
 		return nil, false, fmt.Errorf("create AgentInstance task: %w", err)
 	}
-	return result, created, nil
+	return &TaskAdmission{Task: result, TurnID: turnID}, created, nil
 }
 
 // TaskContinuation describes the same task before and after reply admission.
@@ -132,6 +189,20 @@ type TaskContinuation struct {
 	// Previous is the waiting task before a newly admitted reply. It is nil on
 	// retries, which must not dispatch the reply again.
 	Previous *a2a.Task
+}
+
+// AdmitAgentInstanceTaskContinuation atomically installs a new turn for an accepted
+// reply and persists the exact waiting task used to restore runtime state.
+func (c *Client) AdmitAgentInstanceTaskContinuation(ctx context.Context, instanceID string, requestHash []byte, request *a2a.SendMessageRequest) (*TaskAdmission, error) {
+	if request == nil {
+		return nil, fmt.Errorf("task reply requires a request")
+	}
+	requestData, err := marshalSendMessageRequest(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode admitted AgentInstance task reply: %w", err)
+	}
+	_, admission, err := c.continueAgentInstanceTask(ctx, instanceID, requestHash, request.Message, &admittedTaskTurn{id: uuid.New(), request: requestData})
+	return admission, err
 }
 
 // ContinueAgentInstanceTask atomically admits a reply to a waiting task, archives
@@ -144,10 +215,16 @@ type TaskContinuation struct {
 // runtime continuation state. Retries return Current without another dispatch.
 // Missing instances/tasks return ErrNotFound; callers authorize access.
 func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message) (*TaskContinuation, error) {
+	continuation, _, err := c.continueAgentInstanceTask(ctx, instanceID, requestHash, message, nil)
+	return continuation, err
+}
+
+func (c *Client) continueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message, turn *admittedTaskTurn) (*TaskContinuation, *TaskAdmission, error) {
 	if message == nil || message.ID == "" || message.TaskID == "" || len(requestHash) == 0 {
-		return nil, fmt.Errorf("task reply requires message ID, task ID, and request hash")
+		return nil, nil, fmt.Errorf("task reply requires message ID, task ID, and request hash")
 	}
 	var result, waiting *a2a.Task
+	turnID := uuid.Nil
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		instance, err := lockAgentInstance(ctx, tx, instanceID)
 		if err != nil {
@@ -167,13 +244,20 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		if err != nil {
 			return err
 		}
-		hash, err := queryOne(ctx, tx, `
-			SELECT request_hash FROM agent_instance_task_event
+		type receiptRow struct {
+			RequestHash []byte
+			TurnID      *uuid.UUID
+		}
+		receipt, err := queryOne(ctx, tx, `
+			SELECT request_hash, turn_id FROM agent_instance_task_event
 			WHERE history_id = $1 AND task_id = $2 AND message_id = $3
-		`, pgx.RowTo[[]byte], instance.HistoryID, string(message.TaskID), message.ID)
+		`, pgx.RowToStructByName[receiptRow], instance.HistoryID, string(message.TaskID), message.ID)
 		if err == nil {
-			if !bytes.Equal(hash, requestHash) {
+			if !bytes.Equal(receipt.RequestHash, requestHash) {
 				return ErrIdempotencyConflict
+			}
+			if receipt.TurnID != nil {
+				turnID = *receipt.TurnID
 			}
 			return loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, []*a2a.Task{result}, nil)
 		}
@@ -208,6 +292,13 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 			return err
 		}
 		waiting = result
+		var previousTaskData []byte
+		if turn != nil {
+			previousTaskData, err = marshalTask(waiting)
+			if err != nil {
+				return fmt.Errorf("encode previous AgentInstance task: %w", err)
+			}
+		}
 		submitted := *waiting
 		submitted.History = append([]*a2a.Message{}, waiting.History...)
 		if question := waiting.Status.Message; question != nil {
@@ -228,19 +319,31 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &submitted, message, nil); err != nil {
 			return err
 		}
+		var admittedTurnID *uuid.UUID
+		if turn != nil {
+			admittedTurnID, turnID = &turn.id, turn.id
+			if err := execSQL(ctx, tx, `
+				UPDATE agent_instance_task SET turn_id = $3, turn_phase = 'ADMITTED', turn_request = $4,
+				    turn_previous_task = $5, turn_owner_id = NULL, turn_owner_expires_at = NULL,
+				    turn_cancel_requested = FALSE
+				WHERE history_id = $1 AND id = $2
+			`, instance.HistoryID, string(message.TaskID), turn.id, turn.request, previousTaskData); err != nil {
+				return err
+			}
+		}
 		if err := execSQL(ctx, tx, `
-			UPDATE agent_instance_task_event SET request_hash = $4
+			UPDATE agent_instance_task_event SET request_hash = $4, turn_id = $5
 			WHERE history_id = $1 AND task_id = $2 AND message_id = $3
-		`, instance.HistoryID, string(message.TaskID), message.ID, requestHash); err != nil {
+		`, instance.HistoryID, string(message.TaskID), message.ID, requestHash, admittedTurnID); err != nil {
 			return err
 		}
 		result = &submitted
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("continue AgentInstance task: %w", err)
+		return nil, nil, fmt.Errorf("continue AgentInstance task: %w", err)
 	}
-	return &TaskContinuation{Current: result, Previous: waiting}, nil
+	return &TaskContinuation{Current: result, Previous: waiting}, &TaskAdmission{Task: result, TurnID: turnID}, nil
 }
 
 // taskInterruptedMessage explains a task terminated because its runtime no
@@ -292,7 +395,9 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
 			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence,
+			    turn_id, turn_phase, turn_request, turn_previous_task, turn_owner_id, turn_owner_expires_at,
+			    turn_cancel_requested, position FROM
 			    agent_instance_task
 			WHERE history_id = $1
 			  AND state NOT IN (
@@ -415,7 +520,9 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 	var stored *a2apb.Task
 	if row, err := queryOne(ctx, tx, `
 		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence,
+		    turn_id, turn_phase, turn_request, turn_previous_task, turn_owner_id, turn_owner_expires_at,
+		    turn_cancel_requested, position FROM
 		    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
 		stored = &a2apb.Task{}
@@ -674,7 +781,6 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		if err != nil {
 			return fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
 		}
-
 		count, err := queryOne(ctx, tx, `
 			SELECT COUNT(*) FROM agent_instance_task
 			WHERE history_id = $1
@@ -688,7 +794,9 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		rows, err := queryMany(ctx, tx, `
 			SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
 			    t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
-			    t.history_sequence, t.position FROM agent_instance_task t
+			    t.history_sequence, t.turn_id, t.turn_phase, t.turn_request, t.turn_previous_task,
+			    t.turn_owner_id, t.turn_owner_expires_at, t.turn_cancel_requested, t.position
+			FROM agent_instance_task t
 			WHERE t.history_id = $1
 			  AND ($2::text = '' OR t.position > (
 			      SELECT cursor.position FROM agent_instance_task cursor
@@ -889,6 +997,13 @@ type agentInstanceTaskRow struct {
 	SnapshotURI          *string
 	SnapshotContentScope *string
 	HistorySequence      *int64
+	TurnID               *uuid.UUID
+	TurnPhase            *taskTurnPhase
+	TurnRequest          []byte
+	TurnPreviousTask     []byte
+	TurnOwnerID          *uuid.UUID
+	TurnOwnerExpiresAt   *time.Time
+	TurnCancelRequested  bool
 	Position             int64
 }
 
@@ -902,6 +1017,7 @@ type agentInstanceTaskEventRow struct {
 	TaskPosition         *int64
 	InitialMessageID     *string
 	RequestHash          []byte
+	TurnID               *uuid.UUID
 	SnapshotAtespace     *string
 	SnapshotURI          *string
 	SnapshotContentScope *string
@@ -918,6 +1034,7 @@ type taskEventWrite struct {
 	TaskPosition         *int64
 	InitialMessageID     *string
 	RequestHash          []byte
+	TurnID               *uuid.UUID
 	CreatedAt            *time.Time
 }
 
@@ -936,8 +1053,8 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 		WITH inserted AS (
 		    INSERT INTO agent_instance_task_event
 		        (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope,
-		         task_position, initial_message_id, request_hash, created_at)
-		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::timestamptz, NOW()))
+		         task_position, initial_message_id, request_hash, turn_id, created_at)
+		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::timestamptz, NOW()))
 		    ON CONFLICT (history_id, task_id, message_id)
 		        WHERE message_id IS NOT NULL
 		    DO NOTHING
@@ -951,7 +1068,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 	`,
 		pgx.RowTo[int64], event.HistoryID, event.TaskID, event.MessageID, event.Data, event.SnapshotAtespace,
 		event.SnapshotURI, event.SnapshotContentScope, event.TaskPosition, event.InitialMessageID, event.RequestHash,
-		event.CreatedAt,
+		event.TurnID, event.CreatedAt,
 	)
 }
 
@@ -960,7 +1077,9 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 func readAgentInstanceTask(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (agentInstanceTaskRow, error) {
 	return queryOne(ctx, db, `
 		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence,
+		    turn_id, turn_phase, turn_request, turn_previous_task, turn_owner_id, turn_owner_expires_at,
+		    turn_cancel_requested, position FROM
 		    agent_instance_task
 		WHERE history_id = $1 AND id = $2
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID)
@@ -979,7 +1098,9 @@ func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID,
 		    data = EXCLUDED.data,
 		    updated_at = NOW()
 		RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence,
+		    turn_id, turn_phase, turn_request, turn_previous_task, turn_owner_id, turn_owner_expires_at,
+		    turn_cancel_requested, position
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID, state, statusTimestamp, data)
 }
 
