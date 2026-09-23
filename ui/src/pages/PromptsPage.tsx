@@ -231,8 +231,7 @@ export function PromptsPage() {
             },
           ]}
           trailing={
-            /* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */
-            !error && !isLoading && data !== undefined ? (
+            !error && !isLoading ? (
               <Text data-testid="prompts-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {libraries.length}{" "}
                 {libraries.length === 1 ? "library" : "libraries"}

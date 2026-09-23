@@ -459,8 +459,7 @@ export function AgentsTab() {
           ]}
           trailing={
             <Space size={8}>
-              {/* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */}
-              {!loadFailure && !templates.isLoading && templates.data !== undefined ? (
+              {!loadFailure && !templates.isLoading ? (
                 <Text data-testid="agents-summary" css={{ color: theme.color.textMuted }}>
                   {filtered.length} of {agents.length}{" "}
                   {agents.length === 1 ? "agent" : "agents"}

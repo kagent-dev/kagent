@@ -6,21 +6,21 @@
  * the app already ships for the purpose.
  */
 
-import { expect, test, type Locator, type Page } from "@playwright/test";
-
-import { LIVE_PROJECT } from "../../playwright.config";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /** Routes the suite drives. Mirrors `src/router/routes.ts`. */
 export const routes = {
   dashboard: "/",
   login: "/login",
   agents: "/agents",
+  agentNew: "/agents/new",
   models: "/models",
   modelNew: "/models/new",
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
   prompts: "/prompts",
   promptNew: "/prompts/new",
+  snapshots: "/snapshots",
   substrate: "/substrate",
   /* The templates list is a tab of the agents page now. The old address still
      resolves — it redirects here — but a test should go where the reader goes. */
@@ -157,82 +157,8 @@ export function dataRows(page: Page): Locator {
   return page.locator("tbody tr.ant-table-row");
 }
 
-/**
- * How long one read inside a journey may take, which is not how long the journey may.
- *
- * These specs asked for sixty seconds an assertion while the mock lane's whole
- * `LIFECYCLE_TIMEOUT` is sixty — so an assertion could never exhaust its own budget, and
- * a broken one was reported as "Test timeout of 60000ms exceeded" rather than by name.
- * The numbers were sized for the live budget and inherited unchanged by the mock run.
- * Same argument as `PRESS_TIMEOUT`: when this is what failed, this should be what says
- * so.
- */
-export const READ_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 60_000 : 20_000;
-
-
 /** A navigation-sized budget, for the app booting rather than for what it rendered. */
 const APP_BOOT_TIMEOUT = 15_000;
-
-/**
- * Whether this run is against a cluster rather than the fixtures.
- *
- * For the few places where the two backends differ in kind and not merely in speed —
- * a reload restarts the in-browser fixture backend, and a controller fills a status
- * only on a real one. A spec branching on this is saying so out loud, which is better
- * than a claim that quietly means something different on each.
- */
-export function isLiveRun(): boolean {
-  return test.info().project.name === LIVE_PROJECT;
-}
-
-/**
- * Navigates, for a spec in `shared/` that runs against either backend.
- *
- * `loadPage` cannot: it appends a `?mock=` scenario, which is meaningless to a cluster
- * and misleading in a live trace. So the scenario is added only where there is a mock
- * backend to read it, and the wait is on the shell rather than on a heading, a live
- * page taking longer to have one.
- */
-export async function loadApp(page: Page, path: string): Promise<void> {
-  const live = isLiveRun();
-  await page.goto(live ? path : withScenario(path, "ok"), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(page.getByTestId("app-content")).toBeVisible({
-    timeout: live ? 60_000 : APP_BOOT_TIMEOUT,
-  });
-}
-
-/**
- * Fails when the page is reporting that it could not reach the backend.
- *
- * Worth calling before asserting on content: the alternative is a failure reading "the
- * table is empty" when the truth is "the backend did not answer" — the same distinction
- * the app itself is careful about.
- *
- * **Call it after something that proves the read landed**, never straight after a
- * navigation. It is a count taken once, and `loadApp` returns on the shell: asked in
- * that gap it passes on every page, including one whose read fails a moment later. A
- * list's `expectListLoaded` or its own summary is the signal to put in front of it —
- * `live/pages.spec.ts` keeps the table of what each page draws.
- */
-export async function expectNoLoadFailure(page: Page): Promise<void> {
-  /*
-   * Both families, because the app says it two ways. A page with room for an alert draws
-   * `<thing>-error`; one with only a line of copy where the data goes draws
-   * `<thing>-unavailable` — the dashboard's recent list, the schedules table, the tools
-   * chart, the schedule history, each rendered on `error` and nothing else. Matching the
-   * first alone, this passed on a dashboard that could not reach the controller.
-   */
-  const alerts = page.locator(
-    '[data-testid$="-error"], [data-testid$="-unavailable"]',
-  );
-  const count = await alerts.count();
-  if (count === 0) return;
-
-  const texts = await alerts.allInnerTexts();
-  expect(count, `the page reported a failure to load: ${texts.join(" | ")}`).toBe(0);
-}
 
 /**
  * Resolves once the app is on screen and no loading indicator is left on it.
@@ -244,90 +170,4 @@ export async function expectNoLoadFailure(page: Page): Promise<void> {
 export async function expectSettled(page: Page): Promise<void> {
   await expect(page.locator("#root")).not.toBeEmpty({ timeout: APP_BOOT_TIMEOUT });
   await expect(page.locator(".ant-spin-spinning")).toHaveCount(0);
-}
-
-/**
- * A name no human would choose, carrying the run that made it.
- *
- * A spec that creates on a real cluster deletes what it made, but a run killed between
- * the two cannot — so the name has to be enough for a person to identify the litter
- * without the harness. Unique per run on the fixtures too, where it costs nothing and
- * keeps a shared spec reading the same on both backends.
- */
-export const throwawayName = (label: string): string =>
-  `e2e-live-${label}-${process.pid}-${Date.now().toString(36)}`;
-
-/**
- * Narrows a list page to one name, using the search box the page already offers.
- *
- * Needed by any spec that creates a row and then reads it back on a list it did not
- * seed. These tables page at 25, so on a cluster whose list already fills a page the
- * new row is on page two — present, correct, and invisible to a locator. Searching for
- * a name only this run could have made puts it on screen wherever it landed, and is
- * what a reader looking for their own resource would do.
- *
- * Client-side, over every row fetched, so it is not a second read that could disagree
- * with the first.
- *
- * @param list the page's test-id prefix — `models` for `models-filters-search`.
- */
-export async function searchList(page: Page, list: string, term: string): Promise<void> {
-  await page.getByTestId(`${list}-filters-search`).fill(term);
-}
-
-/**
- * Asserts how many rows the whole list holds — which is not how many are on screen.
- *
- * Read off the `<list>-summary` line ("3 of 27 configurations"), whose second number is
- * computed from every row fetched rather than from the page being shown. Counting
- * `dataRows` instead answers a different question on any list longer than 25, and
- * answers it wrongly while `searchList` is narrowing the table to one row.
- *
- * The summary renders only after a successful load, so waiting for it to say a number
- * also distinguishes "the list holds that many" from "the read failed".
- */
-export async function expectListTotal(
-  page: Page,
-  list: string,
-  total: number,
-  timeout = READ_TIMEOUT,
-): Promise<void> {
-  await expect(page.getByTestId(`${list}-summary`)).toContainText(
-    new RegExp(`\\bof ${total}\\b`),
-    { timeout },
-  );
-}
-
-/**
- * The list's total, off the summary that only a landed read draws.
- *
- * It read the summary twice and required the two to agree, because every list drew
- * "0 of 0" for the 600ms before its read arrived. That is fixed where it belongs now —
- * the summary waits for `data` — so this is one read again, and a return of the flash
- * fails the journeys that count before and after a create.
- */
-async function settledTotal(page: Page, list: string): Promise<number> {
-  const summary = page.getByTestId(`${list}-summary`);
-  await expect(summary).toContainText(/\bof \d+\b/, { timeout: READ_TIMEOUT });
-
-  const text = (await summary.textContent()) ?? "";
-  const read = /\bof (\d+)\b/.exec(text)?.[1];
-  expect(read, `no total could be read from "${text}"`).toBeDefined();
-  return Number(read);
-}
-
-/**
- * Resolves once the list has answered, which is what makes a row count mean anything.
- *
- * A list still fetching has no rows either, so a `count()` taken too early reads zero
- * and every question asked of it gets the answer "not there" — including a cleanup
- * asking whether there is anything left to delete.
- */
-export async function expectListLoaded(page: Page, list: string): Promise<void> {
-  await settledTotal(page, list);
-}
-
-/** What `expectListTotal` would be reading now, for a count taken before a change. */
-export async function readListTotal(page: Page, list: string): Promise<number> {
-  return settledTotal(page, list);
 }

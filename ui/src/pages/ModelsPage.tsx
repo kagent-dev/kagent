@@ -239,8 +239,7 @@ export function ModelsPage() {
           trailing={
             // Only a successful load can be counted. Saying "0 of 0" because a
             // request failed would be a claim the page cannot support.
-            /* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */
-            !error && !isLoading && data !== undefined ? (
+            !error && !isLoading ? (
               <Text data-testid="models-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {models.length}{" "}
                 {models.length === 1 ? "configuration" : "configurations"}

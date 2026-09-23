@@ -308,8 +308,7 @@ export function McpServersPage() {
           trailing={
             /* Only a successful load can be counted. Saying "0 servers" because a
                request failed would be a claim the page cannot support. */
-            /* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */
-            !error && !isLoading && data !== undefined ? (
+            !error && !isLoading ? (
               <Text
                 data-testid="mcp-servers-summary"
                 css={{ color: theme.color.textMuted }}

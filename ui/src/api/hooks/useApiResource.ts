@@ -42,18 +42,8 @@ export function useApiResource<T>(
 
   return {
     data,
-    /*
-     * A held-back request (`key === null`) is idle, not loading — otherwise a page
-     * waiting on a route param renders a spinner that never resolves.
-     *
-     * The consequence every caller has to handle: while a read is held back this
-     * reports `isLoading: false` with `data` undefined, so `!error && !isLoading` is
-     * true for a page that has asked nothing. A count rendered on that gate claims
-     * "0 of 0" about a backend it has not called. Gate a summary on `data !== undefined`
-     * as well — and if the key is held back on another read's result, make sure the
-     * empty case resolves rather than holding back forever, or the summary never
-     * renders at all.
-     */
+    // A held-back request (`key === null`) is idle, not loading — otherwise a
+    // page waiting on a route param renders a spinner that never resolves.
     isLoading: key !== null && isLoading,
     isValidating,
     error: error ?? undefined,

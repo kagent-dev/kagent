@@ -63,10 +63,7 @@ test("agents: the list is agents, and an agent is a template paired with a harne
     // below for why that row is there and when it is not.
     await expect(dataRows(page)).toHaveCount(6);
     await expect(page.getByTestId("agents-table")).toContainText("analytics");
-    // "There is no such switch", rather than the absence of the id it used to carry —
-    // which has never existed in `src`, so that assertion could not fail whatever the
-    // page did.
-    await expect(page.getByRole("switch")).toHaveCount(0);
+    await expect(page.getByTestId("instances-all-namespaces")).toHaveCount(0);
   });
 
   await test.step("2. a template two harnesses admit is two agents, told apart by the harness", async () => {

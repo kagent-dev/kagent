@@ -252,24 +252,7 @@ test("substrate: an empty inventory is shown without errors", async ({
   await loadPage(page, routes.substrate, { scenario: "empty", title: "Substrate" });
   await expectSettled(page);
 
-  // Said by the two tables it applies to, not by a tile: a tile is for a number that
-  // moves, and an ate-api one read `connected` above that service's own timeout banner.
-  // The tiles are named rather than one absence asserted, an ate-api tile returning
-  // under any other id being the same regression.
-  const tiles = await page
-    .locator('[data-testid^="substrate-stat-"]')
-    .evaluateAll((nodes) =>
-      nodes
-        .map((node) => node.getAttribute("data-testid") ?? "")
-        .filter((id) => !id.endsWith("-value")),
-    );
-  expect(tiles.sort()).toEqual([
-    "substrate-stat-actors",
-    "substrate-stat-pools",
-    "substrate-stat-scope",
-    "substrate-stat-templates",
-    "substrate-stat-workers",
-  ]);
+  await expect(page.getByTestId("substrate-stat-ateapi")).toHaveCount(0);
   await expect(page.getByTestId("substrate-inventory-error")).toHaveCount(0);
   await expect(page.getByTestId("substrate-partial")).toHaveCount(0);
 

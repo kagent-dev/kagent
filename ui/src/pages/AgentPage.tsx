@@ -68,10 +68,8 @@ const PAGE_SIZE = 25;
  * resolving through the revision rather than through labels selects conversations
  * stored before the fields existed, with no migration and no backfill.
  *
- * Search and sort are still the browser's. That is honest only because this client
- * follows every page token before rendering, so what it searches is every
- * conversation with this agent rather than the first page; `playwright/DEFERRED.md`
- * records what has to change if the page-following ever goes.
+ * Search and sort are still the browser's, over whatever pages have been read, and
+ * the note under the table says so rather than implying otherwise.
  *
  * ## Somebody else's conversation is listed and cannot be opened
  *
@@ -571,10 +569,7 @@ export function AgentPage() {
             },
           ]}
           trailing={
-            /* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */
-            !conversations.error &&
-            !conversations.isLoading &&
-            conversations.data !== undefined ? (
+            !conversations.error && !conversations.isLoading ? (
               <Text
                 data-testid="conversations-summary"
                 css={{ color: theme.color.textMuted }}

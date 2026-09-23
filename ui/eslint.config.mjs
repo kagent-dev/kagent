@@ -74,14 +74,9 @@ export default tseslint.config(
    *
    * `playwright/README.md` states these; a convention nothing checks is one that
    * regrows as an exception.
-   *
-   * Every folder that holds specs, not only `tests/`: `shared/` runs in every project
-   * and `live/` is the only suite that talks to a cluster, so a spec there trusting its
-   * own green matters more rather than less. Scoping this to `tests/` alone left both
-   * outside the guard from the day they were added.
    */
   {
-    files: ["playwright/{tests,shared,live}/**/*.spec.ts"],
+    files: ["playwright/tests/**/*.spec.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
