@@ -56,20 +56,17 @@ make build-sandbox-guest \
   DOCKER_BUILD_ARGS='--load --platform linux/amd64'
 ```
 
-Use `linux/arm64` on an ARM host. Run the image tests from `go/`:
+Use `linux/arm64` on an ARM host. Run the server tests from `go/`:
 
 ```sh
-KAGENT_SANDBOX_GUEST_IMAGE=kagent-sandbox-guest:dev \
-  go test -race ./sandbox/guest -run TestE2ESandboxGuest -count=1 -v
+go test -race ./sandbox/guest/... -count=1 -v
 ```
 
-The tests require Docker and an explicitly selected image. They exercise the real
-daemon over HTTP/gRPC: chunked binary file transfer, command working directory
-and environment, successful and failed exits, reconnecting to output by offset,
-observer cancellation, explicit process termination, and restart behavior. The
-dedicated guest integration CI job builds the image and runs them. Container tests
-do not establish Substrate router or snapshot compatibility; that requires a live
-Actor integration test when sandbox preparation is implemented.
+The tests run the server in-process on a local listener and require no image or
+Docker daemon. They cover readiness, process service registration, file transfer
+in the configured workspace, startup failures, and cancellation-driven shutdown.
+The existing Go unit-test job runs them. Image-level and live Substrate router
+and snapshot validation remain follow-up work.
 
 ## Upstream semantics
 

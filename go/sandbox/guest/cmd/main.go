@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,6 +40,21 @@ func main() {
 }
 
 func run(ctx context.Context, cfg guest.Config) error {
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", cfg.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen for guest API: %w", err)
+	}
+	return serve(ctx, cfg, listener)
+}
+
+// serve owns the listener, including cleanup when service initialization fails.
+func serve(ctx context.Context, cfg guest.Config, listener net.Listener) error {
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to close guest listener", "error", err)
+		}
+	}()
 	grpcServer, cleanup, err := guest.NewServer(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize guest services: %w", err)
@@ -59,14 +75,13 @@ func run(ctx context.Context, cfg guest.Config) error {
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	server := &http.Server{
-		Addr:              cfg.ListenAddr,
 		Handler:           mux,
 		Protocols:         &protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serveErrors := make(chan error, 1)
-	go func() { serveErrors <- server.ListenAndServe() }()
-	logging.FromContext(ctx).InfoContext(ctx, "starting sandbox guest", "listen_address", cfg.ListenAddr, "workspace", cfg.Workspace, "log_dir", cfg.LogDir)
+	go func() { serveErrors <- server.Serve(listener) }()
+	logging.FromContext(ctx).InfoContext(ctx, "starting sandbox guest", "listen_address", listener.Addr().String(), "workspace", cfg.Workspace, "log_dir", cfg.LogDir)
 
 	select {
 	case err = <-serveErrors:
