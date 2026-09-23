@@ -4,6 +4,89 @@ The public gateway implements the upstream A2A handler for message send/stream,
 task get/list/cancel, and subscription. It also serves the extended Agent Card
 compiled into the instance's prepared revision.
 
+## Client stream contract
+
+`SendStreamingMessage` and `SubscribeToTask` expose upstream A2A task snapshots,
+status updates, and artifact updates. A client maintains the current task by
+applying each frame in order. Its transcript is a presentation of that state;
+receiving a frame does not necessarily mean a new chat message arrived.
+
+Each successful observation starts with a `Task` snapshot containing current
+status, artifacts, and recovered history. Further snapshots can occur on the same
+stream, including the final or waiting state. A fast task may finish before the
+first read, so a single completed snapshot is a valid entire stream. Clients must
+not depend on a fixed event count or on seeing every intermediate state.
+
+### Applying frames
+
+Keep task state scoped to the routed instance and task ID. Forks may retain the
+same task/context IDs under different instance routes.
+
+| A2A frame | Client action |
+| --- | --- |
+| `Task` | Replace the local task projection, including history, status, and artifacts. Initialize artifact accumulation from this snapshot. Reconcile displayed messages by ID instead of appending the entire history again. |
+| `TaskStatusUpdateEvent` | Apply the task status and metadata using A2A update semantics. Inspect its status message for text or an interactive request. |
+| `TaskArtifactUpdateEvent` | Match `artifactId`. With `append: true`, append the incoming parts to the existing artifact; otherwise add or replace that artifact. `lastChunk` ends that artifact's chunk sequence, not the task. |
+
+Use the corresponding A2A SDK's task update reducer where available, keeping
+snapshot replacement explicit. Preserve structured parts and metadata; only a
+text renderer should flatten adjacent text parts. A plain status message is not
+implicitly an append instruction.
+
+For example, these are successive frames for the same task and artifact
+(illustrative notation, not literal wire JSON):
+
+```text
+Task:           WORKING,   artifact "reply" = "hello"
+ArtifactUpdate:           artifact "reply" = " world", append = true
+Task:           COMPLETED, artifact "reply" = "hello world!"
+```
+
+The client displays `hello`, then `hello world`, then replaces it with
+`hello world!` under the same artifact ID. A client attaching after completion may
+receive only the last frame and must reach the same result.
+
+### Completion, waiting, and reconnects
+
+Read the task state to distinguish completion, failure, cancellation, rejection,
+and waiting for input or authentication. Stream closure alone is not success.
+Waiting tasks retain their task/context IDs and can be continued with a new
+message. A replayed send may return only the current task snapshot; subscribe to
+that task if it is still active and further observation is needed.
+
+After a transport or observation error, retain the task ID and use `GetTask` or
+`SubscribeToTask` on the same instance route to recover committed progress.
+Replace the local projection from the new snapshot before applying new deltas;
+do not append its history or artifacts to the previous connection's accumulator.
+There is no public event cursor, and reconnects do not promise replay of the
+original runtime packets. Active recovery can currently fail when ingestion is
+unavailable; cross-replica ownership and delivery are not yet implemented.
+Closing an observer does not cancel the task; use `CancelTask` for cancellation.
+
+### Optional rendering conventions
+
+The snapshot/update rules above use A2A types. Some richer presentation depends
+on additional metadata and must work identically for snapshot contents and live
+status updates:
+
+- The [kagent HITL extension](human-in-the-loop.md) describes questions and tool
+  approvals. Read the pending request from the waiting task's `status.message`,
+  even if no live status update was observed. Advertise support using the
+  extension header described in that guide.
+- The kagent ADK uses `adk_partial: true` for partial text status messages and
+  `adk_invocation_id` to associate them with a reply. These are harness metadata
+  conventions, not standard A2A append semantics. To render them progressively,
+  deduplicate chunks by message ID, accumulate text within the invocation, and
+  replace that displayed reply when its complete message arrives. Recovered
+  history can contain chunks already displayed live. Other harnesses need not
+  use these fields.
+
+Clients should keep their A2A task reducer independent of these rendering rules.
+The UI adapter and its
+[stream tests](../../ui/src/api/chat/a2aGrpcChatClient.test.ts) provide concrete
+examples of snapshot-plus-append handling, pending requests, and partial-text
+reconciliation.
+
 ## Routing and execution
 
 Authentication establishes AgentInstance authority. The gateway
