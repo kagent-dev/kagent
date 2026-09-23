@@ -32,10 +32,22 @@ logger = logging.getLogger(__name__)
 HEADERS_KEY = "headers"
 
 
+def _acting_credential(state: dict) -> Optional[str]:
+    """Return the bearer token this caller presented.
+
+    Not get_subject_token: that hook receives the whole session state, so an
+    implementation reading a session-scoped field returns the same value for
+    every caller. Only the inbound Authorization header is caller-scoped.
+    """
+    headers = state.get(HEADERS_KEY, None)
+    if not isinstance(headers, dict):
+        headers = {}
+    return _extract_jwt_from_headers(headers)
+
+
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
-    headers = state.get(HEADERS_KEY, None)
-    return _extract_jwt_from_headers(headers)
+    return _acting_credential(state)
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -185,8 +197,16 @@ class ADKTokenPropagationPlugin(BasePlugin):
         }
 
     def _caller_token(self, invocation_context: InvocationContext) -> Optional[str]:
-        """The bearer token this turn presented, from the headers the executor
-        wrote into session state for this run."""
+        """The bearer token this turn presented.
+
+        Not get_subject_token: that hook receives the whole session state, so an
+        implementation reading a session-scoped field returns the same value for
+        every caller. Only the inbound Authorization header is caller-scoped.
+        """
+        return _acting_credential(invocation_context.session.state)
+
+    def _subject_token(self, invocation_context: InvocationContext) -> Optional[str]:
+        """The token to exchange, which a deployment may source itself."""
         get_subject_token = (
             self.sts_integration.get_subject_token
             if self.sts_integration and self.sts_integration.get_subject_token
@@ -219,7 +239,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return None
 
         # No valid cached token, need to get/exchange subject token
-        subject_token = self._caller_token(invocation_context)
+        subject_token = self._subject_token(invocation_context)
         if not subject_token:
             logger.debug("subject token not found in session state for token propagation")
             return None
