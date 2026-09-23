@@ -211,12 +211,16 @@ type remoteA2AResponse struct {
 // for both isolated and non-isolated tools alike.
 //
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
-// If httpClient is nil, a default client is created. The client's transport is
-// wrapped with otelhttp to propagate W3C trace context to subagents.
+// If httpClient is nil, a default client is created. The client's transport
+// is optionally wrapped with a retry-on-transport-error layer (see
+// retry_transport.go; opt-in via KAGENT_A2A_RETRY_ENABLED, disabled by
+// default) and then with otelhttp to propagate W3C trace context to
+// subagents.
 func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken, isolateSessions bool) (tool.Tool, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
+	httpClient = withRetryTransport(httpClient)
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
 		name:            name,
