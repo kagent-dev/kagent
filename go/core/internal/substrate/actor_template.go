@@ -21,6 +21,14 @@ const (
 	durableDataMount     = "/data"
 )
 
+const egressTrustVolume = "egress-trust"
+const egressTrustMount = "/run/kagent/egress"
+
+var egressTrustEnvironment = map[string]struct{}{
+	"SSL_CERT_FILE": {}, "SSL_CERT_DIR": {}, "REQUESTS_CA_BUNDLE": {}, "AWS_CA_BUNDLE": {},
+	"NODE_EXTRA_CA_CERTS": {}, "CURL_CA_BUNDLE": {}, "GIT_SSL_CAINFO": {},
+}
+
 // ActorTemplateForRevision constructs the immutable ate-api resource for a
 // compiled revision. It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
@@ -30,8 +38,8 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
-	// Config is passed inline because Substrate ActorTemplates support only
-	// literal environment variables. Render the typed card only at this boundary.
+	// Config and SDK placeholders contain no Secret values. Render the typed
+	// card only at this boundary.
 	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
 	if err != nil {
 		return nil, fmt.Errorf("convert runtime Agent Card: %w", err)
@@ -41,6 +49,18 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, fmt.Errorf("render runtime Agent Card: %w", err)
 	}
 	environment := append([]corev1.EnvVar(nil), spec.Environment...)
+	// The systemInfo trustBundle volume below projects the gateway CA. These
+	// variables tell each TLS client to trust it; mounting the file alone does
+	// not configure trust. The gateway intercepts HTTPS even without credentials.
+	for _, variable := range environment {
+		if _, owned := egressTrustEnvironment[variable.Name]; owned {
+			return nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
+		}
+	}
+	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"} {
+		environment = append(environment, corev1.EnvVar{Name: name, Value: egressTrustMount + "/trust-bundle.pem"})
+	}
+	environment = append(environment, corev1.EnvVar{Name: "SSL_CERT_DIR", Value: egressTrustMount})
 	environment = append(environment,
 		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
 		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(cardJSON)},
@@ -70,7 +90,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
-			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}},
+			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}, {Name: egressTrustVolume, MountPath: egressTrustMount}},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotsConfig: &ateapipb.SnapshotsConfig{
@@ -79,7 +99,12 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
 			OnResume:        &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN},
 		},
-		Volumes: []*ateapipb.Volume{{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}}},
+		Volumes: []*ateapipb.Volume{
+			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
+			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
+				{TrustBundle: &ateapipb.TrustBundleDataSource{Name: "egress-mitm.ate.dev", Path: "trust-bundle.pem"}},
+			}}},
+		},
 	}
 	return template, nil
 }
@@ -133,8 +158,7 @@ func truncateDNS1123To(value string, limit int) string {
 }
 
 func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar, error) {
-	// Substrate ActorTemplates accept only literal values. The compiler resolves
-	// Secret references before revisions reach this boundary.
+	// Only non-secret literals and SDK placeholders may cross this boundary.
 	result := make([]*ateapipb.EnvVar, 0, len(environment))
 	seen := make(map[string]struct{}, len(environment))
 	for _, value := range environment {

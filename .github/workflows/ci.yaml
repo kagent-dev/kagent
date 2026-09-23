@@ -40,9 +40,11 @@ jobs:
   test-e2e:
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.2.0-beta2
+      SUBSTRATE_VERSION: 0.2.0-beta5
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 40
+    # 50: main's own 40, kept as headroom. The job itself takes around 10 minutes,
+    # UI image and browser suite included, on a warm buildx cache.
+    timeout-minutes: 50
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -98,11 +100,14 @@ jobs:
           helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
           helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system \
             --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
-            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms'
+            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms' \
+            --set 'credentialProvider.namespacePolicies[0].atespace=kagent' \
+            --set 'credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent'
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
           ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
           actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
           kubectl create secret generic actor-id-ca-certs -n ate-system --from-literal=ca.crt="${actor_id_ca_root}"
           kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
@@ -115,7 +120,6 @@ jobs:
           KMCP_ENABLED: "false"
           KAGENT_HELM_EXTRA_ARGS: >-
             --cleanup-on-fail=false
-            --set ui.replicas=0
             --set kagent-tools.enabled=false
             --set grafana-mcp.enabled=false
             --set controller.substrate.enabled=true
@@ -133,11 +137,21 @@ jobs:
           BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
+          # Before the fan-out. Each `build-*` runs it again — it is not passed `-o` the
+          # way `proto-generate` is below — which is harmless only because the target
+          # documents itself as safe to run concurrently.
           make buildx-create
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a | xargs -P4 -n1 bash -c '
+          # Likewise once, and for a sharper reason: `build-ui` and `build-golang-adk` both
+          # depend on it, and `buf generate` writes `ui/src/generated` as well as
+          # `go/api/gen` — so in parallel one make would write into the directory the
+          # other is tarring as a build context. `-o proto-generate` below says it is done.
+          make proto-generate
+          # `ui` is here so the browser suite below runs against the image an operator
+          # gets: nginx, the SPA fallback, and the env-config.js rendered at pod start.
+          printf '%s\n' controller ui golang-adk claude-harness codex-harness byo-a2a | xargs -P5 -n1 bash -c '
             image="$1"
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
-              make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
+              make -o proto-generate GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -178,6 +192,111 @@ jobs:
           export KAGENT_E2E_OTLP_LISTEN_ADDRESS=:14317
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on -parallel 4 -count=1
 
+      # The `smoke` template is applied part-way through the step above, after four
+      # digest lookups. The browser journeys below need an agent to schedule and a
+      # template to list, so a step that died before that apply would fail them for a
+      # reason that has nothing to do with the UI — three retries each, against an empty
+      # cluster. `continue-on-error`, because a missing template means the Go step has
+      # already failed the job and this only decides whether the UI steps are worth
+      # running: `outcome` still reports the failure the gate below reads.
+      - name: Check the cluster has the smoke agent
+        id: smoke-agent
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        continue-on-error: true
+        # Retried, because everything below is gated on this one command. Asked once, a
+        # transient API-server or kubeconfig hiccup skips the whole browser lane and the
+        # job still reports green — which is the shape of #2638, a suite that measured
+        # nothing while every check passed.
+        run: |
+          for attempt in $(seq 1 10); do
+            if kubectl get agenttemplate smoke -n kagent; then exit 0; fi
+            echo "attempt ${attempt}: not there yet"
+            sleep 6
+          done
+          kubectl get agenttemplate -A || true
+          exit 1
+
+      # And when it is genuinely absent, said out loud on the run. A skipped lane and a
+      # passing one look identical in the checks list otherwise.
+      - name: Say so if the UI suite was skipped
+        if: ${{ !cancelled() && steps.smoke-agent.outcome != 'success' }}
+        run: |
+          echo "::warning title=UI live suite skipped::No smoke agent on the cluster, so the live Playwright lane did not run."
+
+      # The UI, against this same cluster and the image built above. `ui-tests` runs on
+      # the in-browser mock, so a backend contract change cannot fail it — which is how
+      # #2638 emptied three Substrate fields with every check green.
+      #
+      # After the Go tests, not beside them: both create and delete resources in the same
+      # namespace, and these journeys read the lists back.
+      #
+      # Gated on the cluster being usable rather than on `success()`, so one failed Go
+      # test under `-failfast` does not also cost every UI signal. No cluster or no
+      # agent, no run.
+      - name: Setup Node.js
+        if: ${{ !cancelled() && steps.smoke-agent.outcome == 'success' }}
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ui/.nvmrc
+
+      # Before the cache step, as in `ui-tests`: package.json pins Yarn 4, and the
+      # runner's own shim cannot read this lock file.
+      - name: Enable Corepack
+        if: ${{ !cancelled() && steps.smoke-agent.outcome == 'success' }}
+        run: corepack enable
+
+      - name: Cache Yarn downloads
+        if: ${{ !cancelled() && steps.smoke-agent.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: ui/.yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Prepare the live browser suite
+        if: ${{ !cancelled() && steps.smoke-agent.outcome == 'success' }}
+        working-directory: ./ui
+        # Chromium only: the live suite declares one project. The mock suite's second
+        # engine is there to disagree about layout, which no backend contract rests on.
+        run: |
+          yarn install --immutable
+          yarn playwright install --with-deps chromium
+
+      - name: Run live browser tests
+        if: ${{ !cancelled() && steps.smoke-agent.outcome == 'success' }}
+        working-directory: ./ui
+        run: |
+          kubectl -n kagent rollout status deploy/kagent-ui --timeout=5m
+          # Already a LoadBalancer on a MetalLB cluster, so this is the address the
+          # controller e2e step takes — not a port-forward to keep alive for the run.
+          UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          test -n "$UI_IP"
+          export UI_LOOP_LIVE_URL="http://${UI_IP}:8080"
+          echo "UI_LOOP_LIVE_URL: $UI_LOOP_LIVE_URL"
+          # `globalSetup` refuses the run if that address answers with fixtures, or is a
+          # dev server rather than the built image.
+          yarn test:pw:live
+
+      - name: Upload live browser report
+        # Any finished run, not just a failed one: CI retries twice, so a spec that
+        # fails and then passes leaves a green job and no trace of the failure — which
+        # is the run whose trace is worth the most. A clean run uploads the HTML report
+        # and nothing else, since `test-results` only has content when something failed.
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-live-playwright-report
+          # The trace is the only record of what the cluster answered — there is no fixed
+          # fixture to re-read afterwards, as there would be for the mock suite. The HTML
+          # report is what links one to the other, and it exists because the config asks
+          # for `html` alongside `github`; `github` on its own writes annotations and no
+          # files, which is how this path came to be uploaded empty.
+          path: |
+            ui/playwright-report
+            ui/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: fail print info
         if: failure()
         run: |
@@ -190,6 +309,10 @@ jobs:
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
+          # nginx logs every proxied request, so a browser failure that was really a
+          # backend failure says so here, as does an init.sh that rejected a value.
+          echo "::error::Kubectl logs -n kagent deployment/kagent-ui"
+          kubectl logs -n kagent deployment/kagent-ui --tail=200 || true
           kubectl get pods,actortemplates,workerpools -A
           echo "::error::Substrate logs"
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true

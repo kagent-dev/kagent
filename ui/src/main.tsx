@@ -7,6 +7,7 @@ import { loadExtensionStylesheets } from "./appExtensions/theme";
 import { applyExtensionBranding } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
 import { App } from "./App";
+import { RootErrorBoundary, RootErrorFallback } from "./RootErrorBoundary";
 
 async function bootstrap() {
   // Deployment configuration needs no step here: it arrives on `window` from a
@@ -33,11 +34,21 @@ async function bootstrap() {
       {/* Outside <App> because authentication is not an extension concern: the
           extension config's provider list belongs to whoever installs an
           extension, and core auth must exist whether or not one is present. */}
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <RootErrorBoundary>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </RootErrorBoundary>
     </React.StrictMode>,
   );
 }
 
-void bootstrap();
+// The boundary above cannot see this: nothing has rendered yet when the
+// stylesheet, branding or mock-backend step throws.
+void bootstrap().catch((error: unknown) => {
+  console.error("App failed to start", error);
+  const root = document.getElementById("root");
+  if (root) {
+    ReactDOM.createRoot(root).render(<RootErrorFallback error={error} />);
+  }
+});

@@ -257,6 +257,30 @@ func TestRecoverUnaryInterceptor(t *testing.T) {
 	}
 }
 
+// A nil Registerer is the trap this documents: newServerMetrics still returns
+// working counters, the interceptors still record every call, and nothing is
+// registered anywhere, so no scrape ever sees them. app.Run therefore passes
+// controller-runtime's registry, the one the manager's metrics server serves.
+func TestServerMetricsWithoutARegistererRecordsButExposesNothing(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics, err := newServerMetrics(nil)
+	if err != nil {
+		t.Fatalf("newServerMetrics(nil) error = %v", err)
+	}
+	if _, err := metrics.unaryInterceptor(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: readMethod}, func(context.Context, any) (any, error) {
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("call error = %v", err)
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("registry.Gather() error = %v", err)
+	}
+	if len(families) != 0 {
+		t.Fatalf("a registry the metrics were not registered with gathered %d families, want 0", len(families))
+	}
+}
+
 func TestServerMetricsUnaryInterceptor(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics, err := newServerMetrics(registry)

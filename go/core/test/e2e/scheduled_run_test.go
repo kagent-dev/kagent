@@ -302,9 +302,9 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.
 
 func startScheduledRecoveryModel(t *testing.T) (string, <-chan struct{}, func(), *atomic.Int32) {
 	t.Helper()
-	upstream, err := url.Parse(startInteractionMock(t))
+	// This proxy runs on the host, so its upstream must use the local mock URL.
+	upstream, err := url.Parse(startMockLLMServer(t, interactionMocks, "mocks/invoke_golang_adk_agent.json"))
 	require.NoError(t, err)
-	upstream.Path = ""
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	started, release := make(chan struct{}), make(chan struct{})
 	var startedOnce, releaseOnce sync.Once

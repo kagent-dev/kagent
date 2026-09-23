@@ -27,6 +27,65 @@ type KagentHarness struct {
 	// Memory enables long-term memory for agents using this Harness.
 	// +optional
 	Memory *KagentHarnessMemory `json:"memory,omitempty"`
+
+	// Compaction summarizes older session events so the prompt stays small as
+	// a conversation grows. Omitted leaves the history uncompacted.
+	// +optional
+	Compaction *KagentHarnessCompaction `json:"compaction,omitempty"`
+}
+
+// KagentHarnessCompaction selects the compaction strategies and the model that
+// writes the summaries. The sliding window (compactionInterval, overlapSize)
+// summarizes each group of completed invocations; tail retention
+// (tokenThreshold, eventRetentionSize) bounds the prompt by summarizing
+// everything but the most recent events once the prompt grows past a token
+// count. At least one strategy must be configured.
+// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) || has(self.tokenThreshold)",message="compactionInterval or tokenThreshold must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.tokenThreshold) == has(self.eventRetentionSize)",message="tokenThreshold and eventRetentionSize must be specified together"
+// +kubebuilder:validation:XValidation:rule="!has(self.overlapSize) || has(self.compactionInterval)",message="overlapSize requires compactionInterval"
+type KagentHarnessCompaction struct {
+	// CompactionInterval is the number of new user-initiated invocations that,
+	// once fully represented in the session, triggers a sliding-window
+	// compaction of those invocations.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CompactionInterval *int `json:"compactionInterval,omitempty"`
+	// OverlapSize is the number of already-compacted invocations pulled back
+	// into the next sliding window so consecutive summaries overlap.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	OverlapSize *int `json:"overlapSize,omitempty"`
+	// TokenThreshold is the prompt token count at which tail-retention
+	// compaction summarizes the history before the next model call.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TokenThreshold *int `json:"tokenThreshold,omitempty"`
+	// EventRetentionSize is the number of most recent events that tail
+	// retention keeps uncompacted.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
+	// Summarizer selects the model and prompt that write the summaries.
+	// Omitted summarizes with the agent's own model and the runtime's default
+	// prompt.
+	// +optional
+	Summarizer *KagentHarnessSummarizer `json:"summarizer,omitempty"`
+}
+
+// KagentHarnessSummarizer configures the model that summarizes compacted events.
+// +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
+type KagentHarnessSummarizer struct {
+	// ModelConfigRef references the ModelConfig in the Harness namespace that
+	// writes the summaries. Omitted uses the agent's own model.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
+	// +optional
+	ModelConfigRef *corev1.LocalObjectReference `json:"modelConfigRef,omitempty"`
+	// PromptTemplate replaces the runtime's default summarization prompt. It
+	// must contain {conversation_history}, which the runtime replaces with the
+	// rendered events.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	PromptTemplate string `json:"promptTemplate,omitempty"`
 }
 
 // KagentHarnessMemory configures kagent's long-term memory service.
@@ -178,6 +237,10 @@ type HarnessCapabilities struct {
 	InputRequired bool `json:"inputRequired"`
 	// +required
 	Approvals bool `json:"approvals"`
+	// StructuredOutput reports whether the pinned adapter can enforce a root
+	// JSON output contract and emit it as an A2A DataPart.
+	// +required
+	StructuredOutput bool `json:"structuredOutput"`
 
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set

@@ -39,8 +39,15 @@ test("chat: a conversation's record is read without leaving the conversation", a
 
   // There is no Edit anywhere on it: an instance has no spec to change. What the agent
   // *is* lives on its AgentTemplate and how it *runs* on its Harness, so a control here
-  // would offer something that does not exist.
-  await expect(page.getByTestId("agent-details-edit")).toHaveCount(0);
+  // would offer something that does not exist. By what a reader would press rather than
+  // by a test id: a control added here would carry an id of its own, and a guard naming
+  // one would pass on any other.
+  // Found before it is asked anything: "no Edit inside the dialog" is also true of a
+  // dialog that is not there, which would be this assertion proving nothing at all.
+  const details = page.getByRole("dialog");
+  await expect(details).toBeVisible();
+  await expect(details.getByRole("button", { name: /edit/i })).toHaveCount(0);
+  await expect(details.getByRole("link", { name: /edit/i })).toHaveCount(0);
 });
 
 test("chat: the agent panel says what the conversation cannot", async ({ page }) => {

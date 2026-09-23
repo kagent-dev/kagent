@@ -660,6 +660,14 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// OutputConfig is the root agent's structured-output contract. JSONSchema is
+// canonical JSON produced by the controller; SHA256 identifies that exact
+// contract in public A2A results.
+type OutputConfig struct {
+	JSONSchema json.RawMessage `json:"json_schema"`
+	SHA256     string          `json:"sha256"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Name            string                 `json:"name,omitempty"`
@@ -679,6 +687,7 @@ type AgentConfig struct {
 	SessionDBURL    string                 `json:"session_db_url,omitempty"`
 	SkillsDirectory string                 `json:"skills_directory,omitempty"`
 	SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
+	Output          *OutputConfig          `json:"output,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -708,6 +717,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		SessionDBURL    string                 `json:"session_db_url,omitempty"`
 		SkillsDirectory string                 `json:"skills_directory,omitempty"`
 		SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
+		Output          *OutputConfig          `json:"output,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -749,6 +759,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.SessionDBURL = tmp.SessionDBURL
 	a.SkillsDirectory = tmp.SkillsDirectory
 	a.SubAgents = tmp.SubAgents
+	a.Output = tmp.Output
 	return nil
 }
 

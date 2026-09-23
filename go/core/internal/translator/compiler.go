@@ -59,8 +59,9 @@ type ResolvedAgentBinding struct {
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
-	Harness *v1alpha3.Harness
-	Root    *AgentInput
+	Harness      *v1alpha3.Harness
+	Root         *AgentInput
+	OutputSchema *ResolvedOutputSchema
 }
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
@@ -196,6 +197,13 @@ func harnessSelector(harness *v1alpha3.Harness) (labels.Selector, error) {
 }
 
 func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*HarnessInput, error) {
+	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
+	if err != nil {
+		return nil, err
+	}
+	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
+		return nil, NewValidationError("Harness %q does not support structured output", tree.Harness.Name)
+	}
 	var build func(*ResolvedAgent) (*AgentInput, error)
 	build = func(agent *ResolvedAgent) (*AgentInput, error) {
 		template := agent.Template
@@ -266,5 +274,5 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 	if err != nil {
 		return nil, err
 	}
-	return &HarnessInput{Harness: tree.Harness, Root: root}, nil
+	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema}, nil
 }

@@ -62,6 +62,41 @@ func TestModelConfigReconciliationTracksSecret(t *testing.T) {
 	}
 }
 
+func TestModelConfigReconciliationTracksFoundryEndpoint(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test", nil)
+	model := &kagentv1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "foundry"},
+		Spec: kagentv1alpha3.ModelConfigSpec{
+			Model: "gpt-4o", Provider: kagentv1alpha3.ModelProviderFoundry,
+			Foundry: &kagentv1alpha3.FoundryConfig{Deployment: "chat", EndpointFrom: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
+			}},
+		},
+	}
+	mock := krttest.NewMock(t, []any{model})
+	configMaps := krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...)
+	_, resolved := newModelConfigReconciliations(
+		krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), configMaps,
+		krttest.GetMockCollection[*corev1.Secret](mock), opts,
+	)
+	waitFor(t, func() bool {
+		value := resolved.GetKey("team-a/foundry")
+		return value != nil && !value.Usable()
+	})
+	for _, endpoint := range []string{"https://first.services.ai.azure.com", "https://second.services.ai.azure.com", ""} {
+		configMaps.UpdateObject(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "account"},
+			Data:       map[string]string{"endpoint": endpoint},
+		})
+		waitFor(t, func() bool {
+			value := resolved.GetKey("team-a/foundry")
+			return value != nil && value.FoundryEndpoint == endpoint && value.Usable() == (endpoint != "")
+		})
+	}
+}
+
 func TestModelConfigReconciliationMissingAPIKeySecretKey(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })

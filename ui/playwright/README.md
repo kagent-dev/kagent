@@ -13,8 +13,9 @@ UI_LOOP_PORT=8012 yarn test:pw   # when something else owns the default port
 
 Nothing else is needed — no cluster, no port-forward, no provider key.
 
-There is a second suite that does need all three; see
-[Live runs](#live-runs-against-a-real-backend) at the foot of this file.
+There is a second suite that does need a cluster, and that CI runs against the
+built UI image; see [Live runs](#live-runs-against-a-real-backend) at the foot of
+this file.
 
 ## What changed from the old suite
 
@@ -32,8 +33,8 @@ served.
 Worth stating plainly because it is a change in how contributors work, and
 because it is a trade: the suite no longer exercises the real controller, so it
 proves the UI behaves, not that the backend contract still holds. Contract drift
-is caught by the Go tests and by whatever runs against a live cluster in CI — not
-here.
+is caught by the Go tests and by the live suite, which CI runs on the same cluster
+as the Go end-to-end tests — not here.
 
 ## What it runs against
 
@@ -71,8 +72,46 @@ playwright/
                    chat, controls, style, mockCalls
   fixtures/test.ts import { test, expect } from here — never @playwright/test
   live/            the live suite: specs, plus helpers/ of its own
-  DEFERRED.md      the specs not yet portable, and what each one is waiting on
+  shared/          specs that run in both suites — laid out like tests/, one folder
+                   per resource and app-wide specs at the root — see below
+  DEFERRED.md      coverage this suite does not have, and what each gap waits on
 ```
+
+**`shared/` runs in every project**, mock and live alike. What goes in it is narrow: no
+`?mock=` scenario, no fixture named, nothing assuming a populated backend.
+`conventions.test.ts` fails a spec here that reaches for one.
+
+It holds two kinds of spec. A property true whatever the backend holds — no conversation
+is listed by a bare id, a deep link renders on a cold load. And **the write path of each
+resource**: create, read back, change, delete.
+
+That second kind is where a fixture and a controller most easily disagree, and it is why
+every resource that can have its journey here does: `models`, `prompts`, `harnesses`,
+`agent-templates` and `schedules`. The names are `throwawayName`d and every one cleans up
+in a `test.afterEach`, because live they are real — see the rule below for why not a
+`finally`.
+
+**One move rules a spec out of here: a reload.** The fixture backend keeps writes in the
+page's own memory, so a reload starts a backend that has never heard of what was just
+created. Where a claim needs one, it splits: `shared/schedules/` clicks through the whole
+journey on either backend, and `live/schedules.spec.ts` keeps the one thing only a real
+backend can answer — that the values survive a re-read, since everything short of that
+could be the form showing itself its own draft.
+
+It is laid out like `tests/`: one folder per resource holding one spec holding one test,
+titled for its folder, and app-wide specs (`dashboard`, `routing`) at the root.
+`conventions.test.ts` checks that too — all of it except the empty-and-error rule, which
+needs the `?mock=` a spec here may not touch.
+
+**MCP servers are deliberately not among them.** That page cannot read its own writes
+against a real backend — see `DEFERRED.md` and #2849 — so a shared spec would have had to
+press Refresh to get past a defect, which is the sort of workaround that keeps one alive.
+It stays mock-only until the fix lands.
+
+What stays in `tests/` for each of those is what needs the fixtures: the exact seeded
+rows, the required-field marks, the refresh counts, and the empty and failure states no
+cluster can be asked for. Navigate with `loadApp`, which adds the mock scenario only
+where there is a mock backend to read it.
 
 The resources with a lifecycle spec are **models**, **MCP servers**, **prompt
 libraries**, **agent templates**, **harnesses** and **schedules**. Two are narrower
@@ -166,6 +205,12 @@ conventions below: the shared fixture import, and antd's class names.
   The trade is deliberate: a failed step stops the ones after it, so a broken create
   hides whether delete works. That is the right way round — a resource whose create is
   broken is broken, and the recording shows where it stopped.
+- **Never assert an absence before the thing could appear.** "No error", "no rows",
+  "no source text on the page" are all true of a page that has not drawn yet, so each
+  one needs a positive signal in front of it — a summary, a table, a settled state.
+  Four defects on this suite were that shape, every one of them green.
+- **Clean up in a hook, never in a `finally`.** A timed-out test has a closed page, so
+  everything in its `finally` throws and the resource stays on the cluster.
 - **Keep the writes in one browsing context.** The fixture backend keeps writes in the
   page's own memory, so a `page.goto` starts a backend that has never heard of the
   thing just created, and the failure reads as "the create did not stick" when nothing
@@ -212,15 +257,40 @@ conventions below: the shared fixture import, and antd's class names.
 cd ui
 yarn test:pw:live
 UI_LOOP_LIVE_PORT=8312 yarn test:pw:live   # to run beside something on 8301
+
+# Against an app that is already serving, rather than a dev server this starts:
+UI_LOOP_LIVE_URL=http://127.0.0.1:8080 yarn test:pw:live
 ```
 
-Unlike `yarn test:pw`, this one **does** need a cluster, with the controller
-port-forwarded. It is not run in CI. The specs live in `playwright/live/`, and the
-coverage deliberately left out of it is in `DEFERRED.md`.
+Unlike `yarn test:pw`, this one **does** need a cluster. The specs live in
+`playwright/live/`, and the coverage deliberately left out of it is in
+`DEFERRED.md`.
 
-A live run reaches the controller through Vite's proxy, exactly as a deployed
-build reaches it through nginx, so the app uses the same relative URLs either way
-and this mode tests the addressing a real deployment uses.
+**Two things can be at the other end.** Without `UI_LOOP_LIVE_URL` the suite starts
+`yarn dev` and proxies to the controller, which needs nothing built and is what a
+developer wants. With it, it drives an app already serving — in CI the image from
+`ui/Dockerfile`, where nginx, the SPA fallback and the `env-config.js` rendered at pod
+start are real rather than approximated by Vite.
+
+### In CI
+
+The `test-e2e` job runs it, after the Go end-to-end tests and on the same cluster,
+reusing what that job stands up rather than building a second path — including the
+`smoke` agent from `lifecycle.yaml.tmpl`. The address is the `kagent-ui` service's
+MetalLB IP, the chart already publishing it as a LoadBalancer.
+
+After the Go tests, not beside them, and at `workers: 1`: these journeys create real
+resources and read lists back, where `go test -parallel 4` — and each other — would be
+writing to the same namespace at the same time.
+
+**A live spec has to work on both shapes of cluster.** `setup-cluster.sh` installs one
+harness and an `assistant` agent; CI's fixture installs five and a `smoke`. Not
+cosmetic: the template form applies a harness's labels unasked when there is only one.
+So a spec takes whatever the cluster offers and reads the state it is in.
+
+**Chat stays on the mock backend.** Its journeys need deterministic streaming deltas,
+tool ordering, cancellation and a failed turn with retry — none of which a real model
+gives reliably, all of which the mock suite already asserts.
 
 **Why a separate mode rather than a third project.** `UI_LOOP_LIVE=true` swaps the
 whole `projects`/`webServer` pair in `playwright.config.ts` instead of appending to
@@ -232,11 +302,20 @@ would cost every live run the time to boot Vite twice for nothing. The two runs
 are disjoint. The live project also gets its own port, 8301, far from the mock
 servers' 8001/8051 for the same reason those two are 50 apart.
 
-**A green live run has to have been live.** `VITE_API_MODE` is pinned at build
-time as well as at runtime, because a build-time pin is the one thing an inherited
-`.env` cannot override — and a live suite that quietly answered from fixtures
-would be worse than a red one, since a green one gets taken as evidence the
-cluster works. `globalSetup` asks the page what settings it was actually handed
-and refuses the run if they are not the live ones. Traces are kept on failure:
-unlike the mock suite there is no fixed fixture to re-read afterwards, so the
-trace is the only record of what the cluster answered.
+**A green live run has to have been live.** A live suite that quietly answered from
+fixtures would be worse than a red one, since a green one gets taken as evidence
+the cluster works — so `globalSetup` asks the page what settings it was actually
+handed, and refuses the run if they are not the live ones.
+
+The guarantee is made twice, the two ends needing different arguments:
+
+- **Against the dev server,** `VITE_API_MODE` is pinned at build time as well as at
+  runtime — the one thing an inherited `.env` cannot override.
+- **Against a deployment** there is no such pin, but the mock backend is not in the
+  image at all: the build deletes `dist/mockServiceWorker.js` and nginx 404s the path.
+  `globalSetup` asserts that 404, which says both that fixtures cannot be served and
+  that this is the built artifact rather than a `yarn dev` that would pass every spec.
+
+Traces are kept on failure — there is no fixed fixture to re-read afterwards, so the
+trace is the only record of what the cluster answered. CI uploads them as
+`ui-live-playwright-report`.

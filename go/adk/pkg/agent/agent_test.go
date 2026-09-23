@@ -7,6 +7,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/stretchr/testify/require"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -512,5 +513,28 @@ func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 	}
 	if len(root.SubAgents()) != 1 || root.SubAgents()[0].Name() != "researcher" || root.SubAgents()[0].Description() != "research" {
 		t.Fatalf("sub-agents = %#v", root.SubAgents())
+	}
+}
+
+func TestUsesRawOutputSchema(t *testing.T) {
+	tests := []struct {
+		name  string
+		model adk.Model
+		want  bool
+	}{
+		{name: "OpenAI", model: &adk.OpenAI{}, want: true},
+		{name: "Azure OpenAI", model: &adk.AzureOpenAI{}, want: true},
+		{name: "Anthropic", model: &adk.Anthropic{}, want: true},
+		{name: "Anthropic on Vertex", model: &adk.GeminiAnthropic{}, want: true},
+		{name: "Bedrock Converse", model: &adk.Bedrock{}, want: true},
+		{name: "Foundry OpenAI", model: &adk.Foundry{}, want: true},
+		{name: "Foundry Anthropic", model: &adk.Foundry{APIFormat: adk.FoundryAPIFormatAnthropic}, want: true},
+		{name: "Gemini", model: &adk.Gemini{}, want: false},
+		{name: "Ollama", model: &adk.Ollama{}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, usesRawOutputSchema(test.model))
+		})
 	}
 }

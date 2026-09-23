@@ -43,6 +43,10 @@ service Control {
   // Resume an actor from its latest snapshot.
   rpc ResumeActor(ResumeActorRequest) returns (ResumeActorResponse) {}
 
+  // Revert an actor to SUSPENDED state.
+  // Only crashed, running or paused actors can be reverted.
+  rpc RevertActor(RevertActorRequest) returns (RevertActorResponse) {}
+
   // Delete an actor. Only suspended actors can be deleted.
   rpc DeleteActor(DeleteActorRequest) returns (Actor) {}
 
@@ -138,7 +142,7 @@ service Control {
   rpc ListActorTemplates(ListActorTemplatesRequest) returns (ListActorTemplatesResponse) {}
 
   // Delete an ActorTemplate together with its golden actor and golden
-  // snapshot in the ActorTemplate's namespace.
+  // tag in the reserved ate-golden atespace.
   rpc DeleteActorTemplate(DeleteActorTemplateRequest) returns (ActorTemplate) {}
 }
 
@@ -187,7 +191,7 @@ message LocalSnapshotInfo {
 }
 
 enum SnapshotContentScope {
-  // Defaults to FULL for compatibility with existing snapshot configuration.
+  // Unspecified snapshot content scope.
   SNAPSHOT_CONTENT_SCOPE_UNSPECIFIED = 0;
   // Captures process memory, root filesystem changes, and durable data.
   SNAPSHOT_CONTENT_SCOPE_FULL = 1;
@@ -506,7 +510,7 @@ message CredentialHeaderInjection {
   string prefix = 2;
 
   // Source-agnostic reference interpreted by a registered credential provider:
-  // substrate-secret://<provider-class>/<provider-name>/<provider-specific-tail>
+  // ate-secret://<provider-class>/<provider-name>/<provider-specific-tail>
   //
   // +k8s:required
   // +k8s:customValidation # format
@@ -523,6 +527,7 @@ enum ActorState {
   ACTOR_STATE_PAUSED = 6;
   ACTOR_STATE_CRASHED = 7;
   ACTOR_STATE_DELETING = 8;
+  ACTOR_STATE_REVERTING = 9;
   // Keep this in sync with ActorStatus.state's maximum.
 }
 
@@ -531,7 +536,7 @@ message ActorStatus {
   //
   // +k8s:required
   // +k8s:minimum=1
-  // +k8s:maximum=8 # keep this in sync with the ActorState enum
+  // +k8s:maximum=9 # keep this in sync with the ActorState enum
   ActorState state = 1;
 
   // worker_assignment points at the worker currently hosting this Actor.
@@ -541,12 +546,12 @@ message ActorStatus {
   // +k8s:update=NoModify # can be set and cleared, but not changed in place
   WorkerAssignment worker_assignment = 2;
 
-  // The name the in-progress durable snapshot will be stored under. Snapshot
-  // names are server-generated UUIDs, but any resource name is valid here.
+  // in_progress_snapshot_uri is the URI in object storage of the durable
+  // snapshot the Actor is currently taking.
   //
   // +k8s:optional
-  // +k8s:format=k8s-short-name
-  string in_progress_snapshot_name = 3;
+  // +k8s:maxLength=2048
+  string in_progress_snapshot_uri = 3;
 
   // external_snapshot is the Actor's current external snapshot.
   // If the Actor was created from a Tag this is the tag's snapshot, borrowed
@@ -639,6 +644,12 @@ message WorkerAssignment {
   // +k8s:required
   // +k8s:customValidation # until `format=k8s-ip` is supported
   string worker_pod_ip = 5;
+
+  // node_name is the Kubernetes node hosting worker_pod.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-long-name
+  string node_name = 7;
 }
 
 // TagStatus is the server-owned state of a Tag.
@@ -807,12 +818,11 @@ message Limits {
 }
 
 message GoldenSnapshotStatus {
-  // golden_snapshot is the external snapshot built for this version by
-  // ate-api, taken from the golden Actor in the reserved ate-golden system
-  // atespace. Set once state is READY. The golden Actor owns it.
-  //
+  // golden_tag owns the immutable snapshot built by the template controller.
+  // Set after tagging the snapshot and deleting the temporary golden Actor.
   // +k8s:optional
-  ExternalSnapshot golden_snapshot = 1;
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef golden_tag = 1;
 
   // take_golden_snapshot_at is when the golden-actor warmup ends and the
   // golden snapshot may be taken.
@@ -845,26 +855,29 @@ message SandboxConfig {
 
 // +k8s:customValidation # on_commit must be a subset of on_pause
 message SnapshotsConfig {
-  // on_pause selects what is captured during pause actor. UNSPECIFIED is
-  // tolerated for compatibility and reads as FULL.
+  // on_pause defines the scope of the snapshot captured when an actor
+  // is paused. Defaults to FULL when unset.
   //
-  // +k8s:optional
+  // +k8s:required
   // +k8s:minimum=1
   // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
   SnapshotContentScope on_pause = 1;
 
-  // on_commit selects what captures.
+  // on_commit defines the scope of the actor snapshot captured when an actor
+  // is suspended.
   // Must be a subset of on_pause: FULL allows FULL or DATA, DATA allows DATA.
+  // Defaults to FULL when unset.
   //
-  // +k8s:optional
+  // +k8s:required
   // +k8s:minimum=1
   // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
   SnapshotContentScope on_commit = 2;
 
   // on_resume selects, per snapshot situation, what supplies the guest state
-  // at resume. Unset means the defaults documented on OnResumeConfig.
+  // at resume. Defaults to the per-field defaults documented on
+  // OnResumeConfig when unset on create.
   //
-  // +k8s:optional
+  // +k8s:required
   OnResumeConfig on_resume = 3;
 
   // storage_location is the base object-storage URI snapshots of actors on
@@ -895,9 +908,9 @@ enum ResumeSource {
 // from their own content and are not configurable here.
 message OnResumeConfig {
   // from_data applies when the resume uses a DATA-scope snapshot (from
-  // on_pause or on_commit). UNSPECIFIED selects the documented default.
+  // on_pause or on_commit). Defaults to COLD_BOOT when unset.
   //
-  // +k8s:optional
+  // +k8s:required
   // +k8s:minimum=1
   // +k8s:maximum=2 # keep this in sync with the ResumeSource enum
   ResumeSource from_data = 1;
@@ -1033,9 +1046,9 @@ message ContainerReadyz {
   HTTPGetAction http_get = 1;
 
   // timeout_seconds bounds how long to poll http_get before failing the
-  // actor start. 0 means the server-applied default (30s).
+  // actor start. Defaults to 30 when unset.
   //
-  // +k8s:optional
+  // +k8s:required
   // +k8s:minimum=1
   // +k8s:maximum=3600
   int32 timeout_seconds = 2;
@@ -1043,10 +1056,11 @@ message ContainerReadyz {
 
 // HTTPGetAction describes an HTTP GET against the container's interior IP.
 message HTTPGetAction {
-  // path defaults to "/readyz". Must be a URL path starting with "/", using
-  // only RFC 3986 path-segment characters, without query or fragment.
+  // path must be a URL path starting with "/", using only RFC 3986
+  // path-segment characters, without query or fragment.
+  // Defaults to "/readyz" when unset.
   //
-  // +k8s:optional
+  // +k8s:required
   // +k8s:maxLength=1024
   // +k8s:customValidation # RFC 3986 path shape; no regex/pattern tag exists
   string path = 1;
@@ -1104,7 +1118,7 @@ message ImageVolumeSource {
 message DurableDirVolumeSource {}
 
 // ExternalVolumeTemplate provisions an external volume per actor; the volume
-// lives only as long as the actor. Not supported with SANDBOX_CLASS_MICROVM.
+// lives only as long as the actor.
 message ExternalVolumeTemplate {
   // capacity of the volume to create, in Kubernetes resource.Quantity string
   // form (e.g. "10Gi"). Required.
@@ -1386,6 +1400,21 @@ message ResumeActorResponse {
   // True if a resume workflow was executed to activate the actor.
   // False if the actor was already RUNNING.
   bool resumed = 2;
+}
+
+// RevertActorRequest identifies the Actor to revert.
+message RevertActorRequest {
+  // actor to revert.
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 1;
+}
+
+// RevertActorResponse holds the reverted Actor.
+message RevertActorResponse {
+  // actor as it stands after the revert, SUSPENDED and still holding the
+  // external snapshot it was reverted to.
+  Actor actor = 1;
 }
 
 message DeleteActorRequest {

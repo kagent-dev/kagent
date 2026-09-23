@@ -23,7 +23,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 		WorkerPoolName: "default", SnapshotLocation: "snapshots",
 		ConfigJSON: []byte(`{"instruction":"help"}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
 			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
-		Environment: []corev1.EnvVar{{Name: "API_KEY", Value: "secret"}},
+		Environment: []corev1.EnvVar{{Name: "API_KEY", Value: translator.CredentialPlaceholder}},
 	}
 	revisionID, err := spec.Digest()
 	if err != nil {
@@ -53,6 +53,15 @@ func TestActorTemplateForRevision(t *testing.T) {
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
 	}
+	for _, name := range []string{"SSL_CERT_FILE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"} {
+		if environment[name].Value != egressTrustMount+"/trust-bundle.pem" {
+			t.Fatalf("missing gateway trust for %s", name)
+		}
+	}
+	trust := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
+	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
+		t.Fatal("gateway trust bundle was not projected")
+	}
 	var rendered a2atype.AgentCard
 	if err := json.Unmarshal([]byte(environment["KAGENT_AGENT_CARD_JSON"].Value), &rendered); err != nil {
 		t.Fatal(err)
@@ -73,7 +82,7 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right := proto.CloneOf(left)
 	right.Metadata.Uid = "uid"
 	right.Metadata.Version = 2
-	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}

@@ -13,7 +13,7 @@
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
-import { withScenario } from "./app";
+import { READ_TIMEOUT, withScenario } from "./app";
 
 /**
  * How long one resource's whole lifecycle is allowed to take.
@@ -33,8 +33,28 @@ import { withScenario } from "./app";
  * contended run, tight enough that a journey which doubles in cost is still a
  * failure. The slowest is prompts at about forty seconds under full parallel load,
  * its list fanning out one call per namespace.
+ *
+ * **Live is a different budget, not a slower version of the same one.** Against a
+ * cluster every step is a round trip to an API server and some of them wait on a
+ * controller to reconcile, which is work no mock does at all — the config already
+ * doubles the per-test default for that reason, and a `describe.configure` overrides
+ * it, so a lifecycle asking for sixty here would have been the tightest budget in the
+ * live run rather than the loosest.
  */
-export const LIFECYCLE_TIMEOUT = 60_000;
+export const LIFECYCLE_TIMEOUT =
+  process.env.UI_LOOP_LIVE === "true" ? 180_000 : 60_000;
+
+/**
+ * How long `pressUntil` has to land a press, which has to outlast one attempt at it.
+ *
+ * `toPass` checks its deadline *between* attempts, so a budget shorter than one attempt
+ * buys exactly one press — the retry this helper exists for never happens. An attempt is
+ * a click plus the caller's `settled`, and `settled` is an assertion on the live
+ * project's own thirty-second `expect` timeout: mock, fifteen leaves room for two;
+ * live, fifteen was less than one, so a swallowed Delete was reported as "the page never
+ * navigated" and the resource stayed on the cluster.
+ */
+const PRESS_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 90_000 : 15_000;
 
 /**
  * Presses a dialog's button, once the dialog has stopped arriving.
@@ -97,9 +117,7 @@ export async function pressOnce(button: Locator): Promise<void> {
 export async function pressUntil(
   button: Locator,
   settled: () => Promise<unknown>,
-  // Half the thirty-second test budget, so that when this is what failed, this is
-  // what says so: at thirty the test expired first and reported its own timeout.
-  timeout = 15_000,
+  timeout = PRESS_TIMEOUT,
 ): Promise<void> {
   await expect(async () => {
     // Bounded, because `toPass` checks its deadline between attempts and no
@@ -108,6 +126,36 @@ export async function pressUntil(
     if (await button.isVisible()) await button.click({ timeout: 5_000 });
     await settled();
   }).toPass({ timeout });
+}
+
+/**
+ * Whether something turned up, for a cleanup that has to tell "gone" from "not yet".
+ *
+ * A `count()` taken straight after a navigation asks the wrong question: `goto` and
+ * `loadApp` both return before the page's own read has landed, so nothing is on screen
+ * yet and every "is it still there?" is answered no — which is how a cleanup came to
+ * skip its delete and leave a real resource on the cluster. Waiting first is what makes
+ * an absence mean something.
+ *
+ * It resolves `false` rather than throwing, because this is called from a `finally`:
+ * an assertion failing there would replace the failure the test was actually reporting.
+ */
+export async function appeared(locator: Locator, timeout = READ_TIMEOUT): Promise<boolean> {
+  try {
+    await locator.waitFor({ state: "visible", timeout });
+    return true;
+  } catch (error) {
+    /*
+     * A timeout means it is not there. Anything else — a locator matching several, say —
+     * is a broken check reaching the caller as the same `false`, which a cleanup reads as
+     * "nothing to remove" while the resource stays on the cluster. Still `false`, since
+     * throwing from a `finally` would replace the test's own failure, but not silently.
+     */
+    if ((error as Error | undefined)?.name !== "TimeoutError") {
+      console.warn(`appeared() could not check this locator: ${String(error)}`);
+    }
+    return false;
+  }
 }
 
 /**
@@ -161,6 +209,15 @@ export function optionNamed(page: Page, label?: string): Locator {
   );
 }
 
+/**
+ * The dropdown on screen, whichever select opened it. By Playwright's own visibility
+ * rather than antd's `ant-select-dropdown-hidden`, which a dismissed dropdown does not
+ * carry until its close animation ends — lagging at exactly the wrong moment.
+ */
+function openDropdown(page: Page): Locator {
+  return page.locator(".ant-select-dropdown").filter({ visible: true });
+}
+
 /** Opens a Select by its test id and picks one option by the label a reader sees. */
 export async function selectOption(
   page: Page,
@@ -172,12 +229,22 @@ export async function selectOption(
 }
 
 /**
- * The same, where any option will do — a field the form requires but the assertion
- * does not care about, like the namespace on a harness whose step is about the image.
+ * The same, where any option will do — a required field the assertion does not care
+ * about, or a model on a cluster whose models the spec did not install.
+ *
+ * It cannot name what it wants, so it has to be sure *which* dropdown it reads: it
+ * waits out any still animating away, then scopes to the one on screen. A live run
+ * spent its whole budget clicking an `ate-system` option from a dismissed select.
  */
 export async function selectFirstOption(page: Page, testId: string): Promise<void> {
+  await expect(openDropdown(page)).toHaveCount(0);
   await page.getByTestId(testId).click();
-  await optionNamed(page).first().click();
+
+  const option = openDropdown(page).locator(".ant-select-item-option").first();
+  await expect(option, `the select "${testId}" offered no options`).toBeVisible({
+    timeout: 30_000,
+  });
+  await option.click();
 }
 
 /**

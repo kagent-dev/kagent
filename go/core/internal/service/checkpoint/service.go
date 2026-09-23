@@ -33,10 +33,11 @@ type store interface {
 	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
 	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
+	UpdateCheckpointName(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
 }
 
 type workflow interface {
-	Fork(context.Context, *apiv1alpha1.AgentInstance, *database.AgentInstanceTaskSnapshot, string) (*apiv1alpha1.AgentInstance, error)
+	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 }
 
 type tagClient interface {
@@ -47,8 +48,9 @@ type tagClient interface {
 }
 
 type Service struct {
-	// ponytail: coalesce duplicate creates within one controller; use a durable
-	// lease when multi-replica gateway coordination is supported.
+	// creates coalesces identical requests within this service instance.
+	// TODO: route tag creation and cleanup through durable instance ownership
+	// so retries on different replicas cannot race.
 	creates    singleflight.Group
 	store      store
 	authorizer auth.Authorizer
@@ -263,6 +265,26 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	return nil
 }
 
+// Rename sets the checkpoint's display name, which forks taken from it inherit. It
+// authorizes as a write: reading a checkpoint must not confer retitling it.
+func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1alpha1.Checkpoint, error) {
+	if err := validateIdentity(checkpointID); err != nil {
+		return nil, err
+	}
+	userID, err := s.authorize(ctx, auth.VerbUpdate, "Checkpoint", checkpointID)
+	if err != nil {
+		return nil, err
+	}
+	checkpoint, err := s.store.UpdateCheckpointName(ctx, checkpointID, userID, name)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to rename checkpoint", err)
+	}
+	return checkpoint, nil
+}
+
 func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1alpha1.AgentInstance, error) {
 	if err := validateCreate(checkpointID, requestID); err != nil {
 		return nil, err
@@ -299,13 +321,22 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted AgentInstance", err)
+	}
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
 	}
-	instance, err = s.workflow.Fork(ctx, instance, snapshot, tagName(checkpointID))
+	instance, err = s.workflow.Create(ctx, instance)
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance was deleted", err)
+	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to create fork AgentInstance", err)
 	}

@@ -178,8 +178,18 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	}
 
 	var got *model.LLMResponse
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "integer"}},
+	}
 	for resp, err := range m.GenerateContent(context.Background(), &model.LLMRequest{
 		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "ping"}}}},
+		Config: &genai.GenerateContentConfig{
+			ResponseJsonSchema: schema,
+			Tools: []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name: "calculator", ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}}}},
+		},
 	}, false) {
 		if err != nil {
 			t.Fatalf("GenerateContent error: %v", err)
@@ -191,6 +201,23 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	}
 	if gotBody["model"] != "gpt-4o" {
 		t.Fatalf("body model = %#v", gotBody["model"])
+	}
+	textConfig, ok := gotBody["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("body text = %#v", gotBody["text"])
+	}
+	format, ok := textConfig["format"].(map[string]any)
+	if !ok || format["type"] != "json_schema" {
+		t.Fatalf("body text.format = %#v", textConfig["format"])
+	}
+	if _, present := format["strict"]; present {
+		t.Fatalf("body text.format.strict must be omitted: %#v", format)
+	}
+	if gotSchema, ok := format["schema"].(map[string]any); !ok || gotSchema["type"] != "object" {
+		t.Fatalf("body text.format.schema = %#v", format["schema"])
+	}
+	if tools, ok := gotBody["tools"].([]any); !ok || len(tools) != 1 {
+		t.Fatalf("body tools = %#v, want one tool", gotBody["tools"])
 	}
 	if got == nil || got.Content == nil || len(got.Content.Parts) != 1 || got.Content.Parts[0].Text != "pong" {
 		t.Fatalf("response = %#v", got)

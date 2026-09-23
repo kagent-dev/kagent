@@ -84,13 +84,13 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.True(t, proto.Equal(revision.AgentCard, store.revision.AgentCard))
 
 	templates.template = proto.CloneOf(created)
-	templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	writeErr := errors.New("database unavailable")
 	store.revisionErr = writeErr
 	require.ErrorIs(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), writeErr)
 	pending := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
 	require.NotNil(t, pending)
-	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot(),
+	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag(),
 		"Ready must not be published before the database write succeeds")
 	store.revisionErr = nil
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
@@ -101,7 +101,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
 	observed := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
-	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot())
+	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag())
 
 	if err := reconciler.reconcileAgentTemplateStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			}}
 			templates.template = proto.CloneOf(desired)
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-				GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
+				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
 			state := PairReconciliation{
 				Pair: AgentTemplateHarnessPair{
@@ -273,7 +273,7 @@ func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *at
 	return f.template, nil
 }
 
-func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string, string) error {
+func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string) error {
 	if f.deleteErr != nil {
 		if f.deletedBeforeError {
 			f.template = nil

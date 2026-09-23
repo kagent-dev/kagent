@@ -15,6 +15,7 @@ service CheckpointService {
   rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
   rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (DeleteCheckpointResponse);
   rpc ForkAgentInstance(ForkAgentInstanceRequest) returns (ForkAgentInstanceResponse);
+  rpc UpdateCheckpointName(UpdateCheckpointNameRequest) returns (UpdateCheckpointNameResponse);
 }
 
 enum CheckpointState {
@@ -33,6 +34,10 @@ message Checkpoint {
   CheckpointState state = 5;
   google.protobuf.Timestamp created_at = 6;
   Failure failure = 7;
+  // Display name for the checkpoint, and the name a fork taken from it is given.
+  // Defaulted at creation from the source instance and the turn the boundary sits
+  // at, because both are what a reader has to tell two boundaries apart by.
+  string name = 8;
 }
 
 message CreateCheckpointRequest {
@@ -81,4 +86,18 @@ message ForkAgentInstanceRequest {
 
 message ForkAgentInstanceResponse {
   AgentInstance agent_instance = 1;
+}
+
+message UpdateCheckpointNameRequest {
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
+  // The new display name. Empty restores the generated default rather than leaving
+  // the checkpoint nameless, so a fork always has something to be called.
+  string name = 2 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+}
+
+message UpdateCheckpointNameResponse {
+  Checkpoint checkpoint = 1;
 }

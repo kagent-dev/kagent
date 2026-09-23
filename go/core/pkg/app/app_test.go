@@ -97,6 +97,38 @@ func TestLeaderElectionDefaultsOnWithLocalOptOut(t *testing.T) {
 	}
 }
 
+func TestMetricsBindAddressNeverFallsBackToTheControllerRuntimeDefault(t *testing.T) {
+	set := func(value string) *string { return &value }
+	for name, testCase := range map[string]struct {
+		value *string
+		want  string
+	}{
+		"unset":    {value: nil, want: "0"},
+		"empty":    {value: set(""), want: "0"},
+		"disabled": {value: set("0"), want: "0"},
+		"port":     {value: set(":8443"), want: ":8443"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if testCase.value != nil {
+				t.Setenv("METRICS_BIND_ADDRESS", *testCase.value)
+			}
+			if got := metricsBindAddress(); got != testCase.want {
+				t.Fatalf("metricsBindAddress() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestMetricsSecureDefaultsOff(t *testing.T) {
+	if kagentenv.MetricsSecure.Get() {
+		t.Fatal("METRICS_SECURE must default to false")
+	}
+	t.Setenv("METRICS_SECURE", "true")
+	if !kagentenv.MetricsSecure.Get() {
+		t.Fatal("METRICS_SECURE=true must enable secure serving")
+	}
+}
+
 func TestNamespaces(t *testing.T) {
 	want := []string{"one", "two"}
 	if got := namespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {

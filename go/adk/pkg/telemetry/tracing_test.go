@@ -9,7 +9,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	logglobal "go.opentelemetry.io/otel/log/global"
 	lognoop "go.opentelemetry.io/otel/log/noop"
@@ -57,7 +59,9 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			})
 			otel.SetTracerProvider(tracenoop.NewTracerProvider())
 			logglobal.SetLoggerProvider(lognoop.NewLoggerProvider())
-			shutdown, enabled, err := Init(t.Context(), "adk-service", "agent-namespace")
+			shutdown, enabled, err := Init(t.Context(), tracing.RuntimeTelemetry{
+				Runtime: tracing.RuntimeADKGo, AgentName: "adk-service", AgentNamespace: "agent-namespace",
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,7 +72,7 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			_, span := StartInvocationSpan(ctx)
 			span.End()
 			var record log.Record
-			record.SetBody(log.StringValue("test log"))
+			record.SetBody(attribute.StringValue("test log"))
 			logglobal.GetLoggerProvider().Logger("test").Emit(t.Context(), record)
 			if err := shutdown(t.Context()); err != nil {
 				t.Fatal(err)
@@ -119,7 +123,7 @@ func TestInitDisabledPreservesProvider(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "false")
 	t.Setenv("OTEL_LOGGING_ENABLED", "false")
 	previous := otel.GetTracerProvider()
-	shutdown, enabled, err := Init(t.Context(), "unused", "unused")
+	shutdown, enabled, err := Init(t.Context(), tracing.RuntimeTelemetry{Runtime: tracing.RuntimeADKGo, AgentName: "unused", AgentNamespace: "unused"})
 	if err != nil || enabled {
 		t.Fatalf("Init = enabled %v, error %v", enabled, err)
 	}

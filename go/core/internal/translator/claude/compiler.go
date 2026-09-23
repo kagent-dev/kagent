@@ -17,6 +17,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -82,6 +83,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	)
 	environment = append(environment, telemetryConfig.TraceEnvironment()...)
 	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.CaptureEnvironment())
 	if traceConfig.Enabled || logConfig.Enabled {
 		tracesExporter := "none"
 		if traceConfig.Enabled {
@@ -121,6 +123,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	config.RuntimeTelemetry = telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeClaude, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
 	}
@@ -140,9 +146,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, err = c.resolveEnvironment(ctx, input.Harness.Namespace, environment)
+	environment, credentials, err := v2translator.CompileCredentials(input, nil, environment)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Claude runtime environment: %w", err)
+		return nil, err
 	}
 
 	egress = append(egress, skillEgress...)
@@ -162,7 +168,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 			ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Provenance:       provenance, EgressDestinations: egress,
+			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -447,12 +453,10 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		if err != nil {
 			return nil, err
 		}
-		value, ok := secret.Data[ref.Key]
+		_, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
-		hash := sha256.Sum256(value)
-		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
@@ -464,29 +468,6 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	raw, _ := json.Marshal(content)
 	hash := sha256.Sum256(raw)
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
-}
-
-func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
-	resolved := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range resolved {
-		if variable.ValueFrom == nil {
-			continue
-		}
-		if variable.ValueFrom.SecretKeyRef == nil {
-			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		secret, err := c.secret(ctx, namespace, ref.Name)
-		if err != nil {
-			return nil, err
-		}
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		resolved[i].Value, resolved[i].ValueFrom = string(value), nil
-	}
-	return resolved, nil
 }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)

@@ -46,10 +46,12 @@ func TestKAgentExecutorForkRetainsConversation(t *testing.T) {
 				t.Helper()
 				svc, err := localsession.NewLocalSessionService("sqlite:///" + path)
 				require.NoError(t, err)
-				return NewKAgentExecutor(KAgentExecutorConfig{
+				executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 					AppName: "app", SessionService: svc, Logger: slog.New(slog.DiscardHandler),
 					RunnerConfig: runner.Config{AppName: "app", Agent: agent},
 				})
+				require.NoError(t, err)
+				return executor
 			}
 			send := func(executor *KAgentExecutor, contextID string, eventCount int) {
 				t.Helper()

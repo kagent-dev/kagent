@@ -43,9 +43,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, err = c.config.ResolveEnvironment(ctx, template.Namespace, environment)
+	environment, credentials, err := v2translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
-		return nil, fmt.Errorf("resolve runtime environment: %w", err)
+		return nil, err
 	}
 	slices.Sort(compiled.Egress)
 
@@ -54,7 +54,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		Image: harness.Spec.Workload.Image, Command: harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil
 }
 

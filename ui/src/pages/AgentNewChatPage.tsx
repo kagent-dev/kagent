@@ -10,6 +10,7 @@ import { agentPageUrl } from "@/components/agent/agentUrl";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { buildPath, paths } from "@/router/routes";
 import { apiClient, useAgentConversations } from "@/api";
+import { randomId } from "@/api/randomId";
 
 /**
  * A conversation with an agent that has not been created yet.
@@ -68,7 +69,7 @@ export function AgentNewChatPage() {
    * actually reached the controller is recognised as the same request instead of
    * making a second conversation.
    */
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId] = useState(() => randomId());
 
   async function startWith(text: string): Promise<void> {
     if (!namespace || !agentTemplate || !harness) return;

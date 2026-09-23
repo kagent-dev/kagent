@@ -104,6 +104,14 @@ func (s *testStore) DeleteAgentInstanceCheckpoint(context.Context, string, strin
 	return nil
 }
 
+func (s *testStore) UpdateCheckpointName(_ context.Context, _, _, name string) (*apiv1alpha1.Checkpoint, error) {
+	if s.prepared == nil {
+		return nil, database.ErrNotFound
+	}
+	s.prepared.Name = name
+	return s.prepared, nil
+}
+
 func (s *testStore) ForkAgentInstance(_ context.Context, _ string, userID, _ string, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	if s.forked == nil {
 		s.forked = &apiv1alpha1.AgentInstance{
@@ -116,12 +124,11 @@ func (s *testStore) ForkAgentInstance(_ context.Context, _ string, userID, _ str
 }
 
 type testWorkflow struct {
-	snapshot *database.AgentInstanceTaskSnapshot
-	tagName  string
+	instance *apiv1alpha1.AgentInstance
 }
 
-func (w *testWorkflow) Fork(_ context.Context, instance *apiv1alpha1.AgentInstance, snapshot *database.AgentInstanceTaskSnapshot, tagName string) (*apiv1alpha1.AgentInstance, error) {
-	w.snapshot, w.tagName = snapshot, tagName
+func (w *testWorkflow) Create(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	w.instance = instance
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
 	return instance, nil
 }
@@ -205,6 +212,24 @@ func TestCreatePreservesStoreConflictReason(t *testing.T) {
 	}
 }
 
+func TestRenameValidatesBeforeReachingTheStore(t *testing.T) {
+	store := &testStore{}
+	service := NewService(store, testAuthorizer{}, nil, nil)
+	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	const checkpointID = "018f47a2-4efb-7c21-a848-123456789abc"
+
+	_, err := service.Rename(ctx, "not-a-uuid", "Before the detour")
+	require.Equal(t, serviceerrors.CodeInvalidArgument, serviceerrors.CodeOf(err))
+
+	_, err = service.Rename(ctx, checkpointID, "Before the detour")
+	require.Equal(t, serviceerrors.CodeNotFound, serviceerrors.CodeOf(err))
+
+	store.prepared = &apiv1alpha1.Checkpoint{Id: checkpointID}
+	renamed, err := service.Rename(ctx, checkpointID, "Before the detour")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", renamed.GetName())
+}
+
 func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
 	store := &testStore{snapshotErr: fmt.Errorf("creation must use the reserved snapshot")}
 	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1"}
@@ -278,8 +303,8 @@ func TestForkCreatesAgentInstanceFromCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
-		workflow.snapshot != store.snapshot || workflow.tagName != tagName(checkpoint.Id) || store.forked.GetId() == "" {
-		t.Fatalf("fork = %+v, checkpoint = %+v", instance, workflow.snapshot)
+		workflow.instance != store.forked || store.forked.GetId() == "" {
+		t.Fatalf("fork = %+v, checkpoint = %+v", instance, checkpoint)
 	}
 }
 
