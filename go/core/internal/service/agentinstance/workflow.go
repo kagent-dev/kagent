@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -13,12 +12,10 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type workflowStore interface {
@@ -164,7 +161,7 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.Id)
 	var policy *ateapipb.EgressPolicy
 	if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
-		policy, err = actorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
+		policy, err = substrate.ActorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err))
 		}
@@ -303,49 +300,4 @@ func validActorIdentity(actor *ateapipb.Actor, revision *database.RuntimeRevisio
 	metadata, ref := actor.GetMetadata(), actor.GetActorTemplate()
 	return metadata.GetName() == name && metadata.GetAtespace() == revision.ActorTemplateAtespace && metadata.GetUid() != "" &&
 		ref.GetAtespace() == revision.ActorTemplateAtespace && ref.GetName() == revision.ActorTemplateName
-}
-
-// actorEgressPolicy compiles destinations into an actor's default allowlist.
-// Credential bindings are already canonicalized by the store.
-func actorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
-	var hostnames, cidrs []string
-	for _, destination := range destinations {
-		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {
-			ip = ip.Unmap()
-			cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
-			continue
-		}
-		hostname := strings.TrimSuffix(strings.ToLower(destination), ".")
-		if len(validation.IsDNS1123Subdomain(hostname)) != 0 {
-			return nil, fmt.Errorf("invalid egress destination %q", destination)
-		}
-		hostnames = append(hostnames, hostname)
-	}
-	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
-	for _, binding := range credentials {
-		if !slices.Contains(hostnames, binding.Hostname) {
-			return nil, fmt.Errorf("credential destination %q is not allowed", binding.Hostname)
-		}
-		var rule *ateapipb.HostnameRule
-		if len(policy.Rules) > 0 {
-			rule = policy.Rules[len(policy.Rules)-1].GetHostnames()
-		}
-		if rule == nil || rule.Patterns[0] != binding.Hostname {
-			rule = &ateapipb.HostnameRule{Patterns: []string{binding.Hostname}, Effects: &ateapipb.EgressRuleEffects{}}
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: rule})
-		}
-		rule.Effects.InjectStaticHeaders = append(rule.Effects.InjectStaticHeaders, &ateapipb.CredentialHeaderInjection{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI})
-	}
-	if len(hostnames) > 0 {
-		slices.Sort(hostnames)
-		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: &ateapipb.HostnameRule{Patterns: slices.Compact(hostnames)}})
-	}
-	if len(cidrs) > 0 {
-		slices.Sort(cidrs)
-		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Cidrs: &ateapipb.CIDRRule{Cidrs: slices.Compact(cidrs)}})
-	}
-	if len(policy.Rules) > 256 {
-		return nil, fmt.Errorf("egress policy exceeds 256 rules")
-	}
-	return policy, nil
 }

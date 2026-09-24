@@ -75,6 +75,13 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
+	// The template carries the revision's allowlist so the golden actor, which
+	// Substrate creates without any client call, is admitted to the same
+	// destinations as the instances that boot from its snapshot.
+	egressPolicy, err := ActorEgressPolicy(spec.Namespace, spec.EgressDestinations, spec.Credentials)
+	if err != nil {
+		return nil, fmt.Errorf("compile egress policy: %w", err)
+	}
 
 	template := &ateapipb.ActorTemplate{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
@@ -95,7 +102,8 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			}, TimeoutSeconds: 30},
 			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}, {Name: egressTrustVolume, MountPath: egressTrustMount}},
 		}},
-		WorkerSelector: workerSelectorForPool(workerKey),
+		WorkerSelector:      workerSelectorForPool(workerKey),
+		DefaultEgressPolicy: &ateapipb.EgressPolicyTemplate{Rules: egressPolicy.GetRules()},
 		SnapshotsConfig: &ateapipb.SnapshotsConfig{
 			StorageLocation: spec.SnapshotLocation,
 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
@@ -127,12 +135,13 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector:  template.GetWorkerSelector(),
-		Containers:      template.GetContainers(),
-		Volumes:         template.GetVolumes(),
-		SnapshotsConfig: template.GetSnapshotsConfig(),
-		SandboxConfig:   template.GetSandboxConfig(),
-		Resources:       template.GetResources(),
+		WorkerSelector:      template.GetWorkerSelector(),
+		Containers:          template.GetContainers(),
+		Volumes:             template.GetVolumes(),
+		SnapshotsConfig:     template.GetSnapshotsConfig(),
+		SandboxConfig:       template.GetSandboxConfig(),
+		Resources:           template.GetResources(),
+		DefaultEgressPolicy: template.GetDefaultEgressPolicy(),
 	}
 }
 

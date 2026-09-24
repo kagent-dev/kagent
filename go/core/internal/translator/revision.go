@@ -65,6 +65,11 @@ type Revision struct {
 	EgressDestinations []string
 }
 
+// actorTemplateFormat is bumped when ActorTemplateForRevision changes what it
+// renders from unchanged revision inputs. 2 = default_egress_policy on the
+// template.
+const actorTemplateFormat = 2
+
 // Digest returns the immutable identity of every input that affects runtime
 // behavior. The full digest is the database key; Kubernetes names use a short
 // prefix only for readability.
@@ -83,11 +88,16 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Provenance         json.RawMessage     `json:"provenance"`
 		Credentials        []egress.Credential `json:"credentials,omitempty"`
 		EgressDestinations []string            `json:"egressDestinations"`
+		// ActorTemplateFormat changes when the ActorTemplate compiled from the
+		// same inputs changes shape, so the immutable template is re-created
+		// under a new name instead of conflicting with the stored one.
+		ActorTemplateFormat int `json:"actorTemplateFormat"`
 	}{
 		Namespace: r.Namespace, AgentTemplateName: r.AgentTemplateName, HarnessName: r.HarnessName,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
+		ActorTemplateFormat: actorTemplateFormat,
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

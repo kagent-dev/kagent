@@ -318,18 +318,18 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 }
 
 func TestActorEgressPolicy(t *testing.T) {
-	policy, err := actorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"}, nil)
+	policy, err := substrate.ActorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, policy.Metadata)
 	require.Len(t, policy.Rules, 2)
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
 	require.Equal(t, []string{"192.0.2.1/32", "2001:db8::1/128"}, policy.Rules[1].GetCidrs().GetCidrs())
-	policy, err = actorEgressPolicy("team-a", nil, nil)
+	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
 	for _, destination := range []string{"", "*", "https://api.example.com", "api.example.com:443", "192.0.2.0/24", "fe80::1%eth0"} {
 		t.Run(destination, func(t *testing.T) {
-			_, err := actorEgressPolicy("team-a", []string{destination}, nil)
+			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)
 		})
 	}
@@ -340,9 +340,9 @@ func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"},
 		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://kubernetes.io/team/auth/key"},
 	}
-	_, err := actorEgressPolicy("team", []string{"other.example.com"}, bindings)
+	_, err := substrate.ActorEgressPolicy("team", []string{"other.example.com"}, bindings)
 	require.ErrorContains(t, err, "is not allowed")
-	policy, err := actorEgressPolicy("team", []string{"api.example.com", "other.example.com"}, bindings)
+	policy, err := substrate.ActorEgressPolicy("team", []string{"api.example.com", "other.example.com"}, bindings)
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 2)
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
