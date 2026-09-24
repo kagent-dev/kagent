@@ -20,6 +20,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// runtimeMaxMessageSize matches the controller and runtime gRPC servers so file uploads fit.
+const runtimeMaxMessageSize = 16 << 20
+
 // RuntimeDialer connects public gateway calls to the single root Actor used by
 // the current v0 AgentInstance implementation. Replacing this component with a
 // member-store-backed dialer is sufficient when runtime topology becomes
@@ -68,6 +71,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 		a2agrpc.WithGRPCTransport(
 			grpc.WithTransportCredentials(d.transport),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(runtimeMaxMessageSize), grpc.MaxCallSendMsgSize(runtimeMaxMessageSize)),
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),

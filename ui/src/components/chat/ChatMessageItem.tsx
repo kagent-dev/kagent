@@ -7,6 +7,7 @@ import { StructuredOutputCard } from "./StructuredOutputCard";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
+import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
 
 const { Text } = Typography;
@@ -120,6 +121,10 @@ export function ChatMessageItem({
             ) : (
               <ToolCallCard key={index} part={part} />
             )
+          ) : part.kind === "file" ? (
+            <div key={index} css={{ justifySelf: isUser ? "end" : "start", maxWidth: "100%" }}>
+              <AttachmentChip file={part} />
+            </div>
           ) : part.kind === "tool_approval" ? (
             <ToolApprovalRecord key={index} part={part} />
           ) : (

@@ -30,6 +30,8 @@ import (
 const (
 	a2aMaxContentLengthEnvVar = "A2A_MAX_CONTENT_LENGTH"
 	defaultMaxContentLength   = int64(10 * 1024 * 1024)
+	// grpcMaxMessageSize matches the controller's gRPC limit so file uploads fit.
+	grpcMaxMessageSize = 16 << 20
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -87,7 +89,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(grpcMaxMessageSize), grpc.MaxSendMsgSize(grpcMaxMessageSize))
 	a2agrpc.NewHandler(requestHandler).RegisterWith(grpcServer)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus(a2apb.A2AService_ServiceDesc.ServiceName, grpc_health_v1.HealthCheckResponse_SERVING)

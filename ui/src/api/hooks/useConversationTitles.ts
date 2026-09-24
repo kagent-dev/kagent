@@ -1,6 +1,7 @@
 import useSWR from "swr";
 import { getChatClient } from "@/api/chat";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
+import { messageSummary } from "@/components/chat/messageText";
 import type { AgentInstance } from "@/api";
 
 /**
@@ -59,10 +60,8 @@ export function useConversationTitles(
 
               id: instance.id,
             });
-            const said = history.messages
-              .find((message) => message.role === "user")
-              ?.parts.find((part) => part.kind === "text")?.text;
-            const title = autoTitleFrom(said);
+            const first = history.messages.find((message) => message.role === "user");
+            const title = autoTitleFrom(first && messageSummary(first));
             return title ? ([instance.id, title] as const) : undefined;
           } catch {
             // Deliberately quiet — see this hook's note on failures.

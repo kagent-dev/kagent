@@ -46,7 +46,24 @@ export interface ChatAskUserPart {
   interaction: AskUserRecord;
 }
 
-export type ChatPart = ChatTextPart | ChatDataPart | ChatToolApprovalPart | ChatAskUserPart;
+/** A file sent with a message, or one the agent sent back. */
+export interface ChatFilePart {
+  kind: "file";
+  name: string;
+  mediaType: string;
+  size?: number;
+  /** Its bytes. Absent when only its description was kept. */
+  blob?: Blob;
+  /** A remote address, for a file sent by URL rather than by bytes. */
+  url?: string;
+}
+
+export type ChatPart =
+  | ChatTextPart
+  | ChatDataPart
+  | ChatToolApprovalPart
+  | ChatAskUserPart
+  | ChatFilePart;
 
 export interface ChatMessage {
   id: string;
@@ -101,6 +118,8 @@ export function conversationKey(conversation: ChatConversationRef): string {
 export interface SendMessageInput {
   conversation: ChatConversationRef;
   text: string;
+  /** Sent as raw file parts after the text. */
+  files?: readonly File[];
   /**
    * The id the caller has already filed this message under.
    *

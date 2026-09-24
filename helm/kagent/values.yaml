@@ -518,13 +518,16 @@ ui:
   # streaming response if no event is received within this window. Should be >=
   # ui.nginx.proxyReadTimeout so nginx isn't the silent limit. Default 1800 (30m).
   streamTimeoutSeconds: 1800
-  # -- Nginx proxy timeout configuration for the UI sidecar (values are passed
-  # directly to the corresponding nginx directives, e.g. "1800s").
+  # -- Nginx configuration for the UI sidecar (timeout values are passed directly
+  # to the corresponding nginx directives, e.g. "1800s").
   nginx:
     # -- proxy_read_timeout: max time between two successive reads from the upstream.
     proxyReadTimeout: 1800s
     # -- proxy_send_timeout: max time between two successive writes to the upstream.
     proxySendTimeout: 1800s
+    # -- client_max_body_size: max request body size (0 disables it). Just above the
+    # gateway's 16 MiB gRPC cap, which chat attachments hit first.
+    clientMaxBodySize: 20m
   # -- Extra environment variables for the UI container: a list of `{name, value}`
   # entries, spliced into its `env:` verbatim. An installed app extension's own
   # settings go here, named `EXTENSION_*`; the container's startup script copies
