@@ -34,6 +34,19 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
 by the compiler. Arbitrary Harness `credentialRef` environment values are also unsupported.
 
+## Tracing
+
+The driver passes each prompt to Claude Code on stdin as stream-JSON. When
+traces are exported, it holds the prompt until Claude Code can trace the turn.
+Claude Code starts a turn without waiting for its telemetry to initialize, and
+with first-party Anthropic credentials that initialization first waits on a
+managed settings fetch. A turn that starts earlier records no spans and ignores
+`TRACEPARENT`. The driver therefore adds a loopback Prometheus metrics reader and
+sends the prompt once `claude_code.session.count` appears there, which Claude
+Code increments only after its tracer provider is registered. The wait is bounded
+at 10 seconds, so a stalled settings fetch delays a turn by at most that much, and
+the turn then runs without its Claude spans.
+
 ## Human-in-the-loop approval flow
 
 Claude runs in print mode with `permissions.ask` rules for MCP servers
