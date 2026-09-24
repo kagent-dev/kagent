@@ -28,6 +28,7 @@ export function AttachmentChip({
   const isImage = file.mediaType.startsWith("image/") && hasBytes;
   const canDownload = hasBytes && !onRemove;
 
+  const trailingIcon = { flexShrink: 0, marginLeft: theme.space(2) } as const;
   const focusRing = {
     "&:focus-visible": { outline: `2px solid ${theme.color.primary}`, outlineOffset: 1 },
   } as const;
@@ -62,7 +63,7 @@ export function AttachmentChip({
           size={14}
           aria-hidden
           className="attachment-download"
-          css={{ flexShrink: 0, color: theme.color.textMuted, transition: "color 120ms" }}
+          css={{ ...trailingIcon, color: theme.color.textMuted, transition: "color 120ms" }}
         />
       ) : null}
     </>
@@ -72,9 +73,9 @@ export function AttachmentChip({
     display: "inline-flex",
     alignItems: "center",
     gap: theme.space(2),
-    maxWidth: 240,
+    maxWidth: 260,
     minHeight: 40,
-    padding: `${theme.space(1)} ${theme.space(2)}`,
+    padding: `${theme.space(1)} ${theme.space(2)} ${theme.space(1)} ${theme.space(3)}`,
     border: `1px solid ${theme.color.border}`,
     borderRadius: theme.radius.sm,
     background: theme.color.bgElevated,
@@ -116,48 +117,66 @@ export function AttachmentChip({
     );
   }
 
-  return (
-    <span
-      data-testid="attachment-chip"
-      // Outline the whole chip while its remove button is hovered, so it's clear what goes.
-      css={{ ...chip, "&:has(button:hover)": { borderColor: theme.color.dangerBorder } }}
-    >
-      {body}
-      {onRemove ? (
-        <button
-          type="button"
-          aria-label={`Remove ${file.name}`}
-          onClick={onRemove}
-          css={{
-            display: "inline-grid",
-            placeItems: "center",
-            flexShrink: 0,
-            width: 22,
-            height: 22,
-            padding: 0,
-            border: "1px solid transparent",
-            borderRadius: theme.radius.sm - 4,
-            background: "transparent",
-            color: theme.color.textMuted,
-            cursor: "pointer",
-            transition: "background 120ms, color 120ms, transform 80ms",
-            "&:hover": {
+  if (onRemove) {
+    // The whole chip removes the file; the X is only the cue.
+    return (
+      <button
+        type="button"
+        data-testid="attachment-chip"
+        aria-label={`Remove ${file.name}`}
+        onClick={onRemove}
+        css={{
+          ...chip,
+          font: "inherit",
+          fontSize: chip.fontSize,
+          textAlign: "left",
+          cursor: "pointer",
+          "&:hover": {
+            borderColor: theme.color.dangerBorder,
+            "& .attachment-remove": {
               background: theme.color.dangerBg,
               borderColor: theme.color.dangerBorder,
               color: theme.color.dangerText,
             },
-            "&:active": {
+          },
+          "&:active": {
+            borderColor: theme.color.danger,
+            transform: "translateY(1px)",
+            "& .attachment-remove": {
               background: theme.color.danger,
               borderColor: theme.color.danger,
               color: theme.color.textOnPrimary,
               transform: "scale(0.9)",
             },
-            ...focusRing,
+          },
+          ...focusRing,
+        }}
+      >
+        {body}
+        <span
+          aria-hidden
+          className="attachment-remove"
+          css={{
+            ...trailingIcon,
+            display: "inline-grid",
+            placeItems: "center",
+            width: 22,
+            height: 22,
+            border: "1px solid transparent",
+            borderRadius: theme.radius.sm - 4,
+            color: theme.color.textMuted,
+            transition: "background 120ms, color 120ms, transform 80ms",
           }}
         >
-          <X size={14} aria-hidden />
-        </button>
-      ) : null}
+          <X size={14} />
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <span data-testid="attachment-chip" css={chip}>
+      {body}
     </span>
   );
 }
