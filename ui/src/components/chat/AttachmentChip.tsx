@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactElement } from "react";
+import { useCallback, useRef, useState, type FocusEvent, type ReactElement } from "react";
 import { Tooltip } from "antd";
 import { useTheme } from "@emotion/react";
 import { Download, FileText, X } from "lucide-react";
@@ -33,7 +33,15 @@ export function AttachmentChip({
     setTipOpen(Boolean(el && el.scrollWidth > el.clientWidth));
   };
   const hideTip = () => setTipOpen(false);
-  const tipHandlers = { onMouseEnter: showTip, onFocus: showTip, onMouseLeave: hideTip, onBlur: hideTip };
+  const tipHandlers = {
+    onMouseEnter: showTip,
+    // Keyboard focus only, so focus moved in code after a mouse removal stays quiet.
+    onFocus: (event: FocusEvent<HTMLElement>) => {
+      if (event.currentTarget.matches(":focus-visible")) showTip();
+    },
+    onMouseLeave: hideTip,
+    onBlur: hideTip,
+  };
   const withTooltip = (chipElement: ReactElement) => (
     <Tooltip title={file.name} open={tipOpen}>
       {chipElement}
@@ -108,6 +116,7 @@ export function AttachmentChip({
         ref={withBlobUrl}
         href={file.url}
         download={file.name}
+        {...(file.url && !file.blob ? { target: "_blank", rel: "noopener noreferrer" } : {})}
         aria-label={`Download ${file.name}`}
         css={{
           ...chip,

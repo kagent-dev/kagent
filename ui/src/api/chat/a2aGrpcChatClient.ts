@@ -201,12 +201,21 @@ function toPart(part: A2APart): ChatPart | undefined {
   if (content.case === "url") {
     return {
       kind: "file",
-      name: part.filename || content.value.split("/").pop() || "file",
+      name: part.filename || fileNameFromUrl(content.value),
       mediaType: part.mediaType,
       url: content.value,
     };
   }
   return undefined;
+}
+
+// Last path segment, so a query string or fragment never becomes the name.
+function fileNameFromUrl(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
+  } catch {
+    return "file";
+  }
 }
 
 /**

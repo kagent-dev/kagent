@@ -80,6 +80,7 @@ function statusFrame(options: {
       | ReturnType<typeof text>
       | ReturnType<typeof data>
       | { content: { case: "raw"; value: Uint8Array }; filename: string; mediaType: string }
+      | { content: { case: "url"; value: string }; filename: string; mediaType: string }
     )[];
     metadata?: Record<string, unknown>;
     extensions?: string[];
@@ -1409,6 +1410,32 @@ describe("A2AGrpcChatClient files", () => {
         mediaType: "text/csv",
         size: 2,
         blob: expect.any(Blob),
+      },
+    ]);
+  });
+
+  it("names a linked file by its path, not its query string", async () => {
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-url",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "url" as const, value: "https://files.example/out/report.pdf?sig=abc" },
+              filename: "",
+              mediaType: "application/pdf",
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.pdf",
+        mediaType: "application/pdf",
+        url: "https://files.example/out/report.pdf?sig=abc",
       },
     ]);
   });

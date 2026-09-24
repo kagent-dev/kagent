@@ -5,7 +5,16 @@ import { useTheme } from "@emotion/react";
 import { Paperclip, Save, Send, Square } from "lucide-react";
 import type { ChatController } from "@/api";
 import { ACCEPTED_FILES, mediaTypeOf, stageFiles } from "@/api/chat/attachments";
+import { randomId } from "@/api/randomId";
 import { AttachmentChip } from "./AttachmentChip";
+
+// Stable React keys for staged files, which have no id of their own.
+const fileKeys = new WeakMap<File, string>();
+function fileKey(file: File): string {
+  let key = fileKeys.get(file);
+  if (!key) fileKeys.set(file, (key = randomId()));
+  return key;
+}
 
 /** What a page can ask of the box from outside it: put the caret back in it. */
 export type ChatComposerHandle = { focus: () => void };
@@ -103,13 +112,14 @@ export function ChatComposer({
 }) {
   const theme = useTheme();
   const [draft, setDraft] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [fileError, setFileError] = useState<string>();
+  // One state so a staging pass sets the files and its error together.
+  const [staged, setStaged] = useState<{ files: File[]; error?: string }>({ files: [] });
+  const { files, error: fileError } = staged;
   const inputRef = useRef<TextAreaRef>(null);
   const stagedRef = useRef<HTMLDivElement>(null);
   // Keep keyboard focus in place: the next chip, else the message box.
   const removeFile = (index: number) => {
-    setFiles(files.filter((_, at) => at !== index));
+    setStaged((current) => ({ ...current, files: current.files.filter((_, at) => at !== index) }));
     requestAnimationFrame(() => {
       const chips = stagedRef.current?.querySelectorAll<HTMLElement>('[data-testid="attachment-chip"]');
       const next = chips?.[Math.min(index, chips.length - 1)];
@@ -121,9 +131,7 @@ export function ChatComposer({
 
   function addFiles(incoming: readonly File[]) {
     if (!incoming.length || disabled || !canAttach) return;
-    const staged = stageFiles(files, incoming);
-    setFiles(staged.files);
-    setFileError(staged.error);
+    setStaged((current) => stageFiles(current.files, incoming));
   }
 
   useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
@@ -134,8 +142,7 @@ export function ChatComposer({
     // Cleared before awaiting so the box is ready for the next message
     // immediately, rather than holding text that has already been sent.
     setDraft("");
-    setFiles([]);
-    setFileError(undefined);
+    setStaged({ files: [] });
     await send(text, files);
   }
 
@@ -143,10 +150,17 @@ export function ChatComposer({
     <div
       data-testid="chat-composer"
       data-can-attach={canAttach}
-      onDragOver={canAttach ? (event) => event.preventDefault() : undefined}
+      onDragOver={
+        canAttach
+          ? (event) => {
+              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+            }
+          : undefined
+      }
       onDrop={
         canAttach
           ? (event) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
               event.preventDefault();
               addFiles([...event.dataTransfer.files]);
             }
@@ -164,7 +178,7 @@ export function ChatComposer({
         >
           {files.map((file, index) => (
             <AttachmentChip
-              key={`${file.name}-${index}`}
+              key={fileKey(file)}
               file={{ name: file.name, mediaType: mediaTypeOf(file), size: file.size }}
               onRemove={() => removeFile(index)}
             />
