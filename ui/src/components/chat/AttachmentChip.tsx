@@ -28,9 +28,7 @@ export function AttachmentChip({
   const isImage = file.mediaType.startsWith("image/") && hasBytes;
   const canDownload = hasBytes && !onRemove;
 
-  const interactive = {
-    "&:hover": { borderColor: theme.color.borderStrong, background: theme.color.accentBg },
-    "&:active": { opacity: 0.8 },
+  const focusRing = {
     "&:focus-visible": { outline: `2px solid ${theme.color.primary}`, outlineOffset: 1 },
   } as const;
 
@@ -60,7 +58,12 @@ export function AttachmentChip({
         ) : null}
       </span>
       {canDownload ? (
-        <Download size={14} aria-hidden css={{ flexShrink: 0, color: theme.color.textMuted }} />
+        <Download
+          size={14}
+          aria-hidden
+          className="attachment-download"
+          css={{ flexShrink: 0, color: theme.color.textMuted, transition: "color 120ms" }}
+        />
       ) : null}
     </>
   );
@@ -77,6 +80,7 @@ export function AttachmentChip({
     background: theme.color.bgElevated,
     color: theme.color.text,
     fontSize: 13,
+    transition: "border-color 120ms, background 120ms, box-shadow 120ms, transform 80ms",
   } as const;
 
   if (canDownload) {
@@ -87,7 +91,25 @@ export function AttachmentChip({
         href={file.url}
         download={file.name}
         aria-label={`Download ${file.name}`}
-        css={{ ...chip, textDecoration: "none", "&:hover, &:active": { color: theme.color.text }, ...interactive }}
+        css={{
+          ...chip,
+          textDecoration: "none",
+          cursor: "pointer",
+          "&:hover": {
+            color: theme.color.text,
+            borderColor: theme.color.primaryText,
+            background: theme.color.accentBg,
+            "& .attachment-download": { color: theme.color.primaryText },
+          },
+          "&:active": {
+            color: theme.color.text,
+            borderColor: theme.color.primary,
+            background: `color-mix(in srgb, ${theme.color.primary} 32%, ${theme.color.bgElevated})`,
+            boxShadow: "inset 0 1px 3px rgba(0, 0, 0, 0.2)",
+            transform: "translateY(1px)",
+          },
+          ...focusRing,
+        }}
       >
         {body}
       </a>
@@ -95,7 +117,11 @@ export function AttachmentChip({
   }
 
   return (
-    <span data-testid="attachment-chip" css={chip}>
+    <span
+      data-testid="attachment-chip"
+      // Outline the whole chip while its remove button is hovered, so it's clear what goes.
+      css={{ ...chip, "&:has(button:hover)": { borderColor: theme.color.dangerBorder } }}
+    >
       {body}
       {onRemove ? (
         <button
@@ -114,8 +140,19 @@ export function AttachmentChip({
             background: "transparent",
             color: theme.color.textMuted,
             cursor: "pointer",
-            ...interactive,
-            "&:hover": { background: theme.color.dangerBg, color: theme.color.dangerText },
+            transition: "background 120ms, color 120ms, transform 80ms",
+            "&:hover": {
+              background: theme.color.dangerBg,
+              borderColor: theme.color.dangerBorder,
+              color: theme.color.dangerText,
+            },
+            "&:active": {
+              background: theme.color.danger,
+              borderColor: theme.color.danger,
+              color: theme.color.textOnPrimary,
+              transform: "scale(0.9)",
+            },
+            ...focusRing,
           }}
         >
           <X size={14} aria-hidden />
