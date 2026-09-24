@@ -3,6 +3,7 @@ package fileextract
 import (
 	"context"
 	"iter"
+	"strings"
 	"testing"
 
 	"google.golang.org/adk/v2/model"
@@ -76,5 +77,21 @@ func TestWithFileText_KeepsGoogleLLMVariant(t *testing.T) {
 	}
 	if got := g.GetGoogleLLMVariant(); got != genai.BackendGeminiAPI {
 		t.Errorf("variant = %v, want %v", got, genai.BackendGeminiAPI)
+	}
+}
+
+func TestWithFileText_LeavesDataPartsNextToFiles(t *testing.T) {
+	dataPart := &genai.Part{InlineData: &genai.Blob{MIMEType: "text/plain", Data: []byte(`<a2a_datapart_json>{"a":1}</a2a_datapart_json>`)}}
+	file := &genai.Part{InlineData: &genai.Blob{MIMEType: "text/plain", DisplayName: "notes.txt", Data: []byte("<a2a_datapart_json> is just text here")}}
+	req := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{dataPart, file}}}}
+	inner := &recordingLLM{}
+	for range WithFileText(inner).GenerateContent(t.Context(), req, false) {
+	}
+	parts := inner.got.Contents[0].Parts
+	if parts[0] != dataPart {
+		t.Error("data part was converted")
+	}
+	if !strings.Contains(parts[1].Text, "is just text here") {
+		t.Errorf("file was not converted: %+v", parts[1])
 	}
 }

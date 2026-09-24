@@ -34,8 +34,12 @@ func (m fileTextLLM) GenerateContent(ctx context.Context, req *model.LLMRequest,
 	return m.LLM.GenerateContent(ctx, filesToText(req), stream)
 }
 
-// dataPartPrefix marks an A2A data part ADK passed on as text, not a user file.
-var dataPartPrefix = []byte("<a2a_datapart_json>")
+// isDataPart reports an A2A data part ADK passed on as a text blob, not a user file.
+func isDataPart(b *genai.Blob) bool {
+	data := bytes.TrimSpace(b.Data)
+	return b.MIMEType == "text/plain" &&
+		bytes.HasPrefix(data, []byte("<a2a_datapart_json>")) && bytes.HasSuffix(data, []byte("</a2a_datapart_json>"))
+}
 
 // filesToText returns req with user file blobs replaced by text, copying only the
 // contents and parts it changes so the caller's session history is untouched.
@@ -50,8 +54,7 @@ func filesToText(req *model.LLMRequest) *model.LLMRequest {
 		}
 		var parts []*genai.Part
 		for j, p := range c.Parts {
-			if p == nil || p.InlineData == nil || strings.HasPrefix(p.InlineData.MIMEType, "image/") ||
-				bytes.HasPrefix(p.InlineData.Data, dataPartPrefix) {
+			if p == nil || p.InlineData == nil || strings.HasPrefix(p.InlineData.MIMEType, "image/") || isDataPart(p.InlineData) {
 				continue
 			}
 			if parts == nil {
