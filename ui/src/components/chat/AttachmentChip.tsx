@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useRef, useState, type ReactElement } from "react";
+import { Tooltip } from "antd";
 import { useTheme } from "@emotion/react";
 import { Download, FileText, X } from "lucide-react";
 import type { ChatFilePart } from "@/api";
@@ -24,6 +25,20 @@ export function AttachmentChip({
     },
     [file.blob],
   );
+  // Full name in a tooltip, on hover or focus, only when the chip cuts it off.
+  const nameRef = useRef<HTMLSpanElement>(null);
+  const [tipOpen, setTipOpen] = useState(false);
+  const showTip = () => {
+    const el = nameRef.current;
+    setTipOpen(Boolean(el && el.scrollWidth > el.clientWidth));
+  };
+  const hideTip = () => setTipOpen(false);
+  const tipHandlers = { onMouseEnter: showTip, onFocus: showTip, onMouseLeave: hideTip, onBlur: hideTip };
+  const withTooltip = (chipElement: ReactElement) => (
+    <Tooltip title={file.name} open={tipOpen}>
+      {chipElement}
+    </Tooltip>
+  );
   const hasBytes = Boolean(file.blob || file.url);
   const isImage = file.mediaType.startsWith("image/") && hasBytes;
   const canDownload = hasBytes && !onRemove;
@@ -47,6 +62,7 @@ export function AttachmentChip({
       )}
       <span css={{ display: "grid", minWidth: 0, lineHeight: 1.3 }}>
         <span
+          ref={nameRef}
           data-testid="attachment-name"
           css={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
         >
@@ -75,7 +91,7 @@ export function AttachmentChip({
     gap: theme.space(2),
     maxWidth: 260,
     minHeight: 40,
-    padding: `${theme.space(1)} ${theme.space(2)} ${theme.space(1)} ${theme.space(3)}`,
+    padding: `${theme.space(2)} ${theme.space(2)} ${theme.space(2)} ${theme.space(3)}`,
     border: `1px solid ${theme.color.border}`,
     borderRadius: theme.radius.sm,
     background: theme.color.bgElevated,
@@ -85,8 +101,9 @@ export function AttachmentChip({
   } as const;
 
   if (canDownload) {
-    return (
+    return withTooltip(
       <a
+        {...tipHandlers}
         data-testid="attachment-chip"
         ref={withBlobUrl}
         href={file.url}
@@ -113,15 +130,16 @@ export function AttachmentChip({
         }}
       >
         {body}
-      </a>
+      </a>,
     );
   }
 
   if (onRemove) {
     // The whole chip removes the file; the X is only the cue.
-    return (
+    return withTooltip(
       <button
         type="button"
+        {...tipHandlers}
         data-testid="attachment-chip"
         aria-label={`Remove ${file.name}`}
         onClick={onRemove}
@@ -133,21 +151,13 @@ export function AttachmentChip({
           cursor: "pointer",
           "&:hover": {
             borderColor: theme.color.dangerBorder,
-            "& .attachment-remove": {
-              background: theme.color.dangerBg,
-              borderColor: theme.color.dangerBorder,
-              color: theme.color.dangerText,
-            },
+            "& .attachment-remove": { color: theme.color.dangerText },
           },
           "&:active": {
             borderColor: theme.color.danger,
+            background: theme.color.dangerBg,
             transform: "translateY(1px)",
-            "& .attachment-remove": {
-              background: theme.color.danger,
-              borderColor: theme.color.danger,
-              color: theme.color.textOnPrimary,
-              transform: "scale(0.9)",
-            },
+            "& .attachment-remove": { color: theme.color.dangerText, transform: "scale(0.9)" },
           },
           ...focusRing,
         }}
@@ -162,21 +172,19 @@ export function AttachmentChip({
             placeItems: "center",
             width: 22,
             height: 22,
-            border: "1px solid transparent",
-            borderRadius: theme.radius.sm - 4,
             color: theme.color.textMuted,
-            transition: "background 120ms, color 120ms, transform 80ms",
+            transition: "color 120ms, transform 80ms",
           }}
         >
           <X size={14} />
         </span>
-      </button>
+      </button>,
     );
   }
 
-  return (
-    <span data-testid="attachment-chip" css={chip}>
+  return withTooltip(
+    <span {...tipHandlers} data-testid="attachment-chip" css={chip}>
       {body}
-    </span>
+    </span>,
   );
 }

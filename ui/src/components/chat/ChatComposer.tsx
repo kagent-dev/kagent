@@ -106,6 +106,17 @@ export function ChatComposer({
   const [files, setFiles] = useState<File[]>([]);
   const [fileError, setFileError] = useState<string>();
   const inputRef = useRef<TextAreaRef>(null);
+  const stagedRef = useRef<HTMLDivElement>(null);
+  // Keep keyboard focus in place: the next chip, else the message box.
+  const removeFile = (index: number) => {
+    setFiles(files.filter((_, at) => at !== index));
+    requestAnimationFrame(() => {
+      const chips = stagedRef.current?.querySelectorAll<HTMLElement>('[data-testid="attachment-chip"]');
+      const next = chips?.[Math.min(index, chips.length - 1)];
+      if (next) next.focus();
+      else inputRef.current?.focus();
+    });
+  };
   const pickerRef = useRef<HTMLInputElement>(null);
 
   function addFiles(incoming: readonly File[]) {
@@ -145,6 +156,9 @@ export function ChatComposer({
     >
       {files.length ? (
         <div
+          ref={stagedRef}
+          role="group"
+          aria-label="Attached files"
           data-testid="chat-staged-files"
           css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2) }}
         >
@@ -152,7 +166,7 @@ export function ChatComposer({
             <AttachmentChip
               key={`${file.name}-${index}`}
               file={{ name: file.name, mediaType: mediaTypeOf(file), size: file.size }}
-              onRemove={() => setFiles(files.filter((_, at) => at !== index))}
+              onRemove={() => removeFile(index)}
             />
           ))}
         </div>
