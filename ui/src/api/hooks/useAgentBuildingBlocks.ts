@@ -27,11 +27,11 @@ export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
 
 /** Whether a harness (`namespace/name`) takes files; undefined until known. Only kagent does. */
 export function useHarnessTakesFiles(ref?: string): boolean | undefined {
-  const [namespace, name] = ref?.split("/") ?? [];
+  const namespace = ref?.split("/")[0];
   const harnesses = useApiResource(namespace ? ["harnesses.list", namespace] : null, () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
-  const harness = harnesses.data?.find((candidate) => candidate.name === name);
+  const harness = harnesses.data?.find((candidate) => candidate.ref === ref);
   return harness && harness.runtime === "kagent";
 }
 

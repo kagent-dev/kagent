@@ -114,7 +114,8 @@ export function ChatComposer({
   const [draft, setDraft] = useState("");
   // One state so a staging pass sets the files and its error together.
   const [staged, setStaged] = useState<{ files: File[]; error?: string }>({ files: [] });
-  const { files, error: fileError } = staged;
+  const files = canAttach ? staged.files : [];
+  const fileError = staged.error;
   const inputRef = useRef<TextAreaRef>(null);
   const stagedRef = useRef<HTMLDivElement>(null);
   // Keep keyboard focus in place: the next chip, else the message box.
@@ -143,7 +144,7 @@ export function ChatComposer({
     // immediately, rather than holding text that has already been sent.
     setDraft("");
     setStaged({ files: [] });
-    await send(text, canAttach ? files : []);
+    await send(text, files);
   }
 
   return (

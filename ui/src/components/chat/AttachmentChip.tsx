@@ -48,7 +48,7 @@ export function AttachmentChip({
     </Tooltip>
   );
   const hasBytes = Boolean(file.blob || file.url);
-  const isImage = file.mediaType.startsWith("image/") && hasBytes;
+  const isImage = file.mediaType.startsWith("image/") && Boolean(file.blob);
   const canDownload = hasBytes && !onRemove;
 
   const trailingIcon = { flexShrink: 0, marginLeft: theme.space(2) } as const;
@@ -61,7 +61,6 @@ export function AttachmentChip({
       {isImage ? (
         <img
           ref={withBlobUrl}
-          src={file.url}
           alt=""
           css={{ width: 28, height: 28, objectFit: "cover", borderRadius: theme.radius.sm - 4 }}
         />

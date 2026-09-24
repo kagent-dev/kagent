@@ -368,7 +368,7 @@ export class MockChatClient implements ChatClient {
             name: "summary.txt",
             mediaType: "text/plain",
             size: 12,
-            url: "data:text/plain;base64,MyBwb2RzIHJlYWR5",
+            blob: new Blob(["3 pods ready"], { type: "text/plain" }),
           },
         ],
       };
@@ -523,7 +523,9 @@ function loadTranscript(sessionId: string): ChatMessage[] | null {
 
 function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
   try {
-    window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, JSON.stringify(messages));
+    // Bytes don't survive JSON, so a reloaded file chip is described only, as with user files.
+    const withoutBytes = JSON.stringify(messages, (key, value) => (key === "blob" ? undefined : value));
+    window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, withoutBytes);
   } catch {
     // Not being able to persist costs the transcript a reload, nothing more.
   }
