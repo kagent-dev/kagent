@@ -5,7 +5,7 @@ import heapq
 import inspect
 import logging
 import time
-from typing import Awaitable, Callable, Dict, List, Optional, Union
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 import jwt
 from agentsts.core import STSIntegrationBase, TokenType
@@ -38,8 +38,14 @@ HEADERS_KEY = "headers"
 # only, never the caller's authority, and a cache hit renews it.
 MAX_CACHE_TTL_SECONDS = 300
 
-# Upper bound on cache entries. The sweep runs between runs, so concurrent runs
-# holding many distinct credentials need a bound that does not wait for one.
+# Upper bound on the entries one session may hold. A session carries as many
+# entries as it has distinct callers, so this bound is what keeps one session's
+# burst of credentials from evicting another session's.
+MAX_ENTRIES_PER_SESSION = 32
+
+# Upper bound on cache entries, across sessions. The sweep runs between runs, so
+# concurrent runs holding many distinct credentials need a bound that does not
+# wait for one.
 MAX_CACHE_ENTRIES = 1024
 
 # Separates the session part of a cache key from the subject part. It cannot
@@ -321,6 +327,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         self.token_cache[cache_key] = entry
         self._touch(entry)
         self._earliest_eviction = _earlier_expiry(self._earliest_eviction, entry.evict_after)
+        self._evict_over_session_capacity(invocation_context.session.id)
         self._evict_over_capacity()
         logger.debug("Cached new subject token")
         return None
@@ -384,25 +391,51 @@ class ADKTokenPropagationPlugin(BasePlugin):
         if entry.expiry is None:
             entry.evict_after = int(time.time()) + MAX_CACHE_TTL_SECONDS
 
+    def _evict_over_session_capacity(self, session_id: str) -> None:
+        """Drop the session's least recently used entries once it is over capacity.
+
+        The bound is per session so that a session presenting many distinct
+        credentials evicts its own entries and not those of unrelated sessions.
+        The whole cache is walked because entries are not indexed by session,
+        and only once the session can be over capacity at all.
+        """
+        if len(self.token_cache) <= MAX_ENTRIES_PER_SESSION:
+            return
+
+        prefix = f"{session_id}{_KEY_SEPARATOR}"
+        entries = [item for item in self.token_cache.items() if item[0].startswith(prefix)]
+        self._evict_least_recently_used(entries, len(entries) - MAX_ENTRIES_PER_SESSION, "session")
+
     def _evict_over_capacity(self) -> None:
         """Drop the least recently used entries once the cache is over capacity.
 
-        The sweep runs between runs only, so it cannot bound a run that sees
-        many distinct credentials while it holds them. The entry the current run
-        just cached is the most recently used, so it is never dropped here.
-
-        Use order is the only signal available here, so an entry a run still
-        holds is dropped once MAX_CACHE_ENTRIES more recent callers arrive
-        between two of its tool calls. That run then injects no credential for
-        the rest of its tool calls.
+        The sweep runs between runs only, so it cannot bound runs that see many
+        distinct credentials while they hold them.
         """
-        overflow = len(self.token_cache) - MAX_CACHE_ENTRIES
+        self._evict_least_recently_used(
+            list(self.token_cache.items()), len(self.token_cache) - MAX_CACHE_ENTRIES, "cache"
+        )
+
+    def _evict_least_recently_used(
+        self, entries: List[Tuple[str, _TokenCacheEntry]], overflow: int, bound: str
+    ) -> None:
+        """Drop the overflow least recently used entries among entries.
+
+        Unlike the sweep, this drops entries whose credentials are still valid.
+        Use order is the only signal available, so an entry a run still holds is
+        dropped once enough more recent callers arrive between two of its tool
+        calls, and that run injects no credential for the rest of its tool
+        calls. It is reported above debug for that reason. The entry the current
+        run just cached is the most recently used, so it is never dropped here.
+        """
         if overflow <= 0:
             return
 
-        for key, _ in heapq.nsmallest(overflow, self.token_cache.items(), key=lambda item: item[1].last_used):
+        for key, _ in heapq.nsmallest(overflow, entries, key=lambda item: item[1].last_used):
             del self.token_cache[key]
-        logger.debug(f"Dropped {overflow} cached token(s) over the cache capacity")
+        logger.warning(
+            f"Dropped {overflow} valid cached token(s) to stay within the {bound} capacity; callers may re-exchange"
+        )
 
     def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session

@@ -10,7 +10,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
-from agentsts.adk._base import HEADERS_KEY, MAX_CACHE_ENTRIES, MAX_CACHE_TTL_SECONDS
+from agentsts.adk._base import HEADERS_KEY, MAX_CACHE_ENTRIES, MAX_CACHE_TTL_SECONDS, MAX_ENTRIES_PER_SESSION
 from agentsts.adk._base import _cache_key as build_cache_key
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
@@ -1335,27 +1335,41 @@ class TestADKTokenPropagationPlugin:
             assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer delegated-opaque-alice"}
 
     @pytest.mark.asyncio
-    async def test_capacity_eviction_keeps_the_entry_of_an_in_flight_caller(self):
+    @pytest.mark.parametrize(
+        ("burst_session", "capacity"),
+        [
+            pytest.param(lambda index: "sess-burst", MAX_ENTRIES_PER_SESSION, id="session"),
+            pytest.param(lambda index: f"sess-burst-{index}", MAX_CACHE_ENTRIES, id="cache"),
+        ],
+    )
+    async def test_capacity_eviction_keeps_the_entry_of_an_in_flight_caller(self, burst_session, capacity):
         """Case: a burst of distinct credentials must not evict the entry a run is
-        still making tool calls with."""
+        still making tool calls with, under either capacity bound."""
         plugin = ADKTokenPropagationPlugin(sts_integration=None)
 
         in_flight = self._make_invocation_context("sess-burst", headers={"Authorization": "Bearer opaque-alice"})
         await plugin.before_run_callback(invocation_context=in_flight)
         in_flight_ctx = self._make_readonly_context(in_flight)
 
-        for index in range(MAX_CACHE_ENTRIES + 25):
+        for index in range(capacity + 25):
             # Each new caller is more recent than the last tool call of the
             # in-flight run, so only a renewed entry survives the burst.
             assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer opaque-alice"}
-            ic = self._make_invocation_context("sess-burst", headers={"Authorization": f"Bearer token-{index}"})
+            ic = self._make_invocation_context(burst_session(index), headers={"Authorization": f"Bearer token-{index}"})
             await plugin.before_run_callback(invocation_context=ic)
 
-        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        assert len(plugin.token_cache) == capacity
         assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer opaque-alice"}
 
     @pytest.mark.asyncio
-    async def test_capacity_eviction_drops_a_caller_that_makes_no_tool_call(self):
+    @pytest.mark.parametrize(
+        ("burst_session", "capacity"),
+        [
+            pytest.param(lambda index: "sess-idle-burst", MAX_ENTRIES_PER_SESSION, id="session"),
+            pytest.param(lambda index: f"sess-idle-burst-{index}", MAX_CACHE_ENTRIES, id="cache"),
+        ],
+    )
+    async def test_capacity_eviction_drops_a_caller_that_makes_no_tool_call(self, burst_session, capacity):
         """Case: use order is the only signal the capacity bound has, so a run
         that pauses long enough loses its entry and injects no credential.
 
@@ -1370,11 +1384,11 @@ class TestADKTokenPropagationPlugin:
         assert plugin.header_provider(idle_ctx) == {"Authorization": "Bearer opaque-alice"}
 
         # The run waits on a model turn, so it renews nothing while the burst runs.
-        for index in range(MAX_CACHE_ENTRIES + 5):
-            ic = self._make_invocation_context("sess-idle-burst", headers={"Authorization": f"Bearer token-{index}"})
+        for index in range(capacity + 5):
+            ic = self._make_invocation_context(burst_session(index), headers={"Authorization": f"Bearer token-{index}"})
             await plugin.before_run_callback(invocation_context=ic)
 
-        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        assert len(plugin.token_cache) == capacity
         assert plugin.cache_key(idle) not in plugin.token_cache
         assert plugin.header_provider(idle_ctx) == {}
 
@@ -1528,18 +1542,48 @@ class TestADKTokenPropagationPlugin:
             assert mock_logger.warning.call_args_list == []
 
     @pytest.mark.asyncio
-    async def test_cache_is_capped_by_entry_count(self):
-        """Case: one session seeing many distinct credentials is capped, since the
-        sweep never runs while a single run holds them."""
+    @pytest.mark.parametrize(
+        ("burst_session", "capacity"),
+        [
+            pytest.param(lambda index: "one-session", MAX_ENTRIES_PER_SESSION, id="session"),
+            pytest.param(lambda index: f"session-{index}", MAX_CACHE_ENTRIES, id="cache"),
+        ],
+    )
+    async def test_cache_is_capped_by_entry_count(self, burst_session, capacity):
+        """Case: many distinct credentials are capped, since the sweep never runs
+        while the runs hold them."""
         plugin = ADKTokenPropagationPlugin(sts_integration=None)
 
-        for index in range(MAX_CACHE_ENTRIES + 25):
-            ic = self._make_invocation_context("one-session", headers={"Authorization": f"Bearer token-{index}"})
+        for index in range(capacity + 25):
+            ic = self._make_invocation_context(burst_session(index), headers={"Authorization": f"Bearer token-{index}"})
             await plugin.before_run_callback(invocation_context=ic)
 
-        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        assert len(plugin.token_cache) == capacity
         # The run that just cached keeps its own entry.
         assert plugin.cache_key(ic) in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_a_session_burst_does_not_evict_another_sessions_entry(self):
+        """Case: one session presenting many distinct credentials evicts its own
+        entries, not those of an unrelated session.
+
+        The victim run is between tool calls, so it renews nothing during the
+        burst. before_run_callback has already run, so a lost entry would leave
+        the rest of that run with no delegated identity.
+        """
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        victim = self._make_invocation_context("sess-victim", headers={"Authorization": "Bearer opaque-alice"})
+        await plugin.before_run_callback(invocation_context=victim)
+        victim_ctx = self._make_readonly_context(victim)
+        assert plugin.header_provider(victim_ctx) == {"Authorization": "Bearer opaque-alice"}
+
+        for index in range(MAX_CACHE_ENTRIES + 25):
+            ic = self._make_invocation_context("sess-noisy", headers={"Authorization": f"Bearer token-{index}"})
+            await plugin.before_run_callback(invocation_context=ic)
+
+        assert len(plugin.token_cache) == MAX_ENTRIES_PER_SESSION + 1
+        assert plugin.header_provider(victim_ctx) == {"Authorization": "Bearer opaque-alice"}
 
     def test_header_provider_without_context_fails_closed(self):
         """Case: a tool call with no invocation context gets no header instead of raising."""
