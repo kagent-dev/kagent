@@ -30,6 +30,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
+	compiled.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
 	configJSON, err := json.Marshal(compiled.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)

@@ -31,11 +31,8 @@ must fail, not skip. Keep genuinely harness-specific features (native tool
 events, SDK tracing, kagent compaction) in separate tests.
 
 Current explicit gaps are structured output outside kagent, native Codex/Claude
-ask-user model fixtures, the Codex shared-subagent model fixture, and checkpoint
-conversation restoration for configured BYO (its compiler does not configure a
-durable session store). The shared MCP checkpoint test still exercises BYO's
-checkpoint API and copied task history. These gaps appear as skips in
-verbose/JSON test output, including in CI.
+ask-user model fixtures, and the Codex shared-subagent model fixture. These
+gaps appear as skips in verbose/JSON test output, including in CI.
 
 Run one behavior across all harnesses, or select one harness for debugging:
 
