@@ -103,6 +103,14 @@ export async function pressUntil(
   // what says so: at thirty the test expired first and reported its own timeout.
   timeout = 15_000,
 ): Promise<void> {
+  /*
+   * Arrived before the first attempt, as `pressOnce` waits. The guard in the loop is
+   * for the attempts after a press that worked; on the first it found an option still
+   * being drawn into its dropdown, pressed nothing, and spent `settled`'s whole five
+   * seconds before trying again — measured on the schedules lifecycle, where that was
+   * the difference between its budget and a timeout.
+   */
+  await expect(button).toBeVisible();
   await expect(async () => {
     // Bounded, because `toPass` checks its deadline between attempts and no
     // `actionTimeout` is configured: a click blocked by an overlay would otherwise hang
