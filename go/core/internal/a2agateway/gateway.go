@@ -195,9 +195,6 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 
 func route(ctx context.Context) (string, error) {
 	ids := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceIDHeader)
-	if id, ok := ctx.Value(httpInstanceIDKey{}).(string); ok {
-		ids = []string{id}
-	}
 	if len(ids) != 1 {
 		return "", fmt.Errorf("exactly one %s header is required", apia2a.AgentInstanceIDHeader)
 	}

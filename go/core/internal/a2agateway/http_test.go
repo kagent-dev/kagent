@@ -123,9 +123,15 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
 	require.Equal(t, gatewayTestContextID, task.ContextID)
-	persisted, err := client.GetTask(httpTestContext(t), &a2atype.GetTaskRequest{ID: task.ID})
+	// JSON-RPC also uses the URL when callers supply conflicting routing headers.
+	ctx := a2aclient.AttachServiceParams(httpTestContext(t), a2aclient.ServiceParams{
+		"authorization":              {"Bearer valid"},
+		apia2a.AgentInstanceIDHeader: {"12345678-1234-4234-8234-123456789abc", "invalid"},
+	})
+	persisted, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: task.ID})
 	require.NoError(t, err)
 	require.Equal(t, task, persisted)
+	require.Equal(t, gatewayTestID, store.id)
 }
 
 func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {

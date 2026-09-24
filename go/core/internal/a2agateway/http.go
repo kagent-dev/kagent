@@ -1,23 +1,22 @@
 package a2agateway
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"google.golang.org/grpc/metadata"
 )
 
 // HTTPPathPrefix is the public A2A namespace on the core HTTP listener.
 const HTTPPathPrefix = "/agents/"
-
-type httpInstanceIDKey struct{}
 
 // NewHTTPHandler serves a card and JSON-RPC endpoint per AgentInstance. The URL
 // selects the instance; caller-supplied routing headers cannot override it.
@@ -76,7 +75,8 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 
 func withHTTPInstance(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), httpInstanceIDKey{}, r.PathValue("instanceID"))
+		// Normalize the URL into the same routing metadata used by gRPC.
+		ctx := metadata.NewIncomingContext(r.Context(), metadata.Pairs(apia2a.AgentInstanceIDHeader, r.PathValue("instanceID")))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
