@@ -227,7 +227,6 @@ describe("the agent template draft", () => {
     const draft = emptyDraft("kagent");
     expect(draftProblems(draft, { isCreate: true })).toEqual([
       "A name is required.",
-      "A model configuration is required — every template must name one.",
     ]);
 
     draft.name = "t";

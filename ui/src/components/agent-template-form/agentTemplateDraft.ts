@@ -188,8 +188,10 @@ export function specFromDraft(
   const spec: AgentTemplateSpec = {
     // Everything the form does not model, carried over untouched.
     ...(existing ?? {}),
-    modelConfig: { name: draft.modelConfig.trim() },
   };
+  const model = draft.modelConfig.trim();
+  if (model === "") delete spec.modelConfig;
+  else spec.modelConfig = { name: model };
 
   setOrDelete(spec, "description", draft.description.trim());
 
@@ -271,10 +273,6 @@ export function draftProblems(
   }
   if (draft.namespace.trim() === "") {
     problems.push("A namespace is required.");
-  }
-  if (draft.modelConfig.trim() === "") {
-    // The one genuinely required spec field.
-    problems.push("A model configuration is required — every template must name one.");
   }
   if (draft.promptSource === "configMap") {
     const name = draft.systemPromptConfigMap.trim();

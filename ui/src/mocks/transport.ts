@@ -1178,7 +1178,7 @@ function templateFromResource(
     ref: `${namespace}/${name}`,
     namespace,
     name,
-    modelConfigRef: `${namespace}/${spec.modelConfig?.name ?? ""}`,
+    modelConfigRef: spec.modelConfig?.name ? `${namespace}/${spec.modelConfig.name}` : "",
     description: spec.description ?? "",
     // Recomputed by `saveAgentTemplate` from the labels; whatever is passed here is
     // replaced.
@@ -1286,11 +1286,6 @@ on(AgentTemplateService.method.createAgentTemplate, (input, call) => {
     throw new ConnectError("the mock backend was asked to fail", Code.Internal);
   }
   const value = (input.resource?.value ?? {}) as JsonObject;
-  // The controller's own rule: the one required spec field.
-  const spec = (value.spec ?? {}) as { modelConfig?: { name?: string } };
-  if (!spec.modelConfig?.name) {
-    throw new ConnectError("spec.modelConfig is required", Code.InvalidArgument);
-  }
   return {
     agentTemplate: agentTemplateMessage(
       saveAgentTemplate(templateFromResource(namespace, name, value)),

@@ -159,6 +159,15 @@ export function AgentTemplateForm({
     return (harnesses.data ?? []).filter((harness) => admitsLabels(harness, labels));
   }, [draft.labels, harnesses.data]);
 
+  // Only BYO harnesses run a template with no model; the rest refuse it at compile time.
+  const modelRequiredBy = useMemo(
+    () =>
+      draft.modelConfig.trim() === ""
+        ? wouldAdmit.filter((harness) => harness.runtime !== "byo")
+        : [],
+    [draft.modelConfig, wouldAdmit],
+  );
+
   const structuredOutputUnsupportedBy = useMemo(
     () => wouldAdmit.filter((harness) => harness.runtime !== "kagent"),
     [wouldAdmit],
@@ -226,9 +235,7 @@ export function AgentTemplateForm({
           <Form.Item
             label="Name"
             /* Unconditional: this field only exists while creating, and the only
-               caller that creates does not render read-only, so `!readOnly` was a
-               condition that could not be false. The model configuration below is the
-               genuinely conditional one. */
+               caller that creates does not render read-only. */
             required
             extra="A Kubernetes object name, so it cannot be changed afterwards."
           >
@@ -244,11 +251,7 @@ export function AgentTemplateForm({
 
         <Form.Item
           label="Model configuration"
-          /* Marked required only while the form authors: read-only is the details page
-             showing a template that already has a model, and an asterisk there would be
-             asking a reader for something the template has. */
-          required={!readOnly}
-          extra="The only field the CRD requires. It names a ModelConfig in this template's own namespace."
+          extra="A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO)."
         >
           <div data-testid="template-form-model">
             <Select
@@ -281,6 +284,18 @@ export function AgentTemplateForm({
               {...readOnlySelect}
             />
           </div>
+          {!readOnly && modelRequiredBy.length > 0 ? (
+            <Alert
+              css={{ marginTop: theme.space(2) }}
+              type="warning"
+              showIcon
+              data-testid="template-form-model-required"
+              title="Some matching harnesses need a model"
+              description={`${modelRequiredBy
+                .map((harness) => harness.name)
+                .join(", ")} will report this template as incompatible until it names one.`}
+            />
+          ) : null}
         </Form.Item>
 
         <Form.Item label="Description">
