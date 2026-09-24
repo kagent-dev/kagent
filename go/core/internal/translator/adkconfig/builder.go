@@ -97,7 +97,13 @@ func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
 }
 
 func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	return c.compileAgent(ctx, input)
+	return c.compileAgent(ctx, input, false)
+}
+
+// BuildWithAgentID builds a kagent runtime configuration whose model requests
+// identify the AgentTemplate that issued them.
+func (c *Builder) BuildWithAgentID(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
+	return c.compileAgent(ctx, input, true)
 }
 
 // ApplyCompaction translates the Harness's kagent compaction policy into the
@@ -142,13 +148,38 @@ func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
 	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
 }
 
-func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
+func modelConfigWithAgentID(config *v1alpha3.ModelConfig, template *v1alpha3.AgentTemplate) *v1alpha3.ModelConfig {
+	compiled := config.DeepCopy()
+	if compiled.Spec.DefaultHeaders == nil {
+		compiled.Spec.DefaultHeaders = make(map[string]string, 1)
+	}
+	// HTTP header names are case-insensitive. Remove any user-provided spelling
+	// so the system-derived identity is the only value serialized at runtime.
+	for name := range compiled.Spec.DefaultHeaders {
+		if strings.EqualFold(name, adk.ModelAgentIDHeader) {
+			delete(compiled.Spec.DefaultHeaders, name)
+		}
+	}
+	compiled.Spec.DefaultHeaders[adk.ModelAgentIDHeader] = types.NamespacedName{
+		Namespace: template.Namespace,
+		Name:      template.Name,
+	}.String()
+	return compiled
+}
+
+func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput, includeAgentID bool) (*Result, error) {
 	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
 		modelConfig = input.ResolvedModelConfig.Config
+		resolvedModel := input.ResolvedModelConfig
+		if includeAgentID {
+			resolvedModelCopy := *input.ResolvedModelConfig
+			resolvedModelCopy.Config = modelConfigWithAgentID(modelConfig, input.Template)
+			resolvedModel = &resolvedModelCopy
+		}
 		var err error
-		modelRuntime, err = resolveModel(input.ResolvedModelConfig)
+		modelRuntime, err = resolveModel(resolvedModel)
 		if err != nil {
 			return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 		}
@@ -189,7 +220,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		result.Models = []*v2translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
-		child, err := c.compileAgent(ctx, binding.Agent)
+		child, err := c.compileAgent(ctx, binding.Agent, includeAgentID)
 		if err != nil {
 			return nil, err
 		}

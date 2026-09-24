@@ -58,6 +58,10 @@ type Model interface {
 	GetType() string
 }
 
+// ModelAgentIDHeader attributes outbound model requests to the AgentTemplate
+// whose compiled runtime model issued them.
+const ModelAgentIDHeader = "X-Agent-Id"
+
 type BaseModel struct {
 	Type    string            `json:"type"`
 	Model   string            `json:"model"`
