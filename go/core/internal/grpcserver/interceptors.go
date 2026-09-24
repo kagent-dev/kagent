@@ -89,18 +89,18 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		return ctx, status.Error(codes.Internal, "failed to validate share token")
 	}
 	// READ_WRITE also allows A2A send and cancel; anything else is read-only.
-	readOnly := instanceShare.Permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE
-	if readOnly && access != auth.AccessPublic && access != auth.AccessRead {
-		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
-	}
-	return auth.ShareContextTo(authenticatedContext, &auth.ShareContext{
+	shareContext := &auth.ShareContext{
 		Token: shareToken,
 		// The owner, not the visitor: the token widens what this account may reach
 		// to what the owner can see, and the instance read runs as the owner.
 		UserID:          ownerUserID,
-		ReadOnly:        readOnly,
+		ReadOnly:        instanceShare.Permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE,
 		AgentInstanceID: instanceShare.GetAgentInstanceId(),
-	}), nil
+	}
+	if !shareContext.AllowsAccess(access) {
+		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
+	}
+	return auth.ShareContextTo(authenticatedContext, shareContext), nil
 }
 
 func incomingHTTPHeaders(ctx context.Context) http.Header {

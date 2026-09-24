@@ -89,6 +89,63 @@ func TestMatcherOwnsCompiledScope(t *testing.T) {
 	}
 }
 
+func TestMatcherMatchesAnyName(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		scope     apiauthorization.AuthorizationScope
+		want      bool
+	}{
+		{name: "all", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, want: true},
+		{name: "none", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}},
+		{name: "invalid namespace", namespace: "NOT A NAMESPACE", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}},
+		{
+			name:  "namespace",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}}}}}},
+			want:  true,
+		},
+		{
+			name:  "different namespace",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}}}}}},
+		},
+		{
+			name: "intersecting names",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a", "agent-b"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-b"}},
+			}}}},
+			want: true,
+		},
+		{
+			name: "disjoint names",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-b"}},
+			}}}},
+		},
+		{
+			name:  "invalid resource name",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"NOT A NAME"}}}}}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			namespace := test.namespace
+			if namespace == "" {
+				namespace = "team-a"
+			}
+			matcher, err := kubeauth.CompileScope(test.scope)
+			if err != nil {
+				t.Fatalf("CompileScope() error = %v", err)
+			}
+			if got := matcher.MatchesAnyName(namespace); got != test.want {
+				t.Fatalf("MatchesAnyName() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 	tests := []struct {
 		name  string

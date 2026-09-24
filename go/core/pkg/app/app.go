@@ -33,6 +33,7 @@ import (
 	v2mcp "github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
@@ -338,10 +339,11 @@ func Run(ctx context.Context, opts Options) error {
 		MemoryService:         memory,
 		AgentInstanceService:  instances,
 		ScheduledRunService:   schedules,
+		AuthorizationService:  kubeauth.NewAccessReviewer(authorizer),
 		// Both halves of the pair CreateAgentInstance names. Without these two
 		// the only way to author a Harness or an AgentTemplate is kubectl.
-		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
+		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, auth.ResourceAgentTemplate),
+		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, auth.ResourceHarness),
 		CheckpointService:    checkpoints,
 		A2AHandler:           gateway,
 		HTTPHandler:          mux,

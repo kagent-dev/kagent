@@ -20,9 +20,6 @@ import (
 
 var modelConfigGVK = v1alpha3.GroupVersion.WithKind("ModelConfig")
 
-// modelConfigResource names ModelConfig in authorization decisions.
-const modelConfigResource = "ModelConfig"
-
 type Service struct {
 	kubeClient             client.Client
 	modelConfigs           *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
@@ -57,7 +54,7 @@ type DeleteRequest struct {
 func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, defaultNamespace string, options ...ServiceOption) *Service {
 	service := &Service{
 		kubeClient:       kubeClient,
-		modelConfigs:     kubecrud.NewService(kubeClient, authorizer, &v1alpha3.ModelConfig{}, &v1alpha3.ModelConfigList{}, modelConfigResource),
+		modelConfigs:     kubecrud.NewService(kubeClient, authorizer, &v1alpha3.ModelConfig{}, &v1alpha3.ModelConfigList{}, auth.ResourceModelConfig),
 		defaultNamespace: defaultNamespace,
 	}
 	for _, option := range options {
