@@ -422,6 +422,16 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 
 var _ models.ExchangedTokenProvider = (*TokenPropagationPlugin)(nil)
 
+// ExchangedTokens adapts p to the provider interface every consumer takes at
+// construction. A nil plugin becomes a nil interface rather than a non-nil
+// interface holding a nil pointer, so "no STS configured" stays distinguishable.
+func ExchangedTokens(p *TokenPropagationPlugin) models.ExchangedTokenProvider {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
 // ExchangedToken resolves the STS-exchanged token for this request. It is the
 // only read of the token cache, so the outbound LLM call and the MCP header
 // cannot drift apart on mode, session recovery, caller identity or expiry.

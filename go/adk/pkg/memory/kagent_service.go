@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -40,6 +41,10 @@ type Config struct {
 	EmbeddingConfig *adk.EmbeddingConfig
 	// Model for session summarization (optional)
 	Model adkmodel.LLM
+	// ExchangedTokens resolves the STS-exchanged token for a request, nil when
+	// STS is not configured. Embedding calls run under the caller's request, so
+	// they carry the delegated identity like every other outbound call.
+	ExchangedTokens models.ExchangedTokenProvider
 }
 
 // New creates a new KagentMemoryService.
@@ -56,6 +61,7 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}
 	embClient, err := embedding.New(embedding.Config{
 		EmbeddingConfig: cfg.EmbeddingConfig,
+		ExchangedTokens: cfg.ExchangedTokens,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedding client: %w", err)

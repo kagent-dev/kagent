@@ -19,6 +19,7 @@ import (
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
+	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -171,6 +172,15 @@ func main() {
 
 	ctx := logging.IntoContext(context.Background(), logger)
 
+	// Built before anything that makes outbound calls on the caller's behalf:
+	// the memory service's embedding client and the runner's models all take
+	// the provider at construction.
+	stsPlugin, err := runnerpkg.BuildTokenPropagationPlugin(ctx, logger)
+	if err != nil {
+		logger.Error("failed to create STS token propagation plugin", "error", err)
+		os.Exit(1)
+	}
+
 	// Build memory service if configured.
 	var memoryService *kagentmemory.KagentMemoryService
 	if agentConfig.Memory != nil && controllerClient != nil {
@@ -179,6 +189,7 @@ func main() {
 			ControllerClient: controllerClient,
 			TTLDays:          agentConfig.Memory.TTLDays,
 			EmbeddingConfig:  agentConfig.Memory.Embedding,
+			ExchangedTokens:  sts.ExchangedTokens(stsPlugin),
 		})
 		if err != nil {
 			logger.Error("failed to create memory service", "error", err)
@@ -188,7 +199,7 @@ func main() {
 		logger.Info("memory service enabled", "app_name", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient, stsPlugin)
 	if err != nil {
 		logger.Error("failed to create Google ADK Runner config", "error", err)
 		os.Exit(1)
