@@ -1414,7 +1414,7 @@ describe("A2AGrpcChatClient files", () => {
     ]);
   });
 
-  it("names a linked file by its path, not its query string", async () => {
+  it("names a linked file by its path and drops non-http links", async () => {
     const events = await turn([
       statusFrame({
         message: {
@@ -1426,6 +1426,8 @@ describe("A2AGrpcChatClient files", () => {
               filename: "",
               mediaType: "application/pdf",
             },
+            { content: { case: "url" as const, value: "javascript:alert(1)" }, filename: "x.pdf", mediaType: "application/pdf" },
+            { content: { case: "url" as const, value: "data:text/html,<b>hi</b>" }, filename: "y.html", mediaType: "text/html" },
           ],
         },
       }),

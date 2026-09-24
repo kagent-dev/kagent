@@ -199,6 +199,8 @@ function toPart(part: A2APart): ChatPart | undefined {
     };
   }
   if (content.case === "url") {
+    // Only http(s) links reach an href; anything else (javascript:, data:) is dropped.
+    if (!isHttpUrl(content.value)) return undefined;
     return {
       kind: "file",
       name: part.filename || fileNameFromUrl(content.value),
@@ -207,6 +209,15 @@ function toPart(part: A2APart): ChatPart | undefined {
     };
   }
   return undefined;
+}
+
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 // Last path segment, so a query string or fragment never becomes the name.

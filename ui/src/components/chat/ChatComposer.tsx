@@ -118,8 +118,8 @@ export function ChatComposer({
   const inputRef = useRef<TextAreaRef>(null);
   const stagedRef = useRef<HTMLDivElement>(null);
   // Keep keyboard focus in place: the next chip, else the message box.
-  const removeFile = (index: number) => {
-    setStaged((current) => ({ ...current, files: current.files.filter((_, at) => at !== index) }));
+  const removeFile = (file: File, index: number) => {
+    setStaged((current) => ({ files: current.files.filter((f) => f !== file) }));
     requestAnimationFrame(() => {
       const chips = stagedRef.current?.querySelectorAll<HTMLElement>('[data-testid="attachment-chip"]');
       const next = chips?.[Math.min(index, chips.length - 1)];
@@ -143,7 +143,7 @@ export function ChatComposer({
     // immediately, rather than holding text that has already been sent.
     setDraft("");
     setStaged({ files: [] });
-    await send(text, files);
+    await send(text, canAttach ? files : []);
   }
 
   return (
@@ -180,7 +180,7 @@ export function ChatComposer({
             <AttachmentChip
               key={fileKey(file)}
               file={{ name: file.name, mediaType: mediaTypeOf(file), size: file.size }}
-              onRemove={() => removeFile(index)}
+              onRemove={() => removeFile(file, index)}
             />
           ))}
         </div>
