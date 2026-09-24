@@ -155,8 +155,11 @@ func TestPassthroughTokenWithoutACallerTokenSkipsProvider(t *testing.T) {
 	}
 }
 
-// A typed nil held in the interface must not panic or be treated as a provider.
-func TestPassthroughTokenToleratesANilProvider(t *testing.T) {
+// No STS configured means no provider argument, and the caller's own token goes
+// out unchanged. PassthroughToken screens on the interface being nil, so callers
+// holding a concrete plugin must convert through sts.ExchangedTokens rather than
+// assigning a possibly-nil pointer straight into the interface.
+func TestPassthroughTokenWithoutAProvider(t *testing.T) {
 	ctx := context.WithValue(context.Background(), BearerTokenKey, "INBOUND")
 
 	token, ok := PassthroughToken(ctx, true, nil)

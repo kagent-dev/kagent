@@ -867,19 +867,3 @@ func TestWithSessionIDAndBearerTokenAreDistinct(t *testing.T) {
 		t.Fatalf("session ID = %v, want %q: it must be stored under its own key", got, sessionID)
 	}
 }
-
-// The executor stamps only request identity. The exchanged-token provider is a
-// construction-time dependency of the models, so nothing about it belongs here.
-func TestExecutorStampsOnlyRequestIdentity(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "bearer")
-	ctx = withSessionID(ctx, "session-abc")
-
-	if got := ctx.Value(models.BearerTokenKey); got != "bearer" {
-		t.Fatalf("bearer token = %v, want %q", got, "bearer")
-	}
-	if got := ctx.Value(models.SessionIDKey); got != "session-abc" {
-		t.Fatalf("session ID = %v, want %q", got, "session-abc")
-	}
-}
