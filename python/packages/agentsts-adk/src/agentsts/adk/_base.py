@@ -166,8 +166,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
         The only read of the token cache, so the LLM and MCP paths cannot drift
         apart on mode, the caller-token requirement or expiry.
         """
-        # Propagate-only mode mints no credential. Returning None leaves the MCP
-        # toolset forwarding the live caller token rather than overriding it.
+        # Propagate-only mode mints no credential. The LLM path falls back to the
+        # caller's own token and header_provider forwards it directly.
         if not self.sts_integration:
             return None
         # The cache outlives the run, so without this a turn carrying no caller
@@ -184,10 +184,25 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return {}
 
         invocation_context = readonly_context._invocation_context
+        caller_token = self._caller_token(invocation_context)
+
+        # Propagate-only mode: unlike the Go registry, the Python MCP toolset
+        # forwards Authorization only when the header is allowlisted, so this is
+        # the sole thing giving the tool call a caller identity. Forward the live
+        # token, never a cached one, so a later turn cannot go out as an earlier
+        # caller.
+        if not self.sts_integration:
+            if not caller_token:
+                return {}
+            logger.debug("Forwarding the caller's own token for tool invocation")
+            return {"Authorization": f"Bearer {caller_token}"}
+
         token = self.exchanged_token(
             session_id=self.cache_key(invocation_context),
-            bearer_token=self._caller_token(invocation_context) or "",
+            bearer_token=caller_token or "",
         )
+        # No fallback to the raw token: with an STS configured, a failed exchange
+        # must not quietly send the caller's own credential to the backend.
         if not token:
             return {}
 

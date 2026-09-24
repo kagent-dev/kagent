@@ -187,11 +187,13 @@ class TestADKTokenPropagationPlugin:
 
     @pytest.mark.asyncio
     async def test_downstream_token_propagation_without_sts(self):
-        """Case: headers present, no STS integration -> nothing cached, no header injected.
+        """Case: headers present, no STS integration -> the caller's own token is
+        forwarded, and nothing is cached.
 
-        The MCP toolset forwards the live caller Authorization itself. Caching
-        the caller's own token here would only let a later turn on the session go
-        out as an earlier caller.
+        The toolset forwards Authorization only when it is allowlisted, so this
+        provider is what gives the tool call a caller identity. It reads the live
+        request rather than a cache, so a later turn cannot go out as an earlier
+        caller.
         """
         plugin = ADKTokenPropagationPlugin(sts_integration=None)
         ic = self._make_invocation_context("sess-2", headers={"Authorization": "Bearer subj-token-123"})
@@ -208,21 +210,47 @@ class TestADKTokenPropagationPlugin:
         assert callable(mcp_toolset._header_provider)
 
         ro_ctx = self._make_readonly_context(ic)
-        assert plugin.header_provider(ro_ctx) == {}
+        assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer subj-token-123"}
+
+    def test_propagate_only_without_a_caller_token_injects_nothing(self):
+        """Startup toolset discovery has no user to act for."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-no-caller", headers=None)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
 
     @pytest.mark.asyncio
     async def test_propagate_only_never_overrides_a_later_callers_token(self):
-        """Two turns on one session with different callers: neither gets a header,
-        so the toolset keeps forwarding each turn's own Authorization."""
+        """Two turns on one session with different callers: each turn's tool calls
+        carry that turn's own Authorization, not the one that arrived first."""
         plugin = ADKTokenPropagationPlugin(sts_integration=None)
 
         first = self._make_invocation_context("sess-shared", headers={"Authorization": "Bearer CALLER-ONE"})
         await plugin.before_run_callback(invocation_context=first)
-        assert plugin.header_provider(self._make_readonly_context(first)) == {}
+        assert plugin.header_provider(self._make_readonly_context(first)) == {"Authorization": "Bearer CALLER-ONE"}
 
         second = self._make_invocation_context("sess-shared", headers={"Authorization": "Bearer CALLER-TWO"})
         await plugin.before_run_callback(invocation_context=second)
-        assert plugin.header_provider(self._make_readonly_context(second)) == {}
+        assert plugin.header_provider(self._make_readonly_context(second)) == {"Authorization": "Bearer CALLER-TWO"}
+
+        # Nothing was cached, so there is no entry a third turn could inherit.
+        assert plugin.token_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_failed_exchange_does_not_fall_back_to_the_raw_token(self):
+        """With an STS configured, a rejected exchange must not send the caller's
+        own credential to the backend instead of the delegated one."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=Exception("rejected"))
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-rejected", headers={"Authorization": "Bearer RAW-CALLER"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_success(self):
