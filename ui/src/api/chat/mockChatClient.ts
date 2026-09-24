@@ -524,7 +524,7 @@ function loadTranscript(sessionId: string): ChatMessage[] | null {
 function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
   try {
     // Bytes don't survive JSON, so a reloaded file chip is described only, as with user files.
-    const withoutBytes = JSON.stringify(messages, (key, value) => (key === "blob" ? undefined : value));
+    const withoutBytes = JSON.stringify(messages, (_, value) => (value instanceof Blob ? undefined : value));
     window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, withoutBytes);
   } catch {
     // Not being able to persist costs the transcript a reload, nothing more.

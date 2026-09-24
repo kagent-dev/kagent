@@ -753,6 +753,7 @@ export function AgentChatPage() {
               isStreaming={chat.phase === "streaming"}
               onCancel={chat.cancel}
               canAttach={canAttach}
+              key={id}
               onCheckpoint={checkpointChat}
               canCheckpoint={canCheckpoint}
               isCheckpointing={isCheckpointing}
