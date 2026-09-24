@@ -114,14 +114,14 @@ func TestCompactionConfig(t *testing.T) {
 			"without context config": {Model: agentModel},
 			"without compaction":     {Model: agentModel, ContextConfig: &adk.AgentContextConfig{}},
 		} {
-			cfg, err := CompactionConfig(ctx, agentConfig)
+			cfg, err := CompactionConfig(ctx, agentConfig, nil)
 			require.NoError(t, err, name)
 			assert.Nil(t, cfg, name)
 		}
 	})
 
 	t.Run("agent model summarizes by default", func(t *testing.T) {
-		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(5), OverlapSize: new(2)}))
+		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(5), OverlapSize: new(2)}), nil)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Equal(t, 5, cfg.CompactionInterval)
@@ -133,7 +133,7 @@ func TestCompactionConfig(t *testing.T) {
 		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{
 			CompactionInterval: new(5),
 			SummarizerModel:    &adk.OpenAI{BaseModel: adk.BaseModel{Type: "openai", Model: "gpt-4.1-nano"}, BaseUrl: "http://127.0.0.1:1/v1"},
-		}))
+		}), nil)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.IsType(t, &compaction.LLMSummarizer{}, cfg.Summarizer)
@@ -143,7 +143,7 @@ func TestCompactionConfig(t *testing.T) {
 		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{
 			CompactionInterval: new(5),
 			PromptTemplate:     "Summarize this.\n\n{conversation_history}",
-		}))
+		}), nil)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.IsType(t, &compaction.LLMSummarizer{}, cfg.Summarizer)
@@ -153,19 +153,19 @@ func TestCompactionConfig(t *testing.T) {
 		_, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{
 			CompactionInterval: new(5),
 			PromptTemplate:     "Summarize this.",
-		}))
+		}), nil)
 		require.ErrorContains(t, err, compaction.ConversationHistoryPlaceholder)
 	})
 
 	t.Run("custom prompt without any model is rejected", func(t *testing.T) {
 		agentConfig := withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(5), PromptTemplate: "{conversation_history}"})
 		agentConfig.Model = nil
-		_, err := CompactionConfig(ctx, agentConfig)
+		_, err := CompactionConfig(ctx, agentConfig, nil)
 		require.ErrorContains(t, err, "needs a model")
 	})
 
 	t.Run("no strategy is rejected", func(t *testing.T) {
-		_, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{}))
+		_, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{}), nil)
 		require.ErrorContains(t, err, "invalid context compaction configuration")
 	})
 
@@ -190,7 +190,7 @@ func TestCompactionConfig(t *testing.T) {
 		var agentConfig adk.AgentConfig
 		require.NoError(t, json.Unmarshal([]byte(configJSON), &agentConfig))
 
-		cfg, err := CompactionConfig(ctx, &agentConfig)
+		cfg, err := CompactionConfig(ctx, &agentConfig, nil)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Equal(t, 5, cfg.CompactionInterval)

@@ -38,7 +38,7 @@ func TestFoundryProviderAPIKey(t *testing.T) {
 		Endpoint:   server.URL,
 		Deployment: "text-embedding-3-small",
 		APIVersion: "2024-10-21",
-	}, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 
 	embeddings, err := p.generate(context.Background(), []string{"hello"})
@@ -80,7 +80,7 @@ func TestFoundryProviderWorkloadIdentity(t *testing.T) {
 		Endpoint:   server.URL,
 		Deployment: "emb",
 		APIVersion: "2024-10-21",
-	}, &fakeEmbeddingCredential{token: "entra-token"})
+	}, &fakeEmbeddingCredential{token: "entra-token"}, nil)
 	require.NoError(t, err)
 
 	embeddings, err := p.generate(context.Background(), []string{"hello"})
@@ -109,7 +109,7 @@ func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
 		Deployment:        "text-embedding-3-small",
 		APIVersion:        "2024-10-21",
 		APIKeyPassthrough: true,
-	}, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 
 	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
@@ -138,7 +138,7 @@ func TestFoundryProviderAPIKeyPassthroughOverridesStaticKey(t *testing.T) {
 		Deployment:        "text-embedding-3-small",
 		APIVersion:        "2024-10-21",
 		APIKeyPassthrough: true,
-	}, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 
 	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")

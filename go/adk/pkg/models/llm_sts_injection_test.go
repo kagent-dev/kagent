@@ -137,7 +137,7 @@ func TestSTSExchangedTokenReachesLLM(t *testing.T) {
 
 	// The real model transport, with passthrough on as the gateway deployment configures it.
 	llm, err := models.NewOpenAIModel(context.Background(), &models.OpenAIConfig{
-		TransportConfig: models.TransportConfig{APIKeyPassthrough: true},
+		TransportConfig: models.TransportConfig{APIKeyPassthrough: true, ExchangedTokens: plugin},
 		Model:           "gpt-4o",
 		BaseUrl:         llmURL,
 	})
@@ -178,15 +178,14 @@ func TestSTSExchangedTokenReachesLLM(t *testing.T) {
 		t.Fatalf("session Create() error = %v", err)
 	}
 
-	// The context the A2A executor builds: CallContext, bearer token, session ID,
-	// and the exchanged-token provider.
+	// The context the A2A executor builds: CallContext, bearer token, session ID.
+	// The provider is not in it: the model was given it at construction.
 	base, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	ctx, _ := a2asrv.NewCallContext(base, a2asrv.NewServiceParams(
 		map[string][]string{"authorization": {"Bearer " + llmSubjectToken}}))
 	ctx = context.WithValue(ctx, models.BearerTokenKey, llmSubjectToken)
 	ctx = context.WithValue(ctx, models.SessionIDKey, llmSession)
-	ctx = context.WithValue(ctx, models.ExchangedTokenProviderKey, models.ExchangedTokenProvider(plugin))
 
 	msg := &genai.Content{Role: "user", Parts: []*genai.Part{{Text: "hello"}}}
 	for _, err := range r.Run(ctx, llmUserID, llmSession, msg, adkagent.RunConfig{}) {

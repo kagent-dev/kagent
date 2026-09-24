@@ -868,54 +868,18 @@ func TestWithSessionIDAndBearerTokenAreDistinct(t *testing.T) {
 	}
 }
 
-type stubExchangedTokens struct{ token string }
-
-func (s stubExchangedTokens) ExchangedToken(context.Context) (string, bool) {
-	return s.token, s.token != ""
-}
-
-func TestWithExchangedTokens(t *testing.T) {
+// The executor stamps only request identity. The exchanged-token provider is a
+// construction-time dependency of the models, so nothing about it belongs here.
+func TestExecutorStampsOnlyRequestIdentity(t *testing.T) {
 	t.Parallel()
 
-	t.Run("stamps the provider when one is configured", func(t *testing.T) {
-		t.Parallel()
-		e := &KAgentExecutor{exchangedTokens: stubExchangedTokens{token: "exchanged"}}
-		ctx := e.withExchangedTokens(context.Background())
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "bearer")
+	ctx = withSessionID(ctx, "session-abc")
 
-		provider, ok := ctx.Value(models.ExchangedTokenProviderKey).(models.ExchangedTokenProvider)
-		if !ok {
-			t.Fatalf("provider in context = %v, want a models.ExchangedTokenProvider", ctx.Value(models.ExchangedTokenProviderKey))
-		}
-		if got, ok := provider.ExchangedToken(ctx); !ok || got != "exchanged" {
-			t.Fatalf("ExchangedToken() = (%q, %v), want (%q, true)", got, ok, "exchanged")
-		}
-	})
-
-	t.Run("stamps nothing when token propagation is off", func(t *testing.T) {
-		t.Parallel()
-		e := &KAgentExecutor{}
-		ctx := e.withExchangedTokens(context.Background())
-
-		if got := ctx.Value(models.ExchangedTokenProviderKey); got != nil {
-			t.Fatalf("provider in context = %v, want nil", got)
-		}
-	})
-
-	t.Run("coexists with the bearer token and session ID stamps", func(t *testing.T) {
-		t.Parallel()
-		e := &KAgentExecutor{exchangedTokens: stubExchangedTokens{token: "exchanged"}}
-		ctx := context.WithValue(context.Background(), models.BearerTokenKey, "bearer")
-		ctx = withSessionID(ctx, "session-abc")
-		ctx = e.withExchangedTokens(ctx)
-
-		if got := ctx.Value(models.BearerTokenKey); got != "bearer" {
-			t.Fatalf("bearer token = %v, want %q", got, "bearer")
-		}
-		if got := ctx.Value(models.SessionIDKey); got != "session-abc" {
-			t.Fatalf("session ID = %v, want %q", got, "session-abc")
-		}
-		if ctx.Value(models.ExchangedTokenProviderKey) == nil {
-			t.Fatal("provider in context = nil, want the stamped provider")
-		}
-	})
+	if got := ctx.Value(models.BearerTokenKey); got != "bearer" {
+		t.Fatalf("bearer token = %v, want %q", got, "bearer")
+	}
+	if got := ctx.Value(models.SessionIDKey); got != "session-abc" {
+		t.Fatalf("session ID = %v, want %q", got, "session-abc")
+	}
 }

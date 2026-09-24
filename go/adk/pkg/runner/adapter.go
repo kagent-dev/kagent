@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -29,9 +30,7 @@ func agentNameFromAppName(appName string) string {
 }
 
 // CreateRunnerConfig builds a runner.Config and subagent session IDs for A2A
-// stamping (from remote agent wiring in the agent builder). The STS plugin is
-// returned, nil when token propagation is off, so the executor can stamp it on
-// each request context for the outbound LLM path.
+// stamping (from remote agent wiring in the agent builder).
 func CreateRunnerConfig(
 	ctx context.Context,
 	agentConfig *adk.AgentConfig,
@@ -39,34 +38,34 @@ func CreateRunnerConfig(
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
 	controllerClient *controllerclient.Client,
-) (runner.Config, *sts.TokenPropagationPlugin, error) {
+) (runner.Config, error) {
 	log := logging.FromContext(ctx)
 
 	var extraTools []adktool.Tool
 	if memoryService != nil {
 		saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create save_memory tool: %w", err)
 		}
 		extraTools = append(extraTools, saveTool)
 	}
 
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
 	if err != nil {
-		return runner.Config{}, nil, err
+		return runner.Config{}, err
 	}
 
 	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
-		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
+		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	// Context compaction is a runner concern: the runner summarizes older
 	// session events on the strategies the agent configures. Nil keeps the
 	// runner exactly as it is without the feature.
-	compactionConfig, err := agent.CompactionConfig(ctx, agentConfig)
+	compactionConfig, err := agent.CompactionConfig(ctx, agentConfig, exchangedTokens(stsPlugin))
 	if err != nil {
-		return runner.Config{}, nil, fmt.Errorf("failed to configure context compaction: %w", err)
+		return runner.Config{}, fmt.Errorf("failed to configure context compaction: %w", err)
 	}
 
 	adkSessionService := sessionService
@@ -87,7 +86,7 @@ func CreateRunnerConfig(
 	if stsPlugin != nil {
 		p, err := stsPlugin.ADKPlugin()
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create STS ADK plugin: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create STS ADK plugin: %w", err)
 		}
 		if p != nil {
 			adkPlugins = append(adkPlugins, p)
@@ -105,7 +104,16 @@ func CreateRunnerConfig(
 		Compaction: compactionConfig,
 	}
 
-	return cfg, stsPlugin, nil
+	return cfg, nil
+}
+
+// exchangedTokens converts the concrete plugin to the interface, keeping a nil
+// plugin a nil interface rather than a non-nil interface holding a nil pointer.
+func exchangedTokens(p *sts.TokenPropagationPlugin) models.ExchangedTokenProvider {
+	if p == nil {
+		return nil
+	}
+	return p
 }
 
 func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.TokenPropagationPlugin, error) {

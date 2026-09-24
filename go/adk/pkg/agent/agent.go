@@ -51,6 +51,13 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		return nil, fmt.Errorf("agent config is required")
 	}
 
+	// A nil *sts.TokenPropagationPlugin held in an interface is not nil, so only
+	// assign when there is a plugin.
+	var exchanged models.ExchangedTokenProvider
+	if stsPlugin != nil {
+		exchanged = stsPlugin
+	}
+
 	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
@@ -107,7 +114,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		return nil, fmt.Errorf("model configuration is required")
 	}
 
-	llmModel, err := CreateLLM(ctx, agentConfig.Model)
+	llmModel, err := CreateLLM(ctx, agentConfig.Model, exchanged)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
@@ -249,13 +256,15 @@ func generateContentConfig(m adk.Model) *genai.GenerateContentConfig {
 	return &genai.GenerateContentConfig{MaxOutputTokens: int32(*maxOutputTokens)}
 }
 
-// CreateLLM creates an adkmodel.LLM from the model configuration.
-// This is exported to allow reuse of model creation logic (e.g., for memory summarization).
-func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
+// CreateLLM creates an adkmodel.LLM from the model configuration. exchanged
+// resolves the STS-exchanged token for a request and is nil when STS is not
+// configured; the model holds it as an explicit dependency rather than reading
+// it back out of each request's context.
+func CreateLLM(ctx context.Context, m adk.Model, exchanged models.ExchangedTokenProvider) (adkmodel.LLM, error) {
 	switch m := m.(type) {
 	case *adk.OpenAI:
 		cfg := &models.OpenAIConfig{
-			TransportConfig:     transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig:     transportConfigFromBase(m.BaseModel, m.Timeout, exchanged),
 			Model:               m.Model,
 			BaseUrl:             m.BaseUrl,
 			FrequencyPenalty:    m.FrequencyPenalty,
@@ -273,7 +282,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 
 	case *adk.AzureOpenAI:
 		cfg := &models.AzureOpenAIConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m.BaseModel, nil, exchanged),
 			Model:           m.Model,
 			Endpoint:        m.Endpoint,
 			Deployment:      m.Deployment,
@@ -293,7 +302,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
+		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil, exchanged))
 		if err != nil {
 			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
 		}
@@ -327,7 +336,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout, exchanged),
 			Model:           modelName,
 			BaseUrl:         m.BaseUrl,
 			MaxTokens:       m.MaxTokens,
@@ -339,7 +348,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 
 	case *adk.Mistral:
 		cfg := &models.MistralConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout, exchanged),
 			Model:           m.Model,
 			BaseUrl:         m.BaseUrl,
 			MaxTokens:       m.MaxTokens,
@@ -360,7 +369,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		}
 		// Create OllamaConfig with native SDK support for Ollama-specific options
 		cfg := &models.OllamaConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m.BaseModel, nil, exchanged),
 			Model:           modelName,
 			Host:            baseURL,
 			Options:         m.Options,
@@ -383,7 +392,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		// ReadTimeout maps to the overall HTTP client timeout (whole Converse
 		// request) and ConnectTimeout to the dialer, mirroring the Python ADK's
 		// botocore read/connect timeouts so the config is honored on both runtimes.
-		tc := transportConfigFromBase(m.BaseModel, m.ReadTimeout)
+		tc := transportConfigFromBase(m.BaseModel, m.ReadTimeout, exchanged)
 		tc.ConnectTimeout = m.ConnectTimeout
 		cfg := &models.BedrockConfig{
 			TransportConfig:              tc,
@@ -416,7 +425,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m.BaseModel, nil, exchanged),
 			Model:           modelName,
 		}
 		return models.NewAnthropicVertexAIModel(ctx, cfg, region, project)
@@ -438,13 +447,13 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			// The request model is the Foundry deployment name (the constructor
 			// resolves and sets it).
 			cfg := &models.AnthropicConfig{
-				TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+				TransportConfig: transportConfigFromBase(m.BaseModel, nil, exchanged),
 				Model:           m.Deployment,
 			}
 			return models.NewFoundryAnthropicModel(ctx, cfg, m.Endpoint, m.Deployment, nil)
 		}
 		cfg := &models.FoundryConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m.BaseModel, nil, exchanged),
 			Model:           m.Model,
 			Endpoint:        m.Endpoint,
 			Deployment:      m.Deployment,
@@ -458,7 +467,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 }
 
 // transportConfigFromBase builds a TransportConfig from the shared BaseModel fields.
-func transportConfigFromBase(b adk.BaseModel, timeout *int) models.TransportConfig {
+func transportConfigFromBase(b adk.BaseModel, timeout *int, exchanged models.ExchangedTokenProvider) models.TransportConfig {
 	return models.TransportConfig{
 		Headers:               extractHeaders(b.Headers),
 		TLSInsecureSkipVerify: b.TLSInsecureSkipVerify,
@@ -466,6 +475,7 @@ func transportConfigFromBase(b adk.BaseModel, timeout *int) models.TransportConf
 		TLSDisableSystemCAs:   b.TLSDisableSystemCAs,
 		APIKeyPassthrough:     b.APIKeyPassthrough,
 		Timeout:               timeout,
+		ExchangedTokens:       exchanged,
 	}
 }
 

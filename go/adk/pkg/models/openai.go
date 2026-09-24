@@ -205,7 +205,7 @@ func openAIPassthroughOpts(ctx context.Context, m *OpenAIModel) []option.Request
 	if m.Config == nil {
 		return nil
 	}
-	token, ok := PassthroughToken(ctx, m.Config.APIKeyPassthrough)
+	token, ok := PassthroughToken(ctx, m.Config.APIKeyPassthrough, m.Config.ExchangedTokens)
 	if !ok {
 		return nil
 	}

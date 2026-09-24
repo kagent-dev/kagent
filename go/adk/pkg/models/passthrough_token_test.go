@@ -28,32 +28,33 @@ func TestPassthroughToken(t *testing.T) {
 	provider := &fakeExchangedTokens{bySession: map[string]string{sessionID: exchanged}}
 	empty := &fakeExchangedTokens{bySession: map[string]string{}}
 
+	callerCtx := func() context.Context {
+		ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
+		return context.WithValue(ctx, SessionIDKey, sessionID)
+	}
+
 	tests := []struct {
 		name              string
 		apiKeyPassthrough bool
-		buildCtx          func() context.Context
+		provider          ExchangedTokenProvider
+		buildCtx          func(t *testing.T) context.Context
 		wantToken         string
 		wantOK            bool
 	}{
 		{
 			name:              "exchanged token wins over the caller's own",
 			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
-				ctx = context.WithValue(ctx, SessionIDKey, sessionID)
-				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
-			},
-			wantToken: exchanged,
-			wantOK:    true,
+			provider:          provider,
+			buildCtx:          func(*testing.T) context.Context { return callerCtx() },
+			wantToken:         exchanged,
+			wantOK:            true,
 		},
 		{
 			name:              "exchanged token survives a deadline-wrapped context",
 			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
-				ctx = context.WithValue(ctx, SessionIDKey, sessionID)
-				ctx = context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
-				wrapped, cancel := context.WithTimeout(ctx, time.Minute)
+			provider:          provider,
+			buildCtx: func(t *testing.T) context.Context {
+				wrapped, cancel := context.WithTimeout(callerCtx(), time.Minute)
 				t.Cleanup(cancel)
 				return wrapped
 			},
@@ -61,32 +62,28 @@ func TestPassthroughToken(t *testing.T) {
 			wantOK:    true,
 		},
 		{
-			name:              "falls back to the caller's token when no token is cached for the session",
+			name:              "falls back to the caller's token when the provider has none",
 			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
-				ctx = context.WithValue(ctx, SessionIDKey, sessionID)
-				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(empty))
-			},
-			wantToken: inbound,
-			wantOK:    true,
+			provider:          empty,
+			buildCtx:          func(*testing.T) context.Context { return callerCtx() },
+			wantToken:         inbound,
+			wantOK:            true,
+		},
+		{
+			// The dependency is explicit, so an absent provider is a nil argument
+			// rather than a context value nobody stamped.
+			name:              "falls back to the caller's token when no provider is injected",
+			apiKeyPassthrough: true,
+			buildCtx:          func(*testing.T) context.Context { return callerCtx() },
+			wantToken:         inbound,
+			wantOK:            true,
 		},
 		{
 			name:              "falls back to the caller's token when no session is stamped",
 			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
-				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
-			},
-			wantToken: inbound,
-			wantOK:    true,
-		},
-		{
-			name:              "falls back to the caller's token when no provider is stamped",
-			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
-				return context.WithValue(ctx, SessionIDKey, sessionID)
+			provider:          provider,
+			buildCtx: func(*testing.T) context.Context {
+				return context.WithValue(context.Background(), BearerTokenKey, inbound)
 			},
 			wantToken: inbound,
 			wantOK:    true,
@@ -94,20 +91,17 @@ func TestPassthroughToken(t *testing.T) {
 		{
 			name:              "nothing when passthrough is disabled",
 			apiKeyPassthrough: false,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
-				ctx = context.WithValue(ctx, SessionIDKey, sessionID)
-				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
-			},
-			wantToken: "",
-			wantOK:    false,
+			provider:          provider,
+			buildCtx:          func(*testing.T) context.Context { return callerCtx() },
+			wantToken:         "",
+			wantOK:            false,
 		},
 		{
 			name:              "nothing when neither source has a token",
 			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), SessionIDKey, sessionID)
-				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(empty))
+			provider:          empty,
+			buildCtx: func(*testing.T) context.Context {
+				return context.WithValue(context.Background(), SessionIDKey, sessionID)
 			},
 			wantToken: "",
 			wantOK:    false,
@@ -116,9 +110,9 @@ func TestPassthroughToken(t *testing.T) {
 			// A later turn on the same session, presenting no caller token.
 			name:              "nothing when the request presented no caller token",
 			apiKeyPassthrough: true,
-			buildCtx: func() context.Context {
-				ctx := context.WithValue(context.Background(), SessionIDKey, sessionID)
-				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
+			provider:          provider,
+			buildCtx: func(*testing.T) context.Context {
+				return context.WithValue(context.Background(), SessionIDKey, sessionID)
 			},
 			wantToken: "",
 			wantOK:    false,
@@ -127,7 +121,7 @@ func TestPassthroughToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token, ok := PassthroughToken(tt.buildCtx(), tt.apiKeyPassthrough)
+			token, ok := PassthroughToken(tt.buildCtx(t), tt.apiKeyPassthrough, tt.provider)
 			if token != tt.wantToken || ok != tt.wantOK {
 				t.Errorf("PassthroughToken() = (%q, %v), want (%q, %v)", token, ok, tt.wantToken, tt.wantOK)
 			}
@@ -138,12 +132,35 @@ func TestPassthroughToken(t *testing.T) {
 func TestPassthroughTokenDisabledSkipsProvider(t *testing.T) {
 	provider := &fakeExchangedTokens{bySession: map[string]string{"session-1": "EXCHANGED-STS-TOKEN"}}
 	ctx := context.WithValue(context.Background(), SessionIDKey, "session-1")
-	ctx = context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
 
-	if _, ok := PassthroughToken(ctx, false); ok {
+	if _, ok := PassthroughToken(ctx, false, provider); ok {
 		t.Fatal("PassthroughToken() returned a token with passthrough disabled")
 	}
 	if provider.calls != 0 {
 		t.Errorf("provider consulted %d times with passthrough disabled, want 0", provider.calls)
+	}
+}
+
+// A request with no caller token must not reach the provider at all: the
+// exchanged token replaces the caller's, it never stands in for its absence.
+func TestPassthroughTokenWithoutACallerTokenSkipsProvider(t *testing.T) {
+	provider := &fakeExchangedTokens{bySession: map[string]string{"session-1": "EXCHANGED-STS-TOKEN"}}
+	ctx := context.WithValue(context.Background(), SessionIDKey, "session-1")
+
+	if _, ok := PassthroughToken(ctx, true, provider); ok {
+		t.Fatal("PassthroughToken() returned a token for a request with no caller token")
+	}
+	if provider.calls != 0 {
+		t.Errorf("provider consulted %d times with no caller token, want 0", provider.calls)
+	}
+}
+
+// A typed nil held in the interface must not panic or be treated as a provider.
+func TestPassthroughTokenToleratesANilProvider(t *testing.T) {
+	ctx := context.WithValue(context.Background(), BearerTokenKey, "INBOUND")
+
+	token, ok := PassthroughToken(ctx, true, nil)
+	if !ok || token != "INBOUND" {
+		t.Fatalf("PassthroughToken() = (%q, %v), want (%q, true)", token, ok, "INBOUND")
 	}
 }

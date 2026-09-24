@@ -18,7 +18,7 @@ import (
 // from the bearer token in ctx when APIKeyPassthrough is enabled. The Anthropic SDK sends
 // this as the x-api-key header, which is the correct auth mechanism for Anthropic.
 func anthropicPassthroughOpts(ctx context.Context, cfg *AnthropicConfig) []option.RequestOption {
-	token, ok := PassthroughToken(ctx, cfg.APIKeyPassthrough)
+	token, ok := PassthroughToken(ctx, cfg.APIKeyPassthrough, cfg.ExchangedTokens)
 	if !ok {
 		return nil
 	}

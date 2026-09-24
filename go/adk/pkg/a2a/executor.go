@@ -41,8 +41,6 @@ type KAgentExecutorConfig struct {
 	AppName        string
 	Logger         *slog.Logger
 	Output         *apiadk.OutputConfig
-	// ExchangedTokens is nil when STS token propagation is off.
-	ExchangedTokens models.ExchangedTokenProvider
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -53,7 +51,6 @@ type KAgentExecutor struct {
 	appName                 string
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
-	exchangedTokens         models.ExchangedTokenProvider
 }
 
 type structuredOutput struct {
@@ -115,7 +112,6 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		appName:                 cfg.AppName,
 		logger:                  cfg.Logger.With("component", "kagent-executor"),
 		structuredOutputEnabled: output != nil,
-		exchangedTokens:         cfg.ExchangedTokens,
 	}, nil
 }
 
@@ -251,7 +247,6 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = withSessionID(ctx, sessionID)
-		ctx = e.withExchangedTokens(ctx)
 		ctx = auth.WithUserID(ctx, userID)
 		// The invocation span started before this executor ran, so the request
 		// identity the span processor stamps on descendant spans has to be
@@ -469,16 +464,6 @@ func withSessionID(ctx context.Context, sessionID string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, models.SessionIDKey, sessionID)
-}
-
-// withExchangedTokens stores the STS token provider as a context value, so the
-// outbound LLM path can resolve the exchanged token for this session. See
-// models.PassthroughToken.
-func (e *KAgentExecutor) withExchangedTokens(ctx context.Context) context.Context {
-	if e.exchangedTokens == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, models.ExchangedTokenProviderKey, e.exchangedTokens)
 }
 
 // dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision

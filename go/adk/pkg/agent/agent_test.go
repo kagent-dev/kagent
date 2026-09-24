@@ -289,7 +289,7 @@ func TestCreateLLMConfig_Mistral(t *testing.T) {
 		t.Errorf("base_url = %q, want %q", mistral.BaseUrl, "https://api.mistral.ai/v1")
 	}
 
-	llm, err := CreateLLM(t.Context(), cfg.Model)
+	llm, err := CreateLLM(t.Context(), cfg.Model, nil)
 	if err != nil {
 		t.Fatalf("CreateLLM returned error: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestCreateLLM_BedrockTimeouts(t *testing.T) {
 		ConnectTimeout: &connect,
 	}
 
-	llm, err := CreateLLM(context.Background(), m)
+	llm, err := CreateLLM(context.Background(), m, nil)
 	if err != nil {
 		t.Fatalf("CreateLLM: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
 		Region:    "us-east-1",
 	}
 
-	llm, err := CreateLLM(context.Background(), m)
+	llm, err := CreateLLM(context.Background(), m, nil)
 	if err != nil {
 		t.Fatalf("CreateLLM: %v", err)
 	}
@@ -537,4 +537,44 @@ func TestUsesRawOutputSchema(t *testing.T) {
 			require.Equal(t, test.want, usesRawOutputSchema(test.model))
 		})
 	}
+}
+
+type stubExchangedTokens struct{}
+
+func (stubExchangedTokens) ExchangedToken(context.Context) (string, bool) { return "delegated", true }
+
+// The provider is a construction-time dependency, so it has to arrive on the
+// model's own config. Nothing carries it per request any more, which means a
+// break in this wiring is silent at runtime: the model would fall back to the
+// caller's raw token instead of the delegated one.
+func TestCreateLLMInjectsTheExchangedTokenProvider(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	provider := stubExchangedTokens{}
+
+	t.Run("openai", func(t *testing.T) {
+		llm, err := CreateLLM(t.Context(), &adk.OpenAI{Model: "gpt-4o"}, provider)
+		require.NoError(t, err)
+
+		m, ok := llm.(*models.OpenAIModel)
+		require.True(t, ok, "CreateLLM returned %T, want *models.OpenAIModel", llm)
+		require.NotNil(t, m.Config.ExchangedTokens, "the provider did not reach the model config")
+	})
+
+	t.Run("anthropic", func(t *testing.T) {
+		llm, err := CreateLLM(t.Context(), &adk.Anthropic{Model: "claude-sonnet-4"}, provider)
+		require.NoError(t, err)
+
+		m, ok := llm.(*models.AnthropicModel)
+		require.True(t, ok, "CreateLLM returned %T, want *models.AnthropicModel", llm)
+		require.NotNil(t, m.Config.ExchangedTokens, "the provider did not reach the model config")
+	})
+
+	t.Run("no provider stays nil", func(t *testing.T) {
+		llm, err := CreateLLM(t.Context(), &adk.OpenAI{Model: "gpt-4o"}, nil)
+		require.NoError(t, err)
+
+		m := llm.(*models.OpenAIModel)
+		require.Nil(t, m.Config.ExchangedTokens)
+	})
 }
