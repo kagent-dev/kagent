@@ -67,8 +67,9 @@ func TestAgentInstanceInteraction(t *testing.T) {
 		if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
 			t.Fatalf("A2A response text = %q, want mock LLM response", text)
 		}
-		// A terminal response is published only after the Actor is quiesced. Sending
-		// again verifies that traffic wakes the same Actor for the next task.
+		// Completion is visible before idle suspension finishes. Wait separately
+		// to verify that later traffic wakes the same Actor for the next task.
+		assertActorSuspended(t, fixture)
 		_, _, task = fixture.send(t, "What is 2+2?")
 		if task.Status.State != a2atype.TaskStateCompleted {
 			t.Fatalf("second A2A task state = %s, text = %q, want COMPLETED", task.Status.State, taskText(task))
@@ -218,6 +219,25 @@ func sendApprovedToolRequest(t *testing.T, fixture *interactionFixture, prompt, 
 	return completed
 }
 
+// createCheckpoint waits for independent idle snapshot work using one idempotent
+// request. Task completion itself no longer promises checkpoint readiness.
+func createCheckpoint(t *testing.T, ctx context.Context, client apiv1alpha1.CheckpointServiceClient, request *apiv1alpha1.CreateCheckpointRequest) *apiv1alpha1.CreateCheckpointResponse {
+	t.Helper()
+	var result *apiv1alpha1.CreateCheckpointResponse
+	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var err error
+		result, err = client.CreateCheckpoint(ctx, request)
+		if status.Code(err) == codes.FailedPrecondition {
+			return false, nil
+		}
+		return err == nil, err
+	})
+	if err != nil {
+		t.Fatalf("create checkpoint: %v", err)
+	}
+	return result
+}
+
 func TestAgentInstanceCheckpoint(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
@@ -226,12 +246,9 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		}
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startForkMemoryMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
-		created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
+		created := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
 			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
 		})
-		if err != nil {
-			t.Fatalf("create checkpoint: %v", err)
-		}
 		checkpoint := created.GetCheckpoint()
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), 2*time.Minute)
@@ -310,12 +327,9 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		}
 		// Before its first turn a fork borrows the retained Tag snapshot. Its
 		// copied head boundary must refer to that copy, not the deleted source.
-		forkCheckpoint, err := fixture.checkpoints.CreateCheckpoint(forkCtx, &apiv1alpha1.CreateCheckpointRequest{
+		forkCheckpoint := createCheckpoint(t, forkCtx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
 			AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(),
 		})
-		if err != nil {
-			t.Fatalf("checkpoint fresh fork: %v", err)
-		}
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cancel()

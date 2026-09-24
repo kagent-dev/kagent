@@ -17,7 +17,7 @@ import (
 )
 
 // Completion must reach durable storage with no public stream left attached.
-// A reconnect reads the completed task after native work and snapshotting finish.
+// A reconnect reads the completed task after native work and cleanup finish.
 func TestAgentInstanceCompletesAfterDisconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
@@ -63,7 +63,7 @@ func TestAgentInstanceCompletesAfterDisconnect(t *testing.T) {
 			task, err := fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Id: taskID})
 			return err == nil && task.GetStatus().GetState() == a2apb.TaskState_TASK_STATE_COMPLETED
 		}, time.Minute, 100*time.Millisecond, "disconnected task did not finish and publish")
-		t.Logf("first event including actor resume: %s; model release through persisted completion and snapshot: %s", firstEventLatency, time.Since(nativeStart))
+		t.Logf("first event including actor resume: %s; model release through persisted completion: %s", firstEventLatency, time.Since(nativeStart))
 		reconnected, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Id: taskID})
 		require.NoError(t, err)
 		waitForTaskState(t, reconnected, a2atype.TaskStateCompleted)

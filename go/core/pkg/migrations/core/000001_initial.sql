@@ -182,10 +182,12 @@ CREATE TABLE agent_instance_task_event (
     task_position BIGINT,
     -- A runtime save consumes one version. Retain its digest so a lost RPC
     -- response can be retried without applying the same update twice.
-    -- Runtime boundaries become public only after their native snapshot settles.
+    -- Runtime boundaries become public after native cleanup, independently of snapshots.
     published BOOLEAN NOT NULL DEFAULT TRUE,
-    runtime_settled BOOLEAN NOT NULL DEFAULT FALSE,
-    finalization_executor_id UUID,
+    -- NULL for ordinary events; TRUE until idle work finishes or a new turn supersedes it.
+    quiescence_pending BOOLEAN,
+    quiescence_executor_id UUID,
+    CHECK (quiescence_executor_id IS NULL OR (quiescence_pending IS NOT NULL AND published)),
     expected_version BIGINT,
     mutation_hash BYTEA,
     snapshot_atespace TEXT,
@@ -208,6 +210,8 @@ CREATE INDEX agent_instance_task_event_version_idx
     ON agent_instance_task_event (history_id, task_id, sequence DESC);
 CREATE INDEX agent_instance_task_event_unpublished_idx
     ON agent_instance_task_event (history_id, sequence) WHERE NOT published;
+CREATE UNIQUE INDEX agent_instance_task_event_quiescence_idx
+    ON agent_instance_task_event (history_id) WHERE quiescence_pending;
 CREATE UNIQUE INDEX agent_instance_task_event_mutation_idx
     ON agent_instance_task_event (history_id, task_id, expected_version)
     WHERE expected_version IS NOT NULL;

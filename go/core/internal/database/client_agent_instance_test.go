@@ -194,9 +194,9 @@ func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
 	version, err := client.CreateRuntimeTask(ctx, instanceID, taskMutationHash("request-1"), parked)
 	require.NoError(t, err)
 	require.NoError(t, client.SettleAgentInstanceTask(ctx, instanceID, string(parked.ID), version))
-	boundary, err := client.ClaimTaskFinalization(ctx)
+	boundary, err := client.ClaimInstanceQuiescence(ctx)
 	require.NoError(t, err)
-	require.NoError(t, client.PublishTaskBoundary(ctx, boundary, nil))
+	require.NoError(t, client.FinishInstanceQuiescence(ctx, boundary, nil))
 
 	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: instance.ContextId}
 	resumed := *parked

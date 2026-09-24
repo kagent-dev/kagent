@@ -308,9 +308,9 @@ func Run(ctx context.Context, opts Options) error {
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
-	runtimeTasks := taskstore.NewService(store, instanceWorkflow)
-	if err := manager.Add(runtimeTasks); err != nil {
-		return fmt.Errorf("register task finalization worker: %w", err)
+	runtimeTasks := taskstore.NewService(store)
+	if err := manager.Add(instanceWorkflow); err != nil {
+		return fmt.Errorf("register idle instance worker: %w", err)
 	}
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
 	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)

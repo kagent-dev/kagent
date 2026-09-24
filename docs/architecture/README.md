@@ -44,16 +44,18 @@ flowchart LR
     AI --> ACTOR[Substrate Actor]
     CLIENT[A2A client] --> GW[public A2A gateway]
     GW --> ACTOR
-    GW --> DB[(tasks and events)]
-    GW --> QUIESCE[auto-suspend at quiescence]
+    ACTOR --> STORE[private gRPC TaskStore]
+    STORE --> DB[(tasks and events)]
+    DB --> QUIESCE[AgentInstance idle lifecycle]
     QUIESCE --> CKPT[checkpoint tag]
     CKPT --> FORK[forked AgentInstance]
 ```
 
 Compilation and application are separate. The translator produces an immutable
 revision; the controller applies it through ate-api. At runtime, the public A2A
-gateway is the sole owner of task ingestion, durable event ordering, and
-quiescence. It reaches Actors through the private runtime network.
+gateway routes authorized callers to Actors through the private runtime network.
+Runtimes persist A2A state through TaskStore and publish completion after native
+cleanup. AgentInstance lifecycle workers independently pause/suspend idle Actors.
 
 ## Component boundaries
 
@@ -61,8 +63,8 @@ quiescence. It reaches Actors through the private runtime network.
 - The v2 translator resolves references and compiles explicit runtime inputs.
 - The controller reconciles compiled revisions to ate-api ActorTemplates.
 - AgentInstance services and workflows own lifecycle orchestration.
-- The A2A gateway owns public task routing, persistence, streaming, and
-  auto-suspend boundaries.
+- The A2A gateway owns public authorization, task routing, and observation streams.
+- Runtime SDKs own execution and task saves; TaskStore owns durable publication.
 - The store owns transactional invariants and never performs network work.
 - Substrate adapters own Actor, snapshot, and private-network operations.
 

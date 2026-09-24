@@ -21,7 +21,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
@@ -326,11 +325,6 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
-			finalizer := taskstore.NewService(store, workflow)
-			finalizerCtx, stopFinalizer := context.WithCancel(t.Context())
-			finalizerDone := make(chan struct{})
-			go func() { _ = finalizer.Start(finalizerCtx); close(finalizerDone) }()
-			t.Cleanup(func() { stopFinalizer(); <-finalizerDone })
 			created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
 				Harness: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
 				Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},

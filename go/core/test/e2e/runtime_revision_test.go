@@ -122,8 +122,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		send(fallback.GetAgentInstance().GetId())
 		deleteInstance(fallback.GetAgentInstance().GetId())
 
-		checkpointResponse, err := checkpoints.CreateCheckpoint(ctx, &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: source.GetId(), RequestId: uuid.NewString()})
-		require.NoError(t, err)
+		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: source.GetId(), RequestId: uuid.NewString()})
 		checkpointID := checkpointResponse.GetCheckpoint().GetId()
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)

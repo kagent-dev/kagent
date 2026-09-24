@@ -17,8 +17,8 @@ import (
 )
 
 // WrapExecutor emits a terminal/waiting event only after the native executor
-// returns. That event is the TaskStore's durable handoff to pause/snapshot work;
-// native cleanup must finish before the API can freeze or stop this actor.
+// returns. Cleanup acknowledges the saved version so the API can publish it.
+// The independent lifecycle worker may then pause or suspend an idle actor.
 func (s *Store) WrapExecutor(executor a2asrv.AgentExecutor) *settledExecutor {
 	return &settledExecutor{AgentExecutor: executor, store: s, pending: make(map[a2a.TaskID][]*execution)}
 }

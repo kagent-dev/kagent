@@ -236,7 +236,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 		}
 		return nil, err
 	}
-	// Releasing ingress lets the independent API finalizer suspend the actor.
+	// Release this observation connection before waiting for native cleanup.
 	if err := closeRuntime(); err != nil {
 		return nil, err
 	}
@@ -330,8 +330,8 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 }
 
 // observe owns only this observer's runtime connection. Losing it cannot cancel
-// execution. A final native event is exposed only after the API publishes its
-// matching snapshot; the runtime connection is closed before waiting for that.
+// execution. Final task state becomes visible after native cleanup acknowledges
+// the saved version. Publication is independent of runtime pause/suspend.
 func (g *Gateway) observe(ctx context.Context, instance *apiv1alpha1.AgentInstance, taskID a2atype.TaskID, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		closeRuntime := sync.OnceValue(client.Destroy)

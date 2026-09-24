@@ -203,6 +203,9 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance %s cannot checkpoint in state %s with operation %s: %w", checkpoint.GetAgentInstanceId(), instance.State, instance.Operation, ErrConflict)
 		}
+		if err := requireSettledRuntime(ctx, tx, instance.HistoryID); err != nil {
+			return err
+		}
 		if instance.PreparedRevision != nil {
 			if _, err := getAvailableRuntimeRevisionForUpdate(ctx, tx, *instance.PreparedRevision); err != nil {
 				return err

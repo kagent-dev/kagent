@@ -22,6 +22,8 @@ import (
 )
 
 type workflowStore interface {
+	ClaimInstanceQuiescence(context.Context) (*database.InstanceQuiescence, error)
+	FinishInstanceQuiescence(context.Context, *database.InstanceQuiescence, *database.AgentInstanceTaskSnapshot) error
 	GetAgentInstanceForRuntime(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
@@ -147,8 +149,8 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 // run keeps lifecycle preparation separate from the durable issue boundary.
 // Multiple callers may prepare using read-only calls; exactly one can authorize
 // runtime mutations. Once authorized, every error retains the operation and its
-// resource pins. Pause/Quiesce and A2A execution join this boundary in the later
-// shared-instance-execution change; this is lifecycle serialization only.
+// resource pins. The instance lock serializes admission against runtime writes,
+// claimed idle work, and checkpoint capture.
 func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKind apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
 	operation, err := w.store.BeginAgentInstanceOperation(ctx, instanceID, requestedKind)
 	if err != nil {

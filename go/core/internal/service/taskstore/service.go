@@ -23,8 +23,6 @@ import (
 
 type Store interface {
 	SettleAgentInstanceTask(context.Context, string, string, int64) error
-	ClaimTaskFinalization(context.Context) (*database.TaskFinalization, error)
-	PublishTaskBoundary(context.Context, *database.TaskFinalization, *database.AgentInstanceTaskSnapshot) error
 	GetAgentInstanceForRuntime(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task) (int64, error)
 	GetVersionedAgentInstanceTask(context.Context, string, string) (*a2a.Task, int64, error)
@@ -35,13 +33,11 @@ type Store interface {
 var _ Store = (*database.Client)(nil)
 
 type Service struct {
-	store    Store
-	workflow BoundaryWorkflow
-	wake     chan struct{}
+	store Store
 }
 
-func NewService(store Store, workflow BoundaryWorkflow) *Service {
-	return &Service{store: store, workflow: workflow, wake: make(chan struct{}, 4)}
+func NewService(store Store) *Service {
+	return &Service{store: store}
 }
 
 func (s *Service) instance(ctx context.Context, instanceID string) (*apiv1alpha1.AgentInstance, error) {
@@ -117,12 +113,6 @@ func (s *Service) UpdateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	}
 	hash := sha256.Sum256(data)
 	version, err := s.store.UpdateAgentInstanceTask(ctx, input.AgentInstanceId, input.ExpectedVersion, hash[:], task, event)
-	if err == nil {
-		select {
-		case s.wake <- struct{}{}:
-		default:
-		}
-	}
 	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: version}, storageError(err)
 }
 
@@ -176,10 +166,6 @@ func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	}
 	if err := s.store.SettleAgentInstanceTask(ctx, input.AgentInstanceId, input.TaskId, input.Version); err != nil {
 		return nil, storageError(err)
-	}
-	select {
-	case s.wake <- struct{}{}:
-	default:
 	}
 	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
 }

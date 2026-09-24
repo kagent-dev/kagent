@@ -33,6 +33,5 @@ func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
 			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
 		})
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "no quiescent turn boundary")
 	})
 }

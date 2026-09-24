@@ -281,9 +281,9 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, initialVersion, hash[:], task, task)
 	require.NoError(t, err)
 	require.NoError(t, store.SettleAgentInstanceTask(t.Context(), source.Id, string(task.ID), version))
-	boundary, err := store.ClaimTaskFinalization(t.Context())
+	boundary, err := store.ClaimInstanceQuiescence(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, store.PublishTaskBoundary(t.Context(), boundary,
+	require.NoError(t, store.FinishInstanceQuiescence(t.Context(), boundary,
 		&database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
 	checkpoint, _, err := store.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id}, source.Creator, uuid.NewString())
 	require.NoError(t, err)

@@ -35,13 +35,13 @@ func saveRuntimeTask(t *testing.T, client *Client, instanceID string, task *a2a.
 	if err := client.SettleAgentInstanceTask(ctx, instanceID, string(task.ID), version); err != nil {
 		return err
 	}
-	work, err := client.ClaimTaskFinalization(ctx)
+	work, err := client.ClaimInstanceQuiescence(ctx)
 	if err != nil {
 		return err
 	}
 	require.Equal(t, instanceID, work.Instance.Id)
 	require.Equal(t, string(task.ID), work.TaskID)
-	return client.PublishTaskBoundary(ctx, work, snapshot)
+	return client.FinishInstanceQuiescence(ctx, work, snapshot)
 }
 
 // finishInstanceOperation simulates successful runtime work through the same

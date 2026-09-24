@@ -160,7 +160,7 @@ func resumeRuntimeTask(t *testing.T, client *Client, instanceID string, reply *a
 	return task, version
 }
 
-func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
+func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	instance, waiting := waitingTaskFixture(t, client)
@@ -182,28 +182,38 @@ func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
 	_, err = client.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, deleteInstance(t.Context(), client, instance.Id), ErrFailedPrecondition)
-	_, err = client.ClaimTaskFinalization(t.Context())
+	_, err = client.ClaimInstanceQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound) // The native cleanup callback has not finished.
 	require.NoError(t, client.SettleAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), version))
-	work, err := client.ClaimTaskFinalization(t.Context())
+	public, err = client.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
+	require.NoError(t, err)
+	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
+	require.Len(t, public.History, 3)
+	work, err := client.ClaimInstanceQuiescence(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, version, work.Version)
-	_, err = client.ClaimTaskFinalization(t.Context())
+	_, err = client.ClaimInstanceQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound) // Claims cannot expire into a second suspend.
-	require.Error(t, client.PublishTaskBoundary(t.Context(), work, nil))
+	require.Error(t, client.FinishInstanceQuiescence(t.Context(), work, nil))
+	// Even an unfinished or failed snapshot never hides the completed task.
+	public, err = client.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
+	require.NoError(t, err)
+	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
+	require.ErrorIs(t, deleteInstance(t.Context(), client, instance.Id), ErrFailedPrecondition)
+
 	fresh := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
 	fresh.ContextID = instance.ContextId
 	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh))
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	snapshot := &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/exact", ContentScope: "DATA"}
-	require.NoError(t, client.PublishTaskBoundary(t.Context(), work, snapshot))
-	require.NoError(t, client.PublishTaskBoundary(t.Context(), work, snapshot))
+	require.NoError(t, client.FinishInstanceQuiescence(t.Context(), work, snapshot))
+	require.NoError(t, client.FinishInstanceQuiescence(t.Context(), work, snapshot))
 	require.NoError(t, client.SettleAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), version))
 	public, err = client.GetAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
 	require.Len(t, public.History, 3)
-	_, err = client.ClaimTaskFinalization(t.Context())
+	_, err = client.ClaimInstanceQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -221,9 +231,9 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	_, _, err = client.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.NoError(t, client.SettleAgentInstanceTask(t.Context(), source.Id, string(completed.ID), version))
-	boundary, err := client.ClaimTaskFinalization(t.Context())
+	boundary, err := client.ClaimInstanceQuiescence(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, client.PublishTaskBoundary(t.Context(), boundary, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "turn-N", ContentScope: "DATA"}))
+	require.NoError(t, client.FinishInstanceQuiescence(t.Context(), boundary, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "turn-N", ContentScope: "DATA"}))
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(t.Context(), checkpoint.Id, "tag-N", "retained-N", "")
@@ -254,6 +264,57 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.GetAgentInstanceTask(t.Context(), source.Id, string(forkInput.ID), nil)
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestNewExecutionRacesIdleClaim(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	for range 12 {
+		instance, waiting := waitingTaskFixture(t, client)
+		reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("continue"))
+		reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+		task, version := resumeRuntimeTask(t, client, instance.Id, reply)
+		task.Status.State = a2a.TaskStateCompleted
+		version, err := client.UpdateAgentInstanceTask(ctx, instance.Id, version, taskMutationHash("finish"), task, task)
+		require.NoError(t, err)
+		require.NoError(t, client.SettleAgentInstanceTask(ctx, instance.Id, string(task.ID), version))
+
+		start := make(chan struct{})
+		claimed := make(chan *InstanceQuiescence, 1)
+		claimErrors, writeErrors := make(chan error, 1), make(chan error, 1)
+		go func() {
+			<-start
+			work, err := client.ClaimInstanceQuiescence(ctx)
+			claimed <- work
+			claimErrors <- err
+		}()
+		next := newAgentInstanceTask("next", "next-message")
+		next.ContextID = instance.ContextId
+		go func() {
+			<-start
+			_, err := client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("next"), next)
+			writeErrors <- err
+		}()
+		close(start)
+		work, claimErr, writeErr := <-claimed, <-claimErrors, <-writeErrors
+		if claimErr == nil {
+			require.ErrorIs(t, writeErr, ErrFailedPrecondition)
+			require.NoError(t, client.FinishInstanceQuiescence(ctx, work, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+			_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("next"), next)
+			require.NoError(t, err)
+		} else {
+			require.ErrorIs(t, claimErr, ErrNotFound)
+			require.NoError(t, writeErr)
+		}
+		// A lost cleanup acknowledgement cannot requeue an obsolete suspension.
+		require.NoError(t, client.SettleAgentInstanceTask(ctx, instance.Id, string(task.ID), version))
+		_, err = client.ClaimInstanceQuiescence(ctx)
+		require.ErrorIs(t, err, ErrNotFound)
+		visible, err := client.GetSettledAgentInstanceTask(ctx, instance.Id, string(task.ID), nil)
+		require.NoError(t, err)
+		require.Equal(t, a2a.TaskStateCompleted, visible.Status.State)
+	}
 }
 
 func TestRuntimeTaskLookupRejectsAmbiguousMessageIDs(t *testing.T) {

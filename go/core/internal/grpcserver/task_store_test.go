@@ -80,11 +80,6 @@ func (s *lostRuntimeSaveResponse) CreateRuntimeTask(ctx context.Context, id stri
 	return version, err
 }
 
-// Exercise the real SDK -> private gRPC -> PostgreSQL path. The public observer
-// is disconnected before completion, and a successful save response is lost.
-// Neither fault may cause execution or artifact appends to repeat.
-type runtimeBoundaryWorkflow struct{ quiesces atomic.Int32 }
-
 type taskStoreRuntimeDialer struct{ listener *bufconn.Listener }
 
 func (d taskStoreRuntimeDialer) Dial(ctx context.Context, _ *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
@@ -92,12 +87,6 @@ func (d taskStoreRuntimeDialer) Dial(ctx context.Context, _ *apiv1alpha1.AgentIn
 		URL: "127.0.0.1:1234", ProtocolBinding: a2a.TransportProtocolGRPC, ProtocolVersion: a2a.Version,
 	}}, a2agrpc.WithGRPCTransport(grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return d.listener.Dial() })))
-}
-
-func (*runtimeBoundaryWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error { return nil }
-func (w *runtimeBoundaryWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
-	w.quiesces.Add(1)
-	return &database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://test/snapshot", ContentScope: "DATA"}, nil
 }
 
 type runtimeCancelableExecutor struct {
@@ -122,6 +111,9 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 	}
 }
 
+// Exercise the real SDK -> private gRPC -> PostgreSQL path. The public observer
+// is disconnected before completion, and a successful save response is lost.
+// Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	for _, insecureIdentity := range []bool{false, true} {
 		t.Run(fmt.Sprintf("insecure_identity=%t", insecureIdentity), func(t *testing.T) {
@@ -154,12 +146,7 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	}).SignedString(key)
 	require.NoError(t, err)
 	listener := bufconn.Listen(DefaultMaxMessageSize)
-	workflow := &runtimeBoundaryWorkflow{}
-	tasks := taskstore.NewService(store, workflow)
-	finalizationCtx, stopFinalization := context.WithCancel(t.Context())
-	finalized := make(chan struct{})
-	go func() { _ = tasks.Start(finalizationCtx); close(finalized) }()
-	t.Cleanup(func() { stopFinalization(); <-finalized })
+	tasks := taskstore.NewService(store)
 	server, err := New(Config{
 		Listener: listener, Registerer: prometheus.NewRegistry(), SystemService: testSystemService(),
 		Authenticator: &authimpl.UnsecureAuthenticator{}, RuntimeAuthenticator: authority,
@@ -401,10 +388,9 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	_, err = second.SendMessage(publicCtx, replyInput)
 	require.Error(t, err, "a completed task cannot be continued")
 	require.Equal(t, beforeReplyRetry, executions.Load())
-	beforeCancellation := workflow.quiesces.Load()
 
 	// Cancellation's native cleanup runs after the execution cleanup in the
-	// pinned SDK. Neither observer may expose CANCELED or snapshot before both.
+	// pinned SDK. Neither observer may expose CANCELED before both finish.
 	cancelInput := proto.CloneOf(input)
 	cancelInput.Message.MessageId = "input-cancel"
 	cancelInput.Message.Parts[0].Content = &a2apb.Part_Text{Text: "cancel"}
@@ -426,7 +412,11 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("native cancellation cleanup did not run")
 	}
-	require.Never(t, func() bool { return workflow.quiesces.Load() > beforeCancellation }, 150*time.Millisecond, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		visible, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: cancelID})
+		require.NoError(t, err)
+		return visible.Status.State == a2apb.TaskState_TASK_STATE_CANCELED
+	}, 150*time.Millisecond, 10*time.Millisecond)
 	close(native.cleanupRelease)
 	require.NoError(t, <-result)
 	canceled, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: cancelID})
@@ -510,9 +500,7 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 			require.True(t, store.lostCreate.Load())
 		})
 	}
-	t.Run("restart discovers unissued finalization", func(t *testing.T) {
-		stopFinalization()
-		<-finalized
+	t.Run("settlement publishes without a lifecycle worker", func(t *testing.T) {
 		finished := &a2apb.Task{Id: uuid.NewString(), ContextId: instance.ContextId, Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_SUBMITTED}}
 		created, err := private.CreateTask(authenticated, &apiv1alpha1.TaskStoreServiceCreateTaskRequest{AgentInstanceId: id, Task: finished})
 		require.NoError(t, err)
@@ -525,17 +513,13 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 			AgentInstanceId: id, TaskId: finished.Id, Version: saved.Version,
 		})
 		require.NoError(t, err)
-		_, err = store.GetSettledAgentInstanceTask(t.Context(), id, finished.Id, nil)
-		require.ErrorIs(t, err, database.ErrConflict)
-		restarted := taskstore.NewService(store, workflow)
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() { _ = restarted.Start(ctx); close(done) }()
-		t.Cleanup(func() { cancel(); <-done })
-		require.Eventually(t, func() bool {
-			visible, err := store.GetSettledAgentInstanceTask(t.Context(), id, finished.Id, nil)
-			return err == nil && visible.Status.State == a2a.TaskStateCompleted
-		}, 5*time.Second, 10*time.Millisecond)
+		visible, err := store.GetSettledAgentInstanceTask(t.Context(), id, finished.Id, nil)
+		require.NoError(t, err)
+		require.Equal(t, a2a.TaskStateCompleted, visible.Status.State)
+		_, err = private.SettleTask(authenticated, &apiv1alpha1.TaskStoreServiceSettleTaskRequest{
+			AgentInstanceId: id, TaskId: finished.Id, Version: saved.Version,
+		})
+		require.NoError(t, err)
 	})
 }
 

@@ -30,7 +30,7 @@ flowchart LR
     RUNTIME -->|private TaskStore gRPC| API[API]
     API --> DB[(PostgreSQL)]
     GATEWAY -->|stored get / list| DB
-    API -->|settled boundary| WORKER[lifecycle finalization]
+    DB -->|idle instance| WORKER[AgentInstance lifecycle worker]
     WORKER --> SUBSTRATE[Substrate pause / suspend]
 ```
 
@@ -44,18 +44,30 @@ before streaming them. Public task history remains synthesized from the retained
 messages and artifacts; this is not an exact replay archive of every wire event.
 
 The final waiting or terminal save is staged until native cleanup is complete.
-The runtime acknowledges that exact version, then an independent API worker
-claims and performs the pause/suspend. The store publishes task state, history,
-and the snapshot reference atomically. The gateway closes its runtime observation
-connection before waiting for publication, so it cannot prevent suspension.
-Uncertain issued lifecycle work stays claimed and blocks new execution.
+The runtime acknowledges that exact version, and the store publishes task state
+and history in one transaction. Clients can read completion even when runtime
+pause/suspend is slow, unavailable, or has not started. TaskStore performs no
+runtime lifecycle calls and runs no background workers.
+
+An independent AgentInstance lifecycle worker pauses waiting actors or suspends
+terminal ones and records their matching snapshot. A new turn can supersede idle
+work that has not been claimed. Once claimed, pause/suspend blocks new execution,
+explicit lifecycle changes, and checkpoint capture until its outcome is recorded.
+Clients may receive a busy/precondition error if new work races a claimed operation.
+Uncertain issued work remains claimed; it cannot safely be reassigned just because
+a timeout expires. It blocks new execution but never hides completed task results.
+
+Checkpoint readiness is separate from task completion. Creating a checkpoint
+requires the snapshot for the latest settled conversation boundary and returns
+FailedPrecondition while that snapshot is unavailable. A checkpoint reservation
+blocks both new turns and idle lifecycle work while the snapshot is retained.
 
 The persistence model enforces:
 
 - one non-quiescent task per instance history;
 - task-ID uniqueness and optimistic version checks;
 - idempotent retries of the same storage mutation; and
-- an exact snapshot identity and history sequence at each quiescent boundary.
+- an exact snapshot identity and history sequence for each checkpoint.
 
 Tasks contain current materialized A2A state. Complete message history is rebuilt
 from ordered event rows, not stored as one history blob.
@@ -81,7 +93,7 @@ cache, preserving the original question for native approval/input validation.
 Both adapters persist an initial active event before native work, stop execution
 on persistence failure, and wait for native cleanup before settling a boundary.
 Go uses the SDK cleanup callback; Python withholds the final event until its native
-runner returns. Cleanup/snapshot finalization is separate from SDK task creation.
+runner returns. Snapshot work runs independently after publication.
 SDK upgrades must run the real gRPC/PostgreSQL fixtures covering failed saves,
 cancellation, continuation, disconnects, and slow subscribers.
 

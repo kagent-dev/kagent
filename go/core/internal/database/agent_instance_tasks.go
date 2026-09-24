@@ -73,7 +73,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if err := requirePublishedTasks(ctx, tx, instance.HistoryID); err != nil {
+		if err := requireSettledRuntime(ctx, tx, instance.HistoryID); err != nil {
 			return err
 		}
 		var stored *a2a.Task
@@ -107,10 +107,20 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
 		}
+		// New execution supersedes idle work that no worker has claimed yet.
+		// Keep the marker for idempotent acknowledgements of the older boundary.
+		if stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired {
+			if err := execSQL(ctx, tx, `
+				UPDATE agent_instance_task_event SET quiescence_pending = FALSE
+				WHERE history_id = $1 AND quiescence_pending
+			`, instance.HistoryID); err != nil {
+				return err
+			}
+		}
 		boundary := task.Status.State.Terminal() || ((task.Status.State == a2a.TaskStateInputRequired || task.Status.State == a2a.TaskStateAuthRequired) && (stored == nil || stored.Status.State != task.Status.State))
 		if expectedVersion == 0 && boundary {
 			// A first event may already finish the task. Retain a non-final
-			// projection until cleanup and its matching snapshot are published.
+			// projection until native cleanup finishes.
 			initial := *task
 			initial.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted}
 			if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &initial, &initial, false); err != nil {
@@ -133,9 +143,9 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 			}
 		}
 		return execSQL(ctx, tx, `
-			UPDATE agent_instance_task_event SET expected_version = $2, mutation_hash = $3
+			UPDATE agent_instance_task_event SET expected_version = $2, mutation_hash = $3, quiescence_pending = CASE WHEN $4 THEN TRUE ELSE NULL END
 			WHERE sequence = $1
-		`, version, expectedVersion, mutationHash)
+		`, version, expectedVersion, mutationHash, boundary)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("update AgentInstance task %s: %w", task.ID, err)
@@ -330,8 +340,8 @@ func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID st
 	return c.getPublicTask(ctx, instanceID, taskID, historyLength, false)
 }
 
-// GetSettledAgentInstanceTask reads the public task only after its pending native
-// boundary is published. ErrConflict means publication is still pending. A later
+// GetSettledAgentInstanceTask reads the public task after native cleanup publishes
+// its pending update. ErrConflict means cleanup is still pending. A later
 // admitted turn may already be current; callers must not wait for an old status
 // value to recur. Ownership and missing-record semantics match GetAgentInstanceTask.
 func (c *Client) GetSettledAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
@@ -699,16 +709,18 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs, historyLength, includeUnpublished)
 }
 
-// The instance lock makes this write barrier atomic with boundary staging.
-func requirePublishedTasks(ctx context.Context, db dbExecutor, historyID uuid.UUID) error {
+// requireSettledRuntime rejects unfinished native cleanup or claimed idle work.
+// Callers hold the instance lock so new execution and lifecycle claims cannot race.
+func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UUID) error {
 	pending, err := queryOne(ctx, db, `
-		SELECT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1 AND NOT published)
+		SELECT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1
+		    AND (NOT published OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
 	`, pgx.RowTo[bool], historyID)
 	if err != nil {
 		return err
 	}
 	if pending {
-		return fmt.Errorf("runtime snapshot is not yet settled: %w", ErrFailedPrecondition)
+		return fmt.Errorf("runtime cleanup or lifecycle work is not yet settled: %w", ErrFailedPrecondition)
 	}
 	return nil
 }

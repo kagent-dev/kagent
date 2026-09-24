@@ -41,7 +41,8 @@ type TaskStoreServiceClient interface {
 	UpdateTask(ctx context.Context, in *TaskStoreServiceUpdateTaskRequest, opts ...grpc.CallOption) (*TaskStoreServiceUpdateTaskResponse, error)
 	ListTasks(ctx context.Context, in *TaskStoreServiceListTasksRequest, opts ...grpc.CallOption) (*TaskStoreServiceListTasksResponse, error)
 	// SettleTask acknowledges that native execution and SDK cleanup have stopped
-	// at this saved version. Snapshot publication can then proceed asynchronously.
+	// at this saved version and publishes its task state and history atomically.
+	// Runtime pause/suspend and checkpoint snapshot readiness are independent.
 	SettleTask(ctx context.Context, in *TaskStoreServiceSettleTaskRequest, opts ...grpc.CallOption) (*TaskStoreServiceSettleTaskResponse, error)
 }
 
@@ -118,7 +119,8 @@ type TaskStoreServiceServer interface {
 	UpdateTask(context.Context, *TaskStoreServiceUpdateTaskRequest) (*TaskStoreServiceUpdateTaskResponse, error)
 	ListTasks(context.Context, *TaskStoreServiceListTasksRequest) (*TaskStoreServiceListTasksResponse, error)
 	// SettleTask acknowledges that native execution and SDK cleanup have stopped
-	// at this saved version. Snapshot publication can then proceed asynchronously.
+	// at this saved version and publishes its task state and history atomically.
+	// Runtime pause/suspend and checkpoint snapshot readiness are independent.
 	SettleTask(context.Context, *TaskStoreServiceSettleTaskRequest) (*TaskStoreServiceSettleTaskResponse, error)
 	mustEmbedUnimplementedTaskStoreServiceServer()
 }

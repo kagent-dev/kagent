@@ -53,8 +53,9 @@ Explicit suspend and resume update the logical lifecycle state. Deletion closes 
 admission, stops and deletes the Actor, then tombstones the instance. The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
-TaskStore writes and finalization use durable task boundaries alongside these
-explicit lifecycle claims. Checkpoint reservations also block conflicting task writes.
+TaskStore writes and automatic idle lifecycle work use durable task boundaries
+alongside these explicit lifecycle claims. Checkpoint reservations also block
+conflicting task writes and idle lifecycle work.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without instance-local execution claims. PostgreSQL tests with controlled
@@ -64,18 +65,26 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 ## Automatic quiescence
 
 The runtime stages a final task update and acknowledges it after native cleanup.
-An API finalization worker claims that boundary in PostgreSQL, outside any client
-observation lifetime. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
+That acknowledgement publishes task state and history atomically, without waiting
+for pause/suspend. An AgentInstance lifecycle worker independently claims the idle
+boundary in PostgreSQL. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
 terminal work suspends it and records the exact external snapshot. Waiting tasks
 are not forkable. The AgentInstance stays logically READY, and Substrate ingress
 resumes it when another authorized interaction arrives.
 
-The unpublished boundary blocks new task writes and explicit lifecycle changes.
-The worker performs runtime I/O outside the database transaction and then publishes
-task state, archived history, and snapshot atomically. Unissued boundaries survive
-API restarts. A claim for possibly issued runtime work never expires: losing the
-worker does not prove that the suspend stopped. The recorded actor UID is checked
-before lifecycle calls; a same-name replacement cannot be adopted implicitly.
+Unfinished native cleanup blocks new task writes and explicit lifecycle changes.
+After publication, a new turn may supersede idle work before it is claimed. Once
+claimed, idle work blocks new execution, explicit lifecycle changes, and checkpoint
+capture until its outcome is recorded. The worker performs runtime I/O outside the
+database transaction. Successful snapshot references are retried on database failure
+without repeating the Substrate operation. Checkpoint creation requires the matching
+snapshot and can return FailedPrecondition after task completion while it is pending.
+
+Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
+never expires: losing the worker does not prove that the suspend stopped. Uncertain
+claims still block new work, but completed results remain readable. The recorded
+actor UID is checked before lifecycle calls; a same-name replacement cannot be
+adopted implicitly.
 
 ```mermaid
 sequenceDiagram
@@ -84,22 +93,23 @@ sequenceDiagram
     participant Actor as Agent runtime
     participant API as TaskStore API
     participant DB as PostgreSQL
-    participant Worker as Finalization worker
+    participant Worker as AgentInstance lifecycle worker
     Client->>Gateway: authorized send / continuation
     Gateway->>Actor: invoke
-    Actor->>API: admit and versioned saves
+    Actor->>API: create and versioned updates
     API->>DB: stage final boundary
     API-->>Actor: committed version
     Actor->>API: settle after native cleanup
-    API->>DB: acknowledge version
+    API->>DB: publish task/history atomically
     Actor-->>Gateway: final event
     Gateway->>Actor: close observer connection
-    Worker->>DB: claim settled boundary
-    Worker->>Actor: pause or suspend
-    Actor-->>Worker: settled native boundary
-    Worker->>DB: publish task/history/snapshot atomically
     Gateway->>DB: observe publication
     Gateway-->>Client: current public task
+    Note over Worker,DB: Idle lifecycle runs independently of the client response
+    Worker->>DB: claim idle boundary unless new execution superseded it
+    Worker->>Actor: pause or suspend
+    Actor-->>Worker: settled native boundary
+    Worker->>DB: record snapshot and finish idle claim
 ```
 
 ## Runtime boundaries
