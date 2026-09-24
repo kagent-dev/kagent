@@ -243,7 +243,8 @@ export function HarnessesTab() {
         ]}
         trailing={
           <Space size={8}>
-            {!harnesses.error && !harnesses.isLoading ? (
+            {/* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */}
+            {!harnesses.error && !harnesses.isLoading && harnesses.data !== undefined ? (
               <Text data-testid="harnesses-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {rows.length}{" "}
                 {rows.length === 1 ? "harness" : "harnesses"}

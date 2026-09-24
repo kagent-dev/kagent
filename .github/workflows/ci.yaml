@@ -200,6 +200,231 @@ jobs:
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --previous --tail=200 || true
 
+  test-e2e-ui:
+    env:
+      VERSION: v0.0.1-test
+      SUBSTRATE_VERSION: 0.2.0-beta5
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Half of `test-e2e`'s, because this job does not run the Go suite that takes most
+    # of it: a cluster, three images and a browser suite that finishes in about a
+    # minute.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Initialize Environment
+        uses: ./.github/actions/initialize-environment
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: false
+      - name: Cache E2E Go dependencies and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
+          restore-keys: |
+            e2e-go-${{ runner.os }}-${{ runner.arch }}-
+      - name: Allow unprivileged user namespaces
+        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # unprivileged user namespaces by default, which causes bubblewrap
+        # to fail with EPERM on unshare(CLONE_NEWUSER)
+        # See https://github.com/openai/codex/issues/14919
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: kagent-e2e-ui
+          platforms: linux/amd64
+          nofallback: true
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.1
+        with:
+          version: v3.18.0
+
+      - name: Install Kind
+        id: kind
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2
+        with:
+          install_only: true
+
+      - name: Create Kind cluster
+        run: |
+          make create-kind-cluster
+
+      - name: Install Agent Substrate
+        run: |
+          curl -fsSL -o kubectl-ate "https://github.com/kagent-dev/substrate/releases/download/v${SUBSTRATE_VERSION}/kubectl-ate-linux-amd64"
+          chmod +x kubectl-ate
+          helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
+          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system \
+            --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
+            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms' \
+            --set 'credentialProvider.namespacePolicies[0].atespace=kagent' \
+            --set 'credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent'
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
+          ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
+          actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
+          kubectl create secret generic actor-id-ca-certs -n ate-system --from-literal=ca.crt="${actor_id_ca_root}"
+          kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
+          helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values --wait --timeout 5m
+
+      - name: Install Kagent
+        id: install-kagent
+        env:
+          OPENAI_API_KEY: fake
+          KMCP_ENABLED: "false"
+          # `ui.replicas` is left at its default, which is the whole point of this job:
+          # `test-e2e` sets it to 0 because nothing there looks at the UI.
+          KAGENT_HELM_EXTRA_ARGS: >-
+            --cleanup-on-fail=false
+            --set kagent-tools.enabled=false
+            --set grafana-mcp.enabled=false
+            --set controller.substrate.enabled=true
+            --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443
+            --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
+            --set controller.substrate.defaultWorkerPool.name=kagent-default
+            --set substrateWorkerPool.create=true
+            --set substrateWorkerPool.replicas=4
+            --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
+        run: |
+          # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
+          # otherwise selects a fresh local builder, discarding that cache.
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
+          make buildx-create
+          # Once, and not per image: `build-ui` and `build-golang-adk` both depend on
+          # `proto-generate`, and `buf generate` writes `ui/src/generated` as well as
+          # `go/api/gen` — so in parallel one make would write into the directory the
+          # other is tarring as a build context. `-o proto-generate` below says it is
+          # already done.
+          make proto-generate
+          # Three images, where `test-e2e` builds five. This job needs the controller to
+          # answer, the UI to serve, and one runtime for the harnesses in the fixture to
+          # point at. The four harness kinds that job builds differ in ways no browser
+          # journey can see — `live/fixtures/cluster.yaml.tmpl` says why.
+          printf '%s\n' controller ui golang-adk | xargs -P3 -n1 bash -c '
+            image="$1"
+            DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
+              make -o proto-generate GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
+          ' _
+          make helm-install-provider
+          kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
+
+      - name: Give the cluster an agent to read
+        id: fixture
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        run: |
+          # By digest, not by tag: the tag is reused run to run, so a node holding a
+          # cached copy would run a different build from the one just pushed.
+          RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          test -n "$RUNTIME_DIGEST"
+          export KAGENT_UI_RUNTIME_IMAGE="localhost:5001/kagent-dev/kagent/golang-adk@${RUNTIME_DIGEST}"
+          envsubst < ui/playwright/live/fixtures/cluster.yaml.tmpl | kubectl apply -f -
+
+          # Retried rather than asked once. Everything below is gated on this, and asked
+          # once a transient API-server hiccup skips the whole browser lane while the job
+          # still reports green — which is the shape of #2638, a suite that measured
+          # nothing while every check passed.
+          for attempt in $(seq 1 20); do
+            if kubectl get agenttemplate smoke -n kagent >/dev/null 2>&1; then exit 0; fi
+            echo "attempt ${attempt}: the smoke template is not there yet"
+            sleep 6
+          done
+          kubectl get harness,agenttemplate -A || true
+          exit 1
+
+      - name: Setup Node.js
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ui/.nvmrc
+
+      # Before the cache step, as in `ui-tests`: package.json pins Yarn 4, and the
+      # runner's own shim cannot read this lock file.
+      - name: Enable Corepack
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: corepack enable
+
+      - name: Cache Yarn downloads
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: ui/.yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Prepare the live browser suite
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        working-directory: ./ui
+        # Chromium only: the live suite declares one project. The mock suite's second
+        # engine is there to disagree about layout, which no backend contract rests on.
+        run: |
+          yarn install --immutable
+          yarn playwright install --with-deps chromium
+
+      - name: Run live browser tests
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        working-directory: ./ui
+        run: |
+          kubectl -n kagent rollout status deploy/kagent-ui --timeout=5m
+          # Already a LoadBalancer on a MetalLB cluster, so this is the address an
+          # operator's browser would use — not a port-forward to keep alive for the run.
+          UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          test -n "$UI_IP"
+          export UI_LOOP_LIVE_URL="http://${UI_IP}:8080"
+          echo "UI_LOOP_LIVE_URL: $UI_LOOP_LIVE_URL"
+          # `globalSetup` refuses the run if that address answers with fixtures, or is a
+          # dev server rather than the built image.
+          yarn test:pw:live
+
+      - name: Upload live browser report
+        # Any finished run, not just a failed one: CI retries twice, so a spec that
+        # fails and then passes leaves a green job and no trace of the failure — which
+        # is the run whose trace is worth the most. A clean run uploads the HTML report
+        # and nothing else, since `test-results` only has content when something failed.
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-live-playwright-report
+          # The trace is the only record of what the cluster answered — there is no fixed
+          # fixture to re-read afterwards, as there would be for the mock suite. The HTML
+          # report is what links one to the other, and it exists because the config asks
+          # for `html` alongside `github`; `github` on its own writes annotations and no
+          # files, which is how this path came to be uploaded empty.
+          path: |
+            ui/playwright-report
+            ui/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: fail print info
+        if: failure()
+        run: |
+          echo "::error::The live browser suite failed"
+          echo "::error::Kubectl get pods -n kagent"
+          kubectl describe pods -n kagent
+          echo "::error::Kubectl get events -n kagent"
+          kubectl get events -n kagent
+          echo "::error::Kubectl get Harnesses and AgentTemplates -n kagent"
+          kubectl get harnesses,agenttemplates -n kagent
+          echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
+          kubectl logs -n kagent deployment/kagent-controller --tail=200
+          # nginx logs every proxied request, so a browser failure that was really a
+          # backend failure says so here, as does an init.sh that rejected a value.
+          echo "::error::Kubectl logs -n kagent deployment/kagent-ui"
+          kubectl logs -n kagent deployment/kagent-ui --tail=200 || true
+
   proto-check:
     name: Protobuf Contract Check
     runs-on: ubuntu-latest

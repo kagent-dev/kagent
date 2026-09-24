@@ -280,7 +280,8 @@ export function AgentTemplatesTab() {
             <Space size={8}>
               {/* Only a successful load can be counted: "0 of 0" because a request
                   failed would be a claim the page cannot support. */}
-              {!loadFailure && !templates.isLoading ? (
+              {/* `data !== undefined`: an idle read reports `isLoading: false` with nothing in it — see `useApiResource`. */}
+              {!loadFailure && !templates.isLoading && templates.data !== undefined ? (
                 <Text data-testid="templates-summary" css={{ color: theme.color.textMuted }}>
                   {filtered.length} of {rows.length}{" "}
                   {rows.length === 1 ? "template" : "templates"}
