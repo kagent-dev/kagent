@@ -423,9 +423,26 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 	_ = yield(resp, nil)
 }
 
+// runAnthropicNonStreaming answers with one final response, but the Messages
+// API call itself streams and the message is accumulated from its events. The
+// SDK refuses a non-streaming call whose max_tokens could take longer than ten
+// minutes to generate (more than 21,333 tokens, or a model's own non-streaming
+// cap) before sending it, and a ModelConfig's maxTokens is sized for the
+// agent's streamed replies: with maxTokens 32000 every non-streaming caller,
+// the context compaction summarizer among them, failed with "streaming is
+// required for operations that may take longer than 10 minutes".
 func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	message, err := m.Client.Messages.New(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
-	if err != nil {
+	stream := m.Client.Messages.NewStreaming(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
+	defer stream.Close()
+
+	var message anthropic.Message
+	for stream.Next() {
+		if err := message.Accumulate(stream.Current()); err != nil {
+			yield(nil, fmt.Errorf("anthropic API error: %w", err))
+			return
+		}
+	}
+	if err := stream.Err(); err != nil {
 		yield(nil, fmt.Errorf("anthropic API error: %w", err))
 		return
 	}
