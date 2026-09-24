@@ -470,8 +470,16 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   });
 
   await test.step("20. and it is not offered in the list it was removed from", async () => {
-    await page.goto("/schedules?mock=ok");
+    // Back the way a reader goes, rather than another page load: the list is the same
+    // read either way, and a load is seconds of the dev server this journey is short of.
+    await page.getByTestId("schedule-back").click();
+    // Anchored on a row that is there, because "not offered" is also true of a list
+    // that has not rendered yet.
+    await expect(
+      page.getByTestId("schedule-link-Daily cluster report"),
+    ).toBeVisible();
     await expect(
       page.getByTestId("schedule-link-Retired sweep"),
     ).toHaveCount(0);
-  });});
+  });
+});
