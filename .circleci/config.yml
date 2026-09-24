@@ -20,7 +20,7 @@ version: 2.1
 # upstream's tags) run nothing: they are read-only copies, never built here.
 
 orbs:
-  architect: giantswarm/architect@10.6.0
+  architect: giantswarm/architect@10.10.0
 
 # The one registry the line publishes to: visibility, host, the context's
 # credential variables, and whether dev builds are pushed (they are — the dev
