@@ -146,7 +146,7 @@ images, and compatible worker hardware.
 - **Claude** emits Anthropic, Bedrock, or Vertex model setup, HTTP/SSE MCP
   servers, Shared agents, and skills.
 - **BYO** runs a digest-pinned user image that implements private A2A gRPC and
-  `/readyz`, and uses the private TaskStore at `KAGENT_API_URL` for admission,
+  `/readyz`, and uses the private TaskStore at `KAGENT_API_URL` for task creation,
   persistence and settlement. The shared Go app and Python runtime builders
   provide this integration. Other images must implement the same TaskStore
   contract; an upstream A2A server with only an in-memory store is insufficient.

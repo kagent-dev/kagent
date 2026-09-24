@@ -272,12 +272,13 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	require.NoError(t, err)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
 	message.ContextID = source.ContextId
-	admission, err := store.AdmitAgentInstanceMessage(t.Context(), source.Id, "", uuid.New(), []byte("request"), message)
+	task := a2a.NewSubmittedTask(message, message)
+	createHash := sha256.Sum256([]byte("fixture-create"))
+	initialVersion, err := store.CreateRuntimeTask(t.Context(), source.Id, createHash[:], task)
 	require.NoError(t, err)
-	task := admission.Current
 	task.Status.State = a2a.TaskStateCompleted
 	hash := sha256.Sum256([]byte("fixture-complete"))
-	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, admission.Version, hash[:], task, task)
+	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, initialVersion, hash[:], task, task)
 	require.NoError(t, err)
 	require.NoError(t, store.SettleAgentInstanceTask(t.Context(), source.Id, string(task.ID), version))
 	boundary, err := store.ClaimTaskFinalization(t.Context())

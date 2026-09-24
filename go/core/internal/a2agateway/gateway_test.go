@@ -632,37 +632,8 @@ func TestGatewayUsesBoundContextWithinInstanceAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.task != nil || request.Message.ContextID != instance.GetContextId() {
-		t.Fatalf("send did not resolve the bound context: %+v", prepared.task)
-	}
-}
-
-func TestGatewayReplaysAcceptedMessagesWhileSuspended(t *testing.T) {
-	for _, continuation := range []bool{false, true} {
-		name := "initial"
-		if continuation {
-			name = "continuation"
-		}
-		t.Run(name, func(t *testing.T) {
-			instance := gatewayTestInstance()
-			instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
-			completed := &a2atype.Task{ID: "accepted", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
-			store := &gatewayTestStore{instance: instance, replay: completed}
-			dialer := &gatewayTestDialer{}
-			gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
-			request := gatewayTestRequest()
-			if continuation {
-				request.Message.TaskID = completed.ID
-			}
-			result, err := gateway.SendMessage(gatewayTestContext(), request)
-			if err != nil {
-				t.Fatal(err)
-			}
-			task, ok := result.(*a2atype.Task)
-			if !ok || task.ID != completed.ID || task.Status.State != completed.Status.State || dialer.instance != nil {
-				t.Fatalf("retry = %#v, dialed = %v; want stored completion without runtime connection", result, dialer.instance != nil)
-			}
-		})
+	if prepared.Id != instance.Id || request.Message.ContextID != instance.GetContextId() {
+		t.Fatalf("send did not resolve the bound context: %+v", prepared)
 	}
 }
 
@@ -781,7 +752,7 @@ func TestGatewayRecoversLostCancelOnlyAfterTerminalState(t *testing.T) {
 	}
 }
 
-func (s *gatewayTestStore) GetAgentInstanceInput(context.Context, string, string, string, []byte) (*a2atype.Task, error) {
+func (s *gatewayTestStore) GetAgentInstanceTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error) {
 	if s.replay != nil {
 		return s.replay, nil
 	}

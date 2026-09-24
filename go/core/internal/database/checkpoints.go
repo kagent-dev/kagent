@@ -119,8 +119,6 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 				SnapshotURI:          source.SnapshotURI,
 				SnapshotContentScope: source.SnapshotContentScope,
 				TaskPosition:         source.TaskPosition,
-				InitialMessageID:     source.InitialMessageID,
-				RequestHash:          source.RequestHash,
 				CreatedAt:            &source.CreatedAt,
 			})
 			if err != nil {
@@ -212,10 +210,10 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		}
 		boundary, err := queryOne(ctx, tx, `
 			SELECT latest.history_id, latest.id, latest.state, latest.status_timestamp, latest.data, latest.created_at,
-			    latest.updated_at, latest.initial_message_id, latest.request_hash, latest.snapshot_atespace,
+			    latest.updated_at, latest.snapshot_atespace,
 			    latest.snapshot_uri, latest.snapshot_content_scope, latest.history_sequence, latest.position
 			FROM (
-			    SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
+			    SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
 			    WHERE agent_instance_task.history_id = $1
 			    ORDER BY history_sequence DESC NULLS LAST
 			    LIMIT 1
@@ -586,7 +584,7 @@ func lockCheckpoint(ctx context.Context, db pgx.Tx, id string, allUsers bool, us
 func readCheckpointEvents(ctx context.Context, db dbExecutor, checkpointID uuid.UUID) ([]agentInstanceTaskEventRow, error) {
 	return queryMany(ctx, db, `
 		SELECT e.sequence, e.history_id, e.task_id, e.data, e.created_at, e.message_id, e.task_position,
-		    e.initial_message_id, e.request_hash, e.snapshot_atespace, e.snapshot_uri, e.snapshot_content_scope
+		    e.snapshot_atespace, e.snapshot_uri, e.snapshot_content_scope
 		FROM agent_instance_checkpoint c
 		JOIN agent_instance_task_event e
 		  ON e.history_id = c.source_history_id
@@ -597,18 +595,18 @@ func readCheckpointEvents(ctx context.Context, db dbExecutor, checkpointID uuid.
 }
 
 // insertReplayedTask restores a task projection with its original ordering, timestamps,
-// retry metadata, and snapshot boundary. Callers provide the destination history and
+// and snapshot boundary. Callers provide the destination history and
 // transaction after validating the replay.
 func insertReplayedTask(ctx context.Context, db dbExecutor, task agentInstanceTaskRow) error {
 	return execSQL(ctx, db, `
 		INSERT INTO agent_instance_task (
 		    history_id, id, state, status_timestamp, data, created_at, updated_at,
-		    initial_message_id, request_hash, snapshot_atespace, snapshot_uri,
+		    snapshot_atespace, snapshot_uri,
 		    snapshot_content_scope, history_sequence, position
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`,
 		task.HistoryID, task.ID, task.State, task.StatusTimestamp, task.Data, task.CreatedAt, task.UpdatedAt,
-		task.InitialMessageID, task.RequestHash, task.SnapshotAtespace, task.SnapshotURI,
+		task.SnapshotAtespace, task.SnapshotURI,
 		task.SnapshotContentScope, task.HistorySequence, task.Position,
 	)
 }

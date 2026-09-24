@@ -16,8 +16,8 @@ type taskStoreServer struct {
 
 var _ apiv1alpha1.TaskStoreServiceServer = (*taskStoreServer)(nil)
 
-func (s *taskStoreServer) AdmitMessage(ctx context.Context, req *apiv1alpha1.TaskStoreServiceAdmitMessageRequest) (*apiv1alpha1.TaskStoreServiceAdmitMessageResponse, error) {
-	return s.service.AdmitMessage(ctx, req)
+func (s *taskStoreServer) CreateTask(ctx context.Context, req *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
+	return s.service.CreateTask(ctx, req)
 }
 
 func (s *taskStoreServer) GetTask(ctx context.Context, req *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {

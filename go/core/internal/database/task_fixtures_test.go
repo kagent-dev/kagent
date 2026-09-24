@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -11,56 +13,11 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// These fixture helpers construct retained history for store tests. Production
-// callers can only admit runtime input and apply versioned TaskStore mutations.
-type TaskContinuation = TaskAdmission
-
-// CreateAgentInstanceTask atomically stores a task, its creation event, and initial
-// messages for a READY instance with no lifecycle operation. It requires an initial
-// message and matching context. Reusing the initial message ID returns the stored task if
-// the request hash matches, or ErrIdempotencyConflict otherwise. An occupied active-task
-// slot or checkpoint creation blocks new tasks with ErrConflict. The
-// boolean reports a new reservation; callers authorize access and invoke the runtime
-// separately.
-func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
-	var result *a2a.Task
-	var created bool
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		result, created, err = createAgentInstanceTask(ctx, tx, instance, requestHash, task)
-		return err
-	})
-	return result, created, err
-}
-
-// ContinueAgentInstanceTask atomically admits a reply to a waiting task, archives
-// the question and answer, and changes the task to SUBMITTED. The instance must be
-// READY with no lifecycle operation, creating checkpoint, or other active task.
-// Identical message/hash retries return the current task without dispatch, even
-// after its state advances; reused IDs with different content return
-// ErrIdempotencyConflict. Invalid human-input replies return ErrFailedPrecondition.
-// Previous is present only for a new admission, allowing the caller to restore
-// runtime continuation state. Retries return Current without another dispatch.
-// Missing instances/tasks return ErrNotFound; callers authorize access.
-func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message) (*TaskContinuation, error) {
-	var result *TaskContinuation
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		result, err = continueAgentInstanceTask(ctx, tx, instance, requestHash, message)
-		return err
-	})
-	return result, err
-}
 
 // InterruptActiveAgentInstanceTask atomically marks taskID failed and records its
 // interruption message and event, only if it is still the instance's active task. It
@@ -74,8 +31,7 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 	}
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
-			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
 			    agent_instance_task
 			WHERE history_id = $1
 			  AND state NOT IN (
@@ -207,4 +163,25 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task}, nil, false)
 	}
 	return task, err
+}
+
+// taskMutationHash supplies a deterministic storage mutation digest to fixtures.
+func taskMutationHash(value string) []byte {
+	hash := sha256.Sum256([]byte(value))
+	return hash[:]
+}
+
+func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.AgentInstance, *a2a.Task) {
+	t.Helper()
+	instance, _, err := client.CreateAgentInstance(t.Context(), newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	require.NoError(t, err)
+	instance, err = markAgentInstanceReady(t.Context(), client, instance.Id, "agent.example")
+	require.NoError(t, err)
+	task := newAgentInstanceTask("task", "initial")
+	task.ContextID = instance.ContextId
+	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, taskMutationHash("initial request"), task)
+	require.NoError(t, err)
+	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which database?"))}
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, task, task, nil))
+	return instance, task
 }

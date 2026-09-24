@@ -17,10 +17,10 @@ class TaskStoreServiceStub:
         Args:
             channel: A grpc.Channel.
         """
-        self.AdmitMessage = channel.unary_unary(
-                '/kagent.api.v1alpha1.TaskStoreService/AdmitMessage',
-                request_serializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceAdmitMessageRequest.SerializeToString,
-                response_deserializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceAdmitMessageResponse.FromString,
+        self.CreateTask = channel.unary_unary(
+                '/kagent.api.v1alpha1.TaskStoreService/CreateTask',
+                request_serializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceCreateTaskRequest.SerializeToString,
+                response_deserializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceCreateTaskResponse.FromString,
                 _registered_method=True)
         self.GetTask = channel.unary_unary(
                 '/kagent.api.v1alpha1.TaskStoreService/GetTask',
@@ -50,9 +50,9 @@ class TaskStoreServiceServicer:
     credentials do not grant access to this service.
     """
 
-    def AdmitMessage(self, request, context):
-        """AdmitMessage records input before execution. A retry of the same private
-        attempt recovers its grant until execution starts; public retries only replay.
+    def CreateTask(self, request, context):
+        """CreateTask persists a new SDK task. Retrying the same task and payload
+        returns its original version; a different creation with that ID conflicts.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -87,10 +87,10 @@ class TaskStoreServiceServicer:
 
 def add_TaskStoreServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'AdmitMessage': grpc.unary_unary_rpc_method_handler(
-                    servicer.AdmitMessage,
-                    request_deserializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceAdmitMessageRequest.FromString,
-                    response_serializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceAdmitMessageResponse.SerializeToString,
+            'CreateTask': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateTask,
+                    request_deserializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceCreateTaskRequest.FromString,
+                    response_serializer=kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceCreateTaskResponse.SerializeToString,
             ),
             'GetTask': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTask,
@@ -127,7 +127,7 @@ class TaskStoreService:
     """
 
     @staticmethod
-    def AdmitMessage(request,
+    def CreateTask(request,
             target,
             options=(),
             channel_credentials=None,
@@ -140,9 +140,9 @@ class TaskStoreService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/kagent.api.v1alpha1.TaskStoreService/AdmitMessage',
-            kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceAdmitMessageRequest.SerializeToString,
-            kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceAdmitMessageResponse.FromString,
+            '/kagent.api.v1alpha1.TaskStoreService/CreateTask',
+            kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceCreateTaskRequest.SerializeToString,
+            kagent_dot_api_dot_v1alpha1_dot_task__store__pb2.TaskStoreServiceCreateTaskResponse.FromString,
             options,
             channel_credentials,
             insecure,

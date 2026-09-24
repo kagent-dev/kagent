@@ -80,9 +80,8 @@ quiescence. It reaches Actors through the private runtime network.
 - [Telemetry](telemetry.md)
 - [Structured output](structured-output.md)
 
-The documents describe implemented behavior. Deferred work, including full
-cross-AgentInstance delegation and Dedicated agents, belongs in the
-[API v2 execution plan](../plans/api-v2-execution-plan.md).
+The documents describe implemented behavior. Full cross-AgentInstance delegation
+and Dedicated agents remain deferred.
 
 ## Current boundaries
 

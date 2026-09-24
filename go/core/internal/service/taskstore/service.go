@@ -12,8 +12,6 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -28,7 +26,7 @@ type Store interface {
 	ClaimTaskFinalization(context.Context) (*database.TaskFinalization, error)
 	PublishTaskBoundary(context.Context, *database.TaskFinalization, *database.AgentInstanceTaskSnapshot) error
 	GetAgentInstanceForRuntime(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
-	AdmitAgentInstanceMessage(context.Context, string, string, uuid.UUID, []byte, *a2a.Message) (*database.TaskAdmission, error)
+	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task) (int64, error)
 	GetVersionedAgentInstanceTask(context.Context, string, string) (*a2a.Task, int64, error)
 	UpdateAgentInstanceTask(context.Context, string, int64, []byte, *a2a.Task, a2a.Event) (int64, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int, *int) ([]*a2a.Task, int, error)
@@ -62,52 +60,23 @@ func (s *Service) instance(ctx context.Context, instanceID string) (*apiv1alpha1
 	return instance, nil
 }
 
-// AdmitMessage records an input before the runtime invokes its executor. The
-// store recognizes retries before checking current state, so a completed or
-// already resumed input cannot accidentally execute twice.
-func (s *Service) AdmitMessage(ctx context.Context, input *apiv1alpha1.TaskStoreServiceAdmitMessageRequest) (*apiv1alpha1.TaskStoreServiceAdmitMessageResponse, error) {
-	instance, err := s.instance(ctx, input.AgentInstanceId)
-	if err != nil {
+// CreateTask persists the SDK's first task snapshot. Runtime execution and
+// request serialization remain owned by the agent's SDK.
+func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
+	if _, err := s.instance(ctx, input.AgentInstanceId); err != nil {
 		return nil, err
 	}
-	request, err := pbconv.FromProtoSendMessageRequest(input.Request)
+	task, err := pbconv.FromProtoTask(input.Task)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if request.Config != nil && request.Config.PushConfig != nil {
-		return nil, status.Error(codes.Unimplemented, "push notifications are not supported")
-	}
-	apia2a.SanitizeCallerRequest(request)
-	message := request.Message
-	if message.ContextID != "" && message.ContextID != instance.ContextId {
-		return nil, status.Error(codes.InvalidArgument, "message context does not match AgentInstance")
-	}
-	message.ContextID = instance.ContextId
-	hash, err := apia2a.SendRequestHash(request)
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(input)
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
-	apia2a.SetTimelinePosition(message, now)
-	attempt, err := uuid.Parse(input.AdmissionId)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "admission ID must be a UUID")
-	}
-	admitted, err := s.store.AdmitAgentInstanceMessage(ctx, instance.Id, input.ReservedTaskId, attempt, hash, message)
-	if err != nil {
-		return nil, storageError(err)
-	}
-	task, err := pbconv.ToProtoTask(admitted.Current)
-	if err != nil {
-		return nil, err
-	}
-	result := &apiv1alpha1.TaskStoreServiceAdmitMessageResponse{
-		Current: &apiv1alpha1.StoredTask{Task: task, Version: admitted.Version}, Admitted: admitted.Admitted,
-	}
-	if admitted.Previous != nil {
-		result.Previous, err = pbconv.ToProtoTask(admitted.Previous)
-	}
-	return result, err
+	hash := sha256.Sum256(data)
+	version, err := s.store.CreateRuntimeTask(ctx, input.AgentInstanceId, hash[:], task)
+	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: version}, storageError(err)
 }
 
 func (s *Service) GetTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
@@ -220,7 +189,7 @@ func storageError(err error) error {
 	case errors.Is(err, database.ErrNotFound):
 		return status.Error(codes.NotFound, "instance or task does not exist")
 	case errors.Is(err, database.ErrIdempotencyConflict):
-		return status.Error(codes.AlreadyExists, "message ID was used with different input")
+		return status.Error(codes.AlreadyExists, "task ID already exists with another creation")
 	case errors.Is(err, database.ErrConflict):
 		return status.Error(codes.Aborted, "task changed or the instance cannot accept this update")
 	case errors.Is(err, database.ErrFailedPrecondition):

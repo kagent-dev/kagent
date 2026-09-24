@@ -19,11 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TaskStoreService_AdmitMessage_FullMethodName = "/kagent.api.v1alpha1.TaskStoreService/AdmitMessage"
-	TaskStoreService_GetTask_FullMethodName      = "/kagent.api.v1alpha1.TaskStoreService/GetTask"
-	TaskStoreService_UpdateTask_FullMethodName   = "/kagent.api.v1alpha1.TaskStoreService/UpdateTask"
-	TaskStoreService_ListTasks_FullMethodName    = "/kagent.api.v1alpha1.TaskStoreService/ListTasks"
-	TaskStoreService_SettleTask_FullMethodName   = "/kagent.api.v1alpha1.TaskStoreService/SettleTask"
+	TaskStoreService_CreateTask_FullMethodName = "/kagent.api.v1alpha1.TaskStoreService/CreateTask"
+	TaskStoreService_GetTask_FullMethodName    = "/kagent.api.v1alpha1.TaskStoreService/GetTask"
+	TaskStoreService_UpdateTask_FullMethodName = "/kagent.api.v1alpha1.TaskStoreService/UpdateTask"
+	TaskStoreService_ListTasks_FullMethodName  = "/kagent.api.v1alpha1.TaskStoreService/ListTasks"
+	TaskStoreService_SettleTask_FullMethodName = "/kagent.api.v1alpha1.TaskStoreService/SettleTask"
 )
 
 // TaskStoreServiceClient is the client API for TaskStoreService service.
@@ -34,9 +34,9 @@ const (
 // requires workload authority for the requested instance. Public user and share
 // credentials do not grant access to this service.
 type TaskStoreServiceClient interface {
-	// AdmitMessage records input before execution. A retry of the same private
-	// attempt recovers its grant until execution starts; public retries only replay.
-	AdmitMessage(ctx context.Context, in *TaskStoreServiceAdmitMessageRequest, opts ...grpc.CallOption) (*TaskStoreServiceAdmitMessageResponse, error)
+	// CreateTask persists a new SDK task. Retrying the same task and payload
+	// returns its original version; a different creation with that ID conflicts.
+	CreateTask(ctx context.Context, in *TaskStoreServiceCreateTaskRequest, opts ...grpc.CallOption) (*TaskStoreServiceCreateTaskResponse, error)
 	GetTask(ctx context.Context, in *TaskStoreServiceGetTaskRequest, opts ...grpc.CallOption) (*TaskStoreServiceGetTaskResponse, error)
 	UpdateTask(ctx context.Context, in *TaskStoreServiceUpdateTaskRequest, opts ...grpc.CallOption) (*TaskStoreServiceUpdateTaskResponse, error)
 	ListTasks(ctx context.Context, in *TaskStoreServiceListTasksRequest, opts ...grpc.CallOption) (*TaskStoreServiceListTasksResponse, error)
@@ -53,10 +53,10 @@ func NewTaskStoreServiceClient(cc grpc.ClientConnInterface) TaskStoreServiceClie
 	return &taskStoreServiceClient{cc}
 }
 
-func (c *taskStoreServiceClient) AdmitMessage(ctx context.Context, in *TaskStoreServiceAdmitMessageRequest, opts ...grpc.CallOption) (*TaskStoreServiceAdmitMessageResponse, error) {
+func (c *taskStoreServiceClient) CreateTask(ctx context.Context, in *TaskStoreServiceCreateTaskRequest, opts ...grpc.CallOption) (*TaskStoreServiceCreateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskStoreServiceAdmitMessageResponse)
-	err := c.cc.Invoke(ctx, TaskStoreService_AdmitMessage_FullMethodName, in, out, cOpts...)
+	out := new(TaskStoreServiceCreateTaskResponse)
+	err := c.cc.Invoke(ctx, TaskStoreService_CreateTask_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -111,9 +111,9 @@ func (c *taskStoreServiceClient) SettleTask(ctx context.Context, in *TaskStoreSe
 // requires workload authority for the requested instance. Public user and share
 // credentials do not grant access to this service.
 type TaskStoreServiceServer interface {
-	// AdmitMessage records input before execution. A retry of the same private
-	// attempt recovers its grant until execution starts; public retries only replay.
-	AdmitMessage(context.Context, *TaskStoreServiceAdmitMessageRequest) (*TaskStoreServiceAdmitMessageResponse, error)
+	// CreateTask persists a new SDK task. Retrying the same task and payload
+	// returns its original version; a different creation with that ID conflicts.
+	CreateTask(context.Context, *TaskStoreServiceCreateTaskRequest) (*TaskStoreServiceCreateTaskResponse, error)
 	GetTask(context.Context, *TaskStoreServiceGetTaskRequest) (*TaskStoreServiceGetTaskResponse, error)
 	UpdateTask(context.Context, *TaskStoreServiceUpdateTaskRequest) (*TaskStoreServiceUpdateTaskResponse, error)
 	ListTasks(context.Context, *TaskStoreServiceListTasksRequest) (*TaskStoreServiceListTasksResponse, error)
@@ -130,8 +130,8 @@ type TaskStoreServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedTaskStoreServiceServer struct{}
 
-func (UnimplementedTaskStoreServiceServer) AdmitMessage(context.Context, *TaskStoreServiceAdmitMessageRequest) (*TaskStoreServiceAdmitMessageResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method AdmitMessage not implemented")
+func (UnimplementedTaskStoreServiceServer) CreateTask(context.Context, *TaskStoreServiceCreateTaskRequest) (*TaskStoreServiceCreateTaskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateTask not implemented")
 }
 func (UnimplementedTaskStoreServiceServer) GetTask(context.Context, *TaskStoreServiceGetTaskRequest) (*TaskStoreServiceGetTaskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTask not implemented")
@@ -166,20 +166,20 @@ func RegisterTaskStoreServiceServer(s grpc.ServiceRegistrar, srv TaskStoreServic
 	s.RegisterService(&TaskStoreService_ServiceDesc, srv)
 }
 
-func _TaskStoreService_AdmitMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TaskStoreServiceAdmitMessageRequest)
+func _TaskStoreService_CreateTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskStoreServiceCreateTaskRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TaskStoreServiceServer).AdmitMessage(ctx, in)
+		return srv.(TaskStoreServiceServer).CreateTask(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: TaskStoreService_AdmitMessage_FullMethodName,
+		FullMethod: TaskStoreService_CreateTask_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TaskStoreServiceServer).AdmitMessage(ctx, req.(*TaskStoreServiceAdmitMessageRequest))
+		return srv.(TaskStoreServiceServer).CreateTask(ctx, req.(*TaskStoreServiceCreateTaskRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -264,8 +264,8 @@ var TaskStoreService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*TaskStoreServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "AdmitMessage",
-			Handler:    _TaskStoreService_AdmitMessage_Handler,
+			MethodName: "CreateTask",
+			Handler:    _TaskStoreService_CreateTask_Handler,
 		},
 		{
 			MethodName: "GetTask",

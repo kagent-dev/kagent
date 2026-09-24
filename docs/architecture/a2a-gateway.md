@@ -21,8 +21,7 @@ The runtime owns execution and persists updates through the private gRPC
 `TaskStoreService`. The gateway owns each caller's observation connection.
 Disconnecting a client or gateway does not cancel the native runner or remove
 its persistence writer. Public authentication and authorization stay in the
-API/gateway; admission in the runtime decides whether an authorized input starts
-work, continues a waiting task, or replays an earlier result.
+API/gateway; the runtime SDK serializes execution and continues waiting tasks.
 
 ```mermaid
 flowchart LR
@@ -37,9 +36,10 @@ flowchart LR
 
 ## Durable ordering
 
-Admission commits the input before the SDK invokes native work. Saves require
-an expected version and retain an immutable mutation receipt, so lost responses
-can be retried without duplicating history. Both SDKs persist intermediate updates
+The SDK creates a task through CreateTask and applies versioned UpdateTask saves.
+Native work waits for the initial active task save, so lifecycle operations cannot
+miss an execution that has already started. Immutable storage mutation receipts
+allow lost save responses to be retried without duplicating history. Both SDKs persist intermediate updates
 before streaming them. Public task history remains synthesized from the retained
 messages and artifacts; this is not an exact replay archive of every wire event.
 
@@ -48,13 +48,13 @@ The runtime acknowledges that exact version, then an independent API worker
 claims and performs the pause/suspend. The store publishes task state, history,
 and the snapshot reference atomically. The gateway closes its runtime observation
 connection before waiting for publication, so it cannot prevent suspension.
-Uncertain issued lifecycle work stays claimed and blocks conflicting admission.
+Uncertain issued lifecycle work stays claimed and blocks new execution.
 
 The persistence model enforces:
 
 - one non-quiescent task per instance history;
-- message-ID idempotency using the request hash;
-- conflict rejection when an ID is reused for different content; and
+- task-ID uniqueness and optimistic version checks;
+- idempotent retries of the same storage mutation; and
 - an exact snapshot identity and history sequence at each quiescent boundary.
 
 Tasks contain current materialized A2A state. Complete message history is rebuilt
@@ -65,23 +65,25 @@ The implementation is in
 
 ## Runtime SDK adapters
 
-Go exposes expected task versions and an execution cleanup callback. Python's
-SDK (minimum 1.1.5) exposes `save(task)` without a version, reuses mutable cached tasks,
-and also calls `save` to append input before consuming execution events. The
-Python adapter therefore tracks the writer version in the call context and
-recognizes that input-only save: admission already persisted the input. It also
-updates the cached status to the admitted state, so an artifact arriving before
-a status event cannot carry the previous turn's waiting state.
+Go uses the SDK's local execution manager with `MaxExecutions: 1`. Cancellation
+uses its separate path, so it remains available while execution occupies the slot.
+The SDK's cluster workqueue is not enabled: with a single execution slot, that
+queue also rejects cancellation while work is running.
 
-Both adapters wait for native cleanup before settling a boundary. Python wraps
-the executor's event queue to withhold that boundary and stops the producer if
-persistence fails. Its ADK translates approval replies into a separate native
-request, preserving the public message used by the SDK for persistence.
+Python (minimum SDK 1.1.5) uses the SDK's request queues and an `asyncio.Lock` to
+serialize native work across tasks in one actor. Busy requests are rejected at
+the handler; simultaneous requests that passed that check serialize at the lock.
+Its `save(task)` adapter tracks expected versions per request and chooses ordinary
+CreateTask or UpdateTask. Cancellation refreshes its version when it takes over
+the SDK writer, after any in-flight execution save. Waiting task state is copied before the SDK mutates its
+cache, preserving the original question for native approval/input validation.
 
-These are dependencies on the pinned SDK's sequencing. SDK upgrades must run
-the real Python/gRPC/PostgreSQL fixture, including cached-history continuation,
-artifact-first resume, cancellation and failed saves. Explicit SDK hooks for
-already-admitted input and execution cleanup would simplify this adapter.
+Both adapters persist an initial active event before native work, stop execution
+on persistence failure, and wait for native cleanup before settling a boundary.
+Go uses the SDK cleanup callback; Python withholds the final event until its native
+runner returns. Cleanup/snapshot finalization is separate from SDK task creation.
+SDK upgrades must run the real gRPC/PostgreSQL fixtures covering failed saves,
+cancellation, continuation, disconnects, and slow subscribers.
 
 ## Reconnect and client behavior
 
@@ -89,18 +91,25 @@ Get/List serve committed state without waking the runtime. Subscribe returns
 current stored state for quiescent tasks; otherwise the runtime supplies its
 initial task followed by live updates. If completion races subscription setup,
 the gateway recovers the committed public result. Unary sends also recover the
-matching accepted input if suspension interrupts the response; cancellation
-recovers only a terminal task. An interrupted request with unfinished work
+task containing the input if suspension interrupts the response; ambiguous message
+IDs and protocol errors are not recovered. Cancellation recovers only a terminal
+task. An interrupted request with unfinished work
 still returns an error. Clients can replace their
 projection with that current task and apply subsequent upstream A2A updates.
 There is no event cursor or promise of replaying every previous token event.
-Do not resend input merely to reconnect. Retry an uncertain send with its original
-message ID and content; changed content with that ID is rejected.
+Public sends do not guarantee idempotency by message ID. Once a task ID is known,
+use GetTask or SubscribeToTask to reconnect. Do not automatically resend an
+ambiguous request: a second send may start another task or another turn. Storage
+RPC retries are internal to the runtime adapter and have a separate guarantee.
+
+The scheduler records its single dispatch attempt before sending. After an
+uncertain send it only looks for the task in stored history; it never sends again.
+A crash between claiming and sending can therefore leave an execution unresolved
+until its deadline, when normal timeout cleanup runs.
 
 Codex and Claude reserve their native session while approval/input is pending.
-Their adapter supplies the reserved task ID during private admission, so unrelated
-input rolls back before adding a task/history entry. Other harnesses retain their
-existing policy for parked tasks. All harnesses permit at most one active execution.
+Their local executor interceptor rejects input for another task before SDK
+execution. Other harnesses retain their existing policy for parked tasks. All harnesses permit at most one active execution.
 
 ## Runtime authority and deployment prerequisite
 
@@ -116,7 +125,7 @@ API rejects private TaskStore requests until that authenticator is configured;
 the worktree's signed-token injection fixture is test-only. Live Substrate
 restore and snapshot conformance passes with the isolated test identity below;
 production actor credential injection and refresh still require verification.
-Push notifications are outside this cutover and are rejected before admission.
+Push notifications are outside this cutover and are rejected by the public gateway.
 
 
 For isolated E2E testing while Substrate actor JWT injection is pending, set

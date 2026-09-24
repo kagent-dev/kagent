@@ -8,12 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
@@ -25,86 +23,16 @@ import (
 )
 
 type Store struct {
-	a2asrv.PassthroughCallInterceptor
 	client       *controllerclient.Client
 	identityPath string
-	reservation  interface{ ReservedTaskID() a2a.TaskID }
 }
 
 var _ sdktaskstore.Store = (*Store)(nil)
-var _ a2asrv.CallInterceptor = (*Store)(nil)
 
-func New(client *controllerclient.Client, identityPath string, executor a2asrv.AgentExecutor) *Store {
-	reservation, _ := executor.(interface{ ReservedTaskID() a2a.TaskID })
-	return &Store{client: client, identityPath: identityPath, reservation: reservation}
+func New(client *controllerclient.Client, identityPath string) *Store {
+	return &Store{client: client, identityPath: identityPath}
 }
 
-// Before resolves the projected actor identity and durably admits
-// an input before the SDK can invoke the executor. A public retry returns the
-// stored task directly. It never reaches the native runner a second time.
-func (s *Store) Before(ctx context.Context, call *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
-	if _, ok := ctx.Value(seedKey{}).(*seed); !ok {
-		ctx = context.WithValue(ctx, seedKey{}, &seed{})
-	}
-	instanceID, err := s.instanceID()
-	if err != nil {
-		return ctx, nil, err
-	}
-	send, ok := request.Payload.(*a2a.SendMessageRequest)
-	if !ok {
-		return ctx, nil, nil
-	}
-	wire, err := pbconv.ToProtoSendMessageRequest(send)
-	if err != nil {
-		return ctx, nil, err
-	}
-	input := &apiv1alpha1.TaskStoreServiceAdmitMessageRequest{AgentInstanceId: instanceID, AdmissionId: uuid.NewString(), Request: wire}
-	if s.reservation != nil {
-		input.ReservedTaskId = string(s.reservation.ReservedTaskID())
-	}
-	var response *apiv1alpha1.TaskStoreServiceAdmitMessageResponse
-	err = s.retry(ctx, func(ctx context.Context) error {
-		var err error
-		response, err = s.client.TaskStoreService().AdmitMessage(ctx, input)
-		return err
-	})
-	if err != nil {
-		if status.Code(err) == codes.Aborted {
-			return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "instance already has active work or a pending lifecycle operation")
-		}
-		return ctx, nil, sdkError(err)
-	}
-	current, err := fromStored(response.Current)
-	if err != nil {
-		return ctx, nil, err
-	}
-	if !response.Admitted || current.Task.Status.State.Terminal() {
-		return ctx, current.Task, nil
-	}
-	// Use the canonical admitted message (including its assigned task/context
-	// IDs) and skip an SDK history write for this already committed input.
-	for _, message := range current.Task.History {
-		if message.ID == send.Message.ID {
-			send.Message = message
-			break
-		}
-	}
-	if send.Message.TaskID != current.Task.ID {
-		return ctx, nil, fmt.Errorf("admitted task does not contain its input message")
-	}
-	if response.Previous != nil {
-		previous, err := pbconv.FromProtoTask(response.Previous)
-		if err != nil {
-			return ctx, nil, err
-		}
-		previous.History = current.Task.History
-		current.Task = previous
-	}
-	return context.WithValue(ctx, seedKey{}, &seed{task: current}), nil, nil
-}
-
-// Read the projection for every operation. A data-only fork starts a new actor
-// with its own identity; no copied state or caller header selects its history.
 func (s *Store) instanceID() (string, error) {
 	identity, err := os.ReadFile(s.identityPath)
 	if err != nil {
@@ -147,13 +75,38 @@ func (s *Store) callContext(ctx context.Context) (context.Context, context.Cance
 	return metadata.NewOutgoingContext(ctx, md), cancel, nil
 }
 
-// Create is unreachable for properly admitted inputs: Before assigns their
-// task ID and seeds the SDK's first Get. Refuse unadmitted SDK task creation.
-func (*Store) Create(context.Context, *a2a.Task) (sdktaskstore.TaskVersion, error) {
-	return 0, fmt.Errorf("runtime tasks must be admitted before execution: %w", sdktaskstore.ErrTaskAlreadyExists)
+// Create persists the SDK's initial task and returns its committed version.
+func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVersion, error) {
+	wire, err := pbconv.ToProtoTask(task)
+	if err != nil {
+		return 0, err
+	}
+	id, err := s.instanceID()
+	if err != nil {
+		return 0, err
+	}
+	if executionFailed(ctx) {
+		return 0, fmt.Errorf("previous task persistence failed")
+	}
+	request := &apiv1alpha1.TaskStoreServiceCreateTaskRequest{AgentInstanceId: id, Task: wire}
+	var response *apiv1alpha1.TaskStoreServiceCreateTaskResponse
+	err = s.retry(ctx, func(ctx context.Context) error {
+		var err error
+		response, err = s.client.TaskStoreService().CreateTask(ctx, request)
+		return err
+	})
+	if err != nil {
+		recordSaveFailure(ctx)
+		return 0, sdkError(err)
+	}
+	recordSave(ctx, task, response.Version)
+	return sdktaskstore.TaskVersion(response.Version), nil
 }
 
 func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) (sdktaskstore.TaskVersion, error) {
+	if executionFailed(ctx) {
+		return 0, fmt.Errorf("previous task persistence failed")
+	}
 	task, err := pbconv.ToProtoTask(update.Task)
 	if err != nil {
 		return 0, err
@@ -174,22 +127,11 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 		return err
 	})
 	if err != nil {
+		recordSaveFailure(ctx)
 		return 0, sdkError(err)
 	}
-	if update.Task.Status.State.Terminal() || update.Task.Status.State == a2a.TaskStateInputRequired || update.Task.Status.State == a2a.TaskStateAuthRequired {
-		if state, ok := ctx.Value(seedKey{}).(*seed); ok {
-			state.boundary.Store(response.Version)
-		}
-	}
+	recordSave(ctx, update.Task, response.Version)
 	return sdktaskstore.TaskVersion(response.Version), nil
-}
-
-type seedKey struct{}
-type seed struct {
-	task     *sdktaskstore.StoredTask
-	used     atomic.Bool
-	boundary atomic.Int64
-	cleaned  bool // guarded by settledExecutor.mu
 }
 
 func (s *Store) Get(ctx context.Context, taskID a2a.TaskID) (*sdktaskstore.StoredTask, error) {
@@ -209,14 +151,6 @@ func (s *Store) Get(ctx context.Context, taskID a2a.TaskID) (*sdktaskstore.Store
 	current, err := fromStored(response.Stored)
 	if err != nil {
 		return nil, err
-	}
-	if initial, ok := ctx.Value(seedKey{}).(*seed); ok && initial.task != nil && initial.task.Task.ID == taskID && initial.used.CompareAndSwap(false, true) {
-		// A cancel can commit while the admission response is in flight,
-		// before the SDK registers its execution. Never dispatch a stale seed.
-		if initial.task.Version != current.Version {
-			return nil, sdktaskstore.ErrConcurrentModification
-		}
-		return initial.task, nil
 	}
 	return current, nil
 }
@@ -281,11 +215,13 @@ func sdkError(err error) error {
 	switch status.Code(err) {
 	case codes.NotFound:
 		return fmt.Errorf("load runtime task: %w", a2a.ErrTaskNotFound)
+	case codes.AlreadyExists:
+		return fmt.Errorf("create runtime task: %w", sdktaskstore.ErrTaskAlreadyExists)
 	case codes.Aborted:
 		return fmt.Errorf("save runtime task: %w", sdktaskstore.ErrConcurrentModification)
 	case codes.PermissionDenied, codes.Unauthenticated:
 		return a2a.ErrUnauthorized
-	case codes.InvalidArgument, codes.AlreadyExists, codes.FailedPrecondition:
+	case codes.InvalidArgument, codes.FailedPrecondition:
 		return a2a.NewError(a2a.ErrInvalidParams, status.Convert(err).Message())
 	default:
 		return err

@@ -16,8 +16,7 @@ func TestRuntimeTaskSaveRetriesAndVersions(t *testing.T) {
 	instance, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	_, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply"), reply)
-	require.NoError(t, err)
+	resumeRuntimeTask(t, client, instance.Id, reply)
 	task, initialVersion, err := client.GetVersionedAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID))
 	require.NoError(t, err)
 	require.Positive(t, initialVersion)
@@ -57,8 +56,7 @@ func TestConcurrentRuntimeTaskSaves(t *testing.T) {
 	instance, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	_, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply"), reply)
-	require.NoError(t, err)
+	resumeRuntimeTask(t, client, instance.Id, reply)
 	task, version, err := client.GetVersionedAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID))
 	require.NoError(t, err)
 	start, results := make(chan struct{}), make(chan error, 2)
@@ -88,8 +86,6 @@ func TestRuntimeTaskSaveScopeAndAtomicity(t *testing.T) {
 	task, version, err := client.GetVersionedAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID))
 	require.NoError(t, err)
 	hash := sha256.Sum256([]byte("update"))
-	_, err = client.UpdateAgentInstanceTask(t.Context(), instance.Id, version, hash[:], task, task)
-	require.ErrorIs(t, err, ErrFailedPrecondition) // No execution without a new input.
 	_, _, err = client.GetVersionedAgentInstanceTask(t.Context(), uuid.NewString(), string(task.ID))
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = client.UpdateAgentInstanceTask(t.Context(), uuid.NewString(), version, hash[:], task, task)
@@ -112,62 +108,48 @@ func TestRuntimeTaskSaveScopeAndAtomicity(t *testing.T) {
 	require.Len(t, stored.History, len(task.History))
 }
 
-func TestRuntimeParkedSessionAdmission(t *testing.T) {
+func TestRuntimeTaskCreateRetries(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
-	instance, waiting := waitingTaskFixture(t, client)
-	input := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("unrelated"))
-	input.ContextID = waiting.ContextID
-	_, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, string(waiting.ID), uuid.New(), []byte("new"), input)
-	require.ErrorIs(t, err, ErrConflict)
-	_, total, err := client.ListAgentInstanceTasks(t.Context(), instance.Id, "", "", nil, 100, nil)
+	instance, _ := waitingTaskFixture(t, client)
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("new task"))
+	message.ContextID = instance.ContextId
+	task := a2a.NewSubmittedTask(message, message)
+	hash := sha256.Sum256([]byte("create"))
+	version, err := client.CreateRuntimeTask(t.Context(), instance.Id, hash[:], task)
 	require.NoError(t, err)
-	require.Equal(t, 1, total, "rejected input must not leave a task or mutate history")
-	initial := *waiting.History[0]
-	initial.TaskID = ""
-	initial.ContextID = waiting.ContextID
-	replay, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, string(waiting.ID), uuid.New(), []byte("initial request"), &initial)
+	retry, err := client.CreateRuntimeTask(t.Context(), instance.Id, hash[:], task)
 	require.NoError(t, err)
-	require.False(t, replay.Admitted)
-	input.TaskID = waiting.ID
-	admitted, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, string(waiting.ID), uuid.New(), []byte("reply"), input)
+	require.Equal(t, version, retry)
+	different := sha256.Sum256([]byte("different create"))
+	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, different[:], task)
+	require.ErrorIs(t, err, ErrIdempotencyConflict)
+	working := *task
+	working.Status.State = a2a.TaskStateWorking
+	_, err = client.UpdateAgentInstanceTask(t.Context(), instance.Id, version, different[:], &working, &working)
 	require.NoError(t, err)
-	require.True(t, admitted.Admitted)
-	require.Equal(t, waiting.ID, admitted.Current.ID)
+	retry, err = client.CreateRuntimeTask(t.Context(), instance.Id, hash[:], task)
+	require.NoError(t, err)
+	require.Equal(t, version, retry)
 }
 
-func TestRuntimeContinuationAdmissionRetry(t *testing.T) {
-	client := NewClient(setupTestDB(t))
-	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
-	instance, waiting := waitingTaskFixture(t, client)
-	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
-	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	attempt := uuid.New()
-	first, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", attempt, []byte("reply"), reply)
+// resumeRuntimeTask models the SDK's ordinary read, append-input, and working save.
+func resumeRuntimeTask(t *testing.T, client *Client, instanceID string, reply *a2a.Message) (*a2a.Task, int64) {
+	t.Helper()
+	task, version, err := client.GetVersionedAgentInstanceTask(t.Context(), instanceID, string(reply.TaskID))
 	require.NoError(t, err)
-	require.True(t, first.Admitted)
-	retry, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", attempt, []byte("reply"), reply)
+	if task.Status.Message != nil {
+		task.History = append(task.History, task.Status.Message)
+	}
+	task.History = append(task.History, reply)
+	hash := sha256.Sum256([]byte("input " + reply.ID))
+	version, err = client.UpdateAgentInstanceTask(t.Context(), instanceID, version, hash[:], task, task)
 	require.NoError(t, err)
-	require.True(t, retry.Admitted)
-	require.Equal(t, first.Version, retry.Version)
-	require.Equal(t, first.Current, retry.Current)
-	require.Equal(t, first.Previous, retry.Previous)
-	publicRetry, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", uuid.New(), []byte("reply"), reply)
+	task.Status = a2a.TaskStatus{State: a2a.TaskStateWorking}
+	hash = sha256.Sum256([]byte("start " + reply.ID))
+	version, err = client.UpdateAgentInstanceTask(t.Context(), instanceID, version, hash[:], task, task)
 	require.NoError(t, err)
-	require.False(t, publicRetry.Admitted)
-	require.Nil(t, publicRetry.Previous)
-	_, err = client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", attempt, []byte("changed"), reply)
-	require.ErrorIs(t, err, ErrIdempotencyConflict)
-
-	working := *first.Current
-	working.Status = a2a.TaskStatus{State: a2a.TaskStateWorking}
-	hash := sha256.Sum256([]byte("working"))
-	_, err = client.UpdateAgentInstanceTask(t.Context(), instance.Id, first.Version, hash[:], &working, &working)
-	require.NoError(t, err)
-	retry, err = client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", attempt, []byte("reply"), reply)
-	require.NoError(t, err)
-	require.False(t, retry.Admitted)
-	require.Nil(t, retry.Previous)
+	return task, version
 }
 
 func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
@@ -176,12 +158,11 @@ func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
 	instance, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	admitted, err := client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", uuid.New(), []byte("reply"), reply)
-	require.NoError(t, err)
-	finished := *admitted.Current
+	current, initialVersion := resumeRuntimeTask(t, client, instance.Id, reply)
+	finished := *current
 	finished.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("done"))}
 	hash := sha256.Sum256([]byte("complete"))
-	version, err := client.UpdateAgentInstanceTask(t.Context(), instance.Id, admitted.Version, hash[:], &finished, &finished)
+	version, err := client.UpdateAgentInstanceTask(t.Context(), instance.Id, initialVersion, hash[:], &finished, &finished)
 	require.NoError(t, err)
 	private, privateVersion, err := client.GetVersionedAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID))
 	require.NoError(t, err)
@@ -189,7 +170,7 @@ func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
 	require.Equal(t, a2a.TaskStateCompleted, private.Status.State)
 	public, err := client.GetAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
-	require.Equal(t, a2a.TaskStateSubmitted, public.Status.State)
+	require.Equal(t, a2a.TaskStateWorking, public.Status.State)
 	_, err = client.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, client.DeleteAgentInstance(t.Context(), instance.Id), ErrFailedPrecondition)
@@ -204,7 +185,7 @@ func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
 	require.Error(t, client.PublishTaskBoundary(t.Context(), work, nil))
 	fresh := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
 	fresh.ContextID = instance.ContextId
-	_, err = client.AdmitAgentInstanceMessage(t.Context(), instance.Id, "", uuid.New(), []byte("new"), fresh)
+	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh))
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	snapshot := &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/exact", ContentScope: "DATA"}
 	require.NoError(t, client.PublishTaskBoundary(t.Context(), work, snapshot))
@@ -224,12 +205,10 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	source, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	admitted, err := client.AdmitAgentInstanceMessage(t.Context(), source.Id, "", uuid.New(), []byte("reply"), reply)
-	require.NoError(t, err)
-	completed := admitted.Current
+	completed, initialVersion := resumeRuntimeTask(t, client, source.Id, reply)
 	completed.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted}
 	hash := sha256.Sum256([]byte("checkpoint boundary"))
-	version, err := client.UpdateAgentInstanceTask(t.Context(), source.Id, admitted.Version, hash[:], completed, completed)
+	version, err := client.UpdateAgentInstanceTask(t.Context(), source.Id, initialVersion, hash[:], completed, completed)
 	require.NoError(t, err)
 	_, _, err = client.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
@@ -243,9 +222,9 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	require.NoError(t, err)
 	newInput := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("source after checkpoint"))
 	newInput.ContextID = source.ContextId
-	later, err := client.AdmitAgentInstanceMessage(t.Context(), source.Id, "", uuid.New(), []byte("next"), newInput)
+	later := a2a.NewSubmittedTask(newInput, newInput)
+	_, err = client.CreateRuntimeTask(t.Context(), source.Id, hash[:], later)
 	require.NoError(t, err)
-	require.Empty(t, newInput.TaskID, "admission must leave the original input retryable")
 	fork, _, err := client.ForkAgentInstance(t.Context(), checkpoint.Id, "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
 	fork, err = markAgentInstanceReady(t.Context(), client, fork.Id, "fork.example")
@@ -256,18 +235,37 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	require.Equal(t, completed.ID, inherited.ID)
 	require.Equal(t, a2a.TaskStateCompleted, inherited.Status.State)
 	require.NotEqual(t, version, forkVersion)
-	_, _, err = client.GetVersionedAgentInstanceTask(t.Context(), fork.Id, string(later.Current.ID))
+	_, _, err = client.GetVersionedAgentInstanceTask(t.Context(), fork.Id, string(later.ID))
 	require.ErrorIs(t, err, ErrNotFound)
-	replay, err := client.AdmitAgentInstanceMessage(t.Context(), fork.Id, "", uuid.New(), []byte("reply"), reply)
-	require.NoError(t, err)
-	require.False(t, replay.Admitted)
-	_, err = client.UpdateAgentInstanceTask(t.Context(), fork.Id, admitted.Version, hash[:], completed, completed)
+	_, err = client.UpdateAgentInstanceTask(t.Context(), fork.Id, initialVersion, hash[:], completed, completed)
 	require.ErrorIs(t, err, ErrConflict, "source mutation receipts must not grant fork writes")
 	newInput.ID = "fork-input"
 	newInput.Parts = a2a.ContentParts{a2a.NewTextPart("independent fork")}
-	forkInput, err := client.AdmitAgentInstanceMessage(t.Context(), fork.Id, "", uuid.New(), []byte("fork"), newInput)
+	forkInput := a2a.NewSubmittedTask(newInput, newInput)
+	_, err = client.CreateRuntimeTask(t.Context(), fork.Id, hash[:], forkInput)
 	require.NoError(t, err)
-	require.True(t, forkInput.Admitted)
-	_, err = client.GetAgentInstanceTask(t.Context(), source.Id, string(forkInput.Current.ID), nil)
+	_, err = client.GetAgentInstanceTask(t.Context(), source.Id, string(forkInput.ID), nil)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestRuntimeTaskLookupRejectsAmbiguousMessageIDs(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	instance, waiting := waitingTaskFixture(t, client)
+	messageID := waiting.History[0].ID
+	found, err := client.GetAgentInstanceTaskByMessage(t.Context(), instance.Id, "", messageID)
+	require.NoError(t, err)
+	require.Equal(t, waiting.ID, found.ID)
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("another task"))
+	message.ID, message.ContextID = messageID, instance.ContextId
+	task := a2a.NewSubmittedTask(message, message)
+	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, taskMutationHash("another task"), task)
+	require.NoError(t, err)
+	_, err = client.GetAgentInstanceTaskByMessage(t.Context(), instance.Id, "", messageID)
+	require.ErrorIs(t, err, ErrConflict)
+	found, err = client.GetAgentInstanceTaskByMessage(t.Context(), instance.Id, string(task.ID), messageID)
+	require.NoError(t, err)
+	require.Equal(t, task.ID, found.ID)
+	_, err = client.GetAgentInstanceTaskByMessage(t.Context(), uuid.NewString(), "", messageID)
 	require.ErrorIs(t, err, ErrNotFound)
 }

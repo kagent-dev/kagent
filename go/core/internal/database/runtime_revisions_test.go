@@ -107,7 +107,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	assertRetained()
 	task := newAgentInstanceTask("task", "message")
 	task.ContextID = instance.GetContextId()
-	_, _, err = client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("request"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("request"), task)
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task,

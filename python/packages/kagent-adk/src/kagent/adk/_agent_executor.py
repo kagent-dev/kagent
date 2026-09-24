@@ -268,8 +268,8 @@ class A2aAgentExecutor(AgentExecutor):
             raise ValueError("HITL decision requires a stored current task")
         resume_message = build_resume_hitl_message(context.current_task, context.message)
         # The SDK's event consumer retains the public request while native work
-        # runs. Translating it in place changes the input it persists, violating
-        # admission's immutable message and prematurely saving a waiting state.
+        # runs. Keep the translated native request separate so persistence
+        # retains the caller's original message.
         return RequestContext(
             call_context=context.call_context,
             request=SendMessageRequest(

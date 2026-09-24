@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,12 +13,12 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
-	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -32,8 +33,7 @@ const (
 // AppConfig holds configuration for a KAgent A2A application.
 type AppConfig struct {
 	// ControllerClient shares the existing controller channel with the TaskStore.
-	// When nil, KAGENT_API_URL configures a channel owned by this app. Without
-	// either, the app runs locally with an in-memory TaskStore.
+	// When nil, KAGENT_API_URL must configure a channel owned by this app.
 	ControllerClient *controllerclient.Client
 	// AgentCard describes the agent's capabilities for A2A discovery.
 	AgentCard a2atype.AgentCard
@@ -76,9 +76,9 @@ type AppConfig struct {
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
 type KAgentApp struct {
-	server     *server.A2AServer
-	logger     *slog.Logger
-	closeTasks func() error
+	server          *server.A2AServer
+	logger          *slog.Logger
+	ownedController *controllerclient.Client
 }
 
 // New creates a KAgentApp by wiring the provided executor with kagent
@@ -100,39 +100,32 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	log := cfg.Logger
 
 	app := &KAgentApp{logger: log}
-	var tasks a2ataskstore.Store = a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
-	var admission a2asrv.CallInterceptor = a2asrv.PassthroughCallInterceptor{}
 	controller := cfg.ControllerClient
-	ownedController := false
-	if controller == nil && os.Getenv("KAGENT_API_URL") != "" {
+	if controller == nil {
+		apiURL := env.KagentAPIURL.Get()
+		if apiURL == "" {
+			return nil, fmt.Errorf("ControllerClient or %s is required", env.KagentAPIURL.Name())
+		}
 		var err error
-		controller, err = controllerclient.New(controllerclient.Config{APIURL: os.Getenv("KAGENT_API_URL"), AgentName: cfg.AppName})
+		controller, err = controllerclient.New(controllerclient.Config{APIURL: apiURL, AgentName: cfg.AppName})
 		if err != nil {
 			return nil, err
 		}
-		ownedController = true
+		app.ownedController = controller
 	}
-	if controller != nil {
-		remote := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath, executor)
-		tasks, admission = remote, remote
-		executor = remote.WrapExecutor(executor)
-		app.closeTasks = func() error {
-			if ownedController {
-				return controller.Close()
-			}
-			return nil
-		}
-	}
+	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
+	runtimeExecutor := tasks.WrapExecutor(executor)
+	executor = runtimeExecutor
 	handlerOpts := []a2asrv.RequestHandlerOption{
 		a2asrv.WithTaskStore(tasks),
 		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}),
 	}
 
-	// Runtime admission supplies the task and version before SDK execution.
+	// Coordinate native execution with ordinary SDK persistence and cleanup.
 	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
 		a2a.HITLActivationInterceptor(),
 		a2a.UserIDCallInterceptor(),
-		admission,
+		runtimeExecutor,
 	))
 
 	// Append any caller-supplied handler options.
@@ -150,8 +143,8 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 
 	a2aServer, err := server.NewA2AServer(buildAgentCard(cfg), executor, log, serverConfig, handlerOpts...)
 	if err != nil {
-		if app.closeTasks != nil {
-			err = errors.Join(err, app.closeTasks())
+		if app.ownedController != nil {
+			err = errors.Join(err, app.ownedController.Close())
 		}
 		return nil, fmt.Errorf("failed to create A2A server: %w", err)
 	}
@@ -174,8 +167,8 @@ func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
 // Run starts the A2A server and blocks until a shutdown signal is received.
 func (a *KAgentApp) Run() error {
 	err := a.server.Run()
-	if a.closeTasks != nil {
-		err = errors.Join(err, a.closeTasks())
+	if a.ownedController != nil {
+		err = errors.Join(err, a.ownedController.Close())
 	}
 	return err
 }

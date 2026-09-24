@@ -10,6 +10,9 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 )
@@ -36,17 +39,40 @@ func TestNew_NilExecutor(t *testing.T) {
 	}
 }
 
-func TestNew_Success(t *testing.T) {
+func TestNew_RequiresController(t *testing.T) {
+	t.Setenv(env.KagentAPIURL.Name(), "")
+	app, err := New(AppConfig{
+		AgentCard: a2atype.AgentCard{Name: "test-agent"},
+	}, &fakeExecutor{})
+	require.ErrorContains(t, err, "ControllerClient or KAGENT_API_URL is required")
+	require.Nil(t, app)
+}
+
+func TestNew_ControllerFromEnv(t *testing.T) {
+	t.Setenv(env.KagentAPIURL.Name(), "http://127.0.0.1:1")
 	app, err := New(AppConfig{
 		AgentCard: a2atype.AgentCard{Name: "test-agent"},
 		Port:      "0",
 	}, &fakeExecutor{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if app == nil {
-		t.Fatal("expected non-nil app")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, app)
+	require.NotNil(t, app.ownedController)
+	t.Cleanup(func() { require.NoError(t, app.ownedController.Close()) })
+}
+
+func TestNew_ProvidedController(t *testing.T) {
+	t.Setenv(env.KagentAPIURL.Name(), "")
+	controller, err := controllerclient.New(controllerclient.Config{APIURL: "http://127.0.0.1:1"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, controller.Close()) })
+	app, err := New(AppConfig{
+		ControllerClient: controller,
+		AgentCard:        a2atype.AgentCard{Name: "test-agent"},
+		Port:             "0",
+	}, &fakeExecutor{})
+	require.NoError(t, err)
+	require.NotNil(t, app)
+	require.Nil(t, app.ownedController, "the caller retains ownership of its client")
 }
 
 func TestApplyDefaults_Port(t *testing.T) {

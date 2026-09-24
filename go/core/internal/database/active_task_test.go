@@ -24,7 +24,7 @@ func TestGetActiveAgentInstanceTaskUsesInstanceHistory(t *testing.T) {
 
 	task := newAgentInstanceTask("active", "initial-message")
 	task.ContextID = instance.GetContextId()
-	_, _, err = client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("request"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("request"), task)
 	require.NoError(t, err)
 	active, err := client.GetActiveAgentInstanceTask(ctx, instance.GetId())
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
 
 	next := newAgentInstanceTask("next", "next-message")
 	next.ContextID = instance.GetContextId()
-	_, _, err = client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("next-request"), next)
+	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("next-request"), next)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task, nil), ErrConflict)
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
@@ -91,7 +91,7 @@ func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag", "retained", "")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, created, err := client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("next-request"), next)
+	version, err := client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("next-request"), next)
 	require.NoError(t, err)
-	require.True(t, created)
+	require.Positive(t, version)
 }

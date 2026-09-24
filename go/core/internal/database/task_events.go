@@ -202,7 +202,6 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 			indexes[id] = len(rows)
 			rows = append(rows, agentInstanceTaskRow{
 				ID: id, Position: *source.TaskPosition, CreatedAt: source.CreatedAt,
-				InitialMessageID: source.InitialMessageID, RequestHash: source.RequestHash,
 			})
 		} else if tasks[id] == nil {
 			return nil, fmt.Errorf("task %s has no creation event", id)

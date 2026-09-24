@@ -15,27 +15,19 @@ class StoredTask(_message.Message):
     version: int
     def __init__(self, task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ..., version: _Optional[int] = ...) -> None: ...
 
-class TaskStoreServiceAdmitMessageRequest(_message.Message):
-    __slots__ = ("admission_id", "agent_instance_id", "request", "reserved_task_id")
-    ADMISSION_ID_FIELD_NUMBER: _ClassVar[int]
+class TaskStoreServiceCreateTaskRequest(_message.Message):
+    __slots__ = ("agent_instance_id", "task")
     AGENT_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_FIELD_NUMBER: _ClassVar[int]
-    RESERVED_TASK_ID_FIELD_NUMBER: _ClassVar[int]
-    admission_id: str
+    TASK_FIELD_NUMBER: _ClassVar[int]
     agent_instance_id: str
-    request: _a2a_pb2.SendMessageRequest
-    reserved_task_id: str
-    def __init__(self, admission_id: _Optional[str] = ..., agent_instance_id: _Optional[str] = ..., request: _Optional[_Union[_a2a_pb2.SendMessageRequest, _Mapping]] = ..., reserved_task_id: _Optional[str] = ...) -> None: ...
+    task: _a2a_pb2.Task
+    def __init__(self, agent_instance_id: _Optional[str] = ..., task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ...) -> None: ...
 
-class TaskStoreServiceAdmitMessageResponse(_message.Message):
-    __slots__ = ("current", "admitted", "previous")
-    CURRENT_FIELD_NUMBER: _ClassVar[int]
-    ADMITTED_FIELD_NUMBER: _ClassVar[int]
-    PREVIOUS_FIELD_NUMBER: _ClassVar[int]
-    current: StoredTask
-    admitted: bool
-    previous: _a2a_pb2.Task
-    def __init__(self, current: _Optional[_Union[StoredTask, _Mapping]] = ..., admitted: _Optional[bool] = ..., previous: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ...) -> None: ...
+class TaskStoreServiceCreateTaskResponse(_message.Message):
+    __slots__ = ("version",)
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    version: int
+    def __init__(self, version: _Optional[int] = ...) -> None: ...
 
 class TaskStoreServiceGetTaskRequest(_message.Message):
     __slots__ = ("agent_instance_id", "task_id")

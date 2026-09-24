@@ -12,10 +12,17 @@ from a2a.server.context import ServerCallContext
 from a2a.types import a2a_pb2 as a2a
 from a2a.utils.errors import UnsupportedOperationError
 from kagent.api.v1alpha1 import task_store_pb2 as storage
-from test_task_store import Runner, send
+from test_task_store import Runner
+from test_task_store import send as make_send
 
 from kagent.core._grpc import AsyncControllerClient
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+
+
+def send(message_id, task_id=""):
+    request = make_send(message_id, task_id)
+    request.message.context_id = os.environ["KAGENT_TASKSTORE_TEST_CONTEXT"]
+    return request
 
 
 class TestEgressInjection(grpc.aio.UnaryUnaryClientInterceptor):
@@ -43,13 +50,16 @@ async def measure_persistence(store):
     """Optional loopback cost probe, independent of native/model latency."""
     instance_id = await store._instance_id()
     service = store.client.task_store_service
-    admitted = await store._call(
-        service.AdmitMessage,
-        storage.TaskStoreServiceAdmitMessageRequest(
-            agent_instance_id=instance_id, admission_id=str(uuid4()), request=send(str(uuid4()))
-        ),
+    task = a2a.Task(
+        id=str(uuid4()),
+        context_id=os.environ["KAGENT_TASKSTORE_TEST_CONTEXT"],
+        status=a2a.TaskStatus(state=a2a.TASK_STATE_SUBMITTED),
+        history=[send(str(uuid4())).message],
     )
-    task, version = admitted.current.task, admitted.current.version
+    created = await store._call(
+        service.CreateTask, storage.TaskStoreServiceCreateTaskRequest(agent_instance_id=instance_id, task=task)
+    )
+    version = created.version
     task.status.state = a2a.TASK_STATE_WORKING
     measurements = []
     for size in (256, 32 * 1024, 256 * 1024):
@@ -119,12 +129,12 @@ async def main():
             except UnsupportedOperationError:
                 pass
             else:
-                raise AssertionError("busy admission must return an A2A precondition error")
+                raise AssertionError("busy execution must return an A2A precondition error")
             await stream.aclose()
             runner.release.set()
             waiting = await wait_public(store, task_id, a2a.TASK_STATE_INPUT_REQUIRED)
             assert waiting.status.message.parts[0].text == "continue?"
-            replay = await handler.on_message_send(send(initial_id), ServerCallContext())
+            replay = await store.get(task_id, ServerCallContext())
             assert replay.id == task_id and runner.calls == 1
             async with asyncio.timeout(5):
                 completed = await handler.on_message_send(send(reply_id, task_id), ServerCallContext())
@@ -136,10 +146,19 @@ async def main():
             assert history_ids.count("progress") == 1
             assert "output-1" in history_ids
             assert runner.calls == 2
-            replay = await handler.on_message_send(send(reply_id, task_id), ServerCallContext())
+            replay = await store.get(task_id, ServerCallContext())
             assert replay.id == task_id and runner.calls == 2
+            runner.release.clear()
+            stream = handler.on_message_send_stream(send(str(uuid4())), ServerCallContext())
+            event = await anext(stream)
+            cancel_id = event.id if isinstance(event, a2a.Task) else event.task_id
+            async with asyncio.timeout(5):
+                canceled = await handler.on_cancel_task(a2a.CancelTaskRequest(id=cancel_id), ServerCallContext())
+            assert canceled.status.state == a2a.TASK_STATE_CANCELED
+            await wait_public(store, cancel_id, a2a.TASK_STATE_CANCELED)
+            await stream.aclose()
             print(  # noqa: T201 - command-line conformance report
-                "Python SDK -> authenticated gRPC -> PostgreSQL: disconnect, continuation, replay, history and lost responses passed"
+                "Python SDK -> authenticated gRPC -> PostgreSQL: disconnect, continuation, cancellation, reads, history and lost responses passed"
             )
             if os.environ.get("KAGENT_TASKSTORE_BENCHMARK") == "1":
                 await measure_persistence(store)

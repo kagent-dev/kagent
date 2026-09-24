@@ -26,8 +26,8 @@ remains current. A superseded caller gets a conflict and issues no runtime work,
 even when the new operation has the same state and kind. There is no historical
 lifecycle result archive or pruning requirement. Creation retries return current
 instance state; already-at-target Suspend/Resume requests are successful no-ops.
-Neither requires an old operation receipt. A2A message deduplication and event
-replay have their own durable history requirements and are unchanged.
+Neither requires an old operation receipt. A2A task storage and checkpoint
+reconstruction have their own durable history requirements.
 
 An unclaimed operation can retry preparation; Delete may supersede it. Preparation
 failure invalidates its generation. Once claimed, an operation never expires. A
@@ -53,8 +53,8 @@ Explicit suspend and resume update the logical lifecycle state. Deletion closes 
 admission, stops and deletes the Actor, then tombstones the instance. The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
-TaskStore admission and finalization use durable task boundaries alongside these
-explicit lifecycle claims. Checkpoint reservations also block conflicting admission.
+TaskStore writes and finalization use durable task boundaries alongside these
+explicit lifecycle claims. Checkpoint reservations also block conflicting task writes.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without instance-local execution claims. PostgreSQL tests with controlled
@@ -70,7 +70,7 @@ terminal work suspends it and records the exact external snapshot. Waiting tasks
 are not forkable. The AgentInstance stays logically READY, and Substrate ingress
 resumes it when another authorized interaction arrives.
 
-The unpublished boundary blocks new admission and explicit lifecycle changes.
+The unpublished boundary blocks new task writes and explicit lifecycle changes.
 The worker performs runtime I/O outside the database transaction and then publishes
 task state, archived history, and snapshot atomically. Unissued boundaries survive
 API restarts. A claim for possibly issued runtime work never expires: losing the

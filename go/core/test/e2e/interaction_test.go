@@ -451,11 +451,11 @@ func TestSharedAgentInteraction(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
+func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
-		message, request, task := fixture.send(t, "What is 2+2?")
+		_, _, task := fixture.send(t, "What is 2+2?")
 
 		getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
 		if err != nil {
@@ -489,27 +489,16 @@ func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
 			t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, fixture.instanceID)
 		}
 
-		replayedProto, err := fixture.client.SendMessage(fixture.ctx, request)
+		stream, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Id: string(task.ID)})
 		if err != nil {
-			t.Fatalf("replay A2A message: %v", err)
+			t.Fatalf("reconnect to completed task: %v", err)
 		}
-		replayed, err := pbconv.FromProtoSendMessageResponse(replayedProto)
+		event, err := stream.Recv()
 		if err != nil {
-			t.Fatalf("decode replayed response: %v", err)
+			t.Fatalf("read completed task: %v", err)
 		}
-		replayedTask, ok := replayed.(*a2atype.Task)
-		if !ok || replayedTask.ID != task.ID {
-			t.Fatalf("replayed response = %#v, want task %s", replayed, task.ID)
-		}
-
-		conflictingMessage := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 3+3?"))
-		conflictingMessage.ID = message.ID
-		conflictingRequest, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: conflictingMessage})
-		if err != nil {
-			t.Fatalf("build conflicting A2A request: %v", err)
-		}
-		if _, err := fixture.client.SendMessage(fixture.ctx, conflictingRequest); status.Code(err) != codes.InvalidArgument {
-			t.Fatalf("conflicting message error = %v, want %s", err, codes.InvalidArgument)
+		if event.GetTask().GetId() != string(task.ID) || event.GetTask().GetStatus().GetState() != a2apb.TaskState_TASK_STATE_COMPLETED {
+			t.Fatalf("reconnect = %v, want stored completion", event)
 		}
 	})
 }

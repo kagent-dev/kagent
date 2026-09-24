@@ -26,13 +26,12 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	task := newAgentInstanceTask("task", "initial-message")
 	task.ContextID = instance.ContextId
-	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("request hash"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task)
 	require.NoError(t, err)
 	assertReplay := func() {
 		t.Helper()
 		events, err := queryMany(ctx, q, `
-			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
 			    history_id = $1 ORDER BY sequence
 		`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
 		require.NoError(t, err)
@@ -56,8 +55,6 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 				require.Equal(t, stored.StatusTimestamp.UnixMicro(), rebuilt.StatusTimestamp.UnixMicro())
 			}
 			require.Equal(t, stored.Position, rebuilt.Position)
-			require.Equal(t, stored.InitialMessageID, rebuilt.InitialMessageID)
-			require.Equal(t, stored.RequestHash, rebuilt.RequestHash)
 			require.Equal(t, stored.CreatedAt, rebuilt.CreatedAt)
 			require.Equal(t, stored.UpdatedAt, rebuilt.UpdatedAt)
 			require.Equal(t, stored.SnapshotURI, rebuilt.SnapshotURI)
@@ -115,8 +112,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	assertReplay()
 	// A source task changing or even losing its view must not affect an old fork.
 	events, err := queryMany(ctx, q, `
-		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
 		    history_id = $1 ORDER BY sequence
 	`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
 	require.NoError(t, err)
@@ -134,11 +130,6 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		require.NoError(t, insertReplayedTask(ctx, q, row))
 	}
 	assertReplay()
-	retry := newAgentInstanceTask("ignored", "initial-message")
-	retry.ContextID = instance.ContextId
-	_, created, err := client.CreateAgentInstanceTask(ctx, instance.Id, []byte("request hash"), retry)
-	require.NoError(t, err)
-	require.False(t, created)
 	// Missing creation, out-of-order events, and identity corruption fail closed.
 	for _, broken := range [][]agentInstanceTaskEventRow{boundaryEvents[1:], {boundaryEvents[0], boundaryEvents[0]}} {
 		_, err := replayTaskEvents(broken, instance.ContextId)
@@ -149,7 +140,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	// Reclamation must record its failure transition, not just its message.
 	active := newAgentInstanceTask("interrupted", "next-message")
 	active.ContextID = instance.ContextId
-	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("next request"), active)
+	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("next request"), active)
 	require.NoError(t, err)
 	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, string(active.ID))
 	require.NoError(t, err)

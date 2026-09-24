@@ -30,7 +30,7 @@ type instanceStore interface {
 	GetAgentInstanceByID(context.Context, string) (*apiv1alpha1.AgentInstance, error)
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	GetAgentInstanceInput(context.Context, string, string, string, []byte) (*a2atype.Task, error)
+	GetAgentInstanceTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error)
 	GetAgentInstanceTask(context.Context, string, string, *int) (*a2atype.Task, error)
 	GetSettledAgentInstanceTask(context.Context, string, string, *int) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int, *int) ([]*a2atype.Task, int, error)
@@ -251,14 +251,11 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 	if req != nil && req.Config != nil {
 		historyLength = req.Config.HistoryLength
 	}
-	attempt, err := g.prepareSend(ctx, req)
+	instance, err := g.prepareSend(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if attempt.task != nil {
-		return attempt.task, nil
-	}
-	client, err := g.dial(ctx, attempt.instance)
+	client, err := g.dial(ctx, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -269,9 +266,10 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 		_ = closeRuntime()
 		// Native settlement can pause the runtime before its unary response is
 		// delivered. Recover only this accepted input's durable boundary.
-		if ctx.Err() == nil {
-			if replay, replayErr := g.prepareSend(ctx, req); replayErr == nil && replay.task != nil {
-				if recovered, recoverErr := g.recoverBoundary(ctx, attempt.instance.Id, replay.task.ID, historyLength); recovered != nil || recoverErr != nil {
+		var protocolErr *a2atype.Error
+		if ctx.Err() == nil && !errors.As(err, &protocolErr) {
+			if task, readErr := g.store.GetAgentInstanceTaskByMessage(ctx, instance.Id, string(req.Message.TaskID), req.Message.ID); readErr == nil {
+				if recovered, recoverErr := g.recoverBoundary(ctx, instance.Id, task.ID, historyLength); recovered != nil || recoverErr != nil {
 					return recovered, recoverErr
 				}
 			}
@@ -282,7 +280,7 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 		if err := closeRuntime(); err != nil {
 			return nil, err
 		}
-		stored, err := g.awaitBoundary(ctx, attempt.instance.Id, task.ID, historyLength)
+		stored, err := g.awaitBoundary(ctx, instance.Id, task.ID, historyLength)
 		if err != nil {
 			return nil, err
 		}
@@ -316,14 +314,11 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
-	attempt, err := g.prepareSend(ctx, req)
+	instance, err := g.prepareSend(ctx, req)
 	if err != nil {
 		return errorEvents(err)
 	}
-	if attempt.task != nil {
-		return func(yield func(a2atype.Event, error) bool) { yield(attempt.task, nil) }
-	}
-	client, err := g.dial(ctx, attempt.instance)
+	client, err := g.dial(ctx, instance)
 	if err != nil {
 		return errorEvents(err)
 	}
@@ -331,7 +326,7 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 	if req.Config != nil {
 		historyLength = req.Config.HistoryLength
 	}
-	return g.observe(ctx, attempt.instance, req.Message.TaskID, historyLength, client, client.SendStreamingMessage(ctx, req))
+	return g.observe(ctx, instance, req.Message.TaskID, historyLength, client, client.SendStreamingMessage(ctx, req))
 }
 
 // observe owns only this observer's runtime connection. Losing it cannot cancel
@@ -485,12 +480,7 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 	return card, nil
 }
 
-type preparedSend struct {
-	instance *apiv1alpha1.AgentInstance
-	task     *a2atype.Task
-}
-
-func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*preparedSend, error) {
+func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*apiv1alpha1.AgentInstance, error) {
 	verb := auth.VerbCreate
 	if req != nil && req.Message != nil && req.Message.TaskID != "" {
 		verb = auth.VerbUpdate
@@ -510,24 +500,10 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
 	req.Message.ContextID = instance.ContextId
-	hash, err := apia2a.SendRequestHash(req)
-	if err != nil {
-		return nil, a2atype.ErrInvalidParams
-	}
-	replay, err := g.store.GetAgentInstanceInput(ctx, instance.Id, string(req.Message.TaskID), req.Message.ID, hash)
-	if err == nil {
-		if req.Config != nil {
-			replay = shapeTask(replay, req.Config.HistoryLength, true)
-		}
-		return &preparedSend{instance: instance, task: replay}, nil
-	}
-	if !errors.Is(err, database.ErrNotFound) {
-		return nil, g.storeError(ctx, err)
-	}
 	if instance.State != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || instance.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "AgentInstance cannot accept work during a lifecycle operation")
 	}
-	return &preparedSend{instance: instance}, nil
+	return instance, nil
 }
 
 func requiresInput(state a2atype.TaskState) bool {

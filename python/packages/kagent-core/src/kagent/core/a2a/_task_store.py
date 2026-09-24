@@ -4,7 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 from typing import AsyncIterator, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import grpc
 from a2a.server.agent_execution import AgentExecutor
@@ -13,16 +13,13 @@ from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.request_handlers.request_handler import validate_request_params
 from a2a.server.tasks import TaskStore
 from a2a.types import a2a_pb2
-from a2a.utils.errors import InternalError, InvalidParamsError, TaskNotFoundError, UnsupportedOperationError
-from a2a.utils.task import apply_history_length, validate_history_length
+from a2a.utils.errors import InternalError, InvalidParamsError, UnsupportedOperationError
 from kagent.api.v1alpha1 import task_store_pb2
 
 from kagent.core._grpc import AsyncControllerClient
 
 _VERSION = "kagent.task_store.versions"
-_SEED = "kagent.task_store.seed"
-_INPUT_SAVE = "kagent.task_store.input_save"
-_ADMITTED_STATUS = "kagent.task_store.admitted_status"
+_PERSISTED = "kagent.task_store.persisted"
 _NATIVE_SETTLED = "kagent.task_store.native_settled"
 _PRODUCER = "kagent.task_store.producer"
 _FAILED_SAVE = "kagent.task_store.failed_save"
@@ -30,17 +27,13 @@ _IDENTITY_PATH = Path("/run/kagent/identity/name")
 
 
 class KAgentTaskStore(TaskStore):
-    """Store public task data centrally; retain only request-local SDK versions.
-
-    The V2 SDK changes its TaskManager call context for each admitted reply, even
-    when it keeps the waiting task in memory. That context carries the admission
-    version. Observer reads use their own context and cannot advance a writer.
-    """
+    """Persist SDK tasks over gRPC with request-local optimistic versions."""
 
     def __init__(self, client: AsyncControllerClient, identity_path: Path = _IDENTITY_PATH) -> None:
         self.client = client
         self.identity_path = identity_path
         self._executions: dict[str, asyncio.Event] = {}
+        self._execution_lock = asyncio.Lock()
 
     async def _instance_id(self) -> str:
         name = (await asyncio.to_thread(self.identity_path.read_text)).strip()
@@ -70,73 +63,25 @@ class KAgentTaskStore(TaskStore):
                 await asyncio.sleep(0.1 * 2**attempt)
         raise AssertionError("unreachable")
 
-    async def admit(self, params: a2a_pb2.SendMessageRequest, context: ServerCallContext) -> a2a_pb2.Task | None:
-        """Return the replayed task, or prepare a newly admitted SDK execution."""
-        validate_history_length(params.configuration)
-        try:
-            response = await self._call(
-                self.client.task_store_service.AdmitMessage,
-                task_store_pb2.TaskStoreServiceAdmitMessageRequest(
-                    agent_instance_id=await self._instance_id(), admission_id=str(uuid4()), request=params
-                ),
-            )
-        except grpc.aio.AioRpcError as error:
-            if error.code() == grpc.StatusCode.ABORTED:
-                raise UnsupportedOperationError(
-                    "instance already has active work or a pending lifecycle operation"
-                ) from error
-            if error.code() in (
-                grpc.StatusCode.INVALID_ARGUMENT,
-                grpc.StatusCode.ALREADY_EXISTS,
-                grpc.StatusCode.FAILED_PRECONDITION,
-            ):
-                raise InvalidParamsError(error.details()) from error
-            if error.code() == grpc.StatusCode.NOT_FOUND:
-                raise TaskNotFoundError(error.details()) from error
-            raise
-        current = response.current
-        if not response.admitted:
-            return apply_history_length(current.task, params.configuration)
-        self._versions(context)[current.task.id] = current.version
-        seed = a2a_pb2.Task()
-        seed.CopyFrom(response.previous if response.HasField("previous") else current.task)
-        context.state[_ADMITTED_STATUS] = current.task.status
-        if not response.HasField("previous"):
-            # Python appends the admitted message itself when consuming its first
-            # event. Start without that message, preserving all earlier history.
-            inherited = [message for message in seed.history if message.message_id != params.message.message_id]
-            del seed.history[:]
-            seed.history.extend(inherited)
-        context.state[_SEED] = seed
-        for message in current.task.history:
-            if message.message_id == params.message.message_id:
-                params.message.CopyFrom(message)
-                break
-        else:
-            raise InternalError("admitted task does not contain its input")
-        return None
-
     async def save(self, task: a2a_pb2.Task, context: ServerCallContext) -> None:
         if failure := context.state.get(_FAILED_SAVE):
             # Once a save is uncertain, the SDK must not replace that mutation
             # with a synthetic FAILED update at the same expected version.
             raise InternalError("task persistence failed") from failure
-        version = self._versions(context).get(task.id)
-        if version is None:
-            raise InvalidParamsError("task must be admitted or loaded before saving")
-        if task == context.state.get(_INPUT_SAVE):
-            context.state.pop(_INPUT_SAVE)
-            # Admission already persisted this input. Advance the cached task
-            # too: an artifact may arrive before the next status event, and must
-            # not inherit the previous turn's waiting state.
-            task.status.CopyFrom(context.state.pop(_ADMITTED_STATUS))
-            context.state.pop(_SEED, None)
-            return
+        versions = self._versions(context)
+        if task.id not in versions:
+            await self.get(task.id, context)
+        version = versions[task.id]
         # Copy before awaiting: the SDK mutates its cached protobuf task in place.
-        request = task_store_pb2.TaskStoreServiceUpdateTaskRequest(task=task, expected_version=version)
+        if version == 0:
+            request = task_store_pb2.TaskStoreServiceCreateTaskRequest(task=task)
+            method = self.client.task_store_service.CreateTask
+        else:
+            request = task_store_pb2.TaskStoreServiceUpdateTaskRequest(task=task, expected_version=version)
+            method = self.client.task_store_service.UpdateTask
         request.agent_instance_id = await self._instance_id()
         try:
-            result = await self._call(self.client.task_store_service.UpdateTask, request)
+            result = await self._call(method, request)
         except BaseException as failure:
             context.state[_FAILED_SAVE] = failure
             # The SDK closes its event queue on a store error but awaits the
@@ -147,9 +92,9 @@ class KAgentTaskStore(TaskStore):
                 producer.cancel()
             raise
         self._versions(context)[task.id] = result.version
-        context.state.pop(_SEED, None)
-        context.state.pop(_INPUT_SAVE, None)
-        context.state.pop(_ADMITTED_STATUS, None)
+        if task.status.state in (a2a_pb2.TASK_STATE_SUBMITTED, a2a_pb2.TASK_STATE_WORKING):
+            if persisted := context.state.get(_PERSISTED):
+                persisted.set()
         if context.state.get(_NATIVE_SETTLED) and task.status.state in _BOUNDARY_STATES:
             # Cancellation may save its boundary while the original execution
             # is still unwinding. Keep it unpublished until native cleanup ends.
@@ -172,16 +117,10 @@ class KAgentTaskStore(TaskStore):
             )
         except grpc.aio.AioRpcError as error:
             if error.code() == grpc.StatusCode.NOT_FOUND:
+                self._versions(context).setdefault(task_id, 0)
                 return None
             raise
-        seed = context.state.get(_SEED)
-        if seed is not None and seed.id == task_id:
-            if self._versions(context)[task_id] != response.stored.version:
-                raise InvalidParamsError("task changed after admission")
-            result = a2a_pb2.Task()
-            result.CopyFrom(seed)
-            return result
-        self._versions(context)[task_id] = response.stored.version
+        self._versions(context).setdefault(task_id, response.stored.version)
         return response.stored.task
 
     async def list(self, params: a2a_pb2.ListTasksRequest, context: ServerCallContext) -> a2a_pb2.ListTasksResponse:
@@ -202,7 +141,7 @@ class KAgentTaskStore(TaskStore):
 
 
 class KAgentRequestHandler(DefaultRequestHandlerV2):
-    """Admit input before the SDK can mutate task history or invoke the runner."""
+    """Use the SDK handler and surface background persistence failures."""
 
     def __init__(self, *, agent_executor, task_store, **kwargs):
         super().__init__(agent_executor=_SettledExecutor(agent_executor, task_store), task_store=task_store, **kwargs)
@@ -216,9 +155,8 @@ class KAgentRequestHandler(DefaultRequestHandlerV2):
 
     @validate_request_params
     async def on_message_send(self, params: a2a_pb2.SendMessageRequest, context: ServerCallContext):
-        replay = await cast(KAgentTaskStore, self.task_store).admit(params, context)
-        if replay is not None:
-            return replay
+        if self.task_store._execution_lock.locked():
+            raise UnsupportedOperationError("instance already has active work")
         result = await super().on_message_send(params, context)
         if failure := context.state.get(_FAILED_SAVE):
             raise InternalError("task persistence failed") from failure
@@ -228,10 +166,8 @@ class KAgentRequestHandler(DefaultRequestHandlerV2):
     async def on_message_send_stream(
         self, params: a2a_pb2.SendMessageRequest, context: ServerCallContext
     ) -> AsyncIterator:
-        replay = await cast(KAgentTaskStore, self.task_store).admit(params, context)
-        if replay is not None:
-            yield replay
-            return
+        if self.task_store._execution_lock.locked():
+            raise UnsupportedOperationError("instance already has active work")
         async for event in super().on_message_send_stream(params, context):
             yield event
         # The pinned SDK can close subscriptions without propagating a failed
@@ -258,26 +194,52 @@ class _SettledExecutor(AgentExecutor):
         self.store = store
 
     async def execute(self, context, events):
-        if context.current_task is not None:
-            # The SDK may reuse its pre-pause task, whose history need not have
-            # the store's canonical representation. Match its input-only save
-            # against that exact cached task, before native code can mutate it.
-            input_save = a2a_pb2.Task()
-            input_save.CopyFrom(context.current_task)
-            if input_save.status.HasField("message"):
-                input_save.history.append(input_save.status.message)
-                input_save.status.ClearField("message")
-            input_save.history.append(context.message)
-            context.call_context.state[_INPUT_SAVE] = input_save
+        # The SDK queues each task; the lock also serializes different tasks
+        # sharing this actor's native state, including simultaneous new sends.
+        async with self.store._execution_lock:
+            await self._execute(context, events)
+
+    async def _execute(self, context, events):
         finished = asyncio.Event()
         self.store._executions[context.task_id] = finished
+        persisted = asyncio.Event()
+        state = context.call_context.state
+        state[_PERSISTED] = persisted
+        state[_NATIVE_SETTLED] = False
+        state[_PRODUCER] = asyncio.current_task()
         try:
+            # Wait for normal SDK persistence before native side effects. This
+            # makes active work visible to checkpoint/lifecycle transactions.
+            if context.current_task is None:
+                initial = a2a_pb2.Task(
+                    id=context.task_id,
+                    context_id=context.context_id,
+                    status=a2a_pb2.TaskStatus(state=a2a_pb2.TASK_STATE_SUBMITTED),
+                    history=[context.message],
+                )
+            else:
+                # SDK updates mutate its cached protobuf in place. The native
+                # executor needs the waiting status/message to validate HITL.
+                previous = a2a_pb2.Task()
+                previous.CopyFrom(context.current_task)
+                context.current_task = previous
+                initial = a2a_pb2.TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    context_id=context.context_id,
+                    status=a2a_pb2.TaskStatus(state=a2a_pb2.TASK_STATE_WORKING),
+                )
+            await events.enqueue_event(initial)
+            await persisted.wait()
             await self._run(self.executor.execute, context, events)
         finally:
             finished.set()
             del self.store._executions[context.task_id]
 
     async def cancel(self, context, events):
+        # Cancellation takes over the SDK's cached writer. Its preflight read
+        # can precede an in-flight save from Execute, so obtain the version at
+        # the next serialized save instead of retaining that earlier read.
+        context.call_context.state.pop(_VERSION, None)
         await self._run(self.executor.cancel, context, events)
 
     async def _run(self, operation, context, events):

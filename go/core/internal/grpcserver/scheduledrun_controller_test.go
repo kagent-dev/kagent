@@ -15,8 +15,6 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
@@ -202,27 +200,31 @@ func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2a
 		return nil, err
 	}
 	instanceID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "ai-")
-	hash, err := apia2a.SendRequestHash(send)
+	current := a2atype.NewSubmittedTask(send.Message, send.Message)
+	initial, err := pbconv.ToProtoTask(current)
 	if err != nil {
 		return nil, err
 	}
-	admission, err := r.store.AdmitAgentInstanceMessage(ctx, instanceID, "", uuid.New(), hash, send.Message)
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(initial)
 	if err != nil {
 		return nil, err
 	}
-	current := admission.Current
-	if admission.Admitted {
-		r.sends++
-		r.prompt = send.Message.Parts[0].Text()
-		now := time.Now()
-		current.Status = a2atype.TaskStatus{State: r.state, Timestamp: &now}
-		if r.streamRelease != nil {
-			current.Status.State = a2atype.TaskStateWorking
-		}
-		if err := r.persistTask(ctx, instanceID, current); err != nil {
-			return nil, err
-		}
+	hash := sha256.Sum256(data)
+	_, err = r.store.CreateRuntimeTask(ctx, instanceID, hash[:], current)
+	if err != nil {
+		return nil, err
 	}
+	r.sends++
+	r.prompt = send.Message.Parts[0].Text()
+	now := time.Now()
+	current.Status = a2atype.TaskStatus{State: r.state, Timestamp: &now}
+	if r.streamRelease != nil {
+		current.Status.State = a2atype.TaskStateWorking
+	}
+	if err := r.persistTask(ctx, instanceID, current); err != nil {
+		return nil, err
+	}
+
 	task, err := pbconv.ToProtoTask(current)
 	if err != nil {
 		return nil, err

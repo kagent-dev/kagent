@@ -604,3 +604,29 @@ func TestDeleteMalformedScheduledRun(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduledDispatchClaimSurvivesLeaseReplacement(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	schedule, _ := createTestSchedule(t, client)
+	execution, err := client.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "dispatch")
+	require.NoError(t, err)
+	_, err = client.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	require.NoError(t, err)
+	leases, err := client.LeaseScheduledRunExecutions(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, leases, 1)
+	lease := leases[0].Lease
+	require.NoError(t, client.ClaimScheduledRunDispatch(t.Context(), lease))
+	require.ErrorIs(t, client.ClaimScheduledRunDispatch(t.Context(), lease), ErrConflict)
+	require.ErrorIs(t, client.UpdateScheduledRunExecution(t.Context(), lease, ScheduledRunExecutionProgress{State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING}), ErrConflict)
+	require.NoError(t, client.UpdateScheduledRunExecution(t.Context(), lease, ScheduledRunExecutionProgress{State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING}))
+	_, err = db.Exec(t.Context(), "UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() WHERE id = $1", execution.Id)
+	require.NoError(t, err)
+	leases, err = client.LeaseScheduledRunExecutions(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, leases, 1)
+	require.ErrorIs(t, client.ClaimScheduledRunDispatch(t.Context(), leases[0].Lease), ErrConflict)
+	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, leases[0].Execution.State)
+	require.Empty(t, leases[0].Execution.TaskId)
+}

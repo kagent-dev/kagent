@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { ListTasksRequest, ListTasksResponse, SendMessageRequest, StreamResponse, Task } from "../../../a2a_pb";
+import type { ListTasksRequest, ListTasksResponse, StreamResponse, Task } from "../../../a2a_pb";
 import { file_a2a } from "../../../a2a_pb";
 import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1alpha1/task_store.proto.
  */
 export const file_kagent_api_v1alpha1_task_store: GenFile = /*@__PURE__*/
-  fileDesc("CiRrYWdlbnQvYXBpL3YxYWxwaGExL3Rhc2tfc3RvcmUucHJvdG8SE2thZ2VudC5hcGkudjFhbHBoYTEiPAoKU3RvcmVkVGFzaxIdCgR0YXNrGAEgASgLMg8ubGYuYTJhLnYxLlRhc2sSDwoHdmVyc2lvbhgCIAEoAyLsAgojVGFza1N0b3JlU2VydmljZUFkbWl0TWVzc2FnZVJlcXVlc3QSHgoMYWRtaXNzaW9uX2lkGAMgASgJQgi6SAVyA7ABARIjChFhZ2VudF9pbnN0YW5jZV9pZBgBIAEoCUIIukgFcgOwAQESNgoHcmVxdWVzdBgCIAEoCzIdLmxmLmEyYS52MS5TZW5kTWVzc2FnZVJlcXVlc3RCBrpIA8gBARIYChByZXNlcnZlZF90YXNrX2lkGAQgASgJOq0BukipARqmAQoQdGFza19zdG9yZS5pbnB1dBIsYSB1c2VyIG1lc3NhZ2Ugd2l0aCBhIG1lc3NhZ2UgSUQgaXMgcmVxdWlyZWQaZGhhcyh0aGlzLnJlcXVlc3QubWVzc2FnZSkgJiYgdGhpcy5yZXF1ZXN0Lm1lc3NhZ2UubWVzc2FnZV9pZCAhPSAnJyAmJiB0aGlzLnJlcXVlc3QubWVzc2FnZS5yb2xlID09IDEijQEKJFRhc2tTdG9yZVNlcnZpY2VBZG1pdE1lc3NhZ2VSZXNwb25zZRIwCgdjdXJyZW50GAEgASgLMh8ua2FnZW50LmFwaS52MWFscGhhMS5TdG9yZWRUYXNrEhAKCGFkbWl0dGVkGAIgASgIEiEKCHByZXZpb3VzGAMgASgLMg8ubGYuYTJhLnYxLlRhc2siXwoeVGFza1N0b3JlU2VydmljZUdldFRhc2tSZXF1ZXN0EiMKEWFnZW50X2luc3RhbmNlX2lkGAEgASgJQgi6SAVyA7ABARIYCgd0YXNrX2lkGAIgASgJQge6SARyAhABIlIKH1Rhc2tTdG9yZVNlcnZpY2VHZXRUYXNrUmVzcG9uc2USLwoGc3RvcmVkGAEgASgLMh8ua2FnZW50LmFwaS52MWFscGhhMS5TdG9yZWRUYXNrIrICCiFUYXNrU3RvcmVTZXJ2aWNlVXBkYXRlVGFza1JlcXVlc3QSIwoRYWdlbnRfaW5zdGFuY2VfaWQYASABKAlCCLpIBXIDsAEBEiUKBHRhc2sYAiABKAsyDy5sZi5hMmEudjEuVGFza0IGukgDyAEBEiEKEGV4cGVjdGVkX3ZlcnNpb24YAyABKANCB7pIBCICIAASKAoFZXZlbnQYBCABKAsyGS5sZi5hMmEudjEuU3RyZWFtUmVzcG9uc2U6dLpIcRpvChh0YXNrX3N0b3JlLnRhc2tfaWRlbnRpdHkSIXRhc2sgYW5kIGNvbnRleHQgSURzIGFyZSByZXF1aXJlZBowdGhpcy50YXNrLmlkICE9ICcnICYmIHRoaXMudGFzay5jb250ZXh0X2lkICE9ICcnIjUKIlRhc2tTdG9yZVNlcnZpY2VVcGRhdGVUYXNrUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoAyJ9CiBUYXNrU3RvcmVTZXJ2aWNlTGlzdFRhc2tzUmVxdWVzdBIjChFhZ2VudF9pbnN0YW5jZV9pZBgBIAEoCUIIukgFcgOwAQESNAoHcmVxdWVzdBgCIAEoCzIbLmxmLmEyYS52MS5MaXN0VGFza3NSZXF1ZXN0Qga6SAPIAQEiUQohVGFza1N0b3JlU2VydmljZUxpc3RUYXNrc1Jlc3BvbnNlEiwKBnJlc3VsdBgBIAEoCzIcLmxmLmEyYS52MS5MaXN0VGFza3NSZXNwb25zZSJ8CiFUYXNrU3RvcmVTZXJ2aWNlU2V0dGxlVGFza1JlcXVlc3QSIwoRYWdlbnRfaW5zdGFuY2VfaWQYASABKAlCCLpIBXIDsAEBEhgKB3Rhc2tfaWQYAiABKAlCB7pIBHICEAESGAoHdmVyc2lvbhgDIAEoA0IHukgEIgIgACIkCiJUYXNrU3RvcmVTZXJ2aWNlU2V0dGxlVGFza1Jlc3BvbnNlMogFChBUYXNrU3RvcmVTZXJ2aWNlEoMBCgxBZG1pdE1lc3NhZ2USOC5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VBZG1pdE1lc3NhZ2VSZXF1ZXN0Gjkua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlQWRtaXRNZXNzYWdlUmVzcG9uc2USdAoHR2V0VGFzaxIzLmthZ2VudC5hcGkudjFhbHBoYTEuVGFza1N0b3JlU2VydmljZUdldFRhc2tSZXF1ZXN0GjQua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlR2V0VGFza1Jlc3BvbnNlEn0KClVwZGF0ZVRhc2sSNi5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VVcGRhdGVUYXNrUmVxdWVzdBo3LmthZ2VudC5hcGkudjFhbHBoYTEuVGFza1N0b3JlU2VydmljZVVwZGF0ZVRhc2tSZXNwb25zZRJ6CglMaXN0VGFza3MSNS5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VMaXN0VGFza3NSZXF1ZXN0GjYua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlTGlzdFRhc2tzUmVzcG9uc2USfQoKU2V0dGxlVGFzaxI2LmthZ2VudC5hcGkudjFhbHBoYTEuVGFza1N0b3JlU2VydmljZVNldHRsZVRhc2tSZXF1ZXN0Gjcua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlU2V0dGxlVGFza1Jlc3BvbnNlQklaR2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxYWxwaGExO2FwaXYxYWxwaGExYgZwcm90bzM", [file_a2a, file_buf_validate_validate]);
+  fileDesc("CiRrYWdlbnQvYXBpL3YxYWxwaGExL3Rhc2tfc3RvcmUucHJvdG8SE2thZ2VudC5hcGkudjFhbHBoYTEiPAoKU3RvcmVkVGFzaxIdCgR0YXNrGAEgASgLMg8ubGYuYTJhLnYxLlRhc2sSDwoHdmVyc2lvbhgCIAEoAyLnAQohVGFza1N0b3JlU2VydmljZUNyZWF0ZVRhc2tSZXF1ZXN0EiMKEWFnZW50X2luc3RhbmNlX2lkGAEgASgJQgi6SAVyA7ABARIlCgR0YXNrGAIgASgLMg8ubGYuYTJhLnYxLlRhc2tCBrpIA8gBATp2ukhzGnEKGnRhc2tfc3RvcmUuY3JlYXRlX2lkZW50aXR5EiF0YXNrIGFuZCBjb250ZXh0IElEcyBhcmUgcmVxdWlyZWQaMHRoaXMudGFzay5pZCAhPSAnJyAmJiB0aGlzLnRhc2suY29udGV4dF9pZCAhPSAnJyI1CiJUYXNrU3RvcmVTZXJ2aWNlQ3JlYXRlVGFza1Jlc3BvbnNlEg8KB3ZlcnNpb24YASABKAMiXwoeVGFza1N0b3JlU2VydmljZUdldFRhc2tSZXF1ZXN0EiMKEWFnZW50X2luc3RhbmNlX2lkGAEgASgJQgi6SAVyA7ABARIYCgd0YXNrX2lkGAIgASgJQge6SARyAhABIlIKH1Rhc2tTdG9yZVNlcnZpY2VHZXRUYXNrUmVzcG9uc2USLwoGc3RvcmVkGAEgASgLMh8ua2FnZW50LmFwaS52MWFscGhhMS5TdG9yZWRUYXNrIrICCiFUYXNrU3RvcmVTZXJ2aWNlVXBkYXRlVGFza1JlcXVlc3QSIwoRYWdlbnRfaW5zdGFuY2VfaWQYASABKAlCCLpIBXIDsAEBEiUKBHRhc2sYAiABKAsyDy5sZi5hMmEudjEuVGFza0IGukgDyAEBEiEKEGV4cGVjdGVkX3ZlcnNpb24YAyABKANCB7pIBCICIAASKAoFZXZlbnQYBCABKAsyGS5sZi5hMmEudjEuU3RyZWFtUmVzcG9uc2U6dLpIcRpvChh0YXNrX3N0b3JlLnRhc2tfaWRlbnRpdHkSIXRhc2sgYW5kIGNvbnRleHQgSURzIGFyZSByZXF1aXJlZBowdGhpcy50YXNrLmlkICE9ICcnICYmIHRoaXMudGFzay5jb250ZXh0X2lkICE9ICcnIjUKIlRhc2tTdG9yZVNlcnZpY2VVcGRhdGVUYXNrUmVzcG9uc2USDwoHdmVyc2lvbhgBIAEoAyJ9CiBUYXNrU3RvcmVTZXJ2aWNlTGlzdFRhc2tzUmVxdWVzdBIjChFhZ2VudF9pbnN0YW5jZV9pZBgBIAEoCUIIukgFcgOwAQESNAoHcmVxdWVzdBgCIAEoCzIbLmxmLmEyYS52MS5MaXN0VGFza3NSZXF1ZXN0Qga6SAPIAQEiUQohVGFza1N0b3JlU2VydmljZUxpc3RUYXNrc1Jlc3BvbnNlEiwKBnJlc3VsdBgBIAEoCzIcLmxmLmEyYS52MS5MaXN0VGFza3NSZXNwb25zZSJ8CiFUYXNrU3RvcmVTZXJ2aWNlU2V0dGxlVGFza1JlcXVlc3QSIwoRYWdlbnRfaW5zdGFuY2VfaWQYASABKAlCCLpIBXIDsAEBEhgKB3Rhc2tfaWQYAiABKAlCB7pIBHICEAESGAoHdmVyc2lvbhgDIAEoA0IHukgEIgIgACIkCiJUYXNrU3RvcmVTZXJ2aWNlU2V0dGxlVGFza1Jlc3BvbnNlMoEFChBUYXNrU3RvcmVTZXJ2aWNlEn0KCkNyZWF0ZVRhc2sSNi5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VDcmVhdGVUYXNrUmVxdWVzdBo3LmthZ2VudC5hcGkudjFhbHBoYTEuVGFza1N0b3JlU2VydmljZUNyZWF0ZVRhc2tSZXNwb25zZRJ0CgdHZXRUYXNrEjMua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlR2V0VGFza1JlcXVlc3QaNC5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VHZXRUYXNrUmVzcG9uc2USfQoKVXBkYXRlVGFzaxI2LmthZ2VudC5hcGkudjFhbHBoYTEuVGFza1N0b3JlU2VydmljZVVwZGF0ZVRhc2tSZXF1ZXN0Gjcua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlVXBkYXRlVGFza1Jlc3BvbnNlEnoKCUxpc3RUYXNrcxI1LmthZ2VudC5hcGkudjFhbHBoYTEuVGFza1N0b3JlU2VydmljZUxpc3RUYXNrc1JlcXVlc3QaNi5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VMaXN0VGFza3NSZXNwb25zZRJ9CgpTZXR0bGVUYXNrEjYua2FnZW50LmFwaS52MWFscGhhMS5UYXNrU3RvcmVTZXJ2aWNlU2V0dGxlVGFza1JlcXVlc3QaNy5rYWdlbnQuYXBpLnYxYWxwaGExLlRhc2tTdG9yZVNlcnZpY2VTZXR0bGVUYXNrUmVzcG9uc2VCSVpHZ2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjFhbHBoYTE7YXBpdjFhbHBoYTFiBnByb3RvMw", [file_a2a, file_buf_validate_validate]);
 
 /**
  * @generated from message kagent.api.v1alpha1.StoredTask
@@ -41,73 +41,42 @@ export const StoredTaskSchema: GenMessage<StoredTask> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_task_store, 0);
 
 /**
- * @generated from message kagent.api.v1alpha1.TaskStoreServiceAdmitMessageRequest
+ * @generated from message kagent.api.v1alpha1.TaskStoreServiceCreateTaskRequest
  */
-export type TaskStoreServiceAdmitMessageRequest = Message<"kagent.api.v1alpha1.TaskStoreServiceAdmitMessageRequest"> & {
-  /**
-   * Generated once by the runtime for each incoming request; preserve on RPC retry.
-   *
-   * @generated from field: string admission_id = 3;
-   */
-  admissionId: string;
-
+export type TaskStoreServiceCreateTaskRequest = Message<"kagent.api.v1alpha1.TaskStoreServiceCreateTaskRequest"> & {
   /**
    * @generated from field: string agent_instance_id = 1;
    */
   agentInstanceId: string;
 
   /**
-   * @generated from field: lf.a2a.v1.SendMessageRequest request = 2;
+   * @generated from field: lf.a2a.v1.Task task = 2;
    */
-  request?: SendMessageRequest | undefined;
-
-  /**
-   * Native session runtimes reserve their session while waiting for input.
-   * When set, admit only this task's continuation; existing input retries still
-   * replay. Runtimes that support several parked tasks leave this empty.
-   *
-   * @generated from field: string reserved_task_id = 4;
-   */
-  reservedTaskId: string;
+  task?: Task | undefined;
 };
 
 /**
- * Describes the message kagent.api.v1alpha1.TaskStoreServiceAdmitMessageRequest.
- * Use `create(TaskStoreServiceAdmitMessageRequestSchema)` to create a new message.
+ * Describes the message kagent.api.v1alpha1.TaskStoreServiceCreateTaskRequest.
+ * Use `create(TaskStoreServiceCreateTaskRequestSchema)` to create a new message.
  */
-export const TaskStoreServiceAdmitMessageRequestSchema: GenMessage<TaskStoreServiceAdmitMessageRequest> = /*@__PURE__*/
+export const TaskStoreServiceCreateTaskRequestSchema: GenMessage<TaskStoreServiceCreateTaskRequest> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_task_store, 1);
 
 /**
- * @generated from message kagent.api.v1alpha1.TaskStoreServiceAdmitMessageResponse
+ * @generated from message kagent.api.v1alpha1.TaskStoreServiceCreateTaskResponse
  */
-export type TaskStoreServiceAdmitMessageResponse = Message<"kagent.api.v1alpha1.TaskStoreServiceAdmitMessageResponse"> & {
+export type TaskStoreServiceCreateTaskResponse = Message<"kagent.api.v1alpha1.TaskStoreServiceCreateTaskResponse"> & {
   /**
-   * @generated from field: kagent.api.v1alpha1.StoredTask current = 1;
+   * @generated from field: int64 version = 1;
    */
-  current?: StoredTask | undefined;
-
-  /**
-   * Only a newly admitted input may invoke the executor.
-   *
-   * @generated from field: bool admitted = 2;
-   */
-  admitted: boolean;
-
-  /**
-   * Present for a newly admitted continuation. Supplies the pending input
-   * request to the SDK while current contains the committed SUBMITTED state.
-   *
-   * @generated from field: lf.a2a.v1.Task previous = 3;
-   */
-  previous?: Task | undefined;
+  version: bigint;
 };
 
 /**
- * Describes the message kagent.api.v1alpha1.TaskStoreServiceAdmitMessageResponse.
- * Use `create(TaskStoreServiceAdmitMessageResponseSchema)` to create a new message.
+ * Describes the message kagent.api.v1alpha1.TaskStoreServiceCreateTaskResponse.
+ * Use `create(TaskStoreServiceCreateTaskResponseSchema)` to create a new message.
  */
-export const TaskStoreServiceAdmitMessageResponseSchema: GenMessage<TaskStoreServiceAdmitMessageResponse> = /*@__PURE__*/
+export const TaskStoreServiceCreateTaskResponseSchema: GenMessage<TaskStoreServiceCreateTaskResponse> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_task_store, 2);
 
 /**
@@ -292,15 +261,15 @@ export const TaskStoreServiceSettleTaskResponseSchema: GenMessage<TaskStoreServi
  */
 export const TaskStoreService: GenService<{
   /**
-   * AdmitMessage records input before execution. A retry of the same private
-   * attempt recovers its grant until execution starts; public retries only replay.
+   * CreateTask persists a new SDK task. Retrying the same task and payload
+   * returns its original version; a different creation with that ID conflicts.
    *
-   * @generated from rpc kagent.api.v1alpha1.TaskStoreService.AdmitMessage
+   * @generated from rpc kagent.api.v1alpha1.TaskStoreService.CreateTask
    */
-  admitMessage: {
+  createTask: {
     methodKind: "unary";
-    input: typeof TaskStoreServiceAdmitMessageRequestSchema;
-    output: typeof TaskStoreServiceAdmitMessageResponseSchema;
+    input: typeof TaskStoreServiceCreateTaskRequestSchema;
+    output: typeof TaskStoreServiceCreateTaskResponseSchema;
   },
   /**
    * @generated from rpc kagent.api.v1alpha1.TaskStoreService.GetTask

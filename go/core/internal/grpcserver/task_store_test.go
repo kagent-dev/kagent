@@ -51,10 +51,10 @@ import (
 
 type lostRuntimeSaveResponse struct {
 	*database.Client
-	lost             atomic.Bool
-	lostAdmission    atomic.Bool
-	delayedAdmission chan string
-	releaseAdmission chan struct{}
+	lost          atomic.Bool
+	lostCreate    atomic.Bool
+	delayedCreate chan string
+	releaseCreate chan struct{}
 }
 
 func (s *lostRuntimeSaveResponse) UpdateAgentInstanceTask(ctx context.Context, id string, version int64, hash []byte, task *a2a.Task, event a2a.Event) (int64, error) {
@@ -65,16 +65,19 @@ func (s *lostRuntimeSaveResponse) UpdateAgentInstanceTask(ctx context.Context, i
 	return next, err
 }
 
-func (s *lostRuntimeSaveResponse) AdmitAgentInstanceMessage(ctx context.Context, id, reservedTaskID string, attempt uuid.UUID, hash []byte, message *a2a.Message) (*database.TaskAdmission, error) {
-	result, err := s.Client.AdmitAgentInstanceMessage(ctx, id, reservedTaskID, attempt, hash, message)
-	if err == nil && result.Admitted && message.Parts[0].Text() == "late" {
-		s.delayedAdmission <- string(result.Current.ID)
-		<-s.releaseAdmission
+func (s *lostRuntimeSaveResponse) CreateRuntimeTask(ctx context.Context, id string, hash []byte, task *a2a.Task) (int64, error) {
+	if len(task.History) > 0 && task.History[0].Parts[0].Text() == "reject-create" {
+		return 0, status.Error(codes.FailedPrecondition, "injected initial-save failure")
 	}
-	if err == nil && result.Admitted && s.lostAdmission.CompareAndSwap(false, true) {
-		return nil, status.Error(codes.Unavailable, "admission response lost after commit")
+	version, err := s.Client.CreateRuntimeTask(ctx, id, hash, task)
+	if err == nil && len(task.History) > 0 && task.History[0].Parts[0].Text() == "late" {
+		s.delayedCreate <- string(task.ID)
+		<-s.releaseCreate
 	}
-	return result, err
+	if err == nil && s.lostCreate.CompareAndSwap(false, true) {
+		return 0, status.Error(codes.Unavailable, "create response lost after commit")
+	}
+	return version, err
 }
 
 // Exercise the real SDK -> private gRPC -> PostgreSQL path. The public observer
@@ -102,10 +105,12 @@ type runtimeCancelableExecutor struct {
 	cleanupStarted chan struct{}
 	cleanupRelease chan struct{}
 	cleanupOnce    sync.Once
+	cancelStarted  chan a2a.TaskID
 }
 
 func (e *runtimeCancelableExecutor) Cancel(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 	return func(yield func(a2a.Event, error) bool) {
+		e.cancelStarted <- input.TaskID
 		yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateCanceled, nil), nil)
 	}
 }
@@ -132,7 +137,7 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
-	store := &lostRuntimeSaveResponse{Client: database.NewClient(db), delayedAdmission: make(chan string, 1), releaseAdmission: make(chan struct{})}
+	store := &lostRuntimeSaveResponse{Client: database.NewClient(db), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}
 	instance := createTaskStoreInstance(t, store.Client)
 	id := instance.Id
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -239,28 +244,22 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 			require.Equal(t, test.want, status.Code(err))
 		})
 	}
-	_, err = private.AdmitMessage(authenticated, &apiv1alpha1.TaskStoreServiceAdmitMessageRequest{AgentInstanceId: id, AdmissionId: uuid.NewString(), Request: &a2apb.SendMessageRequest{}})
+	_, err = private.CreateTask(authenticated, &apiv1alpha1.TaskStoreServiceCreateTaskRequest{AgentInstanceId: id, Task: &a2apb.Task{}})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	_, err = private.AdmitMessage(authenticated, &apiv1alpha1.TaskStoreServiceAdmitMessageRequest{
-		AgentInstanceId: id, AdmissionId: uuid.NewString(), Request: &a2apb.SendMessageRequest{
-			Message:       &a2apb.Message{MessageId: "unsupported-push", Role: a2apb.Role_ROLE_USER, Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "hello"}}}},
-			Configuration: &a2apb.SendMessageConfiguration{TaskPushNotificationConfig: &a2apb.TaskPushNotificationConfig{Url: "https://example.test/push"}},
-		},
-	})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	_, count, err := store.ListAgentInstanceTasks(t.Context(), id, "", "", nil, 10, nil)
-	require.NoError(t, err)
-	require.Zero(t, count, "unsupported push must be rejected before admission")
 
 	identityPath := filepath.Join(t.TempDir(), "name")
 	require.NoError(t, os.WriteFile(identityPath, []byte("ai-"+id), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(identityPath), "atespace"), []byte("team-a"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(identityPath), "uid"), []byte("actor-uid"), 0o600))
-	runtimeStore := runtimetaskstore.New(controller, identityPath, nil)
+	runtimeStore := runtimetaskstore.New(controller, identityPath)
 	release := make(chan struct{})
 	var executions atomic.Int32
 	executor := a2asrv.AgentExecutorFunc(func(ctx context.Context, exec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 		return func(yield func(a2a.Event, error) bool) {
+			if exec.Message.TaskID != "" && (exec.StoredTask == nil || exec.StoredTask.Status.State != a2a.TaskStateInputRequired) {
+				yield(nil, fmt.Errorf("native continuation lost its waiting state"))
+				return
+			}
 			executions.Add(1)
 			if !yield(a2a.NewStatusUpdateEvent(exec, a2a.TaskStateWorking, nil), nil) {
 				return
@@ -291,8 +290,9 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 			yield(a2a.NewStatusUpdateEvent(exec, a2a.TaskStateCompleted, nil), nil)
 		}
 	})
-	native := &runtimeCancelableExecutor{AgentExecutor: executor, cleanupStarted: make(chan struct{}), cleanupRelease: make(chan struct{})}
-	handler := a2asrv.NewHandler(runtimeStore.WrapExecutor(native), a2asrv.WithTaskStore(runtimeStore), a2asrv.WithCallInterceptors(runtimeStore),
+	native := &runtimeCancelableExecutor{AgentExecutor: executor, cleanupStarted: make(chan struct{}), cleanupRelease: make(chan struct{}), cancelStarted: make(chan a2a.TaskID, 2)}
+	wrapped := runtimeStore.WrapExecutor(native)
+	handler := a2asrv.NewHandler(wrapped, a2asrv.WithTaskStore(runtimeStore), a2asrv.WithCallInterceptors(wrapped),
 		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}))
 	runtimeListener := bufconn.Listen(DefaultMaxMessageSize)
 	runtimeServer := grpc.NewServer()
@@ -338,16 +338,16 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 		}
 	}
 	require.NoError(t, gateways[0].Close())
-	// A retry through another replica must replay the accepted task, and a
-	// subscription must recover the committed artifact before following updates.
+	// A subscription through another replica recovers the committed artifact
+	// before following updates. Public sends are not replay operations.
 	second := a2apb.NewA2AServiceClient(gateways[1])
 	concurrent := proto.CloneOf(input)
 	concurrent.Message.MessageId = "concurrent-input"
 	_, err = second.SendMessage(publicCtx, concurrent)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err), "busy admission is a public precondition error, not a failed storage write")
-	duplicate, err := second.SendMessage(publicCtx, input)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "active work returns a protocol-level busy response")
+	readActive, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
 	require.NoError(t, err)
-	require.Equal(t, taskID, duplicate.GetTask().GetId())
+	require.Equal(t, taskID, readActive.Id)
 	resumed, err := second.SubscribeToTask(publicCtx, &a2apb.SubscribeToTaskRequest{Id: taskID})
 	require.NoError(t, err)
 	initial, err := resumed.Recv()
@@ -378,13 +378,8 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	readBack, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
 	require.NoError(t, err)
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, readBack.Status.State)
-	replayed, err := private.AdmitMessage(authenticated, &apiv1alpha1.TaskStoreServiceAdmitMessageRequest{AgentInstanceId: id, AdmissionId: uuid.NewString(), Request: input})
-	require.NoError(t, err)
-	require.False(t, replayed.Admitted)
-	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, replayed.Current.Task.Status.State)
-	require.Equal(t, taskID, replayed.Current.Task.Id)
 	require.True(t, store.lost.Load())
-	require.True(t, store.lostAdmission.Load())
+	require.True(t, store.lostCreate.Load())
 	parkInput := proto.CloneOf(input)
 	parkInput.Message.MessageId = "input-park"
 	parkInput.Message.Parts[0].Content = &a2apb.Part_Text{Text: "park"}
@@ -404,7 +399,7 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	}
 	beforeReplyRetry := executions.Load()
 	_, err = second.SendMessage(publicCtx, replyInput)
-	require.NoError(t, err)
+	require.Error(t, err, "a completed task cannot be continued")
 	require.Equal(t, beforeReplyRetry, executions.Load())
 	beforeCancellation := workflow.quiesces.Load()
 
@@ -417,7 +412,7 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	require.NoError(t, err)
 	working, err := cancelStream.Recv()
 	require.NoError(t, err)
-	cancelID := working.GetStatusUpdate().GetTaskId()
+	cancelID := working.GetTask().GetId()
 	require.NotEmpty(t, cancelID)
 	result := make(chan error, 1)
 	go func() {
@@ -438,8 +433,8 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	require.NoError(t, err)
 	require.Equal(t, a2apb.TaskState_TASK_STATE_CANCELED, canceled.Status.State)
 
-	// Cancellation can finish after admission commits but before its response
-	// reaches the SDK. An old admission seed must never start native work then.
+	// Cancellation after Create commits but before its response reaches the SDK
+	// must prevent native work from starting.
 	lateInput := proto.CloneOf(input)
 	lateInput.Message.MessageId = "input-late"
 	lateInput.Message.Parts[0].Content = &a2apb.Part_Text{Text: "late"}
@@ -453,15 +448,33 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	}()
 	var lateID string
 	select {
-	case lateID = <-store.delayedAdmission:
+	case lateID = <-store.delayedCreate:
 	case <-time.After(5 * time.Second):
-		t.Fatal("late input was not admitted")
+		t.Fatal("initial Create did not commit")
 	}
-	_, err = second.CancelTask(publicCtx, &a2apb.CancelTaskRequest{Id: lateID})
-	require.NoError(t, err)
-	close(store.releaseAdmission)
-	<-lateResult // A stale admission may return a conflict; it cannot execute.
+	go func() {
+		ctx, cancel := context.WithTimeout(publicCtx, 5*time.Second)
+		defer cancel()
+		_, err := second.CancelTask(ctx, &a2apb.CancelTaskRequest{Id: lateID})
+		result <- err
+	}()
+	for canceled := range native.cancelStarted {
+		if string(canceled) == lateID {
+			break
+		}
+	}
 	require.Equal(t, beforeLate, executions.Load())
+	close(store.releaseCreate)
+	require.NoError(t, <-result)
+	<-lateResult // The interrupted send must not execute.
+	require.Equal(t, beforeLate, executions.Load())
+	failed := proto.CloneOf(input)
+	failed.Message.MessageId = "input-rejected-create"
+	failed.Message.Parts[0].Content = &a2apb.Part_Text{Text: "reject-create"}
+	beforeFailed := executions.Load()
+	_, err = second.SendMessage(publicCtx, failed)
+	require.Error(t, err)
+	require.Equal(t, beforeFailed, executions.Load(), "a failed Create must not start native work")
 	runtimeServer.Stop()
 	_, err = second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
 	require.NoError(t, err)
@@ -479,7 +492,7 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 			paths, err := filepath.Glob(filepath.Join(root, "python/packages/*/src"))
 			require.NoError(t, err)
 			store.lost.Store(false)
-			store.lostAdmission.Store(false)
+			store.lostCreate.Store(false)
 			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 			command := exec.CommandContext(ctx, python, filepath.Join(root, "python/packages/kagent-core/tests/task_store_postgres_probe.py"))
@@ -487,28 +500,25 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 				"PYTHONPATH="+strings.Join(paths, string(os.PathListSeparator)),
 				"KAGENT_TASKSTORE_TEST_ENDPOINT="+listener.Addr().String(),
 				"KAGENT_TASKSTORE_TEST_IDENTITY="+identityPath,
+				"KAGENT_TASKSTORE_TEST_CONTEXT="+instance.ContextId,
 				"KAGENT_TASKSTORE_TEST_TOKEN="+token,
 			)
 			output, err := command.CombinedOutput()
 			require.NoError(t, err, "%s", output)
 			t.Logf("%s", output)
 			require.True(t, store.lost.Load())
-			require.True(t, store.lostAdmission.Load())
+			require.True(t, store.lostCreate.Load())
 		})
 	}
 	t.Run("restart discovers unissued finalization", func(t *testing.T) {
 		stopFinalization()
 		<-finalized
-		request := proto.CloneOf(input)
-		request.Message.MessageId = "restart-boundary"
-		admitted, err := private.AdmitMessage(authenticated, &apiv1alpha1.TaskStoreServiceAdmitMessageRequest{
-			AgentInstanceId: id, AdmissionId: uuid.NewString(), Request: request,
-		})
+		finished := &a2apb.Task{Id: uuid.NewString(), ContextId: instance.ContextId, Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_SUBMITTED}}
+		created, err := private.CreateTask(authenticated, &apiv1alpha1.TaskStoreServiceCreateTaskRequest{AgentInstanceId: id, Task: finished})
 		require.NoError(t, err)
-		finished := admitted.Current.Task
 		finished.Status.State = a2apb.TaskState_TASK_STATE_COMPLETED
 		saved, err := private.UpdateTask(authenticated, &apiv1alpha1.TaskStoreServiceUpdateTaskRequest{
-			AgentInstanceId: id, Task: finished, ExpectedVersion: admitted.Current.Version,
+			AgentInstanceId: id, Task: finished, ExpectedVersion: created.Version,
 		})
 		require.NoError(t, err)
 		_, err = private.SettleTask(authenticated, &apiv1alpha1.TaskStoreServiceSettleTaskRequest{
