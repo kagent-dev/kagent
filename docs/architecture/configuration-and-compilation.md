@@ -16,6 +16,28 @@ Both are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
 API.
 
+### kagent workload overrides
+
+The kagent compiler preserves explicit `spec.workload.command` and
+`spec.workload.args` in the runtime revision and generated ActorTemplate,
+regardless of the runtime image's implementation language. Omitted overrides
+remain unset.
+
+For example, this Harness excerpt selects debug logging for the Go ADK image
+without changing the AgentTemplate:
+
+```yaml
+spec:
+  kagent: {}
+  workload:
+    # Retain the digest-pinned Go ADK image here.
+    command: ["/app"]
+    args: ["--log-level", "debug"]
+```
+
+Command and argument changes participate in revision identity. They affect newly
+prepared revisions, not existing AgentInstances pinned to an older revision.
+
 ## Prepared revision pipeline
 
 The v2 controller collects admitted Harness/AgentTemplate pairs and compiles each

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
@@ -25,6 +26,74 @@ func modelConfig() *v1alpha3.ModelConfig {
 	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"},
 		Spec:       v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4o"},
+	}
+}
+
+func TestCompileAgentTemplatePreservesWorkloadOverrides(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		command []string
+		args    []string
+	}{
+		{name: "image defaults"},
+		{name: "command", command: []string{"/runtime"}},
+		{name: "args", args: []string{"--verbose"}},
+		{name: "go args", args: []string{"--log-level", "debug"}},
+		{name: "go command and args", command: []string{"/app"}, args: []string{"--log-level", "debug", "--host", "0.0.0.0"}},
+		{name: "python static", command: []string{"kagent-adk"}, args: []string{"static", "--host", "0.0.0.0", "--port", "8080"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+				Spec: v1alpha3.HarnessSpec{
+					Kagent:                &v1alpha3.KagentHarness{},
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload: v1alpha3.HarnessWorkload{
+						Image:   "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
+					},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			original := harness.DeepCopy()
+			result, err := compiler(t, modelConfig()).CompileAgentTemplate(t.Context(), harness, template)
+			require.NoError(t, err)
+			require.Equal(t, tt.command, result.Command)
+			require.Equal(t, tt.args, result.Args)
+
+			revisionID, err := result.Digest()
+			require.NoError(t, err)
+			if len(tt.command) > 0 || len(tt.args) > 0 {
+				withoutOverrides := result.Revision
+				withoutOverrides.Command = nil
+				withoutOverrides.Args = nil
+				defaultID, err := withoutOverrides.Digest()
+				require.NoError(t, err)
+				require.NotEqual(t, defaultID, revisionID, "workload overrides must affect revision identity")
+			}
+			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID)
+			require.NoError(t, err)
+			require.Len(t, actorTemplate.Containers, 1)
+			container := actorTemplate.Containers[0]
+			require.Equal(t, tt.command, container.Command)
+			require.Equal(t, tt.args, container.Args)
+
+			if len(result.Command) > 0 {
+				result.Command[0] = "changed"
+			}
+			if len(result.Args) > 0 {
+				result.Args[0] = "changed"
+			}
+			require.Equal(t, original, harness, "compiled overrides must not alias the source Harness")
+			require.Equal(t, tt.command, container.Command, "container command must not alias the compiled revision")
+			require.Equal(t, tt.args, container.Args, "container args must not alias the compiled revision")
+		})
 	}
 }
 
