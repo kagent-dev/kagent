@@ -319,6 +319,7 @@ func Run(ctx context.Context, opts Options) error {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
+	mux.Handle(a2agateway.HTTPPathPrefix, a2agateway.NewHTTPHandler(gateway, authenticator, store))
 	server, err := grpcserver.New(grpcserver.Config{
 		MethodPolicies:   policies,
 		RegisterServices: opts.GRPCServices,

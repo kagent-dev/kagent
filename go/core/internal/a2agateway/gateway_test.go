@@ -879,8 +879,11 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	if card.Name != "assistant" || card.Description != "pinned description" || card.Version != "v1" {
 		t.Fatalf("template metadata = %#v", card)
 	}
-	if len(card.SupportedInterfaces) != 1 || card.SupportedInterfaces[0].URL != gatewayTestURL ||
-		card.SupportedInterfaces[0].ProtocolBinding != a2atype.TransportProtocolGRPC {
+	if len(card.SupportedInterfaces) != 2 ||
+		card.SupportedInterfaces[0].URL != gatewayTestURL+HTTPPathPrefix+gatewayTestID ||
+		card.SupportedInterfaces[0].ProtocolBinding != a2atype.TransportProtocolJSONRPC ||
+		card.SupportedInterfaces[1].URL != gatewayTestURL ||
+		card.SupportedInterfaces[1].ProtocolBinding != a2atype.TransportProtocolGRPC {
 		t.Fatalf("public interfaces = %#v", card.SupportedInterfaces)
 	}
 	if !card.Capabilities.Streaming || !card.Capabilities.ExtendedAgentCard || card.Capabilities.PushNotifications {

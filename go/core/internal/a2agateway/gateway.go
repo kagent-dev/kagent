@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -161,11 +162,14 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 	 * the record is then read as its owner. Reading it as the visitor would find
 	 * nothing, because an instance is scoped to its creator.
 	 *
-	 * The read-only half is enforced in the interceptor, which refuses a
-	 * write-access RPC for a read-only share before this is reached.
+	 * Enforce read-only access here as well as in the gRPC interceptor so every
+	 * transport observes the same restriction.
 	 */
 	creator := principal.User.ID
 	share, hasShare := auth.ShareContextFrom(ctx)
+	if hasShare && share.ReadOnly && verb != auth.VerbGet {
+		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "this share link is read-only")
+	}
 	if hasShare && share.IsForAgentInstance(id) {
 		creator = share.UserID
 	} else if err := g.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "AgentInstance", Name: id}); err != nil {
@@ -191,6 +195,9 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 
 func route(ctx context.Context) (string, error) {
 	ids := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceIDHeader)
+	if id, ok := ctx.Value(httpInstanceIDKey{}).(string); ok {
+		ids = []string{id}
+	}
 	if len(ids) != 1 {
 		return "", fmt.Errorf("exactly one %s header is required", apia2a.AgentInstanceIDHeader)
 	}
@@ -472,7 +479,10 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 	// The compiled card provides immutable template metadata. Public transport,
 	// security, and signatures belong to the gateway instead of the private
 	// runtime that produced that card.
-	card.SupportedInterfaces = []*a2atype.AgentInterface{a2atype.NewAgentInterface(g.gatewayURL, a2atype.TransportProtocolGRPC)}
+	card.SupportedInterfaces = []*a2atype.AgentInterface{
+		a2atype.NewAgentInterface(strings.TrimRight(g.gatewayURL, "/")+HTTPPathPrefix+instance.GetId(), a2atype.TransportProtocolJSONRPC),
+		a2atype.NewAgentInterface(g.gatewayURL, a2atype.TransportProtocolGRPC),
+	}
 	// Extensions are the exception, and replacing the whole capabilities struct
 	// used to drop them. They describe what the runtime behind this gateway can
 	// negotiate — human-in-the-loop among them — which is not the gateway's to
