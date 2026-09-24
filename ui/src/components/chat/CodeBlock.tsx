@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "../ui/button";
+import { copyText } from "@/lib/utils";
 
 const hasChildren = (props: unknown): props is { children: React.ReactNode } => {
   return typeof props === 'object' && props !== null && 'children' in props;
@@ -30,8 +31,7 @@ const CodeBlock = ({ children, className }: { children: React.ReactNode[]; class
 
   const handleCopy = async () => {
     const codeContent = getCodeContent();
-    if (codeContent) {
-      await navigator.clipboard.writeText(codeContent);
+    if (codeContent && (await copyText(codeContent))) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }

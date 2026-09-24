@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageSquare, Bot, User, Info, Terminal, Cpu, Ellipsis } from "lucide-react";
 import KagentLogo from "../kagent-logo";
+import { copyText } from "@/lib/utils";
 
 interface Message {
   content: string;
@@ -90,7 +91,7 @@ const LLMCallModal = ({ content }: LLMCallModalProps) => {
               <MessageSquare className="w-5 h-5" />
               LLM Call Details
             </div>
-            <button onClick={() => navigator.clipboard.writeText(content)} className="text-xs text-muted-foreground hover:text-foreground underline flex items-center gap-1">
+            <button onClick={() => void copyText(content)} className="text-xs text-muted-foreground hover:text-foreground underline flex items-center gap-1">
               <Terminal className="w-3 h-3" />
               Copy JSON
             </button>
