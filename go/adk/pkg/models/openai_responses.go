@@ -141,7 +141,9 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				if fr := functionResponses[fc.ID]; fr != nil {
 					output = extractFunctionResponseContent(fr.Response)
 				}
-				input = append(input, responses.ResponseInputItemParamOfFunctionCallOutput(fc.ID, output))
+				functionOutput := responses.ResponseInputItemParamOfFunctionCallOutput(output)
+				functionOutput.OfFunctionCallOutput.CallID = param.NewOpt(fc.ID)
+				input = append(input, functionOutput)
 			}
 			continue
 		}

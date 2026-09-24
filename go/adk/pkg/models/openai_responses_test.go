@@ -14,6 +14,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -52,12 +53,15 @@ func TestGenaiContentsToResponsesInput(t *testing.T) {
 		if input[0].OfFunctionCall == nil || input[0].OfFunctionCall.CallID != "call_1" {
 			t.Fatalf("function_call = %#v", input[0].OfFunctionCall)
 		}
-		if input[1].OfFunctionCallOutput == nil || input[1].OfFunctionCallOutput.CallID != "call_1" {
+		if input[1].OfFunctionCallOutput == nil || input[1].OfFunctionCallOutput.CallID.Value != "call_1" {
 			t.Fatalf("function_call_output = %#v", input[1].OfFunctionCallOutput)
 		}
 		if got := input[1].OfFunctionCallOutput.Output.OfString.Value; got != "3" {
 			t.Fatalf("output = %q, want 3", got)
 		}
+		outputJSON, err := json.Marshal(input[1])
+		require.NoError(t, err)
+		require.JSONEq(t, `{"type":"function_call_output","call_id":"call_1","output":"3"}`, string(outputJSON))
 	})
 }
 
