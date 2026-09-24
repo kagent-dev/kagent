@@ -178,6 +178,16 @@ func parametersJsonSchemaToMap(v any) map[string]any {
 	return m
 }
 
+// unsupportedImageNote stands in for an image a text-only adapter cannot send,
+// so an image-only turn is not dropped.
+func unsupportedImageNote(blob *genai.Blob) string {
+	name := blob.DisplayName
+	if name == "" {
+		name = "image"
+	}
+	return fmt.Sprintf("[Image %q is not supported by this model.]", name)
+}
+
 // extractFunctionResponseContent converts a tool/function response value to a plain string:
 //   - string: returned as-is
 //   - map with "content" []any: all text items joined by newline (e.g. MCP tool responses)

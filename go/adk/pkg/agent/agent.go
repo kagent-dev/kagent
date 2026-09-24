@@ -9,6 +9,7 @@ import (
 
 	"log/slog"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
@@ -111,6 +112,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
+	llmModel = fileextract.WithFileText(llmModel)
 
 	if agentName == "" {
 		agentName = "agent"

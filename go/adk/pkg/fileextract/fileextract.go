@@ -1,5 +1,5 @@
-// Package fileextract turns uploaded file blobs into text the model can read,
-// mirroring the Python ADK: rich documents via tabula, text-like files as-is.
+// Package fileextract turns uploaded file blobs into text the model can read:
+// rich documents via tabula, text-like files as-is.
 package fileextract
 
 import (
@@ -13,7 +13,6 @@ import (
 )
 
 // docMIMEToExt maps rich document MIME types to tabula's format extension.
-// Kept in sync with the Python runtime's _file_extract.py.
 var docMIMEToExt = map[string]string{
 	"application/pdf": ".pdf",
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   ".docx",
@@ -127,7 +126,7 @@ func extractDocText(data []byte, ext string) (string, error) {
 	return text, nil
 }
 
-// maxTextChars caps extracted text so one upload cannot flood the context window.
+// maxTextChars caps the text taken from one file.
 const maxTextChars = 200_000
 
 // extract is a seam so tests can make a parser panic.

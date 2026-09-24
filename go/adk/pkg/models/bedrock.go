@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/model"
@@ -699,10 +698,8 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				continue
 			}
 
-			if part.InlineData != nil && !strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				if text := fileextract.InlineFileToText(part.InlineData); text != "" {
-					contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: text})
-				}
+			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: unsupportedImageNote(part.InlineData)})
 				continue
 			}
 
