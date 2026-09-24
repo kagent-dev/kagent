@@ -1,0 +1,14 @@
+version: v2
+# Browser clients only use public APIs; runtime persistence is private.
+inputs:
+  - directory: .
+    exclude_paths:
+      - a2a.proto
+      - ateapi.proto
+      - kagent/api/v1alpha1/task_store.proto
+plugins:
+  - remote: buf.build/bufbuild/es:v2.13.0
+    out: ../ui/src/generated
+    opt:
+      - target=ts
+    include_imports: true

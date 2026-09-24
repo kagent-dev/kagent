@@ -17,11 +17,6 @@ plugins:
     opt:
       - paths=source_relative
       - Ma2a.proto=github.com/a2aproject/a2a-go/v2/a2apb/v1
-  - remote: buf.build/bufbuild/es:v2.13.0
-    out: ../ui/src/generated
-    opt:
-      - target=ts
-    include_imports: true
   - remote: buf.build/protocolbuffers/python:v33.5
     out: ../python/packages/kagent-proto/src
     types:

@@ -110,19 +110,20 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("request"), task)
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task,
+	require.NoError(t, saveRuntimeTask(t, client, instance.GetId(), task, task,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
 		Id: uuid.NewString(), AgentInstanceId: instance.GetId(),
 	}, "alice", "checkpoint")
 	require.NoError(t, err)
-	require.NoError(t, client.DeleteAgentInstance(ctx, instance.GetId()))
+	require.ErrorIs(t, deleteInstance(ctx, client, instance.GetId()), ErrConflict)
 
 	// A checkpoint retains the runtime throughout creation, use, and deletion,
 	// even after the source instance and active template pair are gone.
 	assertRetained()
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
+	require.NoError(t, deleteInstance(ctx, client, instance.GetId()))
 	assertRetained()
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
 	require.NoError(t, err)
@@ -301,7 +302,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
 	require.NoError(t, err)
 	require.Equal(t, "revision", instance.GetPreparedRevision())
-	require.NoError(t, client.DeleteAgentInstance(ctx, instance.GetId()))
+	require.NoError(t, deleteInstance(ctx, client, instance.GetId()))
 	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)

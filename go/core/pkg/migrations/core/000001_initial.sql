@@ -67,8 +67,6 @@ CREATE INDEX agent_template_harness_pair_name_idx
 
 CREATE TABLE a2a_context (
     id         UUID        PRIMARY KEY,
-    user_id    TEXT        NOT NULL CHECK (user_id <> ''),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     context_id UUID        NOT NULL,
     CONSTRAINT a2a_context_binding_key UNIQUE (id, context_id)
 );
@@ -153,7 +151,6 @@ CREATE TABLE agent_instance_task (
     status_timestamp       TIMESTAMPTZ,
     data                   BYTEA       NOT NULL,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     snapshot_atespace      TEXT,
     snapshot_uri           TEXT,
     snapshot_content_scope TEXT,
@@ -177,7 +174,7 @@ CREATE UNIQUE INDEX agent_instance_task_list_idx
 CREATE TABLE agent_instance_task_event (
     sequence   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     history_id UUID        CONSTRAINT agent_instance_task_event_instance_id_not_null NOT NULL REFERENCES a2a_context(id) ON DELETE CASCADE,
-    task_id    TEXT,
+    task_id    TEXT        NOT NULL,
     data       BYTEA       NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     message_id TEXT,
@@ -199,7 +196,7 @@ CREATE TABLE agent_instance_task_event (
             AND mutation_hash IS NOT NULL AND octet_length(mutation_hash) = 32)),
     CHECK ((snapshot_atespace IS NULL AND snapshot_uri IS NULL AND snapshot_content_scope IS NULL)
         OR (snapshot_atespace IS NOT NULL AND snapshot_uri IS NOT NULL AND snapshot_content_scope IS NOT NULL)),
-    CHECK (task_position IS NULL OR (task_position > 0 AND task_id IS NOT NULL AND message_id IS NULL))
+    CHECK (task_position IS NULL OR (task_position > 0 AND message_id IS NULL))
 );
 CREATE UNIQUE INDEX agent_instance_task_event_creation_idx
     ON agent_instance_task_event (history_id, task_id) WHERE task_position IS NOT NULL;

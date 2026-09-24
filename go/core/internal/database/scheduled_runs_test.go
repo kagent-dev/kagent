@@ -367,7 +367,7 @@ func TestScheduledExecutionSurvivesInstanceDeletion(t *testing.T) {
 	instance, err := c.GetAgentInstance(t.Context(), linked.AgentInstanceId, "alice")
 	require.NoError(t, err)
 	require.Equal(t, "scheduled-revision", instance.PreparedRevision)
-	require.NoError(t, c.DeleteAgentInstance(t.Context(), instance.Id))
+	require.NoError(t, deleteInstance(t.Context(), c, instance.Id))
 	// Instance deletion follows the ordinary hard-delete path.
 	_, err = c.GetAgentInstance(t.Context(), instance.Id, "alice")
 	require.ErrorIs(t, err, ErrNotFound)

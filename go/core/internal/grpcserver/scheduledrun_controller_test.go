@@ -15,6 +15,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
@@ -62,13 +63,8 @@ func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, leas
 }
 
 func (w *scheduledControllerWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	next := proto.CloneOf(instance)
-	next.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
-	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
-	next.A2AAuthority = substrate.ActorHost("team", substrate.ActorName(instance.GetId()), "")
-	return w.store.TransitionAgentInstance(ctx, next,
-		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
-		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
+	authority := substrate.ActorHost("team", substrate.ActorName(instance.GetId()), "")
+	return w.finish(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE, authority)
 }
 
 func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
@@ -80,7 +76,7 @@ func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, instance *api
 }
 
 func (w *scheduledControllerWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, w.store.DeleteAgentInstance(ctx, instance.Id)
+	return w.finish(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE, "")
 }
 
 func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
@@ -434,4 +430,27 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			require.Equal(t, "immutable scheduled prompt", runtime.prompt)
 		})
 	}
+}
+
+func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1alpha1.AgentInstanceOperation, authority string) (*apiv1alpha1.AgentInstance, error) {
+	operation, err := w.store.BeginAgentInstanceOperation(ctx, id, kind)
+	if err != nil {
+		return nil, err
+	}
+	if operation.Instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		return operation.Instance, nil
+	}
+	executor := uuid.New()
+	claimed, err := w.store.ClaimAgentInstanceOperation(ctx, id, operation.ID, executor)
+	if err != nil {
+		return nil, err
+	}
+	if !claimed {
+		return nil, database.ErrConflict
+	}
+	actorUID := ""
+	if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
+		actorUID = "actor-" + id
+	}
+	return w.store.FinishAgentInstanceOperation(ctx, id, operation.ID, executor, authority, actorUID, "")
 }

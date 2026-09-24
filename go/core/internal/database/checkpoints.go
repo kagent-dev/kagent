@@ -94,7 +94,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		}
 		// The fork owns the retained Tag, not the source's replaceable snapshot.
 		boundaryEvent := &events[len(events)-1]
-		if boundaryEvent.TaskID == nil || *boundaryEvent.TaskID != checkpoint.HeadTaskID || boundaryEvent.SnapshotURI == nil {
+		if boundaryEvent.TaskID != checkpoint.HeadTaskID || boundaryEvent.SnapshotURI == nil {
 			return fmt.Errorf("checkpoint runtime boundary is inconsistent")
 		}
 		boundaryEvent.SnapshotAtespace = &checkpoint.SnapshotAtespace
@@ -210,10 +210,10 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		}
 		boundary, err := queryOne(ctx, tx, `
 			SELECT latest.history_id, latest.id, latest.state, latest.status_timestamp, latest.data, latest.created_at,
-			    latest.updated_at, latest.snapshot_atespace,
+			    latest.snapshot_atespace,
 			    latest.snapshot_uri, latest.snapshot_content_scope, latest.history_sequence, latest.position
 			FROM (
-			    SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
+			    SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
 			    WHERE agent_instance_task.history_id = $1
 			    ORDER BY history_sequence DESC NULLS LAST
 			    LIMIT 1
@@ -600,12 +600,12 @@ func readCheckpointEvents(ctx context.Context, db dbExecutor, checkpointID uuid.
 func insertReplayedTask(ctx context.Context, db dbExecutor, task agentInstanceTaskRow) error {
 	return execSQL(ctx, db, `
 		INSERT INTO agent_instance_task (
-		    history_id, id, state, status_timestamp, data, created_at, updated_at,
+		    history_id, id, state, status_timestamp, data, created_at,
 		    snapshot_atespace, snapshot_uri,
 		    snapshot_content_scope, history_sequence, position
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`,
-		task.HistoryID, task.ID, task.State, task.StatusTimestamp, task.Data, task.CreatedAt, task.UpdatedAt,
+		task.HistoryID, task.ID, task.State, task.StatusTimestamp, task.Data, task.CreatedAt,
 		task.SnapshotAtespace, task.SnapshotURI,
 		task.SnapshotContentScope, task.HistorySequence, task.Position,
 	)

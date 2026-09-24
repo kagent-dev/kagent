@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -112,11 +113,11 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 			// projection until cleanup and its matching snapshot are published.
 			initial := *task
 			initial.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted}
-			if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &initial, &initial, nil, false); err != nil {
+			if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &initial, &initial, false); err != nil {
 				return err
 			}
 		}
-		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, task, event, nil, boundary); err != nil {
+		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, task, event, boundary); err != nil {
 			return err
 		}
 		version, err = taskVersion(ctx, tx, instance.HistoryID, string(task.ID))
@@ -211,11 +212,11 @@ func taskVersion(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID
 	`, pgx.RowTo[int64], historyID, taskID)
 }
 
-// storeAgentInstanceTaskEvent persists a task transition, its messages, and optional
-// snapshot in the caller's transaction. The caller must hold the instance row lock;
+// storeAgentInstanceTaskEvent persists a task transition and its messages in the
+// caller's transaction. The caller must hold the instance row lock;
 // checkpoint creation blocks the write. The caller checks the storage version
 // before invoking this shared persistence operation.
-func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot, deferPublication bool) error {
+func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, deferPublication bool) error {
 	if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
 		return ErrNotFound
 	}
@@ -232,11 +233,10 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 	if creating {
 		return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instance.ID, ErrConflict)
 	}
-	var sequence int64
 	var stored *a2apb.Task
 	var taskRow agentInstanceTaskRow
 	if row, err := queryOne(ctx, tx, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
 		    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
 		taskRow = row
@@ -258,8 +258,7 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 			}
 		}
 		if len(messages) > 0 {
-			sequence, err = storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages)
-			if err != nil {
+			if err := storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages); err != nil {
 				return fmt.Errorf("archive AgentInstance task history: %w", err)
 			}
 		}
@@ -290,9 +289,9 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 		if err != nil {
 			return err
 		}
-		sequence, err = insertTaskEvent(ctx, tx, taskEventWrite{
+		_, err = insertTaskEvent(ctx, tx, taskEventWrite{
 			HistoryID:    historyID,
-			TaskID:       &taskRow.ID,
+			TaskID:       taskRow.ID,
 			Data:         data,
 			TaskPosition: &taskRow.Position,
 			CreatedAt:    &taskRow.CreatedAt,
@@ -304,44 +303,23 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 
 	messages := agentInstanceTaskEventMessages(task, event)
 	if len(messages) > 0 {
-		var err error
-		sequence, err = storeAgentInstanceTaskMessages(ctx, tx, historyID, string(event.TaskInfo().TaskID), instance.ContextID.String(), messages)
-		if err != nil {
+		if err := storeAgentInstanceTaskMessages(ctx, tx, historyID, string(event.TaskInfo().TaskID), instance.ContextID.String(), messages); err != nil {
 			return fmt.Errorf("store AgentInstance task history: %w", err)
 		}
 	}
-	if !newTask || snapshot != nil {
+	if !newTask {
 		eventData, err := proto.Marshal(durable)
 		if err != nil {
 			return err
 		}
-		insert := taskEventWrite{
-			HistoryID: historyID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
-		}
-		if snapshot != nil {
-			insert.SnapshotAtespace, insert.SnapshotURI, insert.SnapshotContentScope = &snapshot.Atespace, &snapshot.URI, &snapshot.ContentScope
-		}
-		sequence, err = insertTaskEvent(ctx, tx, insert)
+		_, err = insertTaskEvent(ctx, tx, taskEventWrite{
+			HistoryID: historyID, TaskID: string(task.ID), Data: eventData,
+		})
 		if err != nil {
 			return fmt.Errorf("store AgentInstance task event: %w", err)
 		}
 	}
 
-	if snapshot != nil {
-		if sequence == 0 {
-			return fmt.Errorf("snapshot has no history boundary")
-		}
-		if err := execSQL(ctx, tx, `
-			UPDATE agent_instance_task SET
-			    snapshot_atespace = $3,
-			    snapshot_uri = $4,
-			    snapshot_content_scope = $5,
-			    history_sequence = $6
-			WHERE history_id = $1 AND id = $2
-		`, historyID, string(task.ID), &snapshot.Atespace, &snapshot.URI, &snapshot.ContentScope, &sequence); err != nil {
-			return fmt.Errorf("store AgentInstance task snapshot: %w", err)
-		}
-	}
 	return nil
 }
 
@@ -368,10 +346,11 @@ func (c *Client) getPublicTask(ctx context.Context, instanceID, taskID string, h
 		type publicTask struct {
 			HistoryID uuid.UUID
 			Data      []byte
+			CreatedAt time.Time
 			Pending   bool
 		}
 		row, err := queryOne(ctx, tx, `
-			SELECT t.history_id, t.data,
+			SELECT t.history_id, t.data, t.created_at,
 			    ($3::boolean AND EXISTS (SELECT 1 FROM agent_instance_task_event e
 			      WHERE e.history_id = t.history_id AND e.task_id = t.id AND NOT e.published)) AS pending
 			FROM agent_instance_task t JOIN agent_instance i ON i.history_id = t.history_id
@@ -387,6 +366,7 @@ func (c *Client) getPublicTask(ctx context.Context, instanceID, taskID string, h
 		if err != nil {
 			return err
 		}
+		apia2a.SetTaskCreatedAt(task, row.CreatedAt)
 		return loadAgentInstanceTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, historyLength, false)
 	})
 	if err != nil {
@@ -417,7 +397,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
 	}
 	rows, err := queryMany(ctx, c.db, `
-		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
+		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at,
 		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
 		    t.history_sequence, t.position FROM agent_instance_task t
 		WHERE t.history_id = $1
@@ -443,6 +423,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		if err != nil {
 			return nil, 0, fmt.Errorf("decode AgentInstance task %s: %w", row.ID, err)
 		}
+		apia2a.SetTaskCreatedAt(task, row.CreatedAt)
 		tasks = append(tasks, task)
 	}
 	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks, historyLength, false); err != nil {
@@ -482,18 +463,17 @@ func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Mess
 	return nil
 }
 
-// storeAgentInstanceTaskMessages converts and archives messages with valid IDs, returning
-// the last message's event sequence or zero for an empty list. The caller supplies a
+// storeAgentInstanceTaskMessages converts and archives messages with valid IDs. The caller supplies a
 // transaction when these writes must commit atomically with task state.
-func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2a.Message) (int64, error) {
+func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2a.Message) error {
 	converted := make([]*a2apb.Message, 0, len(messages))
 	for _, message := range messages {
 		if message == nil || message.ID == "" {
-			return 0, fmt.Errorf("AgentInstance task history contains a message without an ID")
+			return fmt.Errorf("AgentInstance task history contains a message without an ID")
 		}
 		event, err := pbconv.ToProtoStreamResponse(message)
 		if err != nil {
-			return 0, err
+			return err
 		}
 		converted = append(converted, event.GetMessage())
 	}
@@ -502,34 +482,33 @@ func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyI
 
 // storeProtoTaskMessages archives messages without changing the inputs or dropping unknown
 // protobuf fields. It fills missing task/context IDs and rejects conflicting identities.
-// Duplicate message IDs retain their original event sequence; an empty list returns zero.
+// Duplicate message IDs retain their original event sequence.
 // Callers own the transaction.
-func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2apb.Message) (int64, error) {
-	var sequence int64
+func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2apb.Message) error {
 	for _, message := range messages {
 		if message.GetMessageId() == "" {
-			return 0, fmt.Errorf("AgentInstance task history contains a message without an ID")
+			return fmt.Errorf("AgentInstance task history contains a message without an ID")
 		}
 		message = proto.Clone(message).(*a2apb.Message)
 		if (message.TaskId != "" && message.TaskId != taskID) || (message.ContextId != "" && message.ContextId != contextID) {
-			return 0, fmt.Errorf("history message changes task identity")
+			return fmt.Errorf("history message changes task identity")
 		}
 		message.TaskId, message.ContextId = taskID, contextID
 		data, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Message{Message: message}})
 		if err != nil {
-			return 0, err
+			return err
 		}
-		sequence, err = insertTaskEvent(ctx, db, taskEventWrite{
+		_, err = insertTaskEvent(ctx, db, taskEventWrite{
 			HistoryID: historyID,
-			TaskID:    &taskID,
+			TaskID:    taskID,
 			MessageID: &message.MessageId,
 			Data:      data,
 		})
 		if err != nil {
-			return 0, err
+			return err
 		}
 	}
-	return sequence, nil
+	return nil
 }
 
 // loadAgentInstanceTaskHistories attaches archived messages to the supplied tasks in event
@@ -607,7 +586,6 @@ type agentInstanceTaskRow struct {
 	StatusTimestamp      *time.Time
 	Data                 []byte
 	CreatedAt            time.Time
-	UpdatedAt            time.Time
 	SnapshotAtespace     *string
 	SnapshotURI          *string
 	SnapshotContentScope *string
@@ -618,7 +596,7 @@ type agentInstanceTaskRow struct {
 type agentInstanceTaskEventRow struct {
 	Sequence             int64
 	HistoryID            uuid.UUID
-	TaskID               *string
+	TaskID               string
 	Data                 []byte
 	CreatedAt            time.Time
 	MessageID            *string
@@ -630,7 +608,7 @@ type agentInstanceTaskEventRow struct {
 
 type taskEventWrite struct {
 	HistoryID            uuid.UUID
-	TaskID               *string
+	TaskID               string
 	MessageID            *string
 	Data                 []byte
 	SnapshotAtespace     *string
@@ -665,7 +643,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 		SELECT sequence FROM inserted
 		UNION ALL
 		SELECT sequence FROM agent_instance_task_event
-		WHERE history_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
+		WHERE history_id = $1 AND task_id = $2 AND message_id = $3
 		LIMIT 1
 	`,
 		pgx.RowTo[int64], event.HistoryID, event.TaskID, event.MessageID, event.Data, event.SnapshotAtespace,
@@ -678,7 +656,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 // history. Missing tasks return pgx.ErrNoRows; callers authorize access.
 func readAgentInstanceTask(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (agentInstanceTaskRow, error) {
 	return queryOne(ctx, db, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
 		    agent_instance_task
 		WHERE history_id = $1 AND id = $2
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID)
@@ -694,9 +672,8 @@ func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID,
 		ON CONFLICT (history_id, id) DO UPDATE SET
 		    state = EXCLUDED.state,
 		    status_timestamp = EXCLUDED.status_timestamp,
-		    data = EXCLUDED.data,
-		    updated_at = NOW()
-		RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+		    data = EXCLUDED.data
+		RETURNING history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID, state, statusTimestamp, data)
 }
 

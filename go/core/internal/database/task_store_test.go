@@ -10,6 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTaskEventsRequireTaskIdentity(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	_, task := waitingTaskFixture(t, client)
+	_, err := client.db.Exec(t.Context(), "UPDATE agent_instance_task_event SET task_id = NULL WHERE task_id = $1", string(task.ID))
+	require.ErrorContains(t, err, "violates not-null constraint")
+}
+
 func TestRuntimeTaskSaveRetriesAndVersions(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
@@ -173,7 +181,7 @@ func TestRuntimeBoundaryWaitsForCleanupAndSnapshot(t *testing.T) {
 	require.Equal(t, a2a.TaskStateWorking, public.Status.State)
 	_, err = client.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
 	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorIs(t, client.DeleteAgentInstance(t.Context(), instance.Id), ErrFailedPrecondition)
+	require.ErrorIs(t, deleteInstance(t.Context(), client, instance.Id), ErrFailedPrecondition)
 	_, err = client.ClaimTaskFinalization(t.Context())
 	require.ErrorIs(t, err, ErrNotFound) // The native cleanup callback has not finished.
 	require.NoError(t, client.SettleAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), version))

@@ -55,7 +55,11 @@ func (c *Client) ClaimTaskFinalization(ctx context.Context) (*TaskFinalization, 
 		if err != nil {
 			return err
 		}
-		task, err := applyStoredBoundary(stored.Data, row.Data)
+		wire, err := applyStoredBoundary(stored.Data, row.Data)
+		if err != nil {
+			return err
+		}
+		task, err := pbconv.FromProtoTask(wire)
 		if err != nil {
 			return err
 		}
@@ -109,17 +113,18 @@ func (c *Client) PublishTaskBoundary(ctx context.Context, work *TaskFinalization
 		if err != nil {
 			return err
 		}
-		task, err := applyStoredBoundary(stored.Data, row.Data)
+		wire, err := applyStoredBoundary(stored.Data, row.Data)
+		if err != nil {
+			return err
+		}
+		task, err := pbconv.FromProtoTask(wire)
 		if err != nil {
 			return err
 		}
 		if task.Status.State != work.State {
 			return ErrConflict
 		}
-		wire, err := pbconv.ToProtoTask(task)
-		if err != nil {
-			return err
-		}
+		// Preserve unknown protobuf fields when publishing a newer runtime's task.
 		data, err := proto.Marshal(wire)
 		if err != nil {
 			return err
@@ -149,7 +154,7 @@ func (c *Client) PublishTaskBoundary(ctx context.Context, work *TaskFinalization
 	})
 }
 
-func applyStoredBoundary(data, eventData []byte) (*a2a.Task, error) {
+func applyStoredBoundary(data, eventData []byte) (*a2apb.Task, error) {
 	task, event := &a2apb.Task{}, &a2apb.StreamResponse{}
 	if err := proto.Unmarshal(data, task); err != nil {
 		return nil, err
@@ -157,11 +162,7 @@ func applyStoredBoundary(data, eventData []byte) (*a2a.Task, error) {
 	if err := proto.Unmarshal(eventData, event); err != nil {
 		return nil, err
 	}
-	task, err := applyTaskEvent(task, event)
-	if err != nil {
-		return nil, err
-	}
-	return pbconv.FromProtoTask(task)
+	return applyTaskEvent(task, event)
 }
 
 // SettleAgentInstanceTask confirms native cleanup for one immutable saved

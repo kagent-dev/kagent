@@ -262,124 +262,6 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 	return result, nil
 }
 
-// TransitionAgentInstance changes lifecycle fields only if the stored state and operation
-// match the expected values. A mismatch, or a creating checkpoint when starting a new
-// operation, returns ErrConflict. An admitted lifecycle operation must instead finish
-// through FinishAgentInstanceOperation. Starting explicit Suspend requires no active task.
-// It preserves other instance fields; callers choose a valid transition and authorize it.
-func (c *Client) TransitionAgentInstance(
-	ctx context.Context,
-	instance *apiv1alpha1.AgentInstance,
-	expectedState apiv1alpha1.AgentInstanceState,
-	expectedOperation apiv1alpha1.AgentInstanceOperation,
-) (*apiv1alpha1.AgentInstance, error) {
-	var result *apiv1alpha1.AgentInstance
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockAgentInstance(ctx, tx, instance.GetId())
-		if err != nil {
-			return notFoundOr(err)
-		}
-		result, err = toAgentInstance(row)
-		if err != nil {
-			return err
-		}
-		if result.State == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-			return ErrNotFound
-		}
-		if result.State != expectedState || result.Operation != expectedOperation {
-			return fmt.Errorf("AgentInstance lifecycle state or operation changed: %w", ErrConflict)
-		}
-		if row.OperationID != nil && row.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED.String() {
-			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)
-		}
-		if err := requirePublishedTasks(ctx, tx, row.HistoryID); err != nil {
-			return err
-		}
-		// Only lifecycle fields belong to this operation. Keep concurrent renames,
-		// immutable indexed fields and unknown protobuf fields from the locked row.
-		next := proto.Clone(result).(*apiv1alpha1.AgentInstance)
-		next.State, next.Operation = instance.State, instance.Operation
-		next.A2AAuthority = instance.A2AAuthority
-		next.Failure = instance.Failure
-		next.UpdatedAt = timestamppb.Now()
-		data, err := marshalAgentInstance(next)
-		if err != nil {
-			return err
-		}
-		tag, err := tx.Exec(ctx, `
-			UPDATE agent_instance
-			SET state = $1, operation = $2, data = $3, operation_id = NULL, executor_id = NULL
-			WHERE agent_instance.id = $4
-			  AND agent_instance.state = $5
-			  AND agent_instance.operation = $6
-			  AND (
-			    $6::text <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
-			    OR NOT EXISTS (
-			      SELECT 1 FROM agent_instance_checkpoint c
-			      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
-			    )
-			  )
-			  AND (
-			    $2::text <> 'AGENT_INSTANCE_OPERATION_SUSPEND'
-			    OR $6::text <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
-			    OR NOT EXISTS (
-			      SELECT 1 FROM agent_instance_task t
-			      WHERE t.history_id = agent_instance.history_id
-			        AND t.state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED',
-			            'TASK_STATE_FAILED', 'TASK_STATE_REJECTED',
-			            'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
-			    )
-			  )
-		`,
-			next.State.String(),
-			next.Operation.String(), data, row.ID, expectedState.String(),
-			expectedOperation.String(),
-		)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
-			return fmt.Errorf("AgentInstance %s has an active task or checkpoint being created: %w", instance.GetId(), ErrConflict)
-		}
-		result = next
-		return nil
-	})
-	if err != nil {
-		return result, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)
-	}
-	return result, nil
-}
-
-// DeleteAgentInstance tombstones an instance and revokes its shares while retaining conversation
-// history and checkpoints. A missing instance is a no-op. Callers authorize deletion and
-// perform runtime cleanup separately. An admitted lifecycle operation returns
-// ErrConflict; its owner must finish through FinishAgentInstanceOperation.
-func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockAgentInstance(ctx, tx, id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("lock AgentInstance for deletion: %w", err)
-		}
-		if row.State == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED.String() {
-			return nil
-		}
-		if err := requirePublishedTasks(ctx, tx, row.HistoryID); err != nil {
-			return err
-		}
-		if row.OperationID != nil && row.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED.String() {
-			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)
-		}
-		instance, err := toAgentInstance(row)
-		if err != nil {
-			return err
-		}
-		return tombstoneAgentInstance(ctx, tx, instance, nil)
-	})
-}
-
 type agentInstanceRow struct {
 	ID                 uuid.UUID
 	UserID             string
@@ -433,8 +315,8 @@ func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *ap
 		return agentInstanceRow{}, err
 	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3)
-	`, historyID, instance.Creator, instance.ContextId); err != nil {
+		INSERT INTO a2a_context (id, context_id) VALUES ($1, $2)
+	`, historyID, instance.ContextId); err != nil {
 		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
 	}
 	return queryOne(ctx, db, `

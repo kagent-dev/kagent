@@ -56,7 +56,6 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 			}
 			require.Equal(t, stored.Position, rebuilt.Position)
 			require.Equal(t, stored.CreatedAt, rebuilt.CreatedAt)
-			require.Equal(t, stored.UpdatedAt, rebuilt.UpdatedAt)
 			require.Equal(t, stored.SnapshotURI, rebuilt.SnapshotURI)
 			require.Equal(t, stored.SnapshotAtespace, rebuilt.SnapshotAtespace)
 			require.Equal(t, stored.SnapshotContentScope, rebuilt.SnapshotContentScope)
@@ -72,12 +71,12 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	} {
 		task, err = a2aevent.ApplyUpdate(task, event)
 		require.NoError(t, err)
-		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, event, nil))
+		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, event, nil))
 		assertReplay()
 	}
 	question := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart("Which database?"))
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question}
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
+	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, nil))
 	assertReplay()
 	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "hitl-checkpoint")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
@@ -94,7 +93,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		if state == a2a.TaskStateCompleted {
 			snapshot = &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "completed", ContentScope: "DATA"}
 		}
-		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, message, snapshot))
+		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, message, snapshot))
 		assertReplay()
 	}
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "checkpoint")
@@ -106,9 +105,9 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task", nil)
 	require.NoError(t, err)
 
-	advanced := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart("Additional result"))
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, advanced,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "advanced", ContentScope: "DATA"}))
+	advanced := newAgentInstanceTask("later-task", "later-message")
+	advanced.ContextID = instance.ContextId
+	require.NoError(t, saveRuntimeTask(t, client, instance.Id, advanced, advanced, nil))
 	assertReplay()
 	// A source task changing or even losing its view must not affect an old fork.
 	events, err := queryMany(ctx, q, `
@@ -137,13 +136,4 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	}
 	_, err = replayTaskEvents(boundaryEvents, uuid.NewString())
 	require.Error(t, err)
-	// Reclamation must record its failure transition, not just its message.
-	active := newAgentInstanceTask("interrupted", "next-message")
-	active.ContextID = instance.ContextId
-	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("next request"), active)
-	require.NoError(t, err)
-	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, string(active.ID))
-	require.NoError(t, err)
-	require.True(t, interrupted)
-	assertReplay()
 }

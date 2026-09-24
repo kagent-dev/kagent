@@ -3,11 +3,46 @@ package database
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, waiting := waitingTaskFixture(t, client)
+	first, err := client.GetAgentInstanceTask(ctx, instance.Id, string(waiting.ID), nil)
+	require.NoError(t, err)
+	created, ok := apia2a.TaskCreatedAt(first)
+	require.True(t, ok)
+	require.False(t, created.IsZero())
+
+	// Runtime metadata and subsequent status timestamps cannot replace the
+	// creation timestamp supplied by the store to public Get/List callers.
+	task, version, err := client.GetVersionedAgentInstanceTask(ctx, instance.Id, string(waiting.ID))
+	require.NoError(t, err)
+	later := created.Add(time.Hour)
+	task.Status.Timestamp = &later
+	apia2a.SetTaskCreatedAt(task, later)
+	_, err = client.UpdateAgentInstanceTask(ctx, instance.Id, version, taskMutationHash("later status"), task, task)
+	require.NoError(t, err)
+	got, err := client.GetAgentInstanceTask(ctx, instance.Id, string(waiting.ID), nil)
+	require.NoError(t, err)
+	listed, _, err := client.ListAgentInstanceTasks(ctx, instance.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	for _, task := range []*a2a.Task{got, listed[0]} {
+		stamp, ok := apia2a.TaskCreatedAt(task)
+		require.True(t, ok)
+		require.Equal(t, created, stamp)
+		require.True(t, later.Equal(*task.Status.Timestamp))
+	}
+}
 
 func TestTaskHistoryLimitsAndInstanceScope(t *testing.T) {
 	client := NewClient(setupTestDB(t))
@@ -16,6 +51,9 @@ func TestTaskHistoryLimitsAndInstanceScope(t *testing.T) {
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
 	other, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	require.NoError(t, err)
+
+	_, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime.example")
 	require.NoError(t, err)
 
 	for _, id := range []string{"first", "second"} {
@@ -27,7 +65,7 @@ func TestTaskHistoryLimitsAndInstanceScope(t *testing.T) {
 			message.ID = id + suffix
 			task.History = append(task.History, message)
 		}
-		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
+		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
 	}
 	for _, test := range []struct {
 		name  string

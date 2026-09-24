@@ -134,6 +134,7 @@ print-tools-versions: ## Print tools versions
 .PHONY: proto-generate
 proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
 	cd proto && $(BUF) generate
+	cd proto && $(BUF) generate --template buf.gen.typescript.yaml
 	cd proto && $(BUF) generate --template buf.gen.python-validation.yaml
 
 .PHONY: proto-lint
