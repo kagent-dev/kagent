@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
 import { describe, expect, it, vi } from "vitest";
 import { themeFor } from "@/theme/theme";
@@ -41,6 +41,9 @@ describe("MermaidDiagram", () => {
 
     expect(fallbackCode()).toBe(SOURCE);
     expect(screen.queryByTestId("chat-mermaid")).toBeNull();
+    // Said to be pending: the browser suite waits on this before pressing anything the
+    // taller diagram would move.
+    expect(screen.getByTestId("chat-mermaid-pending")).toBeTruthy();
   });
 
   it("renders the SVG mermaid produces", async () => {
@@ -53,12 +56,16 @@ describe("MermaidDiagram", () => {
     const diagram = await screen.findByTestId("chat-mermaid");
     expect(diagram.querySelector("svg")).toBeTruthy();
     expect(diagram.textContent).toContain("Container starts");
+    expect(screen.queryByTestId("chat-mermaid-pending")).toBeNull();
   });
 
   it("falls back to the raw source when mermaid cannot render the diagram", async () => {
     renderMermaid.mockRejectedValue(new Error("parse error"));
     renderDiagram(SOURCE);
 
+    // Settled rather than pending: the loading frame shows the same source, so
+    // without this the assertions below would pass before the render had failed.
+    await waitFor(() => expect(screen.queryByTestId("chat-mermaid-pending")).toBeNull());
     // The fallback is the source in a code frame, not a broken diagram.
     expect(await screen.findByText(/flowchart TD/)).toBeTruthy();
     expect(fallbackCode()).toBe(SOURCE);

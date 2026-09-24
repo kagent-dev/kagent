@@ -79,6 +79,28 @@ export async function expectTurnFinished(page: Page, turn: SentTurn): Promise<vo
   ).toHaveCount(0);
 }
 
+/**
+ * Waits for the transcript to have drawn what it loaded, before anything in it is
+ * pressed.
+ *
+ * The seeded conversation's reply carries a mermaid diagram, which renders after the
+ * page does — its import alone takes seconds on the dev server — and replaces its
+ * source listing with a taller SVG. Everything below it moves down until the
+ * transcript re-pins to its foot on the next frame, and a press that straddles that
+ * moment lands its button-down on the control and its button-up beside it: the
+ * control takes the focus and does nothing. A failed turn's Retry went unpressed on a
+ * loaded Firefox run that way. The composer sits outside the transcript and is not
+ * moved, so sending needs no wait.
+ */
+export async function expectTranscriptSettled(page: Page): Promise<void> {
+  // The transcript replaces its loading skeleton in the commit that renders the history,
+  // pending diagrams included, so a count of none means drawn rather than not yet
+  // mounted. Only a message sent before the history arrived opens it sooner, which is
+  // why this is for a conversation whose history is already on screen.
+  await expect(page.getByTestId("chat-transcript")).toBeVisible();
+  await expect(page.getByTestId("chat-mermaid-pending")).toHaveCount(0);
+}
+
 /** Sends a message and waits out the turn it starts, asserting nothing in between. */
 export async function sendAndAwaitTurn(page: Page, text: string): Promise<void> {
   await expectTurnFinished(page, await sendMessage(page, text));

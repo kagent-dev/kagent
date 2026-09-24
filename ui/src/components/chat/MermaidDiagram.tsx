@@ -62,8 +62,12 @@ export function MermaidDiagram({ source }: { source: string }) {
 
   if (render.status === "loading") {
     // Still importing or rendering: show the source so the block is never a gap.
+    //
+    // Marked, because the diagram that replaces it is taller and moves everything
+    // below it: a caller that presses something further down the transcript waits
+    // for no block to be pending first.
     return (
-      <pre css={diagramFallbackStyles(theme)}>
+      <pre data-testid="chat-mermaid-pending" css={diagramFallbackStyles(theme)}>
         <code>{source}</code>
       </pre>
     );

@@ -1,7 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import { agentChat, instances } from "../../helpers/app";
 import { pressOnce } from "../../helpers/resource";
-import { sendAndAwaitTurn } from "../../helpers/chat";
+import { expectTranscriptSettled, sendAndAwaitTurn } from "../../helpers/chat";
 
 /** The menu that is actually on screen: antd leaves a closed dropdown mounted. */
 const openMenu = (page: import("@playwright/test").Page) =>
@@ -18,6 +18,8 @@ async function openSnapshot(
   page: import("@playwright/test").Page,
   divider: import("@playwright/test").Locator,
 ) {
+  // The mark sits under the seeded diagram, the first thing it moves when it lands.
+  await expectTranscriptSettled(page);
   await divider.locator('[data-testid^="chat-checkpoint-open-"]').click();
   await expect(page.getByTestId("snapshot-details-body")).toBeVisible();
 }
@@ -73,6 +75,8 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
 }) => {
   await page.goto(agentChat(instances.ready));
   await expect(dividers(page)).toHaveCount(1, { timeout: 30_000 });
+  // Its controls are pressed below, and the seeded diagram above them lands late.
+  await expectTranscriptSettled(page);
 
   const line = dividers(page).first();
   const id = ((await line.getAttribute("data-testid")) ?? "").replace(
