@@ -185,7 +185,7 @@ func unsupportedImageNote(blob *genai.Blob) string {
 	if name == "" {
 		name = "image"
 	}
-	return fmt.Sprintf("[Image %q is not supported by this model.]", name)
+	return fmt.Sprintf("[Image %q was not sent: this provider integration cannot pass images.]", name)
 }
 
 // extractFunctionResponseContent converts a tool/function response value to a plain string:

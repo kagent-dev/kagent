@@ -1158,3 +1158,14 @@ func TestHandleStream_FinishReasonAtChoiceLevel(t *testing.T) {
 func jsonReader(b []byte) *strings.Reader {
 	return strings.NewReader(string(b))
 }
+
+func TestGenaiContentsToOrchTemplate_ImageOnlyUserTurnKeepsNote(t *testing.T) {
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", DisplayName: "cat.png"}}}}}
+	msgs, _ := genaiContentsToOrchTemplate(contents, nil)
+	if len(msgs) != 1 || msgs[0]["role"] != "user" {
+		t.Fatalf("messages = %+v, want one user message", msgs)
+	}
+	if text, _ := msgs[0]["content"].(string); !strings.Contains(text, `[Image "cat.png" was not sent`) {
+		t.Errorf("content = %#v, want the image note", msgs[0]["content"])
+	}
+}

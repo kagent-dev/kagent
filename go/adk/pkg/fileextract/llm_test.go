@@ -21,8 +21,8 @@ func (r *recordingLLM) GenerateContent(_ context.Context, req *model.LLMRequest,
 func TestWithFileText(t *testing.T) {
 	csv := &genai.Part{InlineData: &genai.Blob{Data: []byte("vendor,amount\nAcme,42"), MIMEType: "text/csv", DisplayName: "invoice.csv"}}
 	image := &genai.Part{InlineData: &genai.Blob{Data: []byte{0x89}, MIMEType: "image/png"}}
-	history := &genai.Content{Role: "model", Parts: []*genai.Part{{Text: "hi"}}}
-	user := &genai.Content{Role: "user", Parts: []*genai.Part{{Text: "explain"}, csv, image}}
+	history := &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "hi"}, csv}}
+	user := &genai.Content{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "explain"}, csv, image}}
 	req := &model.LLMRequest{Contents: []*genai.Content{history, user}}
 
 	inner := &recordingLLM{}
@@ -31,7 +31,7 @@ func TestWithFileText(t *testing.T) {
 
 	got := inner.got.Contents
 	if got[0] != history {
-		t.Error("unchanged content was copied")
+		t.Error("non-user content was converted or copied")
 	}
 	parts := got[1].Parts
 	if want := "Contents of uploaded file \"invoice.csv\":\n\nvendor,amount\nAcme,42"; parts[1].Text != want || parts[1].InlineData != nil {
@@ -52,5 +52,28 @@ func TestWithFileText_NoFilesPassesRequestThrough(t *testing.T) {
 	}
 	if inner.got != req {
 		t.Error("request without files was copied")
+	}
+}
+
+func TestWithFileText_NilRequest(t *testing.T) {
+	inner := &recordingLLM{got: &model.LLMRequest{}}
+	for range WithFileText(inner).GenerateContent(t.Context(), nil, false) {
+	}
+	if inner.got != nil {
+		t.Error("nil request was not passed through")
+	}
+}
+
+type googleRecordingLLM struct{ recordingLLM }
+
+func (googleRecordingLLM) GetGoogleLLMVariant() genai.Backend { return genai.BackendGeminiAPI }
+
+func TestWithFileText_KeepsGoogleLLMVariant(t *testing.T) {
+	g, ok := WithFileText(&googleRecordingLLM{}).(interface{ GetGoogleLLMVariant() genai.Backend })
+	if !ok {
+		t.Fatal("wrapper hides GetGoogleLLMVariant")
+	}
+	if got := g.GetGoogleLLMVariant(); got != genai.BackendGeminiAPI {
+		t.Errorf("variant = %v, want %v", got, genai.BackendGeminiAPI)
 	}
 }

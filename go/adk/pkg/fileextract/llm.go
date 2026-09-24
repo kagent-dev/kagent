@@ -13,21 +13,35 @@ import (
 // WithFileText wraps an LLM so every provider receives non-image file blobs as
 // extracted text; images pass through for the adapter to handle.
 func WithFileText(llm model.LLM) model.LLM {
+	if g, ok := llm.(googleLLM); ok {
+		return googleFileTextLLM{fileTextLLM{llm}, g}
+	}
 	return fileTextLLM{llm}
 }
 
+// googleLLM is the optional method ADK probes to pick Gemini API or Vertex AI behavior.
+type googleLLM interface{ GetGoogleLLMVariant() genai.Backend }
+
 type fileTextLLM struct{ model.LLM }
+
+type googleFileTextLLM struct {
+	fileTextLLM
+	googleLLM
+}
 
 func (m fileTextLLM) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return m.LLM.GenerateContent(ctx, filesToText(req), stream)
 }
 
-// filesToText returns req with file blobs replaced by text, copying only the
+// filesToText returns req with user file blobs replaced by text, copying only the
 // contents and parts it changes so the caller's session history is untouched.
 func filesToText(req *model.LLMRequest) *model.LLMRequest {
+	if req == nil {
+		return req
+	}
 	var contents []*genai.Content
 	for i, c := range req.Contents {
-		if c == nil {
+		if c == nil || c.Role != genai.RoleUser {
 			continue
 		}
 		var parts []*genai.Part
