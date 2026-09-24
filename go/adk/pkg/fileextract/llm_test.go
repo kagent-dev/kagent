@@ -46,12 +46,13 @@ func TestWithFileText(t *testing.T) {
 }
 
 func TestWithFileText_NoFilesPassesRequestThrough(t *testing.T) {
-	req := &model.LLMRequest{Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hi"}}}}}
+	dataPart := &genai.Part{InlineData: &genai.Blob{MIMEType: "text/plain", Data: []byte(`<a2a_datapart_json>{"a":1}</a2a_datapart_json>`)}}
+	req := &model.LLMRequest{Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hi"}, dataPart}}}}
 	inner := &recordingLLM{}
 	for range WithFileText(inner).GenerateContent(t.Context(), req, false) {
 	}
 	if inner.got != req {
-		t.Error("request without files was copied")
+		t.Error("request without files (a data part is not one) was copied")
 	}
 }
 
