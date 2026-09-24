@@ -40,10 +40,10 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
+    A2A_USAGE_METADATA_KEY,
     HITL_EXTENSION_HEADER,
     HITL_EXTENSION_URI,
     attach_hitl_extension,
-    read_metadata_value,
 )
 
 from ._hitl import build_remote_hitl_state, get_remote_hitl_state, remote_hitl_hint
@@ -100,10 +100,10 @@ def _extract_text_from_task(task: Task) -> str:
 
 
 def _extract_usage_from_task(task: Task) -> Optional[dict]:
-    """Extract kagent_usage_metadata from a completed task."""
+    """Extract usage metadata from a completed task."""
     if task.metadata:
         metadata = MessageToDict(task.metadata)
-        usage = read_metadata_value(metadata, "usage_metadata")
+        usage = metadata.get(A2A_USAGE_METADATA_KEY)
         if usage and isinstance(usage, dict):
             return usage
     return None
@@ -321,7 +321,7 @@ class KAgentRemoteA2ATool(BaseTool):
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
         if usage:
-            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": context_id}
+            return {"result": result_text, "usage": usage, "subagent_session_id": context_id}
         return {"result": result_text or "", "subagent_session_id": context_id}
 
     def _handle_input_required(
@@ -429,7 +429,7 @@ class KAgentRemoteA2ATool(BaseTool):
         if usage:
             return {
                 "result": result_text,
-                "kagent_usage_metadata": usage,
+                "usage": usage,
                 "subagent_session_id": remote_state.context_id or self._last_context_id,
             }
         # context_id from the confirmation payload is the original subagent session ID in case of interrupts

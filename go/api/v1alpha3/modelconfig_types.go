@@ -24,11 +24,12 @@ import (
 )
 
 const (
-	ModelConfigConditionTypeAccepted = "Accepted"
+	ModelConfigConditionTypeAccepted     = "Accepted"
+	ModelConfigConditionTypeResolvedRefs = "ResolvedRefs"
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry;Mistral
 type ModelProvider string
 
 const (
@@ -42,6 +43,7 @@ const (
 	ModelProviderBedrock           ModelProvider = "Bedrock"
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 	ModelProviderFoundry           ModelProvider = "Foundry"
+	ModelProviderMistral           ModelProvider = "Mistral"
 )
 
 type BaseVertexAIConfig struct {
@@ -94,6 +96,33 @@ type AnthropicVertexAIConfig struct {
 	// Maximum tokens to generate
 	// +optional
 	MaxTokens int `json:"maxTokens,omitempty"`
+}
+
+// MistralConfig contains Mistral-specific configuration options.
+// Mistral exposes an OpenAI-compatible wire protocol; the runtime posts to
+// {baseURL}/chat/completions with a Bearer token from MISTRAL_API_KEY.
+type MistralConfig struct {
+	// Base URL for the Mistral API (overrides default https://api.mistral.ai/v1)
+	// +optional
+	BaseURL *string `json:"baseUrl,omitempty"`
+
+	// Temperature for sampling
+	// +optional
+	Temperature *string `json:"temperature,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP *string `json:"topP,omitempty"`
+
+	// Maximum tokens to generate
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxTokens *int `json:"maxTokens,omitempty"`
+
+	// Timeout in seconds for the underlying HTTP client
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Timeout *int `json:"timeout,omitempty"`
 }
 
 // AnthropicConfig contains Anthropic-specific configuration options
@@ -215,7 +244,7 @@ type OpenAIConfig struct {
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
 
-// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the Go ADK runtime.
+// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the ADK runtime.
 // +kubebuilder:validation:Enum=chatCompletions;responses
 type OpenAIAPIFormat string
 
@@ -396,6 +425,14 @@ type SAPAICoreConfig struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
+// FoundryAPIFormat selects the Foundry API format for a Foundry ModelConfig.
+type FoundryAPIFormat string
+
+const (
+	FoundryAPIFormatOpenAI    FoundryAPIFormat = "OpenAI"
+	FoundryAPIFormatAnthropic FoundryAPIFormat = "Anthropic"
+)
+
 // FoundryConfig contains Azure AI Foundry-specific configuration options.
 //
 // Authentication is implicit and mirrors the other cloud providers: if
@@ -427,9 +464,19 @@ type FoundryConfig struct {
 	Deployment string `json:"deployment"`
 
 	// APIVersion is the Foundry OpenAI-compatible data-plane API version.
+	// Ignored when APIFormat is Anthropic (the Messages surface is versioned via
+	// the anthropic-version header instead).
 	// +kubebuilder:default="2024-10-21"
 	// +optional
 	APIVersion string `json:"apiVersion,omitempty"`
+
+	// APIFormat selects the Foundry API format: "OpenAI" (default, chat
+	// completions) or "Anthropic" (Claude models served over the Anthropic
+	// Messages API).
+	// +kubebuilder:validation:Enum=OpenAI;Anthropic
+	// +kubebuilder:default=OpenAI
+	// +optional
+	APIFormat FoundryAPIFormat `json:"apiFormat,omitempty"`
 }
 
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
@@ -500,6 +547,7 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
+// +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
@@ -577,6 +625,10 @@ type ModelConfigSpec struct {
 	// +optional
 	Foundry *FoundryConfig `json:"foundry,omitempty"`
 
+	// Mistral-specific configuration
+	// +optional
+	Mistral *MistralConfig `json:"mistral,omitempty"`
+
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers
 	// that use self-signed certificates or custom certificate authorities.
@@ -597,6 +649,7 @@ type ModelConfigStatus struct {
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:categories=kagent,shortName=mc
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"

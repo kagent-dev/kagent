@@ -158,6 +158,7 @@ async def test_get_tools_wraps_mcp_tools():
     fake_other_tool.name = "other-tool"
 
     toolset = KAgentMcpToolset.__new__(KAgentMcpToolset)
+    toolset._require_approval = True
 
     async def mock_super_get_tools(self_arg, readonly_context=None):
         return [fake_mcp_tool, fake_other_tool]
@@ -169,6 +170,7 @@ async def test_get_tools_wraps_mcp_tools():
     assert isinstance(tools[0], ConnectionSafeMcpTool)
     assert tools[0].name == "wrapped-tool"
     assert tools[0]._some_attr == "value"
+    assert tools[0].kagent_requires_approval is True
     assert tools[1] is fake_other_tool
 
 

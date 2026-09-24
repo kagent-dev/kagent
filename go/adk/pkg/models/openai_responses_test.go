@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -173,12 +174,22 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	m := &OpenAIModel{
 		Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
 		Client: client,
-		Logger: logr.Discard(),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 
 	var got *model.LLMResponse
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "integer"}},
+	}
 	for resp, err := range m.GenerateContent(context.Background(), &model.LLMRequest{
 		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "ping"}}}},
+		Config: &genai.GenerateContentConfig{
+			ResponseJsonSchema: schema,
+			Tools: []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name: "calculator", ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}}}},
+		},
 	}, false) {
 		if err != nil {
 			t.Fatalf("GenerateContent error: %v", err)
@@ -190,6 +201,23 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	}
 	if gotBody["model"] != "gpt-4o" {
 		t.Fatalf("body model = %#v", gotBody["model"])
+	}
+	textConfig, ok := gotBody["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("body text = %#v", gotBody["text"])
+	}
+	format, ok := textConfig["format"].(map[string]any)
+	if !ok || format["type"] != "json_schema" {
+		t.Fatalf("body text.format = %#v", textConfig["format"])
+	}
+	if _, present := format["strict"]; present {
+		t.Fatalf("body text.format.strict must be omitted: %#v", format)
+	}
+	if gotSchema, ok := format["schema"].(map[string]any); !ok || gotSchema["type"] != "object" {
+		t.Fatalf("body text.format.schema = %#v", format["schema"])
+	}
+	if tools, ok := gotBody["tools"].([]any); !ok || len(tools) != 1 {
+		t.Fatalf("body tools = %#v, want one tool", gotBody["tools"])
 	}
 	if got == nil || got.Content == nil || len(got.Content.Parts) != 1 || got.Content.Parts[0].Text != "pong" {
 		t.Fatalf("response = %#v", got)
@@ -221,7 +249,7 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 	m := &OpenAIModel{
 		Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
 		Client: client,
-		Logger: logr.Discard(),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 
 	var partials []string
@@ -265,4 +293,42 @@ func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
 	if !strings.Contains(string(b), "input_image") || !strings.Contains(string(b), "data:image/png;base64,") {
 		t.Fatalf("marshaled message missing image: %s", b)
 	}
+}
+
+func TestResponsesUsageToGenai(t *testing.T) {
+	t.Run("nil when no tokens", func(t *testing.T) {
+		if got := responsesUsageToGenai(responses.ResponseUsage{}); got != nil {
+			t.Fatalf("expected nil for empty usage, got %+v", got)
+		}
+	})
+
+	t.Run("maps input, output, cached and reasoning tokens", func(t *testing.T) {
+		usage := responses.ResponseUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+				CachedTokens: 80,
+			},
+			OutputTokensDetails: responses.ResponseUsageOutputTokensDetails{
+				ReasoningTokens: 30,
+			},
+		}
+
+		got := responsesUsageToGenai(usage)
+		if got == nil {
+			t.Fatal("expected non-nil usage metadata")
+		}
+		if got.PromptTokenCount != 100 {
+			t.Errorf("PromptTokenCount = %d, want 100", got.PromptTokenCount)
+		}
+		if got.CandidatesTokenCount != 50 {
+			t.Errorf("CandidatesTokenCount = %d, want 50", got.CandidatesTokenCount)
+		}
+		if got.CachedContentTokenCount != 80 {
+			t.Errorf("CachedContentTokenCount = %d, want 80", got.CachedContentTokenCount)
+		}
+		if got.ThoughtsTokenCount != 30 {
+			t.Errorf("ThoughtsTokenCount = %d, want 30", got.ThoughtsTokenCount)
+		}
+	})
 }

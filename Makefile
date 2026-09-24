@@ -55,14 +55,23 @@ UI_IMAGE_NAME ?= ui
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 
+CLAUDE_HARNESS_IMAGE_NAME ?= claude-harness
+CODEX_HARNESS_IMAGE_NAME ?= codex-harness
+SANDBOX_GUEST_IMAGE_NAME ?= sandbox-guest
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
+CLAUDE_HARNESS_IMAGE_TAG ?= $(VERSION)
+CODEX_HARNESS_IMAGE_TAG ?= $(VERSION)
+SANDBOX_GUEST_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
+CLAUDE_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CLAUDE_HARNESS_IMAGE_NAME):$(CLAUDE_HARNESS_IMAGE_TAG)
+CODEX_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CODEX_HARNESS_IMAGE_NAME):$(CODEX_HARNESS_IMAGE_TAG)
+SANDBOX_GUEST_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SANDBOX_GUEST_IMAGE_NAME):$(SANDBOX_GUEST_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -116,6 +125,7 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
+	@echo "Tools Weaver : $(WEAVER_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
@@ -145,6 +155,42 @@ proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail
 	@if test -n "$$(git status --porcelain -- $(PROTO_GENERATED_PATHS))"; then \
 		echo "Generated protobuf files are out of date:"; \
 		git status --short -- $(PROTO_GENERATED_PATHS); \
+		exit 1; \
+	fi
+
+##@ Telemetry contract
+
+include telemetry/versions.env
+
+WEAVER := telemetry/weaver.sh
+SEMCONV_REGISTRY := telemetry/registry
+SEMCONV_GENERATE := $(WEAVER) registry generate -r $(SEMCONV_REGISTRY) --v2 -t telemetry/templates
+SEMCONV_GENERATED_PATHS := go/pkg/telemetry/conv python/packages/kagent-core/src/kagent/core/telemetry/_conv.py docs/architecture/telemetry-contract.md telemetry/resolved.yaml
+
+.PHONY: semconv-check
+semconv-check: ## Validate the telemetry registry with Weaver and the kagent policies
+	$(WEAVER) registry check -r $(SEMCONV_REGISTRY) --v2 \
+		--policy '$(WEAVER_PACKAGES)[policies/check/naming_conventions]' \
+		--policy '$(WEAVER_PACKAGES)[policies/check/stability]' \
+		--policy telemetry/policies
+
+.PHONY: semconv-policies-test
+semconv-policies-test: ## Check that each kagent telemetry policy rejects its fixture
+	telemetry/policies/test.sh
+
+.PHONY: semconv-generate
+semconv-generate: ## Generate the telemetry conventions, the contract reference, and the resolved snapshot
+	$(SEMCONV_GENERATE) go go/pkg/telemetry/conv
+	$(SEMCONV_GENERATE) python python/packages/kagent-core/src/kagent/core/telemetry
+	$(SEMCONV_GENERATE) markdown docs/architecture
+	$(SEMCONV_GENERATE) yaml telemetry
+	gofmt -w go/pkg/telemetry/conv
+
+.PHONY: semconv-verify
+semconv-verify: semconv-check semconv-policies-test semconv-generate ## Check the telemetry registry and fail when generated output drifts
+	@if test -n "$$(git status --porcelain -- $(SEMCONV_GENERATED_PATHS))"; then \
+		echo "Generated telemetry conventions are out of date. Run 'make semconv-generate' and commit the result:"; \
+		git status --short -- $(SEMCONV_GENERATED_PATHS); \
 		exit 1; \
 	fi
 
@@ -199,7 +245,11 @@ check-api-key: ## Validate required API key for the configured model provider
 			exit 1; \
 		fi; \
 	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
-		echo "Note: Ollama provider does not require an API key"; \
+		if [ -z "$$OLLAMA_API_KEY" ]; then \
+			echo "Note: OLLAMA_API_KEY is not set — local Ollama models need no key, and a"; \
+			echo "      ':cloud' model will be proxied by the local daemon instead of"; \
+			echo "      reaching api.ollama.com directly. Export OLLAMA_API_KEY to use the cloud API."; \
+		fi; \
 	else \
 		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
@@ -212,6 +262,13 @@ else
 	$(CONTAINER_RUNTIME) buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
 	$(CONTAINER_RUNTIME) buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
 	$(CONTAINER_RUNTIME) buildx use $(BUILDX_BUILDER_NAME) || true
+	# Wait for buildkit to actually be up. `create` returns before its container is
+	# serving, so a build starting immediately after can find no socket to talk to:
+	# `dial unix /run/buildkit/buildkitd.sock: no such file or directory`, then
+	# `failed to list workers`. Bootstrapping here also makes this target safe to run
+	# concurrently -- a loser of the create race waits for the winner's builder
+	# instead of building against a half-made one.
+	$(CONTAINER_RUNTIME) buildx inspect --bootstrap $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null
 endif
 
 .PHONY: build-all
@@ -219,17 +276,23 @@ build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
 build-all: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/claude/Dockerfile ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/codex/Dockerfile ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/sandbox/guest/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-kagent-adk build-golang-adk build-controller
+build: buildx-create build-ui build-kagent-adk build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
+	@echo "Claude Harness Image: $(CLAUDE_HARNESS_IMG)"
+	@echo "Codex Harness Image: $(CODEX_HARNESS_IMG)"
+	@echo "Sandbox Guest Image: $(SANDBOX_GUEST_IMG)"
 
 .PHONY: build-monitor
 build-monitor: ## Watch BuildKit process list inside the buildx container
@@ -257,6 +320,9 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo ui=$(UI_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
+	@echo claude-harness=$(CLAUDE_HARNESS_IMG)
+	@echo codex-harness=$(CODEX_HARNESS_IMG)
+	@echo sandbox-guest=$(SANDBOX_GUEST_IMG)
 
 .PHONY: controller-manifests
 controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
@@ -267,7 +333,7 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 build-controller: ## Build and push the API v2 controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
+		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
@@ -288,6 +354,30 @@ build-golang-adk: ## Build and push the Go ADK image
 build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
+
+.PHONY: build-byo-a2a
+build-byo-a2a: ## Build and push the opaque BYO A2A e2e image
+build-byo-a2a: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/test/byoa2a/main.go -t $(DOCKER_REGISTRY)/$(DOCKER_REPO)/byo-a2a:$(VERSION) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/byo-a2a:$(VERSION)
+
+.PHONY: build-claude-harness
+build-claude-harness: ## Build and push the native Claude Harness image
+build-claude-harness: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CLAUDE_HARNESS_IMG) -f go/harness/claude/Dockerfile ./go
+	$(DOCKER_PUSH) $(CLAUDE_HARNESS_IMG)
+
+.PHONY: build-codex-harness
+build-codex-harness: ## Build and push the native Codex Harness image
+build-codex-harness: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CODEX_HARNESS_IMG) -f go/harness/codex/Dockerfile ./go
+	$(DOCKER_PUSH) $(CODEX_HARNESS_IMG)
+
+.PHONY: build-sandbox-guest
+build-sandbox-guest: ## Build and push the standalone sandbox guest image
+build-sandbox-guest: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(SANDBOX_GUEST_IMG) -f go/sandbox/guest/Dockerfile ./go
+	$(DOCKER_PUSH) $(SANDBOX_GUEST_IMG)
 
 .PHONY: push
 push: ## Push all component images (controller, ui, ADKs)
@@ -409,17 +499,10 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
-# Upgrade test targets install the previous released kagent chart from the public
-# OCI registry, build the current images, then run the assertions in
-# go/core/test/upgrade. These tests are deliberately kept out of test/e2e: they
-# mutate the cluster (upgrade then reverse-migrate it) and so cannot share the
-# e2e suite's cluster. The Go test performs the actual upgrade to the current
-# build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
-# the latest version reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
-# this against two targets via a matrix — that adjacent version and the previous
-# release line's latest published version (scripts/prev-stable-version.sh) — and
-# you can pin either locally, e.g.
-# `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# Upgrade tests install a previous Kagent chart and upgrade it to the current build.
+# The tests use a separate cluster because they change the database and deployment.
+# The tests skip releases that do not use Goose.
+# UPGRADE_FROM_VERSION selects the previous release.
 # The previous install pins the bundled Postgres image to whatever the
 # upgrade-from release's own install target shipped (resolved inside
 # install-previous-release), so the baseline matches how that release actually
@@ -428,8 +511,7 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # build.
 #
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
-# cluster (make create-kind-cluster). agent-sandbox is not required — the
-# controller tolerates the missing CRD and these tests create no SandboxAgents.
+# cluster (make create-kind-cluster).
 #
 # Lazily evaluated and referenced only by the upgrade targets below, so unrelated
 # make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
@@ -474,37 +556,27 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
 		$$db_flags $(UPGRADE_PREV_EXTRA_ARGS)
 
-# run-upgrade-tests installs the previous release, builds the current images, and
-# runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
-# rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
-# install) -> reverse schema to target (down files) + data survival. At each
-# state it also runs a version-matched invoke e2e slice (TestE2EInvokeInlineAgent)
-# so the serving controller's real query paths are exercised, not just psql: the
-# HEAD tree post-upgrade, and the previous release's own tree (a git worktree at
-# its tag, in .upgrade-prev) for the old-code-against-new-schema and post-rollback
-# states. KAGENT_LOCAL_HOST (kind gateway IP) lets the agent reach the in-process
-# mock LLM; without it the invoke slices self-skip and only the DB round-trip runs.
+# run-upgrade-tests installs the previous release and upgrades it to the current build.
+# The test skips releases that do not use Goose.
+# Later Goose releases test previous-release behavior after the target migrations,
+# data survival, schema equality, previous/current controller startup, and a
+# complete application and schema rollback to the previous release.
+# KAGENT_LOCAL_HOST lets the agent reach the local mock LLM.
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
-# cluster (make create-kind-cluster). The controller tolerates the missing
-# agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
-# no SandboxAgents, so agent-sandbox is not required.
+# cluster (make create-kind-cluster).
 .PHONY: announce-upgrade-from
 announce-upgrade-from: ## Print the upgrade-from -> to versions (runs before the build so it is clear up front)
-	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION) — building current images next ==="
+	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION). Building current images next. ==="
 
 .PHONY: run-upgrade-tests
-run-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
+run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test an upgrade between Goose releases
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	@set -e; \
-	git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true; \
-	git worktree add --detach "$(CURDIR)/.upgrade-prev" "v$(UPGRADE_FROM_VERSION)"; \
-	trap 'git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true' EXIT; \
 	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
 	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
 	cd go && \
 	RUN_UPGRADE_TESTS=true \
 	REPO_ROOT=$(CURDIR) \
-	PREV_E2E_DIR=$(CURDIR)/.upgrade-prev \
 	KAGENT_LOCAL_HOST="$$kind_gw" \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \

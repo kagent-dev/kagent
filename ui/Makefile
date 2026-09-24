@@ -1,9 +1,10 @@
 # Node.js is required: https://nodejs.org/ or use nvm/brew
+# The Node version is pinned in .nvmrc; Yarn ships via corepack.
 
 .PHONY: build
 build:
-	npm ci
-	npm run build
+	yarn install --immutable
+	yarn build
 
 .PHONY: clean
 clean:
@@ -15,15 +16,23 @@ clean:
 install-node:
 	brew install node
 
+.PHONY: lint
+lint:
+	yarn lint
+	yarn typecheck
+
+.PHONY: test
+test:
+	yarn test
+
 .PHONY: audit
 audit:
 	@echo "Running security audit..."
-	npm audit
+	yarn npm audit --all --recursive
 	@echo "Security audit completed."
 
 .PHONY: update
 update:
 	@echo "Updating UI lock file..."
-	npm install
-	npm audit fix --package-lock-only
+	yarn up '*'
 	@echo "Updating UI lock file done."

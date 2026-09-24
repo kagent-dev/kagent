@@ -5,7 +5,7 @@ import logging
 import os
 
 import uvicorn
-from agent import controller_client, graph
+from agent import graph
 from kagent.core import KAgentConfig
 from kagent.langgraph import KAgentApp
 
@@ -24,7 +24,6 @@ def main():
         graph=graph,
         agent_card=agent_card,
         config=config,
-        controller_client=controller_client,
         tracing=True,
     )
 

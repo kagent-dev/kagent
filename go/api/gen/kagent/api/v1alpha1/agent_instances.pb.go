@@ -245,20 +245,24 @@ func (x *Failure) GetMessage() string {
 type AgentInstance struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Namespace        string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Creator          string                 `protobuf:"bytes,3,opt,name=creator,proto3" json:"creator,omitempty"`
-	Harness          *ResourceReference     `protobuf:"bytes,4,opt,name=harness,proto3" json:"harness,omitempty"`
-	AgentTemplate    *ResourceReference     `protobuf:"bytes,5,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
-	PreparedRevision string                 `protobuf:"bytes,6,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
-	A2AAuthority     string                 `protobuf:"bytes,7,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
-	State            AgentInstanceState     `protobuf:"varint,8,opt,name=state,proto3,enum=kagent.api.v1alpha1.AgentInstanceState" json:"state,omitempty"`
-	Operation        AgentInstanceOperation `protobuf:"varint,9,opt,name=operation,proto3,enum=kagent.api.v1alpha1.AgentInstanceOperation" json:"operation,omitempty"`
-	Failure          *Failure               `protobuf:"bytes,10,opt,name=failure,proto3" json:"failure,omitempty"`
-	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Labels           map[string]string      `protobuf:"bytes,13,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	Creator          string                 `protobuf:"bytes,2,opt,name=creator,proto3" json:"creator,omitempty"`
+	Harness          *ResourceReference     `protobuf:"bytes,3,opt,name=harness,proto3" json:"harness,omitempty"`
+	AgentTemplate    *ResourceReference     `protobuf:"bytes,4,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
+	PreparedRevision string                 `protobuf:"bytes,5,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
+	A2AAuthority     string                 `protobuf:"bytes,6,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
+	State            AgentInstanceState     `protobuf:"varint,7,opt,name=state,proto3,enum=kagent.api.v1alpha1.AgentInstanceState" json:"state,omitempty"`
+	Operation        AgentInstanceOperation `protobuf:"varint,8,opt,name=operation,proto3,enum=kagent.api.v1alpha1.AgentInstanceOperation" json:"operation,omitempty"`
+	Failure          *Failure               `protobuf:"bytes,9,opt,name=failure,proto3" json:"failure,omitempty"`
+	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Reader-supplied display name for the conversation. Empty means unnamed,
+	// which is the state every instance created before this field existed is in.
+	Name string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
+	// Output only. Opaque A2A conversation ID within this instance's authority.
+	// Forks preserve this ID; route and authorize using the instance ID.
+	ContextId     string `protobuf:"bytes,14,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentInstance) Reset() {
@@ -294,13 +298,6 @@ func (*AgentInstance) Descriptor() ([]byte, []int) {
 func (x *AgentInstance) GetId() string {
 	if x != nil {
 		return x.Id
-	}
-	return ""
-}
-
-func (x *AgentInstance) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
 	}
 	return ""
 }
@@ -375,19 +372,27 @@ func (x *AgentInstance) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *AgentInstance) GetLabels() map[string]string {
+func (x *AgentInstance) GetName() string {
 	if x != nil {
-		return x.Labels
+		return x.Name
 	}
-	return nil
+	return ""
+}
+
+func (x *AgentInstance) GetContextId() string {
+	if x != nil {
+		return x.ContextId
+	}
+	return ""
 }
 
 type CreateAgentInstanceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Harness       string                 `protobuf:"bytes,2,opt,name=harness,proto3" json:"harness,omitempty"`
-	AgentTemplate string                 `protobuf:"bytes,3,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
-	RequestId     string                 `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Harness       *ResourceReference     `protobuf:"bytes,1,opt,name=harness,proto3" json:"harness,omitempty"`
+	AgentTemplate *ResourceReference     `protobuf:"bytes,2,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
+	RequestId     string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// Optional display name. Empty means unnamed.
+	Name          string `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -422,30 +427,30 @@ func (*CreateAgentInstanceRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *CreateAgentInstanceRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *CreateAgentInstanceRequest) GetHarness() string {
+func (x *CreateAgentInstanceRequest) GetHarness() *ResourceReference {
 	if x != nil {
 		return x.Harness
 	}
-	return ""
+	return nil
 }
 
-func (x *CreateAgentInstanceRequest) GetAgentTemplate() string {
+func (x *CreateAgentInstanceRequest) GetAgentTemplate() *ResourceReference {
 	if x != nil {
 		return x.AgentTemplate
 	}
-	return ""
+	return nil
 }
 
 func (x *CreateAgentInstanceRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateAgentInstanceRequest) GetName() string {
+	if x != nil {
+		return x.Name
 	}
 	return ""
 }
@@ -496,8 +501,7 @@ func (x *CreateAgentInstanceResponse) GetAgentInstance() *AgentInstance {
 
 type GetAgentInstanceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Namespace       string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -530,13 +534,6 @@ func (x *GetAgentInstanceRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetAgentInstanceRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentInstanceRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *GetAgentInstanceRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
 }
 
 func (x *GetAgentInstanceRequest) GetAgentInstanceId() string {
@@ -591,12 +588,16 @@ func (x *GetAgentInstanceResponse) GetAgentInstance() *AgentInstance {
 }
 
 type ListAgentInstancesRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Namespace   string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	MatchLabels map[string]string      `protobuf:"bytes,2,rep,name=match_labels,json=matchLabels,proto3" json:"match_labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// Includes instances created by other users when authorized.
-	AllCreators   bool         `protobuf:"varint,3,opt,name=all_creators,json=allCreators,proto3" json:"all_creators,omitempty"`
-	Page          *PageRequest `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
+	AllCreators bool         `protobuf:"varint,2,opt,name=all_creators,json=allCreators,proto3" json:"all_creators,omitempty"`
+	Page        *PageRequest `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	// Narrows the list to the conversations of one agent, an agent being an
+	// (AgentTemplate, Harness) pair. Either may be given alone. Both are matched
+	// against the pair the instance's prepared revision was built from, so they
+	// also select instances created before these fields existed.
+	AgentTemplate *ResourceReference `protobuf:"bytes,4,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
+	Harness       *ResourceReference `protobuf:"bytes,5,opt,name=harness,proto3" json:"harness,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -631,20 +632,6 @@ func (*ListAgentInstancesRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ListAgentInstancesRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *ListAgentInstancesRequest) GetMatchLabels() map[string]string {
-	if x != nil {
-		return x.MatchLabels
-	}
-	return nil
-}
-
 func (x *ListAgentInstancesRequest) GetAllCreators() bool {
 	if x != nil {
 		return x.AllCreators
@@ -655,6 +642,20 @@ func (x *ListAgentInstancesRequest) GetAllCreators() bool {
 func (x *ListAgentInstancesRequest) GetPage() *PageRequest {
 	if x != nil {
 		return x.Page
+	}
+	return nil
+}
+
+func (x *ListAgentInstancesRequest) GetAgentTemplate() *ResourceReference {
+	if x != nil {
+		return x.AgentTemplate
+	}
+	return nil
+}
+
+func (x *ListAgentInstancesRequest) GetHarness() *ResourceReference {
+	if x != nil {
+		return x.Harness
 	}
 	return nil
 }
@@ -711,17 +712,114 @@ func (x *ListAgentInstancesResponse) GetPage() *PageResponse {
 	return nil
 }
 
+type UpdateAgentInstanceNameRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	// The new display name. Empty clears the name, returning the conversation to
+	// being identified by its id.
+	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAgentInstanceNameRequest) Reset() {
+	*x = UpdateAgentInstanceNameRequest{}
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentInstanceNameRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentInstanceNameRequest) ProtoMessage() {}
+
+func (x *UpdateAgentInstanceNameRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentInstanceNameRequest.ProtoReflect.Descriptor instead.
+func (*UpdateAgentInstanceNameRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UpdateAgentInstanceNameRequest) GetAgentInstanceId() string {
+	if x != nil {
+		return x.AgentInstanceId
+	}
+	return ""
+}
+
+func (x *UpdateAgentInstanceNameRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type UpdateAgentInstanceNameResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentInstance *AgentInstance         `protobuf:"bytes,1,opt,name=agent_instance,json=agentInstance,proto3" json:"agent_instance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAgentInstanceNameResponse) Reset() {
+	*x = UpdateAgentInstanceNameResponse{}
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentInstanceNameResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentInstanceNameResponse) ProtoMessage() {}
+
+func (x *UpdateAgentInstanceNameResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentInstanceNameResponse.ProtoReflect.Descriptor instead.
+func (*UpdateAgentInstanceNameResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateAgentInstanceNameResponse) GetAgentInstance() *AgentInstance {
+	if x != nil {
+		return x.AgentInstance
+	}
+	return nil
+}
+
 type SuspendAgentInstanceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Namespace       string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SuspendAgentInstanceRequest) Reset() {
 	*x = SuspendAgentInstanceRequest{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[8]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -733,7 +831,7 @@ func (x *SuspendAgentInstanceRequest) String() string {
 func (*SuspendAgentInstanceRequest) ProtoMessage() {}
 
 func (x *SuspendAgentInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[8]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -746,14 +844,7 @@ func (x *SuspendAgentInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuspendAgentInstanceRequest.ProtoReflect.Descriptor instead.
 func (*SuspendAgentInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *SuspendAgentInstanceRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SuspendAgentInstanceRequest) GetAgentInstanceId() string {
@@ -772,7 +863,7 @@ type SuspendAgentInstanceResponse struct {
 
 func (x *SuspendAgentInstanceResponse) Reset() {
 	*x = SuspendAgentInstanceResponse{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[9]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +875,7 @@ func (x *SuspendAgentInstanceResponse) String() string {
 func (*SuspendAgentInstanceResponse) ProtoMessage() {}
 
 func (x *SuspendAgentInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[9]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +888,7 @@ func (x *SuspendAgentInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuspendAgentInstanceResponse.ProtoReflect.Descriptor instead.
 func (*SuspendAgentInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{9}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SuspendAgentInstanceResponse) GetAgentInstance() *AgentInstance {
@@ -809,15 +900,14 @@ func (x *SuspendAgentInstanceResponse) GetAgentInstance() *AgentInstance {
 
 type ResumeAgentInstanceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Namespace       string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ResumeAgentInstanceRequest) Reset() {
 	*x = ResumeAgentInstanceRequest{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[10]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -829,7 +919,7 @@ func (x *ResumeAgentInstanceRequest) String() string {
 func (*ResumeAgentInstanceRequest) ProtoMessage() {}
 
 func (x *ResumeAgentInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[10]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -842,14 +932,7 @@ func (x *ResumeAgentInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeAgentInstanceRequest.ProtoReflect.Descriptor instead.
 func (*ResumeAgentInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *ResumeAgentInstanceRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ResumeAgentInstanceRequest) GetAgentInstanceId() string {
@@ -868,7 +951,7 @@ type ResumeAgentInstanceResponse struct {
 
 func (x *ResumeAgentInstanceResponse) Reset() {
 	*x = ResumeAgentInstanceResponse{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[11]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -880,7 +963,7 @@ func (x *ResumeAgentInstanceResponse) String() string {
 func (*ResumeAgentInstanceResponse) ProtoMessage() {}
 
 func (x *ResumeAgentInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[11]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -893,7 +976,7 @@ func (x *ResumeAgentInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeAgentInstanceResponse.ProtoReflect.Descriptor instead.
 func (*ResumeAgentInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{11}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ResumeAgentInstanceResponse) GetAgentInstance() *AgentInstance {
@@ -905,15 +988,14 @@ func (x *ResumeAgentInstanceResponse) GetAgentInstance() *AgentInstance {
 
 type DeleteAgentInstanceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Namespace       string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DeleteAgentInstanceRequest) Reset() {
 	*x = DeleteAgentInstanceRequest{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[12]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -925,7 +1007,7 @@ func (x *DeleteAgentInstanceRequest) String() string {
 func (*DeleteAgentInstanceRequest) ProtoMessage() {}
 
 func (x *DeleteAgentInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[12]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -938,14 +1020,7 @@ func (x *DeleteAgentInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAgentInstanceRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAgentInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *DeleteAgentInstanceRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteAgentInstanceRequest) GetAgentInstanceId() string {
@@ -964,7 +1039,7 @@ type DeleteAgentInstanceResponse struct {
 
 func (x *DeleteAgentInstanceResponse) Reset() {
 	*x = DeleteAgentInstanceResponse{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[13]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -976,7 +1051,7 @@ func (x *DeleteAgentInstanceResponse) String() string {
 func (*DeleteAgentInstanceResponse) ProtoMessage() {}
 
 func (x *DeleteAgentInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[13]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -989,7 +1064,7 @@ func (x *DeleteAgentInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAgentInstanceResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAgentInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{13}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeleteAgentInstanceResponse) GetAgentInstance() *AgentInstance {
@@ -1002,18 +1077,16 @@ func (x *DeleteAgentInstanceResponse) GetAgentInstance() *AgentInstance {
 type AgentInstanceShare struct {
 	state           protoimpl.MessageState       `protogen:"open.v1"`
 	Id              string                       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Namespace       string                       `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                       `protobuf:"bytes,3,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Creator         string                       `protobuf:"bytes,4,opt,name=creator,proto3" json:"creator,omitempty"`
-	Permission      AgentInstanceSharePermission `protobuf:"varint,5,opt,name=permission,proto3,enum=kagent.api.v1alpha1.AgentInstanceSharePermission" json:"permission,omitempty"`
-	CreatedAt       *timestamppb.Timestamp       `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	AgentInstanceId string                       `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	Permission      AgentInstanceSharePermission `protobuf:"varint,3,opt,name=permission,proto3,enum=kagent.api.v1alpha1.AgentInstanceSharePermission" json:"permission,omitempty"`
+	CreatedAt       *timestamppb.Timestamp       `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AgentInstanceShare) Reset() {
 	*x = AgentInstanceShare{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[14]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1025,7 +1098,7 @@ func (x *AgentInstanceShare) String() string {
 func (*AgentInstanceShare) ProtoMessage() {}
 
 func (x *AgentInstanceShare) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[14]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1038,7 +1111,7 @@ func (x *AgentInstanceShare) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentInstanceShare.ProtoReflect.Descriptor instead.
 func (*AgentInstanceShare) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{14}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AgentInstanceShare) GetId() string {
@@ -1048,23 +1121,9 @@ func (x *AgentInstanceShare) GetId() string {
 	return ""
 }
 
-func (x *AgentInstanceShare) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
 func (x *AgentInstanceShare) GetAgentInstanceId() string {
 	if x != nil {
 		return x.AgentInstanceId
-	}
-	return ""
-}
-
-func (x *AgentInstanceShare) GetCreator() string {
-	if x != nil {
-		return x.Creator
 	}
 	return ""
 }
@@ -1085,16 +1144,15 @@ func (x *AgentInstanceShare) GetCreatedAt() *timestamppb.Timestamp {
 
 type CreateAgentInstanceShareRequest struct {
 	state           protoimpl.MessageState       `protogen:"open.v1"`
-	Namespace       string                       `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                       `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Permission      AgentInstanceSharePermission `protobuf:"varint,3,opt,name=permission,proto3,enum=kagent.api.v1alpha1.AgentInstanceSharePermission" json:"permission,omitempty"`
+	AgentInstanceId string                       `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	Permission      AgentInstanceSharePermission `protobuf:"varint,2,opt,name=permission,proto3,enum=kagent.api.v1alpha1.AgentInstanceSharePermission" json:"permission,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateAgentInstanceShareRequest) Reset() {
 	*x = CreateAgentInstanceShareRequest{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[15]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1106,7 +1164,7 @@ func (x *CreateAgentInstanceShareRequest) String() string {
 func (*CreateAgentInstanceShareRequest) ProtoMessage() {}
 
 func (x *CreateAgentInstanceShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[15]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1119,14 +1177,7 @@ func (x *CreateAgentInstanceShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentInstanceShareRequest.ProtoReflect.Descriptor instead.
 func (*CreateAgentInstanceShareRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *CreateAgentInstanceShareRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CreateAgentInstanceShareRequest) GetAgentInstanceId() string {
@@ -1154,7 +1205,7 @@ type CreateAgentInstanceShareResponse struct {
 
 func (x *CreateAgentInstanceShareResponse) Reset() {
 	*x = CreateAgentInstanceShareResponse{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[16]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1217,7 @@ func (x *CreateAgentInstanceShareResponse) String() string {
 func (*CreateAgentInstanceShareResponse) ProtoMessage() {}
 
 func (x *CreateAgentInstanceShareResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[16]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1230,7 @@ func (x *CreateAgentInstanceShareResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentInstanceShareResponse.ProtoReflect.Descriptor instead.
 func (*CreateAgentInstanceShareResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{16}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateAgentInstanceShareResponse) GetShare() *AgentInstanceShare {
@@ -1198,16 +1249,15 @@ func (x *CreateAgentInstanceShareResponse) GetToken() string {
 
 type ListAgentInstanceSharesRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Namespace       string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Page            *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	Page            *PageRequest           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ListAgentInstanceSharesRequest) Reset() {
 	*x = ListAgentInstanceSharesRequest{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[17]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1219,7 +1269,7 @@ func (x *ListAgentInstanceSharesRequest) String() string {
 func (*ListAgentInstanceSharesRequest) ProtoMessage() {}
 
 func (x *ListAgentInstanceSharesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[17]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1232,14 +1282,7 @@ func (x *ListAgentInstanceSharesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentInstanceSharesRequest.ProtoReflect.Descriptor instead.
 func (*ListAgentInstanceSharesRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *ListAgentInstanceSharesRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListAgentInstanceSharesRequest) GetAgentInstanceId() string {
@@ -1266,7 +1309,7 @@ type ListAgentInstanceSharesResponse struct {
 
 func (x *ListAgentInstanceSharesResponse) Reset() {
 	*x = ListAgentInstanceSharesResponse{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[18]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1278,7 +1321,7 @@ func (x *ListAgentInstanceSharesResponse) String() string {
 func (*ListAgentInstanceSharesResponse) ProtoMessage() {}
 
 func (x *ListAgentInstanceSharesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[18]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1291,7 +1334,7 @@ func (x *ListAgentInstanceSharesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentInstanceSharesResponse.ProtoReflect.Descriptor instead.
 func (*ListAgentInstanceSharesResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{18}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListAgentInstanceSharesResponse) GetShares() []*AgentInstanceShare {
@@ -1310,15 +1353,14 @@ func (x *ListAgentInstanceSharesResponse) GetPage() *PageResponse {
 
 type RevokeAgentInstanceShareRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	ShareId       string                 `protobuf:"bytes,2,opt,name=share_id,json=shareId,proto3" json:"share_id,omitempty"`
+	ShareId       string                 `protobuf:"bytes,1,opt,name=share_id,json=shareId,proto3" json:"share_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RevokeAgentInstanceShareRequest) Reset() {
 	*x = RevokeAgentInstanceShareRequest{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[19]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1330,7 +1372,7 @@ func (x *RevokeAgentInstanceShareRequest) String() string {
 func (*RevokeAgentInstanceShareRequest) ProtoMessage() {}
 
 func (x *RevokeAgentInstanceShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[19]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1343,14 +1385,7 @@ func (x *RevokeAgentInstanceShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeAgentInstanceShareRequest.ProtoReflect.Descriptor instead.
 func (*RevokeAgentInstanceShareRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{19}
-}
-
-func (x *RevokeAgentInstanceShareRequest) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RevokeAgentInstanceShareRequest) GetShareId() string {
@@ -1368,7 +1403,7 @@ type RevokeAgentInstanceShareResponse struct {
 
 func (x *RevokeAgentInstanceShareResponse) Reset() {
 	*x = RevokeAgentInstanceShareResponse{}
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[20]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1380,7 +1415,7 @@ func (x *RevokeAgentInstanceShareResponse) String() string {
 func (*RevokeAgentInstanceShareResponse) ProtoMessage() {}
 
 func (x *RevokeAgentInstanceShareResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[20]
+	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1393,7 +1428,7 @@ func (x *RevokeAgentInstanceShareResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeAgentInstanceShareResponse.ProtoReflect.Descriptor instead.
 func (*RevokeAgentInstanceShareResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{20}
+	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{22}
 }
 
 var File_kagent_api_v1alpha1_agent_instances_proto protoreflect.FileDescriptor
@@ -1403,97 +1438,89 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	")kagent/api/v1alpha1/agent_instances.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xf5\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x95\x05\n" +
 	"\rAgentInstance\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x18\n" +
-	"\acreator\x18\x03 \x01(\tR\acreator\x12@\n" +
-	"\aharness\x18\x04 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\aharness\x12M\n" +
-	"\x0eagent_template\x18\x05 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\ragentTemplate\x12+\n" +
-	"\x11prepared_revision\x18\x06 \x01(\tR\x10preparedRevision\x12#\n" +
-	"\ra2a_authority\x18\a \x01(\tR\fa2aAuthority\x12=\n" +
-	"\x05state\x18\b \x01(\x0e2'.kagent.api.v1alpha1.AgentInstanceStateR\x05state\x12I\n" +
-	"\toperation\x18\t \x01(\x0e2+.kagent.api.v1alpha1.AgentInstanceOperationR\toperation\x126\n" +
-	"\afailure\x18\n" +
-	" \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\x129\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\acreator\x18\x02 \x01(\tR\acreator\x12@\n" +
+	"\aharness\x18\x03 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\aharness\x12M\n" +
+	"\x0eagent_template\x18\x04 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\ragentTemplate\x12+\n" +
+	"\x11prepared_revision\x18\x05 \x01(\tR\x10preparedRevision\x12#\n" +
+	"\ra2a_authority\x18\x06 \x01(\tR\fa2aAuthority\x12=\n" +
+	"\x05state\x18\a \x01(\x0e2'.kagent.api.v1alpha1.AgentInstanceStateR\x05state\x12I\n" +
+	"\toperation\x18\b \x01(\x0e2+.kagent.api.v1alpha1.AgentInstanceOperationR\toperation\x126\n" +
+	"\afailure\x18\t \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\x129\n" +
 	"\n" +
-	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12F\n" +
-	"\x06labels\x18\r \x03(\v2..kagent.api.v1alpha1.AgentInstance.LabelsEntryR\x06labels\x1a9\n" +
-	"\vLabelsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc1\x01\n" +
-	"\x1aCreateAgentInstanceRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12!\n" +
-	"\aharness\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aharness\x12.\n" +
-	"\x0eagent_template\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ragentTemplate\x12)\n" +
+	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x12\n" +
+	"\x04name\x18\r \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x04 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"h\n" +
+	"context_id\x18\x0e \x01(\tR\tcontextIdJ\x04\b\f\x10\rR\x06labels\"\xce\x03\n" +
+	"\x1aCreateAgentInstanceRequest\x12H\n" +
+	"\aharness\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\aharness\x12U\n" +
+	"\x0eagent_template\x18\x02 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\ragentTemplate\x12)\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12Q\n" +
+	"\x04name\x18\x04 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name:\x90\x01\xbaH\x8c\x01\x1a\x89\x01\n" +
+	"\x15same_target_namespace\x127Harness and AgentTemplate must be in the same namespace\x1a7this.harness.namespace == this.agent_template.namespace\"h\n" +
 	"\x1bCreateAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"u\n" +
-	"\x17GetAgentInstanceRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"e\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"O\n" +
+	"\x17GetAgentInstanceRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\"e\n" +
 	"\x18GetAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xbf\x02\n" +
-	"\x19ListAgentInstancesRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12b\n" +
-	"\fmatch_labels\x18\x02 \x03(\v2?.kagent.api.v1alpha1.ListAgentInstancesRequest.MatchLabelsEntryR\vmatchLabels\x12!\n" +
-	"\fall_creators\x18\x03 \x01(\bR\vallCreators\x124\n" +
-	"\x04page\x18\x04 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x1a>\n" +
-	"\x10MatchLabelsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x99\x02\n" +
+	"\x19ListAgentInstancesRequest\x12!\n" +
+	"\fall_creators\x18\x02 \x01(\bR\vallCreators\x124\n" +
+	"\x04page\x18\x03 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12M\n" +
+	"\x0eagent_template\x18\x04 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\ragentTemplate\x12@\n" +
+	"\aharness\x18\x05 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\aharnessJ\x04\b\x01\x10\x02R\fmatch_labels\"\xa0\x01\n" +
 	"\x1aListAgentInstancesResponse\x12K\n" +
 	"\x0fagent_instances\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentInstanceR\x0eagentInstances\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"y\n" +
-	"\x1bSuspendAgentInstanceRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"i\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"\xa9\x01\n" +
+	"\x1eUpdateAgentInstanceNameRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12Q\n" +
+	"\x04name\x18\x02 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\"l\n" +
+	"\x1fUpdateAgentInstanceNameResponse\x12I\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"S\n" +
+	"\x1bSuspendAgentInstanceRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\"i\n" +
 	"\x1cSuspendAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"x\n" +
-	"\x1aResumeAgentInstanceRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"h\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"R\n" +
+	"\x1aResumeAgentInstanceRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\"h\n" +
 	"\x1bResumeAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"x\n" +
-	"\x1aDeleteAgentInstanceRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"h\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"R\n" +
+	"\x1aDeleteAgentInstanceRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\"h\n" +
 	"\x1bDeleteAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x96\x02\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xde\x01\n" +
 	"\x12AgentInstanceShare\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x03 \x01(\tR\x0fagentInstanceId\x12\x18\n" +
-	"\acreator\x18\x04 \x01(\tR\acreator\x12Q\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\x12Q\n" +
 	"\n" +
-	"permission\x18\x05 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionR\n" +
+	"permission\x18\x03 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionR\n" +
 	"permission\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xdc\x01\n" +
-	"\x1fCreateAgentInstanceShareRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x12]\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xb6\x01\n" +
+	"\x1fCreateAgentInstanceShareRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12]\n" +
 	"\n" +
-	"permission\x18\x03 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionB\n" +
+	"permission\x18\x02 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\n" +
 	"permission\"w\n" +
 	" CreateAgentInstanceShareResponse\x12=\n" +
 	"\x05share\x18\x01 \x01(\v2'.kagent.api.v1alpha1.AgentInstanceShareR\x05share\x12\x14\n" +
-	"\x05token\x18\x02 \x01(\tR\x05token\"\xb2\x01\n" +
-	"\x1eListAgentInstanceSharesRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x124\n" +
-	"\x04page\x18\x03 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\x99\x01\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"\x8c\x01\n" +
+	"\x1eListAgentInstanceSharesRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x124\n" +
+	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\x99\x01\n" +
 	"\x1fListAgentInstanceSharesResponse\x12?\n" +
 	"\x06shares\x18\x01 \x03(\v2'.kagent.api.v1alpha1.AgentInstanceShareR\x06shares\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"l\n" +
-	"\x1fRevokeAgentInstanceShareRequest\x12%\n" +
-	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12\"\n" +
-	"\bshare_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ashareId\"\"\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"F\n" +
+	"\x1fRevokeAgentInstanceShareRequest\x12#\n" +
+	"\bshare_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\ashareId\"\"\n" +
 	" RevokeAgentInstanceShareResponse*\x87\x02\n" +
 	"\x12AgentInstanceState\x12$\n" +
 	" AGENT_INSTANCE_STATE_UNSPECIFIED\x10\x00\x12!\n" +
@@ -1512,11 +1539,13 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\x1cAgentInstanceSharePermission\x12/\n" +
 	"+AGENT_INSTANCE_SHARE_PERMISSION_UNSPECIFIED\x10\x00\x12-\n" +
 	")AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY\x10\x01\x12.\n" +
-	"*AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE\x10\x022\x84\t\n" +
+	"*AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE\x10\x022\x8b\n" +
+	"\n" +
 	"\x14AgentInstanceService\x12x\n" +
 	"\x13CreateAgentInstance\x12/.kagent.api.v1alpha1.CreateAgentInstanceRequest\x1a0.kagent.api.v1alpha1.CreateAgentInstanceResponse\x12o\n" +
 	"\x10GetAgentInstance\x12,.kagent.api.v1alpha1.GetAgentInstanceRequest\x1a-.kagent.api.v1alpha1.GetAgentInstanceResponse\x12u\n" +
-	"\x12ListAgentInstances\x12..kagent.api.v1alpha1.ListAgentInstancesRequest\x1a/.kagent.api.v1alpha1.ListAgentInstancesResponse\x12{\n" +
+	"\x12ListAgentInstances\x12..kagent.api.v1alpha1.ListAgentInstancesRequest\x1a/.kagent.api.v1alpha1.ListAgentInstancesResponse\x12\x84\x01\n" +
+	"\x17UpdateAgentInstanceName\x123.kagent.api.v1alpha1.UpdateAgentInstanceNameRequest\x1a4.kagent.api.v1alpha1.UpdateAgentInstanceNameResponse\x12{\n" +
 	"\x14SuspendAgentInstance\x120.kagent.api.v1alpha1.SuspendAgentInstanceRequest\x1a1.kagent.api.v1alpha1.SuspendAgentInstanceResponse\x12x\n" +
 	"\x13ResumeAgentInstance\x12/.kagent.api.v1alpha1.ResumeAgentInstanceRequest\x1a0.kagent.api.v1alpha1.ResumeAgentInstanceResponse\x12x\n" +
 	"\x13DeleteAgentInstance\x12/.kagent.api.v1alpha1.DeleteAgentInstanceRequest\x1a0.kagent.api.v1alpha1.DeleteAgentInstanceResponse\x12\x87\x01\n" +
@@ -1550,21 +1579,21 @@ var file_kagent_api_v1alpha1_agent_instances_proto_goTypes = []any{
 	(*GetAgentInstanceResponse)(nil),         // 8: kagent.api.v1alpha1.GetAgentInstanceResponse
 	(*ListAgentInstancesRequest)(nil),        // 9: kagent.api.v1alpha1.ListAgentInstancesRequest
 	(*ListAgentInstancesResponse)(nil),       // 10: kagent.api.v1alpha1.ListAgentInstancesResponse
-	(*SuspendAgentInstanceRequest)(nil),      // 11: kagent.api.v1alpha1.SuspendAgentInstanceRequest
-	(*SuspendAgentInstanceResponse)(nil),     // 12: kagent.api.v1alpha1.SuspendAgentInstanceResponse
-	(*ResumeAgentInstanceRequest)(nil),       // 13: kagent.api.v1alpha1.ResumeAgentInstanceRequest
-	(*ResumeAgentInstanceResponse)(nil),      // 14: kagent.api.v1alpha1.ResumeAgentInstanceResponse
-	(*DeleteAgentInstanceRequest)(nil),       // 15: kagent.api.v1alpha1.DeleteAgentInstanceRequest
-	(*DeleteAgentInstanceResponse)(nil),      // 16: kagent.api.v1alpha1.DeleteAgentInstanceResponse
-	(*AgentInstanceShare)(nil),               // 17: kagent.api.v1alpha1.AgentInstanceShare
-	(*CreateAgentInstanceShareRequest)(nil),  // 18: kagent.api.v1alpha1.CreateAgentInstanceShareRequest
-	(*CreateAgentInstanceShareResponse)(nil), // 19: kagent.api.v1alpha1.CreateAgentInstanceShareResponse
-	(*ListAgentInstanceSharesRequest)(nil),   // 20: kagent.api.v1alpha1.ListAgentInstanceSharesRequest
-	(*ListAgentInstanceSharesResponse)(nil),  // 21: kagent.api.v1alpha1.ListAgentInstanceSharesResponse
-	(*RevokeAgentInstanceShareRequest)(nil),  // 22: kagent.api.v1alpha1.RevokeAgentInstanceShareRequest
-	(*RevokeAgentInstanceShareResponse)(nil), // 23: kagent.api.v1alpha1.RevokeAgentInstanceShareResponse
-	nil,                                      // 24: kagent.api.v1alpha1.AgentInstance.LabelsEntry
-	nil,                                      // 25: kagent.api.v1alpha1.ListAgentInstancesRequest.MatchLabelsEntry
+	(*UpdateAgentInstanceNameRequest)(nil),   // 11: kagent.api.v1alpha1.UpdateAgentInstanceNameRequest
+	(*UpdateAgentInstanceNameResponse)(nil),  // 12: kagent.api.v1alpha1.UpdateAgentInstanceNameResponse
+	(*SuspendAgentInstanceRequest)(nil),      // 13: kagent.api.v1alpha1.SuspendAgentInstanceRequest
+	(*SuspendAgentInstanceResponse)(nil),     // 14: kagent.api.v1alpha1.SuspendAgentInstanceResponse
+	(*ResumeAgentInstanceRequest)(nil),       // 15: kagent.api.v1alpha1.ResumeAgentInstanceRequest
+	(*ResumeAgentInstanceResponse)(nil),      // 16: kagent.api.v1alpha1.ResumeAgentInstanceResponse
+	(*DeleteAgentInstanceRequest)(nil),       // 17: kagent.api.v1alpha1.DeleteAgentInstanceRequest
+	(*DeleteAgentInstanceResponse)(nil),      // 18: kagent.api.v1alpha1.DeleteAgentInstanceResponse
+	(*AgentInstanceShare)(nil),               // 19: kagent.api.v1alpha1.AgentInstanceShare
+	(*CreateAgentInstanceShareRequest)(nil),  // 20: kagent.api.v1alpha1.CreateAgentInstanceShareRequest
+	(*CreateAgentInstanceShareResponse)(nil), // 21: kagent.api.v1alpha1.CreateAgentInstanceShareResponse
+	(*ListAgentInstanceSharesRequest)(nil),   // 22: kagent.api.v1alpha1.ListAgentInstanceSharesRequest
+	(*ListAgentInstanceSharesResponse)(nil),  // 23: kagent.api.v1alpha1.ListAgentInstanceSharesResponse
+	(*RevokeAgentInstanceShareRequest)(nil),  // 24: kagent.api.v1alpha1.RevokeAgentInstanceShareRequest
+	(*RevokeAgentInstanceShareResponse)(nil), // 25: kagent.api.v1alpha1.RevokeAgentInstanceShareResponse
 	(*ResourceReference)(nil),                // 26: kagent.api.v1alpha1.ResourceReference
 	(*timestamppb.Timestamp)(nil),            // 27: google.protobuf.Timestamp
 	(*PageRequest)(nil),                      // 28: kagent.api.v1alpha1.PageRequest
@@ -1578,46 +1607,51 @@ var file_kagent_api_v1alpha1_agent_instances_proto_depIdxs = []int32{
 	3,  // 4: kagent.api.v1alpha1.AgentInstance.failure:type_name -> kagent.api.v1alpha1.Failure
 	27, // 5: kagent.api.v1alpha1.AgentInstance.created_at:type_name -> google.protobuf.Timestamp
 	27, // 6: kagent.api.v1alpha1.AgentInstance.updated_at:type_name -> google.protobuf.Timestamp
-	24, // 7: kagent.api.v1alpha1.AgentInstance.labels:type_name -> kagent.api.v1alpha1.AgentInstance.LabelsEntry
-	4,  // 8: kagent.api.v1alpha1.CreateAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 9: kagent.api.v1alpha1.GetAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	25, // 10: kagent.api.v1alpha1.ListAgentInstancesRequest.match_labels:type_name -> kagent.api.v1alpha1.ListAgentInstancesRequest.MatchLabelsEntry
+	26, // 7: kagent.api.v1alpha1.CreateAgentInstanceRequest.harness:type_name -> kagent.api.v1alpha1.ResourceReference
+	26, // 8: kagent.api.v1alpha1.CreateAgentInstanceRequest.agent_template:type_name -> kagent.api.v1alpha1.ResourceReference
+	4,  // 9: kagent.api.v1alpha1.CreateAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 10: kagent.api.v1alpha1.GetAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
 	28, // 11: kagent.api.v1alpha1.ListAgentInstancesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
-	4,  // 12: kagent.api.v1alpha1.ListAgentInstancesResponse.agent_instances:type_name -> kagent.api.v1alpha1.AgentInstance
-	29, // 13: kagent.api.v1alpha1.ListAgentInstancesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
-	4,  // 14: kagent.api.v1alpha1.SuspendAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 15: kagent.api.v1alpha1.ResumeAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 16: kagent.api.v1alpha1.DeleteAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	2,  // 17: kagent.api.v1alpha1.AgentInstanceShare.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
-	27, // 18: kagent.api.v1alpha1.AgentInstanceShare.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 19: kagent.api.v1alpha1.CreateAgentInstanceShareRequest.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
-	17, // 20: kagent.api.v1alpha1.CreateAgentInstanceShareResponse.share:type_name -> kagent.api.v1alpha1.AgentInstanceShare
-	28, // 21: kagent.api.v1alpha1.ListAgentInstanceSharesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
-	17, // 22: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.shares:type_name -> kagent.api.v1alpha1.AgentInstanceShare
-	29, // 23: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
-	5,  // 24: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:input_type -> kagent.api.v1alpha1.CreateAgentInstanceRequest
-	7,  // 25: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:input_type -> kagent.api.v1alpha1.GetAgentInstanceRequest
-	9,  // 26: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:input_type -> kagent.api.v1alpha1.ListAgentInstancesRequest
-	11, // 27: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:input_type -> kagent.api.v1alpha1.SuspendAgentInstanceRequest
-	13, // 28: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:input_type -> kagent.api.v1alpha1.ResumeAgentInstanceRequest
-	15, // 29: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:input_type -> kagent.api.v1alpha1.DeleteAgentInstanceRequest
-	18, // 30: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:input_type -> kagent.api.v1alpha1.CreateAgentInstanceShareRequest
-	20, // 31: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:input_type -> kagent.api.v1alpha1.ListAgentInstanceSharesRequest
-	22, // 32: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:input_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareRequest
-	6,  // 33: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:output_type -> kagent.api.v1alpha1.CreateAgentInstanceResponse
-	8,  // 34: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:output_type -> kagent.api.v1alpha1.GetAgentInstanceResponse
-	10, // 35: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:output_type -> kagent.api.v1alpha1.ListAgentInstancesResponse
-	12, // 36: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:output_type -> kagent.api.v1alpha1.SuspendAgentInstanceResponse
-	14, // 37: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:output_type -> kagent.api.v1alpha1.ResumeAgentInstanceResponse
-	16, // 38: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:output_type -> kagent.api.v1alpha1.DeleteAgentInstanceResponse
-	19, // 39: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:output_type -> kagent.api.v1alpha1.CreateAgentInstanceShareResponse
-	21, // 40: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:output_type -> kagent.api.v1alpha1.ListAgentInstanceSharesResponse
-	23, // 41: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:output_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareResponse
-	33, // [33:42] is the sub-list for method output_type
-	24, // [24:33] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	26, // 12: kagent.api.v1alpha1.ListAgentInstancesRequest.agent_template:type_name -> kagent.api.v1alpha1.ResourceReference
+	26, // 13: kagent.api.v1alpha1.ListAgentInstancesRequest.harness:type_name -> kagent.api.v1alpha1.ResourceReference
+	4,  // 14: kagent.api.v1alpha1.ListAgentInstancesResponse.agent_instances:type_name -> kagent.api.v1alpha1.AgentInstance
+	29, // 15: kagent.api.v1alpha1.ListAgentInstancesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	4,  // 16: kagent.api.v1alpha1.UpdateAgentInstanceNameResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 17: kagent.api.v1alpha1.SuspendAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 18: kagent.api.v1alpha1.ResumeAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 19: kagent.api.v1alpha1.DeleteAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	2,  // 20: kagent.api.v1alpha1.AgentInstanceShare.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
+	27, // 21: kagent.api.v1alpha1.AgentInstanceShare.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 22: kagent.api.v1alpha1.CreateAgentInstanceShareRequest.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
+	19, // 23: kagent.api.v1alpha1.CreateAgentInstanceShareResponse.share:type_name -> kagent.api.v1alpha1.AgentInstanceShare
+	28, // 24: kagent.api.v1alpha1.ListAgentInstanceSharesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
+	19, // 25: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.shares:type_name -> kagent.api.v1alpha1.AgentInstanceShare
+	29, // 26: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	5,  // 27: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:input_type -> kagent.api.v1alpha1.CreateAgentInstanceRequest
+	7,  // 28: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:input_type -> kagent.api.v1alpha1.GetAgentInstanceRequest
+	9,  // 29: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:input_type -> kagent.api.v1alpha1.ListAgentInstancesRequest
+	11, // 30: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:input_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameRequest
+	13, // 31: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:input_type -> kagent.api.v1alpha1.SuspendAgentInstanceRequest
+	15, // 32: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:input_type -> kagent.api.v1alpha1.ResumeAgentInstanceRequest
+	17, // 33: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:input_type -> kagent.api.v1alpha1.DeleteAgentInstanceRequest
+	20, // 34: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:input_type -> kagent.api.v1alpha1.CreateAgentInstanceShareRequest
+	22, // 35: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:input_type -> kagent.api.v1alpha1.ListAgentInstanceSharesRequest
+	24, // 36: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:input_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareRequest
+	6,  // 37: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:output_type -> kagent.api.v1alpha1.CreateAgentInstanceResponse
+	8,  // 38: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:output_type -> kagent.api.v1alpha1.GetAgentInstanceResponse
+	10, // 39: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:output_type -> kagent.api.v1alpha1.ListAgentInstancesResponse
+	12, // 40: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:output_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameResponse
+	14, // 41: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:output_type -> kagent.api.v1alpha1.SuspendAgentInstanceResponse
+	16, // 42: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:output_type -> kagent.api.v1alpha1.ResumeAgentInstanceResponse
+	18, // 43: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:output_type -> kagent.api.v1alpha1.DeleteAgentInstanceResponse
+	21, // 44: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:output_type -> kagent.api.v1alpha1.CreateAgentInstanceShareResponse
+	23, // 45: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:output_type -> kagent.api.v1alpha1.ListAgentInstanceSharesResponse
+	25, // 46: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:output_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareResponse
+	37, // [37:47] is the sub-list for method output_type
+	27, // [27:37] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_agent_instances_proto_init() }

@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +14,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
@@ -187,13 +188,13 @@ type remoteA2AState struct {
 // can't be silently forgotten in one branch while present in another.
 // functiontool.New infers the tool's output schema from this type.
 type remoteA2AResponse struct {
-	Result              string         `json:"result,omitempty"`
-	Error               string         `json:"error,omitempty"`
-	Status              string         `json:"status,omitempty"`
-	WaitingFor          string         `json:"waiting_for,omitempty"`
-	Subagent            string         `json:"subagent,omitempty"`
-	SubagentSessionID   string         `json:"subagent_session_id,omitempty"`
-	KAgentUsageMetadata map[string]any `json:"kagent_usage_metadata,omitempty"`
+	Result            string         `json:"result,omitempty"`
+	Error             string         `json:"error,omitempty"`
+	Status            string         `json:"status,omitempty"`
+	WaitingFor        string         `json:"waiting_for,omitempty"`
+	Subagent          string         `json:"subagent,omitempty"`
+	SubagentSessionID string         `json:"subagent_session_id,omitempty"`
+	Usage             map[string]any `json:"usage,omitempty"`
 }
 
 // NewKAgentRemoteA2ATool creates a function tool that calls a remote A2A agent
@@ -330,7 +331,7 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
-		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "remote agent request failed", "tool", s.name, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
 	}
 
@@ -343,12 +344,12 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	payload, _ := confirmation.Payload.(map[string]any)
 	remoteState := a2a.ParseRemoteHitlState(payload)
 	if remoteState == nil {
-		slog.Error("Resume for remote agent without valid remote HITL state", "tool", s.name)
+		logging.FromContext(ctx).ErrorContext(ctx, "resume for remote agent without valid remote HITL state", "tool", s.name)
 		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", s.name)}, nil
 	}
 	if !remoteState.HasResponse() {
-		slog.Error("Resume for remote agent without a HITL response",
-			"tool", remoteState.SubagentName, "taskID", remoteState.TaskID)
+		logging.FromContext(ctx).ErrorContext(ctx, "resume for remote agent without a HITL response",
+			"tool", remoteState.SubagentName, "task_id", remoteState.TaskID)
 		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing HITL response.", remoteState.SubagentName)}, nil
 	}
 
@@ -368,10 +369,10 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	}
 	a2a.AttachHitlExtension(message, remoteState.ResponsePayload())
 
-	slog.Info("Forwarding HITL response to subagent",
-		"responseType", remoteState.ResponseType(),
+	logging.FromContext(ctx).InfoContext(ctx, "forwarding HITL response to subagent",
+		"response_type", remoteState.ResponseType(),
 		"subagent", subagentName,
-		"taskID", taskID,
+		"task_id", taskID,
 	)
 
 	client, err := s.ensureClient(ctx)
@@ -383,7 +384,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
-		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "remote agent resume failed", "tool", subagentName, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
 	}
 
@@ -407,8 +408,12 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, result a2atype.SendMessageResult) (remoteA2AResponse, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
+		text, err := extractTextFromMessage(r)
+		if err != nil {
+			return remoteA2AResponse{}, fmt.Errorf("extract remote agent message result: %w", err)
+		}
 		return remoteA2AResponse{
-			Result:            extractTextFromMessage(r),
+			Result:            text,
 			SubagentSessionID: contextID,
 		}, nil
 	case *a2atype.Task:
@@ -416,7 +421,10 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 		case a2atype.TaskStateInputRequired:
 			return s.handleInputRequired(ctx, r, contextID), nil
 		case a2atype.TaskStateFailed:
-			text := extractTextFromTask(r)
+			text, err := extractTextFromTask(r)
+			if err != nil {
+				return remoteA2AResponse{}, fmt.Errorf("extract remote agent failure: %w", err)
+			}
 			if text == "" {
 				text = fmt.Sprintf("Remote agent '%s' failed.", s.name)
 			}
@@ -428,12 +436,16 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 			// completed — include sub-agent's final LLM usage from task.metadata
 			// so the parent can display it on the AgentCall card in the UI.
 			// Mirrors Python's _extract_usage_from_task(task).
+			text, err := extractTextFromTask(r)
+			if err != nil {
+				return remoteA2AResponse{}, fmt.Errorf("extract remote agent task result: %w", err)
+			}
 			ret := remoteA2AResponse{
-				Result:            extractTextFromTask(r),
+				Result:            text,
 				SubagentSessionID: contextID,
 			}
 			if usage := extractUsageFromTask(r); usage != nil {
-				ret.KAgentUsageMetadata = usage
+				ret.Usage = usage
 			}
 			return ret, nil
 		}
@@ -451,7 +463,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 // decision is forwarded and a final result comes back.
 func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype.Task, contextID string) remoteA2AResponse {
 	if task == nil {
-		slog.Error("Subagent returned input_required without task", "tool", s.name)
+		logging.FromContext(ctx).ErrorContext(ctx, "subagent returned input_required without task", "tool", s.name)
 		return remoteA2AResponse{
 			Error:             fmt.Sprintf("Remote agent '%s' returned input_required without task context.", s.name),
 			SubagentSessionID: contextID,
@@ -460,7 +472,7 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 
 	state := a2a.BuildRemoteHitlState(task, s.name)
 	if state == nil {
-		slog.Error("Subagent returned input_required without a valid HITL extension", "tool", s.name)
+		logging.FromContext(ctx).ErrorContext(ctx, "subagent returned input_required without a valid HITL extension", "tool", s.name)
 		return remoteA2AResponse{
 			Error:             fmt.Sprintf("Remote agent '%s' requested input without a valid HITL extension.", s.name),
 			Status:            "failed",
@@ -469,11 +481,11 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 	}
 
 	hint := a2a.RemoteHitlHint(state)
-	slog.Info("Subagent returned input_required, requesting confirmation from parent",
-		"tool", s.name, "taskID", task.ID)
+	logging.FromContext(ctx).InfoContext(ctx, "subagent returned input_required, requesting confirmation from parent",
+		"tool", s.name, "task_id", task.ID)
 
 	if err := ctx.RequestConfirmation(hint, state.ToMap()); err != nil {
-		slog.Error("Failed to request confirmation", "tool", s.name, "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to request confirmation", "tool", s.name, "error", err)
 	}
 	return remoteA2AResponse{
 		Status:            "pending",
@@ -496,23 +508,23 @@ func withOTelTransport(c *http.Client) *http.Client {
 	return &cp
 }
 
-// extractUsageFromTask extracts kagent_usage_metadata from a completed task.
+// extractUsageFromTask extracts public usage metadata from a completed task.
 // Port of _remote_a2a_tool.py:_extract_usage_from_task().
 func extractUsageFromTask(task *a2atype.Task) map[string]any {
 	if task == nil || task.Metadata == nil {
 		return nil
 	}
-	usage, ok := task.Metadata["kagent_usage_metadata"].(map[string]any)
+	usage, ok := task.Metadata[kagenta2a.UsageMetadataKey].(map[string]any)
 	if ok && len(usage) > 0 {
 		return usage
 	}
 	return nil
 }
 
-// extractTextFromTask extracts the text result from a completed Task.
-func extractTextFromTask(task *a2atype.Task) string {
+// extractTextFromTask extracts text or a structured terminal result from a completed Task.
+func extractTextFromTask(task *a2atype.Task) (string, error) {
 	if task == nil {
-		return ""
+		return "", nil
 	}
 	// Prefer artifacts (canonical result).
 	if len(task.Artifacts) > 0 {
@@ -524,24 +536,33 @@ func extractTextFromTask(task *a2atype.Task) string {
 				}
 				if text := part.Text(); text != "" {
 					texts = append(texts, text)
+					continue
 				}
+				if !kagenta2a.IsStructuredOutputPart(part) {
+					continue
+				}
+				text, err := kagenta2a.StructuredOutputJSON(part)
+				if err != nil {
+					return "", err
+				}
+				texts = append(texts, text)
 			}
 		}
 		if len(texts) > 0 {
-			return strings.Join(texts, "\n")
+			return strings.Join(texts, "\n"), nil
 		}
 	}
 	// Fall back to status message.
 	if task.Status.Message != nil {
 		return extractTextFromMessage(task.Status.Message)
 	}
-	return ""
+	return "", nil
 }
 
-// extractTextFromMessage extracts text from a direct A2A Message response.
-func extractTextFromMessage(message *a2atype.Message) string {
+// extractTextFromMessage extracts text or a structured result from a direct A2A Message response.
+func extractTextFromMessage(message *a2atype.Message) (string, error) {
 	if message == nil {
-		return ""
+		return "", nil
 	}
 	var texts []string
 	for _, part := range message.Parts {
@@ -550,7 +571,16 @@ func extractTextFromMessage(message *a2atype.Message) string {
 		}
 		if text := part.Text(); text != "" {
 			texts = append(texts, text)
+			continue
 		}
+		if !kagenta2a.IsStructuredOutputPart(part) {
+			continue
+		}
+		text, err := kagenta2a.StructuredOutputJSON(part)
+		if err != nil {
+			return "", err
+		}
+		texts = append(texts, text)
 	}
-	return strings.Join(texts, "\n")
+	return strings.Join(texts, "\n"), nil
 }

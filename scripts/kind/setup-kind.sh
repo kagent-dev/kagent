@@ -30,7 +30,8 @@ else
   export KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_RUNTIME}"
   kind create cluster --name "${KIND_CLUSTER_NAME}" \
     --config scripts/kind/kind-config.yaml \
-    --image="kindest/node:v${KIND_IMAGE_VERSION}"
+    --image="kindest/node:v${KIND_IMAGE_VERSION}" \
+    --wait 60s
 fi
 
 # 3. Add the registry config to the nodes

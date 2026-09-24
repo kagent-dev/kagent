@@ -1,5 +1,5 @@
 """Tests for durable-dir session storage: AgentConfig.session_db_url selects the local
-DatabaseSessionService instead of the HTTP KAgentSessionService."""
+DatabaseSessionService instead of controller-backed session storage."""
 
 from a2a.types import AgentCard
 from google.protobuf.json_format import ParseDict
@@ -29,8 +29,7 @@ def make_kagent_app(agent_config: AgentConfig | None = None) -> KAgentApp:
     return KAgentApp(
         root_agent_factory=lambda: None,
         agent_card=card,
-        kagent_url="http://kagent-controller:8083",
-        kagent_grpc_url="kagent-controller:8084",
+        kagent_api_url="http://kagent-controller:8083",
         app_name=APP_NAME,
         agent_config=agent_config,
     )

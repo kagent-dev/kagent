@@ -4,13 +4,13 @@ import (
 	"cmp"
 	"context"
 	"flag"
+	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/go-logr/logr"
-	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
@@ -20,41 +20,16 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
-	var zapLevel zapcore.Level
-	switch strings.ToLower(logLevel) {
-	case "debug":
-		zapLevel = zapcore.DebugLevel
-	case "info":
-		zapLevel = zapcore.InfoLevel
-	case "warn", "warning":
-		zapLevel = zapcore.WarnLevel
-	case "error":
-		zapLevel = zapcore.ErrorLevel
-	default:
-		zapLevel = zapcore.InfoLevel
-	}
-
-	zapConfig := zap.NewProductionConfig()
-	zapConfig.Level = zap.NewAtomicLevelAt(zapLevel)
-	zapConfig.EncoderConfig.TimeKey = "timestamp"
-	zapConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-
-	zapLogger, err := zapConfig.Build()
-	if err != nil {
-		devConfig := zap.NewDevelopmentConfig()
-		devConfig.Level = zap.NewAtomicLevelAt(zapLevel)
-		zapLogger, _ = devConfig.Build()
-	}
-	logger := zapr.NewLogger(zapLogger)
-	logger.Info("Logger initialized", "level", logLevel)
-	return logger, zapLogger
-}
+const (
+	defaultPluginPackagesRoot = "/plugins"
+	defaultSkillsRoot         = "/skills"
+	defaultPluginDataRoot     = "/data/plugins"
+)
 
 func main() {
 	logLevel := flag.String("log-level", cmp.Or(os.Getenv("LOG_LEVEL"), "info"), "Set the logging level (debug, info, warn, error)")
@@ -63,10 +38,13 @@ func main() {
 	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides CONFIG_DIR environment variable)")
 	flag.Parse()
 
-	logger, zapLogger := setupLogger(*logLevel)
-	defer func() {
-		_ = zapLogger.Sync()
-	}()
+	logger, err := logging.New(os.Stderr, *logLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid log level %q: %v\n", *logLevel, err)
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
+	logger.Info("logger initialized", "level", *logLevel)
 
 	port := *portFlag
 	if port == "" {
@@ -81,89 +59,97 @@ func main() {
 		configDir = "/config"
 	}
 
-	kagentGRPCURL := os.Getenv("KAGENT_GRPC_URL")
+	kagentAPIURL := env.KagentAPIURL.Get()
 
 	if err := config.MaterializeFromEnv(configDir); err != nil {
-		logger.Error(err, "Failed to materialize agent config from environment", "configDir", configDir)
+		logger.Error("failed to materialize agent config from environment", "error", err, "config_dir", configDir)
 		os.Exit(1)
 	}
 
 	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
 	if err != nil {
-		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
+		logger.Error("failed to load agent config (model configuration is required)", "error", err, "config_dir", configDir)
 		os.Exit(1)
 	}
-	if err := agentplugins.MaterializeAgentConfig(
-		logr.NewContext(context.Background(), logger), agentConfig,
-		agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
+	if err := config.MaterializeAgentPlugins(
+		logging.IntoContext(context.Background(), logger), agentConfig,
+		config.AgentPluginPaths{
+			Packages: defaultPluginPackagesRoot,
+			Skills:   defaultSkillsRoot,
+			Data:     defaultPluginDataRoot,
+		},
 	); err != nil {
-		logger.Error(err, "Failed to materialize Agent Plugins")
+		logger.Error("failed to materialize Agent Plugins", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("Loaded agent config", "configDir", configDir)
-	logger.Info("Agent configuration",
+	logger.Info("loaded agent config", "config_dir", configDir)
+	logger.Info("agent configuration",
 		"model", agentConfig.Model.GetType(),
 		"stream", agentConfig.GetStream(),
-		"httpTools", len(agentConfig.HttpTools),
-		"sseTools", len(agentConfig.SseTools),
-		"remoteAgents", len(agentConfig.RemoteAgents))
+		"http_tools", len(agentConfig.HttpTools),
+		"sse_tools", len(agentConfig.SseTools),
+		"remote_agents", len(agentConfig.RemoteAgents))
 
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+	kagentName := env.KagentName.Get()
+	kagentNamespace := env.KagentNamespace.Get()
 
 	// Derive app name from env or agent card.
 	appName := deriveAppName(kagentName, kagentNamespace, agentCard, logger)
 
 	// Fall back to appName / "default" so traces always have a non-empty service identity.
-	serviceNameSource := kagentName
-	if serviceNameSource == "" {
-		serviceNameSource = appName
+	serviceName := kagentName
+	if serviceName == "" {
+		serviceName = appName
 	}
-	serviceNamespaceSource := kagentNamespace
-	if serviceNamespaceSource == "" {
-		serviceNamespaceSource = "default"
+	serviceNamespace := kagentNamespace
+	if serviceNamespace == "" {
+		serviceNamespace = "default"
 	}
-	serviceName := strings.ReplaceAll(serviceNameSource, "-", "_")
-	serviceNamespace := strings.ReplaceAll(serviceNamespaceSource, "-", "_")
-	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), serviceName, serviceNamespace)
+	// The same identity reaches the resource and every invocation span, so a
+	// consumer reads one contract whichever runtime executed the agent. Model
+	// identity stays on the model spans the ADK emits per call.
+	runtimeTelemetry := tracing.RuntimeTelemetry{
+		Runtime: tracing.RuntimeADKGo, AgentName: serviceName, AgentNamespace: serviceNamespace,
+	}
+	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), runtimeTelemetry)
 	if telErr != nil {
-		logger.Error(telErr, "Failed to initialize ADK telemetry providers; continuing without telemetry export")
+		logger.Error("failed to initialize ADK telemetry providers; continuing without telemetry export", "error", telErr)
 	} else if telemetryEnabled {
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := shutdownTelemetry(shutdownCtx); err != nil {
-				logger.Error(err, "Failed to shutdown telemetry providers cleanly")
+				logger.Error("failed to shutdown telemetry providers cleanly", "error", err)
 			}
 		}()
-		logger.Info("ADK telemetry initialized")
+		logger.Info("telemetry initialized for ADK")
 	} else {
-		logger.Info("ADK telemetry disabled (set OTEL_TRACING_ENABLED or OTEL_LOGGING_ENABLED to true)")
+		logger.Info("telemetry disabled for ADK (set OTEL_TRACING_ENABLED or OTEL_LOGGING_ENABLED to true)")
 	}
 
 	// Create one authenticated controller channel for all kagent persistence.
 	var controllerClient *controllerclient.Client
 	var tokenService *auth.KAgentTokenService
-	if kagentGRPCURL != "" {
+	if kagentAPIURL != "" {
 		tokenService = auth.NewKAgentTokenService(appName)
 		if err := tokenService.Start(context.Background()); err != nil {
-			logger.Error(err, "Failed to start token service")
+			logger.Error("failed to start token service", "error", err)
 		} else {
-			logger.Info("Token service started")
+			logger.Info("token service started")
 		}
 		defer tokenService.Stop()
 		controllerClient, err = controllerclient.New(controllerclient.Config{
-			Target:        kagentGRPCURL,
+			APIURL:        kagentAPIURL,
 			AgentName:     appName,
 			TokenProvider: tokenService,
 		})
 		if err != nil {
-			logger.Error(err, "Failed to create controller gRPC client", "target", kagentGRPCURL)
+			logger.Error("failed to create controller API client", "error", err, "url", kagentAPIURL)
 			os.Exit(1)
 		}
 		defer func() {
 			if err := controllerClient.Close(); err != nil {
-				logger.Error(err, "Failed to close controller gRPC client")
+				logger.Error("failed to close controller gRPC client", "error", err)
 			}
 		}()
 	}
@@ -173,17 +159,17 @@ func main() {
 	// AgentConfig.session_db_url selects the actor-local DurableDir store.
 	sessionService, err := session.NewService(agentConfig.SessionDBURL)
 	if err != nil {
-		logger.Error(err, "Failed to open local session store", "url", agentConfig.SessionDBURL)
+		logger.Error("failed to open local session store", "error", err, "url", agentConfig.SessionDBURL)
 		os.Exit(1)
 	}
 	switch sessionService.(type) {
 	case *session.LocalSessionService:
-		logger.Info("Using local durable-dir session store", "url", agentConfig.SessionDBURL)
+		logger.Info("using local durable-dir session store", "url", agentConfig.SessionDBURL)
 	default:
-		logger.Info("No session DB configured, using in-memory session")
+		logger.Info("no session DB configured, using in-memory session")
 	}
 
-	ctx := logr.NewContext(context.Background(), logger)
+	ctx := logging.IntoContext(context.Background(), logger)
 
 	// Build memory service if configured.
 	var memoryService *kagentmemory.KagentMemoryService
@@ -195,27 +181,32 @@ func main() {
 			EmbeddingConfig:  agentConfig.Memory.Embedding,
 		})
 		if err != nil {
-			logger.Error(err, "Failed to create memory service")
+			logger.Error("failed to create memory service", "error", err)
 			os.Exit(1)
 		}
 		memoryService = memSvc
-		logger.Info("Memory service enabled", "appName", appName)
+		logger.Info("memory service enabled", "app_name", appName)
 	}
 
 	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
 	if err != nil {
-		logger.Error(err, "Failed to create Google ADK Runner config")
+		logger.Error("failed to create Google ADK Runner config", "error", err)
 		os.Exit(1)
 	}
 
 	stream := agentConfig.GetStream()
-	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
+	executor, err := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
 		RunnerConfig:   runnerConfig,
 		SessionService: sessionService,
 		Stream:         stream,
 		AppName:        appName,
 		Logger:         logger,
+		Output:         agentConfig.Output,
 	})
+	if err != nil {
+		logger.Error("failed to create A2A executor", "error", err)
+		os.Exit(1)
+	}
 
 	// Build the agent card.
 	if agentCard == nil {
@@ -241,35 +232,36 @@ func main() {
 		ShutdownTimeout: 5 * time.Second,
 		Logger:          logger,
 		Agent:           runnerConfig.Agent,
+		Telemetry:       runtimeTelemetry,
 	}, executor)
 	if err != nil {
-		logger.Error(err, "Failed to create app")
+		logger.Error("failed to create app", "error", err)
 		os.Exit(1)
 	}
 
 	if err := kagentApp.Run(); err != nil {
-		logger.Error(err, "Server error")
+		logger.Error("server error", "error", err)
 		os.Exit(1)
 	}
 }
 
-func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentCard, logger logr.Logger) string {
+func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentCard, logger *slog.Logger) string {
 	if kagentNamespace != "" && kagentName != "" {
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
 		appName := namespace + "__NS__" + name
-		logger.Info("Built app_name from environment variables",
-			"KAGENT_NAMESPACE", kagentNamespace,
-			"KAGENT_NAME", kagentName,
+		logger.Info("built app_name from environment variables",
+			"kagent_namespace", kagentNamespace,
+			"kagent_name", kagentName,
 			"app_name", appName)
 		return appName
 	}
 
 	if agentCard != nil && agentCard.Name != "" {
-		logger.Info("Using agent card name as app_name", "app_name", agentCard.Name)
+		logger.Info("using agent card name as app_name", "app_name", agentCard.Name)
 		return agentCard.Name
 	}
 
-	logger.Info("Using default app_name", "app_name", "go-adk-agent")
+	logger.Info("using default app_name", "app_name", "go-adk-agent")
 	return "go-adk-agent"
 }

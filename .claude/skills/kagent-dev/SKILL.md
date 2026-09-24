@@ -30,7 +30,7 @@ proto/                           protobuf and Buf inputs
 go/api/gen/                      generated Go protobuf code
 go/core/internal/grpcserver/     gRPC transport and policy
 go/core/internal/service/        transport-independent services
-go/core/internal/database/       sqlc queries and generated accessors
+go/core/internal/database/       Inline pgx SQL and private typed rows
 go/core/pkg/migrations/          PostgreSQL migrations
 go/core/internal/controller/     CRD reconciliation and preparation
 go/adk/                          Go runtime
@@ -42,7 +42,7 @@ helm/                            installation charts
 ## Workflow
 
 1. Read the relevant roadmap PR and trace existing callers before editing.
-2. Reuse current compiler, service, database, and runtime code where its behavior matches the new boundary.
+2. Before adding a helper or public function, search for an equivalent in the owning package and its callers; reuse existing transport and credential paths when they fit. Keep model credentials as Secret references, not plaintext ModelConfig or serialized agent fields; Substrate injects them at the egress gateway.
 3. Keep generated code generated; edit source types, protobufs, SQL, or templates first.
 4. Add the smallest check that proves new behavior. Tests tied only to removed APIs should be deleted rather than translated.
 5. Run focused tests first, then the relevant repository checks.
@@ -58,7 +58,7 @@ make -C go lint
 make -C python lint
 ```
 
-After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit the query, migration, and generated accessors together.
+After SQL changes, run `go test ./core/internal/database ./core/pkg/migrations` from `go/`. Keep parameterized SQL beside its owning store operation and use private typed rows with pgx. The store tests prepare every inline statement against the migrated PostgreSQL schema; do not skip this check with `-short`.
 
 ## CRD changes
 
@@ -79,10 +79,35 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 
 ## Database changes
 
-- Add paired migrations and sqlc queries.
-- Preserve transaction boundaries for idempotency, ownership, lifecycle fencing, and task ordering.
-- Use PostgreSQL constraints for invariants that can be enforced atomically.
-- Keep migrations schema-agnostic and safe for multiple controller replicas.
+- PostgreSQL migrations use Goose with embedded SQL files.
+- Add each migration as `NNNNNN_description.sql`.
+- Do not add legacy split files ending in `.up.sql` or `.down.sql`.
+- Include one `-- +goose Up` section and one `-- +goose Down` section.
+- Goose makes the Down section optional, but Kagent requires it for the database CLI.
+- Do not use `-- +goose NO TRANSACTION`.
+- Goose must commit each schema change and its migration record in one transaction.
+- Never change, rename, or delete a migration after it merges.
+- Fix an accepted migration with a new migration.
+- Keep migration SQL schema-agnostic.
+- Change only objects that the migration source owns.
+- Do not use existence guards for source-owned objects; a migration ledger mismatch must fail.
+- Use existence guards only for shared bootstrap resources such as PostgreSQL extensions.
+- Each migration source must use its own migration table and advisory lock.
+- Register dependent sources after the sources that they need.
+- Do not add automatic down migrations when a later source fails.
+- A restart must continue from each source's last committed version.
+- Allow non-destructive startup when the database is ahead of the binary for rolling compatibility.
+- The Goose cutover requires a fresh PostgreSQL database.
+- Do not add a golang-migrate bridge for the cutover.
+- Keep `schema_migrations` for the core source.
+- Keep `vector_schema_migrations` for the vector source.
+- Run the PostgreSQL store tests after a migration change to validate every inline statement against the new schema.
+- Test the Up and Down sections against PostgreSQL.
+- Use PostgreSQL constraints for invariants that the database can enforce atomically.
+
+## Authorization changes
+
+For resource or collection authorization work, read the [scoped authorization guide](references/scoped-authorization.md) before changing services or list queries.
 
 ## Testing and CI
 

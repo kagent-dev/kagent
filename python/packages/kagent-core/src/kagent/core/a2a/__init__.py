@@ -1,14 +1,11 @@
 from ._config import get_a2a_max_content_length
 from ._consts import (
-    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
     A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    ADK_METADATA_KEY_PREFIX,
-    get_kagent_metadata_key,
-    read_metadata_value,
+    A2A_PART_TYPE_METADATA_KEY,
+    A2A_USAGE_METADATA_KEY,
 )
 from ._context import get_request_user_id, set_request_user_id
 from ._hitl import (
@@ -38,7 +35,6 @@ from ._hitl import (
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
-from ._task_store import KAgentTaskStore
 from ._time import now_timestamp
 
 __all__ = [
@@ -48,13 +44,9 @@ __all__ = [
     "set_request_user_id",
     "KAgentRequestContextBuilder",
     "KAgentGrpcServerCallContextBuilder",
-    "KAgentTaskStore",
     "now_timestamp",
-    "get_kagent_metadata_key",
-    "read_metadata_value",
-    "ADK_METADATA_KEY_PREFIX",
-    "A2A_DATA_PART_METADATA_TYPE_KEY",
-    "A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY",
+    "A2A_PART_TYPE_METADATA_KEY",
+    "A2A_USAGE_METADATA_KEY",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE",
     "A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT",

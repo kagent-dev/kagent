@@ -8,6 +8,36 @@ When making changes to `kagent`, the most important thing is to figure out which
 - [go](go): Contains the code for the kubernetes controller, and the CLI.
 - [ui](ui): Contains the code for the web UI.
 
+## Nightly releases
+
+The [Nightly Release workflow](https://github.com/kagent-dev/kagent/actions/workflows/nightly.yaml)
+runs at 02:00 UTC on the default branch, skipping builds when its commit matches
+the previous successful nightly. Maintainers can also run it manually on the
+default branch to force a rebuild.
+
+Use **Run workflow** on that page, or run
+`gh workflow run nightly.yaml --ref main`. Both nightly and tagged releases use
+the shared `publish-image`, `publish-helm`, and `build-release-artifacts` composite
+actions in `.github/actions`.
+
+Each build publishes all six component images and the `kagent` and `kagent-crds`
+Helm charts as `0.0.0-alpha.g<12-character-commit>`. These are development builds;
+nightly runs do not publish Python packages to PyPI or create GitHub releases.
+
+To install a nightly, use the version from its workflow summary for both charts
+with your usual installation values. Replace the example version below:
+
+```shell
+NIGHTLY_VERSION=0.0.0-alpha.g0123456789ab
+helm upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
+  --version "$NIGHTLY_VERSION" --namespace kagent --create-namespace
+helm upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+  --version "$NIGHTLY_VERSION" --namespace kagent -f your-values.yaml
+```
+
+Each workflow run includes a changelog in its summary and an artifact containing
+CLI binaries, checksums, and commit-specific chart archives.
+
 ## Dependencies
 
 Before you can run kagent in Kubernetes, you need to have the following tools installed:
@@ -171,9 +201,30 @@ Run the agent locally as well, with `--net=host` option, so it can connect to th
 
 ```bash
 docker run --rm \
-  -e KAGENT_URL=http://localhost:8083 \
+  -e KAGENT_API_URL=http://localhost:8083 \
+  -e KAGENT_GATEWAY_URL=http://localhost:8083 \
   -e KAGENT_NAME=kebab-agent \
   -e KAGENT_NAMESPACE=kagent \
   --net=host \
   localhost:5001/kebab:latest
 ```
+
+## Telemetry
+
+The telemetry contract is a Weaver registry in `telemetry/registry`. The Go
+constants in `go/pkg/telemetry/conv`, the Python constants in
+`kagent.core.telemetry.conv`, and `docs/architecture/telemetry-contract.md` are
+generated from it. Never edit them by hand. After a registry change, run:
+
+```bash
+make semconv-generate   # regenerate everything from the registry
+make semconv-verify     # what CI runs: check, policy tests, generate, drift check
+```
+
+These targets need either Docker or a local `weaver` of exactly the version in
+`telemetry/versions.env`. A different local version is refused, so a green run
+on a laptop means the same as in CI. See
+[docs/architecture/telemetry.md](docs/architecture/telemetry.md) for the contract.
+
+To look at traces locally, `make otel-local` starts Jaeger with an OTLP receiver
+on ports 4317 and 4318 and its UI on http://localhost:16686.

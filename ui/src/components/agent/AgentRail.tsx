@@ -1,0 +1,1792 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Dropdown,
+  Input,
+  Modal,
+  Skeleton,
+  Typography,
+} from "antd";
+import { useTheme, type Theme } from "@emotion/react";
+import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
+import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
+import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
+import { ShareDialog } from "@/components/chat/ShareDialog";
+import { useConversationTitles } from "@/api/hooks/useConversationTitles";
+import toast from "react-hot-toast";
+import {
+  Bot,
+  ChevronsUpDown,
+  Copy,
+  FileText,
+  Folder,
+  MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  SquarePen,
+  Pencil,
+  Share2,
+  Trash,
+} from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  apiClient,
+  bareName,
+  type AgentInstance,
+  type ApiResource,
+} from "@/api";
+import {
+  conversationTitle,
+  relativeAge,
+  shortInstanceId,
+} from "@/components/agent-instances/instanceLabels";
+import { useThemeMode } from "@/theme/useThemeMode";
+import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
+import {
+  useExtensionAgentLinks,
+  useExtensionAgentRailItems,
+  useExtensionAgentRailOverrides,
+  useExtensionSlotComponents,
+} from "@/appExtensions/hooks";
+import {
+  applyAgentRailOverrides,
+  ExtensionSlot,
+  isRailEntryHidden,
+} from "@/appExtensions";
+import {
+  coreRailItems,
+  mergeRailEntries,
+  railItemIsActive,
+  type RailItem,
+} from "./railItems";
+import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
+import { AgentSwitcher } from "./AgentSwitcher";
+import {
+  checkboxStyles,
+  iconControlStyles,
+  rowStyles,
+  scrollbarStyles,
+  searchInputStyles,
+} from "./controlStyles";
+
+const { Text } = Typography;
+
+/** Where the rail's collapsed state is remembered, per reader. */
+const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
+
+/**
+ * The width below which the rail gets out of the transcript's way.
+ *
+ * Last of the three columns to fold, and below the `lg` breakpoint antd folds the
+ * application sidebar at: the agent panel is reference, the application sidebar is
+ * navigation you can reach from anywhere, and this rail is the only way to the other
+ * conversations with *this* agent. So it goes when there is nothing else left to give.
+ */
+const RAIL_COLLAPSES_BELOW = 1040;
+
+/**
+ * The navigation for when you are inside one agent.
+ *
+ * Narrowed to a single agent: which agent you are in, the things you can do to it,
+ * and every conversation you have had with it. That is a different shape of
+ * navigation from the application's own rail, not a differently styled one, so it is
+ * rendered beside the page's content rather than replacing the shell's.
+ *
+ * ## What "every conversation with it" now means
+ *
+ * The sibling instances cut from the same pair. An `AgentInstance` *is* one
+ * conversation — the A2A gateway files its tasks under the instance as their
+ * `contextId`, and there is no session beneath it — so a second conversation with
+ * the same agent is a second instance of the same `(Harness, AgentTemplate)`.
+ *
+ * That makes the list here exactly what it always was on screen (the conversations
+ * you have had with this agent) while being addressed the way the API actually
+ * works, and it makes "New Chat" a create rather than a navigation.
+ */
+
+
+export interface AgentRailProps {
+  /**
+   * Which agent the rail is scoped to. From the URL, so the rail stands up before
+   * anything has been read — including when the read fails.
+   */
+  agentRef: Partial<AgentRef>;
+  /**
+   * What the identity card names, when no conversation is selected.
+   *
+   * The agent's own page mounts this rail with no conversation open — nothing is
+   * current yet, which is the point of that page. Without this the card would show
+   * the blank initials and empty id of a conversation that does not exist.
+   */
+  agentTitle?: { primary: string; secondary?: string };
+  /**
+   * Where the agent's own page is, when no conversation is open to derive it from.
+   *
+   * Normally this comes from the instance — its template and harness are the pair. On
+   * the agent's own page and on a conversation that does not exist yet there is no
+   * instance, and without this the rail loses its way back to the agent entirely.
+   */
+  agentHref?: string;
+  /**
+   * Which agent this rail is scoped to, where the surface already knows.
+   *
+   * Reconstructed from the open conversation otherwise, which is fine on a chat page
+   * and impossible on the agent's own page or a new conversation — neither has a
+   * conversation to read a harness from. The switcher needs the whole pair to leave the
+   * current agent out of its own list, so a surface that knows it says so rather than
+   * having it inferred from a title string.
+   */
+  agentPair?: { namespace: string; agentTemplate?: string; harness?: string };
+  /**
+   * Controls the surface wants in the rail's gutter, under the collapse toggle.
+   *
+   * The gutter is a column this component already owns and keeps sticky, so a page
+   * with one more icon control — chat has Share — can put it there rather than
+   * spending a whole row of the conversation on it. Stacked under the toggle, so the
+   * column stays one icon wide whatever is in it.
+   */
+  gutterActions?: ReactNode;
+  /**
+   * The instance itself, once it has loaded.
+   *
+   * Only the second line of the identity card needs it, and the conversations below
+   * are the reason the rail exists — holding all of it back until the instance read
+   * succeeded left a failed read with no navigation at all, and no way to see that
+   * the conversations had loaded fine.
+   */
+  instance?: AgentInstance;
+  /**
+   * Every instance visible to the caller, from whichever surface is already reading them.
+   *
+   * Required rather than read here: the surfaces mounting this rail all list
+   * instances anyway, and a second read keyed differently would fetch the same rows
+   * twice. The rail narrows them to the siblings of this one.
+   */
+  instances: ApiResource<AgentInstance[]>;
+  /**
+   * A title for *this* conversation, derived from what was said in it.
+   *
+   * Only the surface rendering the transcript can supply one — deriving it costs a
+   * read of the conversation's tasks, so the sibling rows below cannot have one and
+   * fall back to their id. Ignored entirely once the conversation has a name the
+   * reader gave it.
+   */
+  autoTitle?: string;
+  /** Starts another conversation with this agent: a new instance of the same pair. */
+  onNewChat?: () => void;
+  /**
+   * Told after a conversation is deleted, for a surface that must react.
+   *
+   * The chat page is the one that must: deleting the conversation it is showing leaves
+   * it on an address that no longer resolves, so it navigates away. Everything else can
+   * ignore it — the list has already been re-read.
+   */
+  onDeleted?: (instance: AgentInstance) => void;
+}
+
+export function AgentRail({
+  agentRef: ref,
+  agentTitle,
+  agentHref: agentHrefFromCaller,
+  agentPair,
+  gutterActions,
+  instance,
+  instances,
+  autoTitle,
+  onNewChat,
+  onDeleted,
+}: AgentRailProps) {
+  const theme = useTheme();
+  const { mode } = useThemeMode();
+  const location = useLocation();
+  const [query, setQuery] = useState("");
+
+  /*
+   * Where this rail's entries lead.
+   *
+   * A distribution may serve its own agent surfaces at its own addresses; it can then
+   * share this rail rather than keep a copy of it, because the navigation is the same
+   * either way and only the destinations differ. Anything it does not redefine falls
+   * back to this application's own route.
+   */
+  const links = useExtensionAgentLinks();
+  const url = {
+    chat: (ref: AgentRef) => links?.chat?.(ref) ?? agentUrl.chat(ref),
+    details: (ref: AgentRef) => links?.details?.(ref) ?? agentUrl.details(ref),
+  };
+
+  const conversations = instances;
+
+  /**
+   * Which agent the switcher is open *for*, rather than whether it is open.
+   *
+   * The rail is re-rendered with new props on a switch rather than unmounted, so a
+   * plain boolean stayed true over the agent it had just moved to. Holding the
+   * identity makes "closed" fall out of the agent changing, with no second render and
+   * nothing to keep in step.
+   */
+  const [switcherFor, setSwitcherFor] = useState<string>();
+  const agentKey = ref.id ?? agentPair?.agentTemplate ?? "new";
+  const isSwitcherOpen = switcherFor === agentKey;
+
+  /**
+   * Whether the switcher has ever been opened in this rail.
+   *
+   * Kept because a collapse cannot animate something already unmounted, and never
+   * unset: the cost of leaving it mounted is one cached list, and the gain is that
+   * reopening animates too. It is not mounted from the start because the switcher
+   * reads the agent list, and a rail that fetched forty agents before anybody asked
+   * to change agent would be paying for a menu most readers never open.
+   */
+  const [hasOpenedSwitcher, setHasOpenedSwitcher] = useState(false);
+
+  /**
+   * The height the region is animating *towards*, one frame behind the open state.
+   *
+   * A transition needs a previous value: mounted straight at full height, the first
+   * open jumped and only the second one animated. So the region mounts closed and is
+   * told to expand on the next frame, which is the frame that has something to
+   * interpolate from. Set inside `requestAnimationFrame`, so this is not a render
+   * cascade — it is a paint the browser has already committed.
+   */
+  const [isExpanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!hasOpenedSwitcher) return;
+    const frame = requestAnimationFrame(() => setExpanded(isSwitcherOpen));
+    return () => cancelAnimationFrame(frame);
+  }, [hasOpenedSwitcher, isSwitcherOpen]);
+
+  /*
+   * Two entries: what the agent is, and talking to it.
+   *
+   * Editing is not a third. It is something you do *from* the details page — which
+   * shows what the agent is configured with, and offers the pencil that opens those
+   * same values — so a separate entry made "look at it" and "change it" read as two
+   * places holding the same facts. The details entry stays lit while editing, because
+   * that is where the reader came from and where saving returns them.
+   */
+  const agentPageHref =
+    agentHrefFromCaller ??
+    (instance?.harness && instance.agentTemplate
+      ? agentPageUrl({
+        namespace: instance.agentTemplate.split("/")[0],
+          agentTemplate: bareName(instance.agentTemplate),
+          harness: bareName(instance.harness),
+        })
+      : undefined);
+
+  /*
+   * The agent as a pair, for everything that is about the agent rather than the
+   * conversation open within it. From the surface when it knows, otherwise read off the
+   * instance — the pages with no conversation open have only the first.
+   */
+  const pair = agentPair ?? {
+    namespace: instance?.agentTemplate?.split("/")[0] ?? "",
+    agentTemplate: instance?.agentTemplate
+      ? bareName(instance.agentTemplate)
+      : agentTitle?.primary,
+    harness: instance?.harness ? bareName(instance.harness) : undefined,
+  };
+
+  /*
+   * Where "Agent Details" goes, which is not always the agent's own page.
+   *
+   * Through `agentLinks.details` when a distribution declares one and a conversation is
+   * open — the redirection that point exists to make, and which was computed and then
+   * ignored. Only with an `instance`, because the link is addressed by one.
+   */
+  const agentHref =
+    (ref.id ? links.details?.({ id: ref.id }) : undefined) ?? agentPageHref;
+
+  /*
+   * Whether the conversation named by the route is still being read.
+   *
+   * Its address is built from the instance's own template and harness, so until the
+   * record lands there is nothing for Agent Details to point at and the entry was left
+   * out — it then appeared under the reader's pointer and pushed the rest of the nav
+   * down. The pair-keyed pages name no conversation, so this is false there and the
+   * entry is genuinely absent rather than late.
+   */
+  const isReadingConversation = Boolean(ref.id) && !instance;
+
+  /*
+   * Where "New chat" goes.
+   *
+   * The new-conversation route is the agent's own address with `/new` on the end, so
+   * it is derivable wherever the agent is known — including on the pages that have no
+   * instance, which is exactly where this button used to be disabled. It was gated on
+   * `instance` because it once *created* the conversation and needed a pair to copy;
+   * nothing is created now, so all it needs is somewhere to go.
+   *
+   * Built from `agentPageHref`, never `agentHref`: a redirected details link addresses
+   * the conversation, and `/new` under it is a route nothing serves.
+   */
+  const newChatHref = agentPageHref ? `${agentPageHref}/new` : undefined;
+
+  /*
+   * The rail's navigation, as data an extension can reach.
+   *
+   * The two entries were an array built here and a link written inline below it,
+   * which meant a product could retarget them through `agentLinks` and do nothing
+   * else: not add a third, not hide one, not put them in a different order. They are
+   * `coreRailItems` now, overrides are applied before anything is drawn, and
+   * contributions interleave by `order` — the same pair of extension points the
+   * application sidebar has had all along.
+   */
+  const railOverrides = useExtensionAgentRailOverrides();
+  const railContributions = useExtensionAgentRailItems();
+  const railEntries = mergeRailEntries(
+    applyAgentRailOverrides(coreRailItems({ agentHref, newChatHref }), railOverrides),
+    railContributions,
+  );
+
+  /*
+   * The other conversations with this agent: the instances cut from the same pair.
+   *
+   * Narrowed on the pair rather than showing every visible instance,
+   * because "conversations with *this* agent" is what the list means — a different
+   * template is a different agent, and listing it here would make the rail a second
+   * copy of the agents page.
+   *
+   * With no instance loaded yet the pair is unknown, so nothing is claimed: an
+   * unfiltered list would briefly show every visible agent as though they
+   * were all conversations with this one.
+   */
+  const chats = useMemo(() => {
+    /*
+     * With a conversation open, the list is narrowed to its siblings here — the
+     * surfaces that mount this rail read every visible instance, and only
+     * this one knows which pair is current.
+     *
+     * With none open, the caller has already narrowed it, because the page *is* an
+     * agent and could not have read anything else. Returning nothing in that case is
+     * what left the rail empty on the agent and new-conversation pages: an agent's own
+     * navigation showing none of its conversations.
+     */
+    const siblings = instance
+      ? (conversations.data ?? []).filter(
+          (candidate) =>
+            candidate.harness === instance.harness &&
+            candidate.agentTemplate === instance.agentTemplate,
+        )
+      : (conversations.data ?? []);
+    const needle = query.trim().toLowerCase();
+    const found = !needle
+      ? siblings
+      : // The name as well as the id: a reader who titled a conversation searches for
+        // what they called it, and a box that only matched hex would find nothing while
+        // the row they wanted was on screen.
+        siblings.filter(
+          (candidate) =>
+            candidate.id.toLowerCase().includes(needle) ||
+            candidate.name.toLowerCase().includes(needle),
+        );
+    return [...found].sort(byNewestFirst);
+  }, [conversations.data, instance, query]);
+
+  /*
+   * Collapsed, and remembered.
+   *
+   * The rail is navigation, so it earns its width most of the time — but a reader
+   * following a long answer wants the transcript, and 248px of it is a quarter of a
+   * laptop screen. The preference is per-reader rather than per-page: collapsing it on
+   * a conversation and finding it back on the next one is the behaviour that makes
+   * people stop using the control.
+   *
+   * Absent means expanded, so a reader who has never touched it gets the navigation.
+   */
+  /*
+   * Deleting is the rail's own job now.
+   *
+   * It used to depend on a caller passing a handler, so the control existed on the chat
+   * page and nowhere else — the same row behaved differently depending on which surface
+   * had mounted it. The rail lists the conversations, so it deletes them; a surface that
+   * cares what happened afterwards says so through `onDeleted`.
+   */
+  const [deletingId, setDeletingId] = useState<string>();
+
+  /*
+   * Which conversations are ticked, and where the last tick was.
+   *
+   * The anchor is what makes shift-select mean anything: a range needs two ends, and
+   * the second one is wherever the reader shift-clicks. Kept as an id rather than an
+   * index so a list that re-orders under them — a conversation moving up because it was
+   * just used — cannot turn their range into a different one.
+   */
+  /*
+   * A title for every conversation, not just the open one.
+   *
+   * Every row but the current one used to read `Untitled · 50b46891`, which made the
+   * list very nearly unusable: the one row a reader could identify was the one they
+   * were already looking at.
+   */
+  const derivedTitles = useConversationTitles(chats);
+
+  /*
+   * Bringing the list into line is the caller's job, not this one's.
+   *
+   * The row renders from the live read above, so a reader sees a change at once; the
+   * list only has to catch up eventually. Re-reading it from here on every transition
+   * looked right and broke sending outright: a list refresh re-renders the surface,
+   * which re-runs the transcript's history effect, whose cleanup aborts the controller
+   * the in-flight send is using. The message went nowhere and nothing said so.
+   *
+   * So the surface refreshes its own list when its turn is idle — see `AgentChatPage`.
+   */
+
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string>();
+  const [isBulkDeleting, setBulkDeleting] = useState(false);
+  const [isConfirmingBulk, setConfirmingBulk] = useState(false);
+  /*
+   * What a conversation's state is about to be, before the controller says so.
+   *
+   * Suspending is not synchronous: the call returns once the operation is claimed and
+   * the state changes when the work finishes, so the re-read that follows reports the
+   * old state and the row's indicator did not move until something else refreshed it
+   * — which reads as the click having done nothing.
+   *
+   * So the row shows the asked-for state at once and the list is re-read until the
+   * controller agrees. Cleared either way: on agreement because the real state now says
+   * the same thing, and on failure because the row must go back to the truth rather
+   * than keep a state that never happened.
+   */
+  /*
+   * A refused delete has to say so.
+   *
+   * These were `try`/`finally` with no `catch`, so a refusal closed the dialog, cleared
+   * the spinner and reported nothing — the rows came back on the next read and the
+   * reader was left to notice that what they deleted was still there. An instance is
+   * scoped to its creator on write, so a refusal is an ordinary outcome here rather
+   * than an exceptional one.
+   */
+  const [actionError, setActionError] = useState<{ action: string; message: string }>();
+
+  /*
+   * Ticking one, or a run of them.
+   *
+   * Shift extends from the last tick to this one *over the filtered list*, which is
+   * what the reader can see — extending over the unfiltered one would silently select
+   * conversations that are not on screen, and the count above would then not match the
+   * ticks below it.
+   */
+  function toggleSelected(id: string, withShift: boolean): void {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (withShift && anchorId) {
+        const ids = chats.map((chat) => chat.id);
+        const from = ids.indexOf(anchorId);
+        const to = ids.indexOf(id);
+        if (from !== -1 && to !== -1) {
+          const [start, end] = from < to ? [from, to] : [to, from];
+          for (let i = start; i <= end; i += 1) next.add(ids[i]);
+          return next;
+        }
+      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setAnchorId(id);
+  }
+
+  /*
+   * Every conversation the filter is showing, or none of them.
+   *
+   * Scoped to the filtered list on purpose: a reader who has searched and then selects
+   * all means the ones they searched for. Clearing clears everything, including any
+   * selection made before the filter narrowed — otherwise ticks would survive out of
+   * sight and the next bulk action would take more than the reader could see.
+   */
+  /*
+   * How many of the selected conversations a suspend would actually reach.
+   *
+   * Derived rather than held: it is a fact about the selection and the list, both of
+   * which are already state, and a copy would go stale the moment either changed.
+   */
+
+  const visibleIds = chats.map((chat) => chat.id);
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+
+  function toggleAllVisible(): void {
+    setSelected(allVisibleSelected ? new Set() : new Set(visibleIds));
+    setAnchorId(undefined);
+  }
+
+  async function deleteSelected(): Promise<void> {
+    setBulkDeleting(true);
+    setActionError(undefined);
+    try {
+      const targets = chats.filter((chat) => selected.has(chat.id));
+      await Promise.all(
+        targets.map((target) =>
+          apiClient.agentInstances.remove(target.id),
+        ),
+      );
+      await conversations.refresh();
+      targets.forEach((target) => onDeleted?.(target));
+      setSelected(new Set());
+      setAnchorId(undefined);
+    } catch (cause: unknown) {
+      // The list is re-read either way, so whatever *was* deleted disappears and
+      // whatever was refused stays — and this says which happened.
+      await conversations.refresh();
+      reportActionFailure("delete", cause, setActionError);
+    } finally {
+      setBulkDeleting(false);
+      setConfirmingBulk(false);
+    }
+  }
+
+  const [duplicatingId, setDuplicatingId] = useState<string>();
+  const [isBulkMenuOpen, setBulkMenuOpen] = useState(false);
+  /*
+   * How wide the conversation list's scrollbar track is, so the bar above it can hold
+   * its controls in the same column as the rows'.
+   *
+   * Measured rather than declared: it is 0 where scrollbars overlay the content and
+   * about 11px where the reader has asked for them always, and hard-coding either puts
+   * the two columns of controls a scrollbar apart on the other. The bar reserved it
+   * with a `scrollbar-gutter` of its own for a while, which meant making a bar that
+   * never scrolls into a scroll container — and a scroll container clips, which took
+   * the top and bottom off its focus ring.
+   */
+  const [listGutter, setListGutter] = useState(0);
+  const gutterWatch = useRef<ResizeObserver | null>(null);
+  const measureGutter = useCallback((list: HTMLUListElement | null) => {
+    if (!list) return;
+    const read = () => setListGutter(list.offsetWidth - list.clientWidth);
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(list);
+    gutterWatch.current?.disconnect();
+    gutterWatch.current = observer;
+  }, []);
+  useEffect(() => () => gutterWatch.current?.disconnect(), []);
+  const navigate = useNavigate();
+
+  async function deleteConversation(target: AgentInstance): Promise<void> {
+    setDeletingId(target.id);
+    setActionError(undefined);
+    try {
+      await apiClient.agentInstances.remove(target.id);
+      await conversations.refresh();
+      onDeleted?.(target);
+    } catch (cause: unknown) {
+      reportActionFailure("delete", cause, setActionError);
+    } finally {
+      setDeletingId(undefined);
+    }
+  }
+
+  /**
+   * A copy of a conversation, opened.
+   *
+   * A checkpoint of it as it stands and a fork of that checkpoint — which is what a
+   * duplicate *is*: the same transcript, its own worker, and its own future. The copy
+   * opens because the reader duplicated it in order to say something else in it, and
+   * leaving them in the original would make the next thing they typed land in the
+   * conversation they had just set aside.
+   */
+  async function duplicateConversation(target: AgentInstance): Promise<void> {
+    setDuplicatingId(target.id);
+    setActionError(undefined);
+    try {
+      // The title, not the row's label: that carries the age too, and a copy called
+      // "… · 2 minutes ago (copy)" is stamped with the age of the thing it came from.
+      const title = conversationTitle(target, derivedTitles[target.id]);
+      const copy = await apiClient.agentInstances.fork(target.id, `${title} (copy)`);
+      await conversations.refresh();
+      toast.success(`Duplicated "${title}"`);
+      navigate(url.chat({ id: copy.id }));
+    } catch (cause: unknown) {
+      reportActionFailure("duplicate", cause, setActionError);
+    } finally {
+      setDuplicatingId(undefined);
+    }
+  }
+
+  /* The gap between this rail and what follows it. Measured because the surfaces do
+     not agree on it; see where it is subtracted, below. */
+  const [rowGap, setRowGap] = useState(0);
+  const measureRow = useCallback((wrapper: HTMLDivElement | null) => {
+    const row = wrapper?.parentElement;
+    if (row) setRowGap(parseFloat(getComputedStyle(row).columnGap) || 0);
+  }, []);
+
+  const [isNarrow, setNarrow] = useCollapsedBelow(RAIL_COLLAPSES_BELOW);
+  const [wantsCollapsed, setWantsCollapsed] = useState(
+    () => window.localStorage.getItem(RAIL_COLLAPSED) === "true",
+  );
+  const isCollapsed = wantsCollapsed || isNarrow;
+
+  /*
+   * The reader's choice and the window's, kept apart — see the same pair on the chat
+   * page's agent panel. Only the choice is stored, so a rail folded away by a narrow
+   * window is open again in the next wide one.
+   */
+  function toggleCollapsed() {
+    const collapsed = !isCollapsed;
+    window.localStorage.setItem(RAIL_COLLAPSED, String(collapsed));
+    setWantsCollapsed(collapsed);
+    if (!collapsed) setNarrow(false);
+  }
+
+  return (
+    <>
+    {/*
+      The rail slides rather than vanishing.
+
+      Unmounting it made the transcript jump the full width of the panel in one frame,
+      which reads as a layout fault rather than as something closing. Animating `width`
+      on a wrapper keeps the rail mounted and lets the page take up the space smoothly;
+      `overflow: hidden` is what stops its contents spilling while it is narrow.
+
+      Mounted-but-hidden costs nothing here: the conversations it lists are read by the
+      page anyway and handed in, so a collapsed rail issues no requests of its own.
+    */}
+    <div
+      ref={measureRow}
+      css={{
+        flexShrink: 0,
+        width: isCollapsed ? 0 : 248,
+        overflow: "hidden",
+        /*
+         * Sticky here, on the wrapper, rather than on the rail inside it.
+         *
+         * A sticky element travels within its *parent's* box, and this wrapper is
+         * exactly as tall as the rail — so a sticky rail had nowhere to go and scrolled
+         * away with the page, which is the one thing it exists not to do. The wrapper is
+         * the element in normal flow, so it is the one that sticks.
+         */
+        position: "sticky",
+        /*
+         * Cleared from whatever sits above this rail's scroll container — the
+         * application's own header by default.
+         *
+         * A distribution that replaces the shell puts its own chrome there and starts
+         * the page below it, so the default is applied a second time and the rail and
+         * its gutter come to rest well below the content beside them. It sets this
+         * variable rather than restyling the rail.
+         */
+        top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
+        alignSelf: "start",
+        /* Hidden for real once it has finished closing, not merely clipped to zero
+           width: a child of a zero-width box still has a bounding box, so assistive
+           technology and anything else asking "is this on screen" would be told yes.
+           Delayed by the width transition when closing and applied at once when
+           opening, so the slide is still visible in both directions. */
+        visibility: isCollapsed ? "hidden" : "visible",
+        /*
+         * The gap this wrapper is still owed, given back when it has no width.
+         *
+         * The surfaces lay the rail, the gutter and the content out as a flex row with a
+         * gap between each. A collapsed rail is zero-wide but still a flex item, so the
+         * gap either side of it survives — leaving the gutter floating a gap's width
+         * further from the page's own sidebar than anything else on the page, which is
+         * the too-wide margin a reader sees. Cancelling it here rather than nudging the
+         * gutter keeps the correction where its cause is, and it animates with the width
+         * so nothing jumps at the end of the slide.
+         *
+         * The surface's own gap, not a constant: a constant is right on one surface and
+         * too large on the rest, where it dragged the gutter off the left of the page.
+         */
+        marginInlineEnd: isCollapsed ? -rowGap : 0,
+        transition: `width 180ms ease, margin-inline-end 180ms ease, visibility 0s linear ${isCollapsed ? "180ms" : "0s"}`,
+      }}
+      aria-hidden={isCollapsed}
+    >
+    <aside
+      data-testid="agent-rail"
+      css={{
+        width: 248,
+        flexShrink: 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: theme.space(3),
+        /* Nothing here is text to take away: every row is a place to go or a thing to
+           press, and a drag across them is somebody aiming at a row, not selecting its
+           name. Shift-picking a run of conversations otherwise highlighted the lot. */
+        userSelect: "none",
+        /*
+         * Sticky, because this is navigation. The page is what scrolls, so a rail in
+         * normal flow would be gone by the third exchange of a conversation — and the
+         * whole point of narrowing the navigation to one agent is that the things you
+         * can do to that agent stay to hand.
+         */
+        /*
+         * Below the header, not under it.
+         *
+         * The header is sticky at `top: 0` with a z-index above this, so a rail that
+         * stuck any higher than the header is tall slid beneath it — and the switcher,
+         * which opens from the card at the very top of the rail, came out half-hidden.
+         * Measured from the token rather than guessed, so it follows the header.
+         *
+         * The gap is deliberate rather than the smallest that clears. At 8px the rail
+         * came to rest all but touching the header and the two read as one welded
+         * block; the space is what makes it legible as a panel that stopped under the
+         * header rather than part of it.
+         */
+        /*
+         * The rail is exactly as tall as the space it has, and the conversations are the
+         * only part that scrolls.
+         *
+         * It used to scroll as one box, so a reader with thirty conversations scrolled
+         * the agent's name, the switcher and the search field away to reach them — and
+         * the search field is the thing you reach for *because* the list is long. Now
+         * only the list moves, and everything you would use to narrow it stays put.
+         */
+        /* The room between the header and the foot of the window, which is the header
+           plus this page's own padding above and below — `space(6)` each. It was 40
+           rather than 48, so the rail stood 8px taller than the space there is and was
+           the tallest thing on the page: a surface whose content fits exactly still
+           scrolled, by 8px, because of the column beside it. */
+        height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(12)})`,
+        overflow: "hidden",
+        /* A sliver at the left edge, because this box clips — it has to, to animate to
+           nothing when collapsed. Without it a checkbox's focus or hover ring, drawn
+           just outside the box it belongs to, came back with its left side sliced flat.
+           Inside the width rather than added to it, so nothing beside the rail moves. */
+        boxSizing: "border-box",
+        paddingInlineStart: theme.space(2),
+      }}
+    >
+      {/* Which agent you are in, stated before what you can do to it: a reader
+          arriving from a list of forty needs that confirmed before anything else.
+
+          And it switches. The chevron promises a menu, so it opens one — an
+          affordance that looked like "change agent" and went to a details page
+          instead was the worst of both. */}
+      <button
+        type="button"
+        aria-expanded={isSwitcherOpen}
+        onClick={() => {
+          setHasOpenedSwitcher(true);
+          setSwitcherFor((open) => (open === agentKey ? undefined : agentKey));
+        }}
+        data-testid="agent-rail-identity"
+        css={{
+          textAlign: "left",
+          cursor: "pointer",
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: theme.space(3),
+          padding: theme.space(3),
+          borderRadius: theme.radius.md,
+          background: theme.color.bgElevated,
+          border: `1px solid ${theme.color.border}`,
+          minWidth: 0,
+          transition: "background 100ms ease, border-color 100ms ease",
+          /*
+           * Surface only, and lighter on the light theme.
+           *
+           * Moving the border as well made the whole card look redrawn on hover,
+           * beside rail rows whose borders hold still. And the same percentage does
+           * not read the same on both themes: layering near-black over white at 12%
+           * is a solid grey step, where near-white over near-black at 12% is barely a
+           * lift. So the mix is stated per theme rather than shared and wrong on one.
+           */
+          "&:hover": {
+            background: `color-mix(in srgb, ${theme.color.text} ${
+              mode === "light" ? "3.5%" : "6%"
+            }, ${theme.color.bgElevated})`,
+          },
+          "&:active": {
+            background: `color-mix(in srgb, ${theme.color.text} ${
+              mode === "light" ? "7%" : "12%"
+            }, ${theme.color.bgElevated})`,
+            transition: "none",
+          },
+        }}
+      >
+        <span
+          aria-hidden
+          css={{
+            display: "grid",
+            placeItems: "center",
+            width: 32,
+            height: 32,
+            flexShrink: 0,
+            borderRadius: theme.radius.sm,
+            background: `${theme.color.primary}26`,
+            color: theme.color.primaryText,
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          {/* The first two characters of the instance id. An instance has no name,
+              and the template's initials would be identical for every conversation
+              with the same agent — which is the one thing this badge sits beside a
+              list of. */}
+          {/* The agent's initials, not the conversation's.
+
+              This card is what opens the agent switcher, so it has to name the thing
+              being switched. It took them from the instance id, which meant the badge
+              changed every time a reader opened a different conversation with the same
+              agent — while the menu behind it listed agents that never changed. */}
+          {(instance?.agentTemplate ? bareName(instance.agentTemplate) : (agentTitle?.primary ?? ref.id ?? ""))
+            .slice(0, 2)
+            .toUpperCase()}
+        </span>
+        {/* A grid, not two block children: antd's `ellipsis` wraps the text in its own
+            inline-block span whose class wins on specificity, so a short name and its
+            model ran together on one line — visible only when the name was short
+            enough not to wrap, which is exactly the kind of bug that ships. */}
+        <span css={{ minWidth: 0, flex: 1, display: "grid", gridAutoRows: "min-content" }}>
+          {/* The template names what the agent *is*, so it is the line a reader
+              recognises the agent by; the id distinguishes this conversation from
+              the others with it. Until the instance loads there is only the id. */}
+          <Text ellipsis css={{ fontSize: 14, color: theme.color.text }}>
+            {instance?.agentTemplate
+              ? bareName(instance.agentTemplate)
+              : (agentTitle?.primary ?? shortInstanceId(ref.id ?? ""))}
+          </Text>
+          {/* Which conversation, under which agent. Named the way the reader named
+              it, so the card and the row below it agree. */}
+          <Text
+            ellipsis
+            css={{
+              fontSize: 11,
+              color: theme.color.textMuted,
+              /* Holds its line while the instance is being read. The harness is the
+                 only thing that fills it on a conversation, so before the record
+                 lands this is empty — and an empty line is no line, so the card grew
+                 by one row the moment the read returned. */
+              lineHeight: "16px",
+              minHeight: 16,
+            }}
+          >
+            {/* Where it runs, which is the other half of what an agent *is* — a
+                template paired with a harness. The conversation is named in the list
+                below, where it is one row among its siblings; naming it here made the
+                card describe a conversation while the menu it opens describes agents. */}
+            {instance?.harness
+              ? `on ${bareName(instance.harness)}`
+                  : (agentTitle?.secondary ?? agentPair?.namespace ?? instance?.agentTemplate?.split("/")[0] ?? "")}
+          </Text>
+        </span>
+        <ChevronsUpDown size={14} color={theme.color.textMuted} aria-hidden />
+      </button>
+
+      {/* Opened *in flow*, so the rail below moves down rather than being covered. An
+          overlay would hide the conversations — which is what a reader compares
+          against when deciding whether they are on the right agent.
+
+          It grows and shrinks rather than appearing: content that jumps by 300px
+          leaves the reader working out what moved. The `0fr`/`1fr` grid row is what
+          makes that animatable — a height transition needs a number, and the height
+          here depends on how many agents there are. */}
+      {hasOpenedSwitcher ? (
+        <div
+          data-testid="agent-switcher-region"
+          aria-hidden={!isSwitcherOpen}
+          css={{
+            display: "grid",
+            gridTemplateRows: isExpanded ? "1fr" : "0fr",
+            transition: "grid-template-rows 180ms ease",
+            overflow: "hidden",
+            /*
+             * Keeps its content's height instead of giving it to the rest of the rail.
+             *
+             * The rail is a fixed-height flex column, so a child that may shrink gets
+             * squeezed by whatever is below it — here the conversation list. The menu
+             * ended up clipped to 46px around a 155px switcher: the search field showed,
+             * the options rendered *outside* the clip, and it looked like a dropdown
+             * that had opened empty. The list below is the thing that should give, and
+             * it already scrolls.
+             */
+            flexShrink: 0,
+            // Faded on the way out as well, so a collapse interrupted mid-way still
+            // reads as one thing leaving rather than a box that is half a box.
+            opacity: isExpanded ? 1 : 0,
+          }}
+        >
+          <div css={{ minHeight: 0, overflow: "hidden" }}>
+            {/* Scoped to the agent — the pair — rather than to the conversation open
+                within it. The switcher lists agents, so "which one am I on" is a
+                question about the pair. */}
+            <AgentSwitcher
+              current={pair}
+              onPicked={() => setSwitcherFor(undefined)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {/* Agent Details and New chat are the same kind of thing — somewhere to go — so
+          they sit together at one gap, and the sections around them at the rail's own.
+          New chat used to live with the conversation list, which put a nav entry inside
+          a section it did not belong to and left the two gaps visibly different. */}
+      <nav data-testid="chat-sessions-nav" css={{ display: "grid", gap: theme.space(3) }}>
+        {!agentHref && isReadingConversation ? (
+          <span
+            // Its own testid, not the entry's: a suite that clicks Agent Details must
+            // not find this standing in for it and click something inert.
+            data-testid="agent-nav-agent-conversations-pending"
+            aria-disabled="true"
+            css={{
+              ...rowStyles(theme, false),
+              fontSize: 13,
+              opacity: 0.5,
+              cursor: "default",
+            }}
+          >
+            <Bot size={14} aria-hidden />
+            Agent Details
+          </span>
+        ) : null}
+        {railEntries.map((entry) =>
+          entry.kind === "core" ? (
+            <RailEntry
+              key={entry.item.key}
+              item={entry.item}
+              isActive={
+                location.pathname === entry.item.to ||
+                (entry.item.alsoActiveOn ?? []).includes(location.pathname)
+              }
+            />
+          ) : (
+            <entry.contribution.Component
+              key={entry.contribution.key}
+              isActive={railItemIsActive(entry.contribution, location)}
+              agent={ref.id ? { id: ref.id } : undefined}
+              pair={pair}
+            />
+          ),
+        )}
+
+        {/*
+          The one entry that is not always a link.
+
+          "New chat" is an address whenever the agent has one, so it is a core rail
+          item like Agent Details and behaves like every other entry. Where the agent
+          cannot be resolved there is nothing to link to, and a caller may still offer
+          to handle it — so this stands in, and honours a `hidden` override the same
+          way the item would.
+        */}
+        {!newChatHref && !isRailEntryHidden("newChat", railOverrides) ? (
+          <button
+            type="button"
+            disabled={!onNewChat}
+            onClick={() => onNewChat?.()}
+            data-testid="chat-new-session"
+            css={{
+              ...rowStyles(theme, false),
+              fontSize: 13,
+              /* A button takes its font from the user agent rather than the page, and
+                 `border: none` used to throw away the 1px transparent border every row
+                 carries — so this stood 2px shorter than the link it stands in for, and
+                 the rail changed height the moment the agent resolved. */
+              fontFamily: "inherit",
+              lineHeight: "inherit",
+              width: "100%",
+              cursor: onNewChat ? "pointer" : "not-allowed",
+              opacity: onNewChat ? 1 : 0.5,
+              background: "none",
+              textAlign: "left",
+            }}
+          >
+            <SquarePen size={14} aria-hidden />
+            New chat
+          </button>
+        ) : null}
+      </nav>
+
+      {/* The one part that gives. `minHeight: 0` because a flex child will not shrink
+          below its content without it, which is what would push the list's own scrollbar
+          off the bottom of the rail instead of creating one. */}
+      <div
+        data-testid="chat-sessions"
+        css={{
+          display: "flex",
+          flexDirection: "column",
+          // The rail's own gap, so the search and the list sit at the same rhythm as
+          // the entries above them rather than closer together.
+          gap: theme.space(3),
+          flex: "1 1 auto",
+          minHeight: 0,
+        }}
+      >
+        {/*
+          Styled to sit in the rail rather than on a form.
+
+          The default input carries a hard border and the page's own background, which
+          in a column of tinted rows read as the one element that had been dropped in
+          from a settings page. It takes the same ground and radius the rows use, loses
+          the border until it is focused, and states what it searches — "Search" alone,
+          under a heading that says CHATS, is a question a reader has to answer by
+          trying it.
+        */}
+        <Input
+          data-testid="chat-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onClear={() => setQuery("")}
+          allowClear
+          size="small"
+          prefix={
+            <Search size={13} color={theme.color.textMuted} css={{ marginInlineEnd: 2 }} />
+          }
+          placeholder="Search chats"
+          css={{
+            ...searchInputStyles(theme),
+            fontSize: 13,
+            "& input": { fontSize: 13 },
+            // Clear of New chat above it: the two are different kinds of thing — one
+            // goes somewhere, one narrows what is below — and at the entries' own gap
+            // they read as a third and fourth entry. Six rather than the scale's eight,
+            // which separated them more than the sections are separated from each other.
+            marginTop: 6,
+          }}
+        />
+
+        {/*
+          Select-all and the bulk action, under the search because they act on what the
+          search left behind.
+
+          The row is always here; only the actions button comes and goes. It used to be
+          the whole bar, which meant ticking the first conversation inserted a line and
+          pushed the entire list down under the reader's pointer — a jump at the exact
+          moment they were aiming at something. Keeping the row costs one line and buys
+          a list that does not move, and select-all is worth reaching for before a
+          selection exists anyway. The button sits at the end of the row behind an auto
+          margin, so its arrival moves nothing.
+        */}
+        {chats.length > 0 || conversations.isLoading ? (
+          <div
+            css={{
+              display: "flex",
+              alignItems: "center",
+              gap: theme.space(2),
+              /*
+               * Tall enough for the button before the button is there.
+               *
+               * A small antd button is a couple of pixels taller than the checkbox
+               * beside it, so without this the row grew when the actions appeared and
+               * the list still shifted — a smaller jump than the whole bar appearing,
+               * but the same jump, at the same moment.
+               */
+              minHeight: 38,
+              // The list's reserved scrollbar track, measured — see `listGutter`.
+              paddingInlineEnd: listGutter,
+            }}
+            data-testid="chat-bulk-bar"
+          >
+            <Checkbox
+              checked={allVisibleSelected}
+              indeterminate={selected.size > 0 && !allVisibleSelected}
+              onChange={toggleAllVisible}
+              // Drawn while the list is read so the bar does not arrive under the
+              // reader's pointer, but there is nothing to select until it lands.
+              disabled={conversations.isLoading}
+              data-testid="chat-select-all"
+              css={checkboxStyles(theme)}
+            >
+              <Text
+                data-testid="chat-selection-count"
+                css={{ fontSize: 12, color: theme.color.textMuted }}
+              >
+                {/* The count once there is one, and what the box does before that.
+                    Never "Select none": that is what the box itself is for, and it
+                    already says all-or-some through its checked and indeterminate
+                    states — swapping the label hid the number at the moment it
+                    mattered most. */}
+                {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+              </Text>
+            </Checkbox>
+
+            {selected.size > 0 ? (
+            <Dropdown
+              trigger={["click"]}
+              onOpenChange={setBulkMenuOpen}
+              menu={{
+                items: [
+                  {
+                    key: "delete",
+                    danger: true,
+                    icon: <Trash size={13} />,
+                    label: `Delete ${selected.size === 1 ? "chat" : "all selected"}`,
+                    onClick: () => setConfirmingBulk(true),
+                  },
+                ],
+              }}
+            >
+              <Button
+                type="text"
+                size="small"
+                loading={isBulkDeleting}
+                icon={
+                  <MoreVertical
+                    size={14}
+                    color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
+                  />
+                }
+                aria-label="Actions for the selected conversations"
+                data-testid="chat-bulk-menu"
+                // The same square as the menu on each row below it.
+                css={{ ...menuButtonStyles(theme, isBulkMenuOpen), marginInlineStart: "auto" }}
+              />
+            </Dropdown>
+            ) : null}
+
+            <Modal
+              open={isConfirmingBulk}
+              onCancel={() => setConfirmingBulk(false)}
+              onOk={() => void deleteSelected()}
+              okText="Delete"
+              okButtonProps={{ danger: true, loading: isBulkDeleting }}
+              cancelText="Keep"
+              title={`Delete ${selected.size} ${selected.size === 1 ? "conversation" : "conversations"}?`}
+              data-testid="chat-bulk-confirm"
+            >
+              <Text css={{ color: theme.color.textMuted }}>
+                Everything said in them goes too, and none of it can be recovered. The
+                workers they hold are released.
+              </Text>
+            </Modal>
+          </div>
+        ) : null}
+
+        <Text
+          css={{
+            color: theme.color.textMuted,
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: 0.6,
+            paddingInline: theme.space(2),
+          }}
+        >
+          Chats
+        </Text>
+
+        {actionError ? (
+          <Alert
+            type="error"
+            showIcon
+            data-testid="chat-delete-error"
+            title={`Could not ${actionError.action}`}
+            // The controller's own words. Two are common and neither is a fault: the
+            // conversation belongs to somebody else, which is a fact about permission;
+            // or a lifecycle operation is already in flight on it, which is a fact about
+            // timing and clears on its own. Both read very differently from a failure.
+            description={actionError.message}
+          />
+        ) : null}
+
+        {conversations.isLoading ? (
+          /* Sized like the rows it stands in for. A bare skeleton is shorter than the
+             list that replaces it, so the first visit to an agent shifted everything
+             below it the moment the conversations arrived — and only the first, because
+             every visit after that is served from cache with nothing to wait for. */
+          <div css={{ minHeight: 132, paddingInline: theme.space(2) }}>
+            <Skeleton active paragraph={{ rows: 4 }} title={false} data-testid="chat-sessions-loading" />
+          </div>
+        ) : conversations.error ? (
+          <Alert
+            type="error"
+            showIcon
+            data-testid="chat-sessions-error"
+            title="Could not load conversations"
+            description={conversations.error.message}
+            action={
+              <Button size="small" onClick={() => void conversations.refresh()}>
+                Try again
+              </Button>
+            }
+          />
+        ) : chats.length === 0 ? (
+          <Text
+            data-testid="chat-sessions-empty"
+            css={{
+              color: theme.color.textMuted,
+              fontSize: 12,
+              paddingInline: theme.space(2),
+            }}
+          >
+            {/* Two different facts, and reporting the filtered case as "no
+                conversations" would have the reader looking for a bug in the agent
+                rather than in what they just typed. */}
+            {query.trim() && (conversations.data?.length ?? 0) > 0
+              ? "No conversations match your search."
+              : "No conversations yet."}
+          </Text>
+        ) : (
+          <ul
+            ref={measureGutter}
+            data-testid="chat-sessions-list"
+            css={{
+              listStyle: "none",
+              margin: 0,
+              padding: 0,
+              display: "grid",
+              gap: 2,
+              /* Rows sit at the top rather than sharing out the space.
+                 A grid's `align-content` defaults to `stretch`, and this list is a flex
+                 child that grows — so with three conversations in a tall rail each row
+                 stretched to fill it. */
+              alignContent: "start",
+              flex: "1 1 auto",
+              minHeight: 0,
+              overflowY: "auto",
+              /* The track is reserved whether or not there is anything to scroll, so
+                 the rows do not shift left the moment the list outgrows the rail —
+                 and so the bulk bar above, which reserves the same, stays lined up
+                 with them. Without it the two menus were aligned in a short list and
+                 a scrollbar's width apart in a long one. */
+              scrollbarGutter: "stable",
+              /* Room for the focus ring on the first and last rows, which is drawn
+                 outside them and was clipped by the scroll box at 2px. */
+              paddingBlock: theme.space(1),
+              /* The list clips its own overflow, and a checkbox's ring is drawn just
+                 outside the box it belongs to — so the clip box is widened to the left
+                 and pulled back by the same amount. The rail's own left padding is
+                 what this then has room to reach into. */
+              paddingInlineStart: theme.space(2),
+              marginInlineStart: `-${theme.space(2)}`,
+              // The conversation's scrollbar, a few hundred pixels away: two that do
+              // not match read as two applications.
+              ...scrollbarStyles(theme),
+            }}
+          >
+            {chats.map((candidate) => {
+              const href = url.chat({ id: candidate.id });
+
+              return (
+              <ChatEntry
+                key={candidate.id}
+                instance={candidate}
+                /* The open conversation's title comes from the transcript already on
+                   screen; the rest are read for. Both are derived the same way from the
+                   same first message, so a row does not change its name when opened. */
+                autoTitle={
+                  candidate.id === ref.id ? autoTitle : derivedTitles[candidate.id]
+                }
+                href={href}
+                /*
+                 * Lit only where the reader actually is, not wherever the id appears.
+                 *
+                 * This was `candidate.id === ref.id`, which is true on every surface
+                 * that mounts the rail for an instance -- the agent's own details page
+                 * included. So a conversation row was highlighted as the page you were
+                 * on while you were on a different page from the one it links to, and
+                 * two entries in the rail could look current at once.
+                 *
+                 * Compared against the row's own href, which is how the entries above
+                 * decide the same thing. The reads that follow keep matching on the id
+                 * on purpose: which conversation's live state to prefer is a question
+                 * about the instance, not about the route.
+                 */
+                isActive={location.pathname === href}
+                onDelete={deleteConversation}
+                onDuplicate={duplicateConversation}
+                isDeleting={deletingId === candidate.id}
+                isDuplicating={duplicatingId === candidate.id}
+                isSelected={selected.has(candidate.id)}
+                onToggleSelected={toggleSelected}
+                isSelecting={selected.size > 0}
+              />
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </aside>
+    </div>
+
+    {/*
+      Outside the rail, not inside it.
+
+      In the rail it sat above the identity card and pushed everything down, so
+      collapsing and expanding moved the switcher under the reader's cursor — the
+      control they had just used to open it. Beside the rail it changes nothing within,
+      and the rail's contents keep their position whether it is there or not.
+
+      Sticky on its own, so it stays reachable through a long conversation rather than
+      scrolling away with the top of the page.
+    */}
+    <div
+      css={{
+        flexShrink: 0,
+        position: "sticky",
+        top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
+        alignSelf: "start",
+        marginInlineStart: -theme.space(2),
+        display: "grid",
+        gap: theme.space(1),
+        justifyItems: "center",
+      }}
+    >
+      {/* One control that stays put and changes its icon, rather than two that swap
+          places — a button which moves as you use it is one you have to find again. */}
+      <Button
+        type="text"
+        size="small"
+        icon={
+          isCollapsed ? (
+            <PanelLeftOpen size={16} aria-hidden />
+          ) : (
+            <PanelLeftClose size={16} aria-hidden />
+          )
+        }
+        onClick={toggleCollapsed}
+        aria-label={isCollapsed ? "Show the agent navigation" : "Hide the agent navigation"}
+        data-testid={isCollapsed ? "agent-rail-expand" : "agent-rail-collapse"}
+        css={iconControlStyles(theme)}
+      />
+      {gutterActions}
+      {/*
+        Under the surface's own gutter controls, and only where there are some.
+
+        The condition is not decoration. This column is drawn on every surface that
+        mounts the rail — the agent's own page and its analytics included — but only a
+        surface with an open conversation passes `gutterActions`. Without the guard a
+        contributed control would appear beneath the collapse toggle on pages that have
+        no conversation for it to act on, as a lone icon under a divider-less toggle.
+
+        `instance` as well as the prop, because the context below promises a conversation
+        and the rail is mounted before that read resolves; a contribution handed a
+        half-built context would render an action addressed to nothing.
+      */}
+      {gutterActions && instance ? (
+        <ExtensionSlot
+          id="app_agents_agentRail_gutter_actions"
+          context={{
+            instanceId: instance.id,
+            label: conversationLabel(instance, autoTitle),
+          }}
+        />
+      ) : null}
+    </div>
+    </>
+  );
+}
+
+/**
+ * What to call a conversation in the rail.
+ *
+ * The reader's own name where there is one, and an honest "untitled" plus enough id
+ * to tell it from its neighbours where there is not — `conversationTitle` decides
+ * that, and it decides it identically for the rail, the agent's page and the chat
+ * header, so the same conversation cannot be called three things.
+ *
+ * The age is appended here and nowhere else: the rail's rows carry nothing but a
+ * label, so how long ago a conversation started is the only other thing that
+ * distinguishes two untitled ones. A table has a column for it instead.
+ */
+function conversationLabel(instance: AgentInstance, autoTitle?: string) {
+  const age = instance.createdAt ? ` · ${relativeAge(instance.createdAt)}` : "";
+  return `${conversationTitle(instance, autoTitle)}${age}`;
+}
+
+function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
+  const theme = useTheme();
+  const { icon: Icon, label, to, testId } = item;
+
+  return (
+    <Link
+      to={to}
+      data-testid={testId}
+      data-active={isActive}
+      aria-current={isActive ? "page" : undefined}
+      css={{ ...rowStyles(theme, isActive), fontSize: 13, fontWeight: isActive ? 600 : 400 }}
+    >
+      <Icon size={14} aria-hidden />
+      {label}
+    </Link>
+  );
+}
+
+function ChatEntry({
+  instance,
+  autoTitle,
+  href,
+  isActive,
+  onDelete,
+  onDuplicate,
+  isDeleting,
+  isDuplicating,
+  isSelected,
+  onToggleSelected,
+  isSelecting,
+}: {
+  instance: AgentInstance;
+  autoTitle?: string;
+  href: string;
+  isActive: boolean;
+  onDelete: (instance: AgentInstance) => void;
+  /** Copies the conversation and opens the copy. */
+  onDuplicate: (instance: AgentInstance) => void;
+  isDeleting: boolean;
+  isDuplicating: boolean;
+  isSelected: boolean;
+  onToggleSelected: (id: string, withShift: boolean) => void;
+  /** Whether anything is selected, which is what keeps the boxes on screen. */
+  isSelecting: boolean;
+}) {
+  const theme = useTheme();
+  /*
+   * Still asked, even from behind a menu.
+   *
+   * The menu makes deleting deliberate; it does not make it recoverable. A conversation
+   * is gone with its whole transcript and there is no undo, so the question stays — and
+   * it names the conversation, because in a list of a dozen alike rows the reader's only
+   * question is *which one*.
+   */
+  const [isConfirming, setConfirming] = useState(false);
+  const [isRenaming, setRenaming] = useState(false);
+  const [isShowingDetails, setShowingDetails] = useState(false);
+  const [isSharing, setSharing] = useState(false);
+  const [isMenuOpen, setMenuOpen] = useState(false);
+
+  /*
+   * What a contributed row affordance is told, built once for both points below so that
+   * the menu entry and the mark can never be describing different conversations.
+   *
+   * The label is handed over rather than left to the contribution to derive, because
+   * `conversationLabel` is this file's answer to what the row is called — a tooltip that
+   * worked it out again would start disagreeing with the row a few pixels from it the
+   * first time that answer changes.
+   */
+  const slotContext = {
+    instanceId: instance.id,
+    label: conversationLabel(instance, autoTitle),
+  };
+
+  /*
+   * Asked before the item is built rather than after.
+   *
+   * `ExtensionSlot` renders nothing when no extension contributes, but a menu item whose
+   * label renders nothing is still a menu item — the menu would show an empty,
+   * clickable strip under Chat details. So whether the item exists at all is decided by
+   * whether there is anything to put in it.
+   */
+  const contributedMenuItems = useExtensionSlotComponents(
+    "app_agents_agentRail_chatRow_menuItems",
+  );
+
+  return (
+    /* Room between the three things on a row. At 2px the checkbox, the name and the
+       menu were one undifferentiated strip, and the open conversation's outline ran
+       straight into the button beside it. */
+    <li css={{ display: "flex", alignItems: "center", gap: theme.space(2), minWidth: 0 }}>
+      <Modal
+        open={isConfirming}
+        onCancel={() => setConfirming(false)}
+        onOk={() => {
+          setConfirming(false);
+          onDelete(instance);
+        }}
+        okText="Delete"
+        okButtonProps={{ danger: true, loading: isDeleting }}
+        cancelText="Keep"
+        title={`Delete "${conversationLabel(instance, autoTitle)}"?`}
+        data-testid={`chat-session-confirm-${instance.id}`}
+      >
+        <Text css={{ color: theme.color.textMuted }}>
+          This conversation and everything said in it cannot be recovered. The worker it
+          holds is released.
+        </Text>
+      </Modal>
+      {/*
+        One slot, two things: the folder that marks a conversation, and the checkbox
+        that picks it.
+
+        They share a place rather than sitting side by side, so nothing moves as the
+        pointer crosses a row — a list that reflows under the cursor is one where the
+        thing you were aiming at has gone. The folder is decoration and the checkbox is
+        the control, so the control takes the space when it is reachable: on hover, on
+        focus, and for as long as anything is selected.
+      */}
+      <span
+        css={{
+          display: "grid",
+          placeItems: "center",
+          /* As wide as the box in it, so this checkbox's left edge is the select-all's
+             left edge above the list. A wider cell centred the 16px box inside it and
+             left the column three pixels out of true. */
+          width: 16,
+          height: 22,
+          flexShrink: 0,
+          // Both children occupy the same cell; only one is painted.
+          "& > *": { gridArea: "1 / 1" },
+        }}
+      >
+        <Folder
+          size={13}
+          aria-hidden
+          css={{
+            color: theme.color.textMuted,
+            opacity: isSelecting || isSelected ? 0 : 1,
+            transition: "opacity 100ms ease",
+            "li:hover &": { opacity: 0 },
+          }}
+        />
+        <Checkbox
+          checked={isSelected}
+          data-testid={`chat-session-select-${instance.id}`}
+          aria-label={`Select ${conversationLabel(instance, autoTitle)}`}
+          onClick={(event) => {
+            // Read from the event rather than a keydown listener: the shift state that
+            // matters is the one at the moment of the click.
+            onToggleSelected(instance.id, (event as unknown as MouseEvent).shiftKey);
+          }}
+          css={{
+            opacity: isSelecting || isSelected ? 1 : 0,
+            transition: "opacity 100ms ease",
+            "li:hover &, &:focus-within": { opacity: 1 },
+            /*
+             * A target bigger than the tick drawn in it, shared with the select-all box
+             * above the list: this one replaces the folder icon in a single grid cell,
+             * so it was sized to the icon — about as small as a pointer target gets, and
+             * shift-picking a run means hitting several in succession.
+             */
+            ...checkboxStyles(theme),
+          }}
+        />
+      </span>
+
+      <Link
+        to={href}
+        data-testid={`chat-session-${instance.id}`}
+        data-active={isActive}
+        // As `RailEntry` does for the entries above. The row is a link to a page, so
+        // when it is that page a screen reader should be told -- the highlight is the
+        // only other thing that says so.
+        aria-current={isActive ? "page" : undefined}
+        css={{ ...rowStyles(theme, isActive), flex: 1, fontSize: 13, minWidth: 0 }}
+      >
+        {/* Tooltipped, because the row is narrow and a conversation named after a
+            snapshot carries two ids — the ellipsis would otherwise hide the part that
+            tells two of them apart. antd only raises it when the text actually clips. */}
+        <Text
+          // The title alone, not the row's label: the age is already legible in the
+          // row, and what the ellipsis hides is the name. To the right, so it opens
+          // into the page rather than back over the list it is explaining one of.
+          ellipsis={{
+            tooltip: { title: conversationTitle(instance, autoTitle), placement: "right" },
+          }}
+          css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
+        >
+          {conversationLabel(instance, autoTitle)}
+        </Text>
+      </Link>
+      {/*
+        Outside the link, deliberately.
+
+        Inside it, a mark reporting that some *other* page about this conversation is open
+        would be part of the target that opens the conversation itself, and hovering it for
+        its explanation would light the row up as though the pointer were on the link.
+        Between the label and the menu button it is its own thing, which is what it is.
+
+        Nothing here knows what a contribution puts in this space. The row's own state is a
+        tint and a weight decided by `isActive` above, which is exact pathname equality — so
+        anything an extension needs to say about a row the reader is *not* currently on has
+        nowhere else to say it.
+      */}
+      <ExtensionSlot
+        id="app_agents_agentRail_chatRow_marker"
+        context={slotContext}
+      />
+      {/*
+        A menu, revealed on hover, rather than a trash can on every row.
+
+        The trash was always visible and sat inches from the conversation being read, in
+        a rail where every row looks alike — a slip cost the whole thing with nothing to
+        undo it. Behind a menu it takes two deliberate actions, and the row is quieter
+        for the reader who is not deleting anything, which is almost always.
+
+        It also only existed where a caller passed a handler, so it appeared on the chat
+        and nowhere else. The rail owns the delete now, so the row behaves the same on
+        every surface that mounts it.
+      */}
+      <Dropdown
+        trigger={["click"]}
+        onOpenChange={setMenuOpen}
+        menu={{
+          items: [
+            /* Details and Share are the gutter controls from the chat page, offered here
+               for the rows the reader is not in. Both take an instance id, so neither
+               needs the conversation open. */
+            {
+              key: "details",
+              icon: <FileText size={13} />,
+              label: "Chat details",
+              onClick: () => setShowingDetails(true),
+            },
+            /*
+             * Whatever an installed extension adds to a row, between the application's own
+             * read-only entry and the ones that change the conversation.
+             *
+             * Here rather than at the end because a contribution is almost always another
+             * way to *look at* this conversation, and the divider further down is what
+             * separates looking from destroying. An entry added after Delete would sit on
+             * the wrong side of that line.
+             *
+             * One item holding every contribution rather than one item each: the slot is a
+             * single place in this menu, and two installed extensions land in it in install
+             * order — the same arrangement they would have if this file had written them.
+             *
+             * `position: relative` is for the contribution's benefit. antd owns the item's
+             * padding, so a link inside the label leaves that padding a dead zone which
+             * closes the menu without going anywhere; stretching the hit area across the
+             * item needs a positioned ancestor, and this is the only element in a position
+             * to be one.
+             */
+            ...(contributedMenuItems.length > 0
+              ? [
+                  {
+                    key: "extensionItems",
+                    style: { position: "relative" as const },
+                    label: (
+                      <ExtensionSlot
+                        id="app_agents_agentRail_chatRow_menuItems"
+                        context={slotContext}
+                      />
+                    ),
+                  },
+                ]
+              : []),
+            {
+              key: "share",
+              icon: <Share2 size={13} />,
+              label: "Share chat",
+              onClick: () => setSharing(true),
+            },
+            {
+              key: "rename",
+              icon: <Pencil size={13} />,
+              label: "Rename chat",
+              onClick: () => setRenaming(true),
+            },
+            {
+              key: "duplicate",
+              icon: <Copy size={13} />,
+              label: "Duplicate chat",
+              onClick: () => onDuplicate(instance),
+            },
+            { type: "divider" as const },
+            {
+              key: "delete",
+              danger: true,
+              icon: <Trash size={13} />,
+              label: "Delete chat",
+              onClick: () => setConfirming(true),
+            },
+          ],
+        }}
+      >
+        <Button
+          type="text"
+          size="small"
+          loading={isDeleting || isDuplicating}
+          data-testid={`chat-session-menu-${instance.id}`}
+          aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
+          icon={
+            <MoreVertical
+              size={14}
+              color={isMenuOpen ? theme.color.primaryText : theme.color.textMuted}
+            />
+          }
+          // Square, and as tall as the row beside it: at antd's own size it was a
+          // 24px control against a 38px row and sat visibly short of both edges.
+          css={menuButtonStyles(theme, isMenuOpen)}
+        />
+      </Dropdown>
+
+      {/* Beside the menu that opens it rather than at the rail's root: the row already
+          holds the delete confirmation the same way, and one dialog per row costs
+          nothing while it is closed. */}
+      {isRenaming ? (
+        <RenameConversationDialog
+          instance={instance}
+          onClose={() => setRenaming(false)}
+        />
+      ) : null}
+
+      {/* The row already holds the record the details modal renders, so opening one
+          costs no read. Mounted only while open, like the rename dialog above it. */}
+      {isShowingDetails ? (
+        <ConversationDetailsModal
+          instance={{ data: instance }}
+          open
+          onClose={() => setShowingDetails(false)}
+        />
+      ) : null}
+      {isSharing ? (
+        <ShareDialog conversation={instance} open onClose={() => setSharing(false)} />
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * Says a delete was refused, three ways, because each reaches a different person.
+ *
+ * The alert stays on screen beside the rows that did not go, which is where the reader
+ * looks when they notice something is still there. The toast catches the reader who has
+ * already looked away — a bulk delete is the kind of thing you start and stop watching.
+ * And the console carries the whole error for whoever is debugging it later, which
+ * neither of the other two can without becoming unreadable.
+ *
+ * It was none of these: the delete paths had `try`/`finally` and no `catch`, so a
+ * refusal closed the dialog, cleared the spinner and reported nothing at all. An
+ * instance is scoped to its creator on write, so being refused is an ordinary outcome
+ * here rather than an exceptional one — which is exactly why it must be said.
+ */
+
+/**
+ * The menu that lives on a conversation row.
+ *
+ * On screen on every row, not revealed on hover. Hidden, it read as a list of names
+ * with nothing you could do to them, and finding the control meant discovering that
+ * pointing at a row changed it — the actions are the reason most people open this rail
+ * on a conversation that is not the one they are in.
+ */
+/**
+ * The square menu button, on a row and on the bulk bar.
+ *
+ * Outlined while its menu is open, because the menu opens somewhere else on the screen
+ * and nothing else says which of a dozen identical buttons it belongs to. An outline
+ * rather than a fill: a solid square in a list of quiet rows read as the row itself
+ * being selected. Driven from React rather than `[aria-expanded]`, because the state
+ * has to reach the icon too — lucide takes its colour as a prop, which no stylesheet
+ * can reach.
+ */
+function menuButtonStyles(theme: Theme, isOpen: boolean) {
+  // The row's radius, not antd's: they sit side by side and are the same shape.
+  const size = {
+    width: 38,
+    minWidth: 38,
+    height: 38,
+    padding: 0,
+    borderRadius: theme.radius.sm,
+  };
+  if (!isOpen) return { flexShrink: 0, ...size } as const;
+  return {
+    flexShrink: 0,
+    ...size,
+    "&.ant-btn.ant-btn-variant-text.ant-btn-color-default": {
+      border: `1px solid ${theme.color.primary}`,
+      background: "transparent",
+      "&:hover, &:active": { background: theme.color.accentBg },
+    },
+  } as const;
+}
+
+function reportActionFailure(
+  /** What was attempted, lower case — it is read in the middle of a sentence. */
+  action: string,
+  cause: unknown,
+  setMessage: (message: { action: string; message: string }) => void,
+): void {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  console.error(`Could not ${action} conversation(s):`, cause);
+  toast.error(`Could not ${action}: ${message}`);
+  setMessage({ action, message });
+}

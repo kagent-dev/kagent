@@ -2,49 +2,43 @@
 
 # dependencies
 /node_modules
-/.pnp
-.pnp.*
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
 
+# build output
+/dist
+
 # testing
 /coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
 
 # misc
 .DS_Store
 *.pem
 
 # debug
-npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
-
-# vercel
-.vercel
+# Committed on purpose: it documents the settings, and holds no values.
+!.env.example
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
-
-# storybook
-/storybook-static
 
 # playwright
 /playwright-report
-/playwright/test-results
+/test-results
 /playwright/.cache
-/playwright/.e2e-pids.json
+
+# The saved sign-in for the live suite. A real credential — never committed.
+playwright/.auth/
+
+# Leftovers from the old Next.js UI, which this app replaced.
+/.next
+/next-env.d.ts
+/playwright/test-results

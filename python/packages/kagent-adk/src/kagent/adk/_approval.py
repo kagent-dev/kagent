@@ -1,7 +1,7 @@
 """before_tool_callback implementation for HITL tool approval.
 
 Uses the ADK-native ToolContext.request_confirmation() mechanism.
-When a tool in the approval set is invoked:
+When a tool from an approval-required MCP binding is invoked:
   - First call: requests confirmation via tool_context, blocks execution.
   - Re-invocation after user responds: checks tool_context.tool_confirmation.
 """
@@ -15,13 +15,8 @@ from google.adk.tools.tool_context import ToolContext
 logger = logging.getLogger(__name__)
 
 
-def make_approval_callback(
-    tools_requiring_approval: set[str],
-):
-    """Create a before_tool_callback that requests confirmation for specified tools.
-
-    Args:
-        tools_requiring_approval: Set of tool names that need human approval.
+def make_approval_callback():
+    """Create a callback that requests confirmation for marked MCP tools.
 
     Returns:
         A callback compatible with Google ADK's before_tool_callback signature.
@@ -33,7 +28,7 @@ def make_approval_callback(
         tool_context: ToolContext,
     ) -> str | dict | None:
         tool_name = tool.name
-        if tool_name not in tools_requiring_approval:
+        if not getattr(tool, "kagent_requires_approval", False):
             return None  # No approval needed, proceed normally
 
         # On re-invocation after confirmation, ADK populates tool_confirmation

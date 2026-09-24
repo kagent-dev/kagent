@@ -33,25 +33,25 @@ func (provider *mutableTokenProvider) set(token string) {
 	provider.token = token
 }
 
-type metadataSessionServer struct {
-	apiv1alpha1.UnimplementedSessionServiceServer
+type metadataMemoryServer struct {
+	apiv1alpha1.UnimplementedMemoryServiceServer
 	metadata  []metadata.MD
 	deadlines []bool
 }
 
-func (server *metadataSessionServer) ListSessions(ctx context.Context, _ *apiv1alpha1.ListSessionsRequest) (*apiv1alpha1.ListSessionsResponse, error) {
+func (server *metadataMemoryServer) List(ctx context.Context, _ *apiv1alpha1.MemoryServiceListRequest) (*apiv1alpha1.MemoryServiceListResponse, error) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
 	server.metadata = append(server.metadata, values)
 	server.deadlines = append(server.deadlines, hasDeadline)
-	return &apiv1alpha1.ListSessionsResponse{}, nil
+	return &apiv1alpha1.MemoryServiceListResponse{}, nil
 }
 
 func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
-	service := &metadataSessionServer{}
+	service := &metadataMemoryServer{}
 	grpcServer := grpc.NewServer()
-	apiv1alpha1.RegisterSessionServiceServer(grpcServer, service)
+	apiv1alpha1.RegisterMemoryServiceServer(grpcServer, service)
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(func() {
 		grpcServer.Stop()
@@ -60,7 +60,7 @@ func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 
 	tokens := &mutableTokenProvider{token: "first-token"}
 	client, err := New(Config{
-		Target:        "passthrough:///bufnet",
+		APIURL:        "http://bufnet:80",
 		AgentName:     "default/agent",
 		TokenProvider: tokens,
 		DialOptions: []grpc.DialOption{grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
@@ -71,13 +71,13 @@ func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	ctx, cancel := client.CallContext(auth.WithUserID(t.Context(), "context-user"), "")
-	_, err = client.SessionService().ListSessions(ctx, &apiv1alpha1.ListSessionsRequest{})
+	_, err = client.MemoryService().List(ctx, &apiv1alpha1.MemoryServiceListRequest{})
 	cancel()
 	require.NoError(t, err)
 
 	tokens.set("second-token")
 	ctx, cancel = client.CallContext(t.Context(), "explicit-user")
-	_, err = client.SessionService().ListSessions(ctx, &apiv1alpha1.ListSessionsRequest{})
+	_, err = client.MemoryService().List(ctx, &apiv1alpha1.MemoryServiceListRequest{})
 	cancel()
 	require.NoError(t, err)
 
@@ -90,9 +90,16 @@ func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 	assert.Equal(t, []bool{true, true}, service.deadlines)
 }
 
-func TestClientRequiresTarget(t *testing.T) {
+func TestClientRequiresAPIURL(t *testing.T) {
 	_, err := New(Config{})
-	require.EqualError(t, err, "controller gRPC target is required")
+	require.EqualError(t, err, "controller API URL \"\" must contain only a scheme and authority")
+}
+
+func TestTargetFromURL(t *testing.T) {
+	target, secure, err := targetFromURL("https://api.example.com:8443")
+	require.NoError(t, err)
+	assert.Equal(t, "passthrough:///api.example.com:8443", target)
+	assert.True(t, secure)
 }
 
 func TestClientCanDisableDefaultDeadline(t *testing.T) {

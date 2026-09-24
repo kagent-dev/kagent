@@ -27,7 +27,6 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
     HitlTool,
     ToolApprovalRequest,
@@ -35,7 +34,6 @@ from kagent.core.a2a import (
     get_ask_user_request,
     get_ask_user_response,
     get_hitl_payload,
-    get_kagent_metadata_key,
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
@@ -54,7 +52,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from ._converters import _convert_langgraph_event_to_a2a
-from ._error_mappings import get_error_metadata, get_user_friendly_error_message
+from ._error_mappings import get_user_friendly_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +149,7 @@ class LangGraphAgentExecutor(AgentExecutor):
 
             # Convert LangGraph events to A2A events
             a2a_events = await _convert_langgraph_event_to_a2a(
-                event, context.task_id, context.context_id, self.app_name, sent_message_ids
+                event, context.task_id, context.context_id, sent_message_ids
             )
             for a2a_event in a2a_events:
                 await event_queue.enqueue_event(a2a_event)
@@ -297,12 +295,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         else:
             raise ValueError("Stored input-required task has no HITL request")
 
-        # Task.metadata is a protobuf Struct, not a dict.
-        task_metadata = _task_metadata(context.current_task)
-        thread_id = task_metadata.get(get_kagent_metadata_key("thread_id")) or task_metadata.get("thread_id")
-        if not thread_id:
-            # Fallback to computing from context (same as initial)
-            thread_id = getattr(context, "session_id", None) or context.context_id
+        thread_id = getattr(context, "session_id", None) or context.context_id
 
         logger.info(
             "Resuming after interrupt - task_id=%s, thread_id=%s, type=%s",
@@ -420,9 +413,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                     )
                 )
 
-            # Calculate and store thread_id for potential resume
-            thread_id = getattr(context, "session_id", None) or context.context_id
-
             # Send working status
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
@@ -432,11 +422,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                         timestamp=now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    metadata={
-                        get_kagent_metadata_key("app_name"): self.app_name,
-                        get_kagent_metadata_key("session_id"): getattr(context, "session_id", context.context_id),
-                        get_kagent_metadata_key("thread_id"): thread_id,
-                    },
                 )
             )
 
@@ -477,7 +462,6 @@ class LangGraphAgentExecutor(AgentExecutor):
 
                 # Get user-friendly message
                 user_message = get_user_friendly_error_message(e)
-                error_meta = get_error_metadata(e)
 
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
@@ -489,17 +473,9 @@ class LangGraphAgentExecutor(AgentExecutor):
                                 message_id=str(uuid.uuid4()),
                                 role=Role.ROLE_AGENT,
                                 parts=[Part(text=user_message)],
-                                metadata={
-                                    get_kagent_metadata_key("error_type"): error_meta["error_type"],
-                                    get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
-                                },
                             ),
                         ),
                         context_id=context.context_id,
-                        metadata={
-                            get_kagent_metadata_key("error_type"): error_meta["error_type"],
-                            get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
-                        },
                     )
                 )
         finally:
@@ -518,13 +494,6 @@ def _get_user_id(request: RequestContext) -> str:
 def _call_state(context: RequestContext) -> dict[str, Any]:
     state = getattr(context.call_context, "state", None)
     return state if isinstance(state, dict) else {}
-
-
-def _task_metadata(task: Task | None) -> dict[str, Any]:
-    """Return task metadata as a plain dict (A2A Task.metadata is a Struct)."""
-    if task is None or not task.HasField("metadata"):
-        return {}
-    return MessageToDict(task.metadata)
 
 
 def _convert_a2a_request_to_span_attributes(

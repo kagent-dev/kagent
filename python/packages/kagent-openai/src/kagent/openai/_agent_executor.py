@@ -32,12 +32,12 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from agents.agent import Agent
+from agents.memory.session import SessionABC
 from agents.run import Runner
-from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
+from kagent.core.a2a import now_timestamp
 from pydantic import BaseModel
 
 from ._event_converter import convert_openai_event_to_a2a_events
-from ._session_service import KAgentSession
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class OpenAIAgentExecutor(AgentExecutor):
         *,
         agent: Agent | Callable[[], Agent],
         app_name: str,
-        session_factory: Callable[[str, str], KAgentSession] | None = None,
+        session_factory: Callable[[str, str], SessionABC] | None = None,
         config: OpenAIAgentExecutorConfig | None = None,
     ):
         """Initialize the executor.
@@ -76,7 +76,7 @@ class OpenAIAgentExecutor(AgentExecutor):
         Args:
             agent: OpenAI Agent instance or factory function that returns an agent
             app_name: Application name for session management
-            session_factory: Optional factory for creating KAgentSession instances
+            session_factory: Optional factory for creating OpenAI Agents SDK sessions
             config: Optional executor configuration
         """
         super().__init__()
@@ -96,7 +96,7 @@ class OpenAIAgentExecutor(AgentExecutor):
         self,
         agent: Agent,
         user_input: str,
-        session: KAgentSession | None,
+        session: SessionABC | None,
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
@@ -120,7 +120,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                     event,
                     context.task_id,
                     context.context_id,
-                    self.app_name,
                 )
 
                 for a2a_event in a2a_events:
@@ -200,11 +199,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                     timestamp=now_timestamp(),
                 ),
                 context_id=context.context_id,
-                metadata={
-                    get_kagent_metadata_key("app_name"): self.app_name,
-                    get_kagent_metadata_key("session_id"): session_id,
-                    get_kagent_metadata_key("user_id"): user_id,
-                },
             )
         )
 
@@ -264,16 +258,8 @@ class OpenAIAgentExecutor(AgentExecutor):
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
                             parts=[Part(text=f"Execution failed: {error_message}")],
-                            metadata={
-                                get_kagent_metadata_key("error_type"): type(e).__name__,
-                                get_kagent_metadata_key("error_detail"): error_message,
-                            },
                         ),
                     ),
                     context_id=context.context_id,
-                    metadata={
-                        get_kagent_metadata_key("error_type"): type(e).__name__,
-                        get_kagent_metadata_key("error_detail"): error_message,
-                    },
                 )
             )

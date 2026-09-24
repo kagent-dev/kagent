@@ -17,37 +17,11 @@ limitations under the License.
 package v1alpha3
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
-
-// AgentTemplateLocalReference identifies a resource in the AgentTemplate's namespace.
-type AgentTemplateLocalReference struct {
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-}
-
-// AgentTemplateTypedLocalReference identifies a typed resource in the AgentTemplate's namespace.
-type AgentTemplateTypedLocalReference struct {
-	// +kubebuilder:validation:Enum=RemoteMCPServer
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Kind string `json:"kind"`
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-}
-
-// AgentTemplateConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
-type AgentTemplateConfigMapKeyReference struct {
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Key string `json:"key"`
-}
 
 // AgentTemplatePromptTemplateSpec enables Go template rendering and ConfigMap includes.
 type AgentTemplatePromptTemplateSpec struct {
@@ -70,16 +44,25 @@ type AgentTemplatePromptSource struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// MCPToolBinding selects tools from a same-namespace MCP server.
+// MCPToolBinding binds tools from a same-namespace MCP server.
 type MCPToolBinding struct {
+	// +kubebuilder:validation:XValidation:rule="self.kind == 'RemoteMCPServer'",message="kind must be RemoteMCPServer"
+	// +kubebuilder:validation:XValidation:rule="!has(self.apiGroup)",message="apiGroup must be omitted"
 	// +required
-	Server AgentTemplateTypedLocalReference `json:"server"`
-	// +kubebuilder:validation:MinItems=1
+	Server corev1.TypedLocalObjectReference `json:"server"`
+	// Tools optionally limits which server tools are exposed. An omitted or empty
+	// list exposes every tool. Harnesses that cannot enforce a partial selection
+	// may expose the whole server and report a warning.
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:items:MinLength=1
 	// +listType=set
-	// +required
-	Tools []string `json:"tools"`
+	// +optional
+	Tools []string `json:"tools,omitempty"`
+	// RequireApproval pauses before each invocation of a tool exposed by this
+	// binding. It applies to the selected tools, or to every server tool when
+	// Tools is omitted or empty.
+	// +optional
+	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
 // AgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.
@@ -100,8 +83,9 @@ type AgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Description string `json:"description"`
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +required
-	TemplateRef AgentTemplateLocalReference `json:"templateRef"`
+	TemplateRef corev1.LocalObjectReference `json:"templateRef"`
 	// +kubebuilder:default=Shared
 	// +optional
 	Isolation AgentToolIsolation `json:"isolation,omitempty"`
@@ -194,16 +178,29 @@ type PluginBundle struct {
 
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.outputSchema) && has(self.outputSchemaFrom))",message="outputSchema and outputSchemaFrom are mutually exclusive"
 type AgentTemplateSpec struct {
-	// +required
-	ModelConfig AgentTemplateLocalReference `json:"modelConfig"`
+	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
+	// +optional
+	ModelConfig *corev1.LocalObjectReference `json:"modelConfig,omitempty"`
 	// +optional
 	Description string `json:"description,omitempty"`
 	// +optional
 	SystemPrompt string `json:"systemPrompt,omitempty"`
 	// SystemPromptFrom references prompt text in a same-namespace ConfigMap.
 	// +optional
-	SystemPromptFrom *AgentTemplateConfigMapKeyReference `json:"systemPromptFrom,omitempty"`
+	SystemPromptFrom *ConfigMapKeyReference `json:"systemPromptFrom,omitempty"`
+	// OutputSchema constrains successful terminal output when this template is
+	// compiled as the root agent.
+	// +optional
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	OutputSchema *apiextensionsv1.JSON `json:"outputSchema,omitempty"`
+	// OutputSchemaFrom references a JSON Schema stored as JSON in a
+	// same-namespace ConfigMap key.
+	// +optional
+	OutputSchemaFrom *ConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
 	// +optional
 	PromptTemplate *AgentTemplatePromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// +kubebuilder:validation:MaxItems=50
@@ -239,6 +236,12 @@ type AgentTemplateHarnessStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
+	// Warnings reports non-blocking compatibility decisions made while compiling
+	// this AgentTemplate for the Harness.
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=set
+	// +optional
+	Warnings []string `json:"warnings,omitempty"`
 	// +kubebuilder:validation:MaxItems=4
 	// +listType=map
 	// +listMapKey=type

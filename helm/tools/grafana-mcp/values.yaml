@@ -7,10 +7,20 @@ grafana:
   # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
 
 image:
-  registry: mcp
-  repository: grafana
-  pullPolicy: Always
-  tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
+  # -- Registry host only (a mirror or docker.io), never a path: the global
+  # override replaces this whole value, so a path segment here would be lost
+  # under global.imageRegistry. The path lives in repository.
+  registry: docker.io
+  repository: grafana/mcp-grafana
+  # -- Pull policy for this image. Empty falls back to global.imagePullPolicy,
+  # then to Always, this chart's previous declared default. A value declared
+  # here would shadow the global, which is why the default is empty.
+  pullPolicy: ""
+  tag: "1.4.1" # docker.io/mcp/grafana (Docker's MCP Catalog mirror) only ever ships "latest";
+               # pin to the upstream grafana/mcp-grafana image instead, which tags releases.
+
+# -- Pull secrets for the pod, merged (union) with global.imagePullSecrets.
+imagePullSecrets: []
 
 nameOverride: ""
 fullnameOverride: ""
@@ -52,6 +62,11 @@ resources:
 
 # Additional Arguments for the mcp server
 args: []
+
+# Host header values the MCP server answers to, comma separated. Empty means the service's
+# own in-cluster names and loopback, which is what the RemoteMCPServer URL uses. Set "*"
+# only behind a proxy that rewrites Host.
+allowedHosts: ""
 
 # Additional volumes on the output Deployment definition.
 volumes: []

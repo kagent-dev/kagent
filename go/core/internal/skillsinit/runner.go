@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // Run executes the full skills-init sequence: docker config merge → git auth
@@ -16,7 +17,7 @@ import (
 //
 // homeDir is the binary's $HOME — exposed for tests. In production callers
 // should pass os.UserHomeDir() or "/root".
-func Run(cfg Config, homeDir string) error {
+func Run(ctx context.Context, cfg Config, homeDir string) error {
 	if len(cfg.ImagePullSecrets) > 0 {
 		dockerCfgPath := filepath.Join(os.TempDir(), "kagent-docker-config", "config.json")
 		dockerCfgDir, err := MergeDockerConfigs(DockerSecretsDir, cfg.ImagePullSecrets, dockerCfgPath)
@@ -33,22 +34,22 @@ func Run(cfg Config, homeDir string) error {
 	}
 
 	for _, ref := range cfg.GitRefs {
-		log.Printf("cloning %s (ref=%s) into %s", ref.URL, ref.Ref, ref.Dest)
+		logging.FromContext(ctx).InfoContext(ctx, "cloning git repository", "url", ref.URL, "ref", ref.Ref, "destination", ref.Dest)
 		if err := CloneGit(ref); err != nil {
 			return fmt.Errorf("clone %s: %w", ref.URL, err)
 		}
 	}
 
 	for _, ref := range cfg.OCIRefs {
-		log.Printf("exporting OCI image %s into %s", ref.Image, ref.Dest)
+		logging.FromContext(ctx).InfoContext(ctx, "exporting OCI image", "image", ref.Image, "destination", ref.Dest)
 		if err := FetchOCI(ref, cfg.InsecureOCI); err != nil {
 			return fmt.Errorf("oci %s: %w", ref.Image, err)
 		}
 	}
 
 	for _, ref := range cfg.S3Refs {
-		log.Printf("fetching S3 %s into %s", ref.URI, ref.Dest)
-		if err := FetchS3(context.Background(), ref); err != nil {
+		logging.FromContext(ctx).InfoContext(ctx, "fetching S3 object", "uri", ref.URI, "destination", ref.Dest)
+		if err := FetchS3(ctx, ref); err != nil {
 			return fmt.Errorf("s3 %s: %w", ref.URI, err)
 		}
 	}

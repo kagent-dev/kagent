@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -364,8 +366,11 @@ func convertGenaiToolsToOllama(tools []*genai.Tool) []api.Tool {
 				// Ollama requires typed properties, so we convert to map[string]any first then to api.ToolProperty.
 				if m := parametersJsonSchemaToMap(decl.ParametersJsonSchema); m != nil {
 					if props, ok := m["properties"].(map[string]any); ok {
-						for name, propAny := range props {
-							if propMap, ok := propAny.(map[string]any); ok {
+						// Sort: api.ToolPropertiesMap preserves insertion order, so
+						// ranging the map directly would emit a different property
+						// order on every call and break prompt prefix caching.
+						for _, name := range slices.Sorted(maps.Keys(props)) {
+							if propMap, ok := props[name].(map[string]any); ok {
 								prop := api.ToolProperty{}
 								if t, ok := propMap["type"].(string); ok {
 									prop.Type = api.PropertyType{t}
@@ -389,7 +394,9 @@ func convertGenaiToolsToOllama(tools []*genai.Tool) []api.Tool {
 					}
 				}
 			} else if decl.Parameters != nil {
-				for name, schema := range decl.Parameters.Properties {
+				// Sorted for the same reason as above.
+				for _, name := range slices.Sorted(maps.Keys(decl.Parameters.Properties)) {
+					schema := decl.Parameters.Properties[name]
 					if schema == nil {
 						continue
 					}
