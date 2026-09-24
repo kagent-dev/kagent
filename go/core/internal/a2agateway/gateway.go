@@ -162,8 +162,8 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 	 * the record is then read as its owner. Reading it as the visitor would find
 	 * nothing, because an instance is scoped to its creator.
 	 *
-	 * Enforce read-only access here as well as in the gRPC interceptor so every
-	 * transport observes the same restriction.
+	 * Share permissions are enforced here for every A2A transport. Transport
+	 * middleware only authenticates the caller and resolves the share token.
 	 */
 	creator := principal.User.ID
 	share, hasShare := auth.ShareContextFrom(ctx)

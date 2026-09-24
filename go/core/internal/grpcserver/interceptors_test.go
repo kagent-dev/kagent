@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"testing"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -157,7 +158,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
+	t.Run("a read-only AgentInstance share cannot create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
@@ -174,7 +175,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
+	t.Run("a READ_WRITE AgentInstance share may create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
 		}
@@ -210,6 +211,38 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			t.Fatalf("code = %v, want PermissionDenied", got)
 		}
 	})
+}
+
+func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
+	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
+	store := &testShareStore{
+		instanceShare: &apiv1alpha1.AgentInstanceShare{
+			AgentInstanceId: testInstanceID.String(),
+			Permission:      apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY,
+		},
+		ownerUserID: "owner",
+	}
+	for _, method := range []string{
+		a2apb.A2AService_SendMessage_FullMethodName,
+		a2apb.A2AService_SendStreamingMessage_FullMethodName,
+		a2apb.A2AService_CancelTask_FullMethodName,
+	} {
+		t.Run(method, func(t *testing.T) {
+			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
+			ctx, err := authenticate(ctx, method, &testAuthenticator{session: session}, store, DefaultMethodPolicies())
+			if err != nil {
+				t.Fatalf("A2A authorization must reach the gateway: %v", err)
+			}
+			share, ok := pkgauth.ShareContextFrom(ctx)
+			if !ok || !share.ReadOnly || !share.IsForAgentInstance(testInstanceID.String()) || share.UserID != "owner" {
+				t.Fatalf("validated share = %#v, want read-only authority for its owner and instance", share)
+			}
+			gotSession, ok := pkgauth.AuthSessionFrom(ctx)
+			if !ok || gotSession.Principal().User.ID != "visitor" {
+				t.Fatalf("authenticated session = %#v, want the visitor's identity", gotSession)
+			}
+		})
+	}
 }
 
 func TestMapError(t *testing.T) {

@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"strings"
 	"time"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -75,7 +77,10 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	if share == nil {
 		return authenticatedContext, nil
 	}
-	if share.ReadOnly && access != auth.AccessPublic && access != auth.AccessRead {
+	// A2A owns share authorization in its transport-independent gateway. Other
+	// services still rely on the per-RPC policy for read-only share restrictions.
+	a2aMethod := strings.HasPrefix(fullMethod, "/"+a2apb.A2AService_ServiceDesc.ServiceName+"/")
+	if !a2aMethod && share.ReadOnly && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
 	return auth.ShareContextTo(authenticatedContext, share), nil
