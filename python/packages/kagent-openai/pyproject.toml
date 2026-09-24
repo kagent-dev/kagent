@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
   "openai>=1.72.0",
   "openai-agents>=0.4.0",
-  "a2a-sdk>=1.1.0",
+  "a2a-sdk>=1.1.5",
   "kagent-core>=0.1.0",
   "kagent-proto>=0.1.0",
   "kagent-skills>=0.1.0",

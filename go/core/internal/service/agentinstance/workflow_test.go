@@ -2,6 +2,7 @@ package agentinstance
 
 import (
 	"context"
+	"crypto/sha256"
 	"sync"
 	"testing"
 
@@ -82,6 +83,34 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, database.ErrNotFound)
 	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || len(actors.actors) != 0 {
 		t.Fatalf("deleted instance = %+v, actors = %v", deleted, actors.actors)
+	}
+}
+
+func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
+	for _, operation := range []string{"pause", "quiesce", "suspend", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			store, instance := lifecycleFixture(t)
+			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			workflow := NewActorWorkflow(store, actors)
+			instance, err := workflow.Create(t.Context(), instance)
+			require.NoError(t, err)
+			actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.Id))]
+			actor.Metadata.Uid = "replacement-uid"
+			actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+			switch operation {
+			case "pause":
+				err = workflow.Pause(t.Context(), instance)
+			case "quiesce":
+				_, err = workflow.Quiesce(t.Context(), instance)
+			case "suspend":
+				_, err = workflow.Suspend(t.Context(), instance)
+			case "delete":
+				_, err = workflow.Delete(t.Context(), instance)
+			}
+			require.ErrorContains(t, err, "verify runtime actor UID")
+			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.Status.State)
+			require.Len(t, actors.actors, 1)
+		})
 	}
 }
 
@@ -241,13 +270,19 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	t.Helper()
 	source, err := NewActorWorkflow(store, actors).Create(t.Context(), source)
 	require.NoError(t, err)
-	task := &a2a.Task{ID: a2a.TaskID(uuid.NewString()), ContextID: source.ContextId,
-		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted},
-		History: []*a2a.Message{a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))}}
-	_, _, err = store.CreateAgentInstanceTask(t.Context(), source.Id, []byte("request"), task)
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
+	message.ContextID = source.ContextId
+	admission, err := store.AdmitAgentInstanceMessage(t.Context(), source.Id, "", uuid.New(), []byte("request"), message)
 	require.NoError(t, err)
+	task := admission.Current
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, store.StoreAgentInstanceTaskEvent(t.Context(), source.Id, task, task,
+	hash := sha256.Sum256([]byte("fixture-complete"))
+	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, admission.Version, hash[:], task, task)
+	require.NoError(t, err)
+	require.NoError(t, store.SettleAgentInstanceTask(t.Context(), source.Id, string(task.ID), version))
+	boundary, err := store.ClaimTaskFinalization(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, store.PublishTaskBoundary(t.Context(), boundary,
 		&database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
 	checkpoint, _, err := store.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id}, source.Creator, uuid.NewString())
 	require.NoError(t, err)

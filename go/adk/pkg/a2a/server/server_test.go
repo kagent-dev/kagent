@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"log/slog"
+	"net"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
@@ -83,6 +84,23 @@ func startTestServer(t *testing.T) (*httptest.Server, *grpc.ClientConn) {
 		testServer.Close()
 	})
 	return testServer, conn
+}
+
+func TestStartFailsBeforeReadinessWhenA2APortIsUnavailable(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.httpServer.Addr = listener.Addr().String()
+	server.readyServer.Addr = "127.0.0.1:0"
+	if err := server.Start(); err == nil {
+		t.Fatal("Start succeeded with an unavailable A2A port")
+	}
 }
 
 func TestHTTPAndGRPCHealthSharePort(t *testing.T) {

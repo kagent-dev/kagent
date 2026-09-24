@@ -53,8 +53,8 @@ Explicit suspend and resume update the logical lifecycle state. Deletion closes 
 admission, stops and deletes the Actor, then tombstones the instance. The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
-This serialization covers explicit lifecycle calls only: A2A, Pause, Quiesce, and
-checkpoint execution still need shared ownership before multi-replica gateway use.
+TaskStore admission and finalization use durable task boundaries alongside these
+explicit lifecycle claims. Checkpoint reservations also block conflicting admission.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without instance-local execution claims. PostgreSQL tests with controlled
@@ -63,35 +63,43 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 
 ## Automatic quiescence
 
-After an A2A task reaches a quiescent boundary—terminal, `input-required`, or
-`auth-required`—the gateway asks the lifecycle workflow to quiesce the Actor.
-Quiescence suspends compute and returns the exact snapshot identity while leaving
-the AgentInstance logically ready. Substrate ingress resumes a suspended Actor
-automatically when the next interaction arrives.
+The runtime stages a final task update and acknowledges it after native cleanup.
+An API finalization worker claims that boundary in PostgreSQL, outside any client
+observation lifetime. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
+terminal work suspends it and records the exact external snapshot. Waiting tasks
+are not forkable. The AgentInstance stays logically READY, and Substrate ingress
+resumes it when another authorized interaction arrives.
 
-Runtime calls and quiescence are serialized by an in-memory coordinator so a
-late suspend cannot race a new turn in one process. This intentionally limits the
-gateway to one replica until coordination is moved to a shared store.
+The unpublished boundary blocks new admission and explicit lifecycle changes.
+The worker performs runtime I/O outside the database transaction and then publishes
+task state, archived history, and snapshot atomically. Unissued boundaries survive
+API restarts. A claim for possibly issued runtime work never expires: losing the
+worker does not prove that the suspend stopped. The recorded actor UID is checked
+before lifecycle calls; a same-name replacement cannot be adopted implicitly.
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway
+    participant Actor as Agent runtime
+    participant API as TaskStore API
     participant DB as PostgreSQL
-    participant Workflow as AgentInstance workflow
-    participant Actor as Substrate Actor
-    Client->>Gateway: send or continue A2A task
-    Gateway->>Actor: invoke (ingress resumes if suspended)
-    Actor-->>Gateway: quiescent event
-    Gateway->>Actor: close runtime stream
-    Gateway->>Workflow: quiesce instance
-    Workflow->>Actor: suspend
-    Actor-->>Workflow: exact snapshot identity
-    Workflow-->>Gateway: snapshot boundary
-    Gateway->>DB: store task + event + snapshot atomically
-    DB-->>Gateway: committed
-    Gateway-->>Client: publish quiescent event
-    Note over Workflow,Actor: AgentInstance remains logically ready
+    participant Worker as Finalization worker
+    Client->>Gateway: authorized send / continuation
+    Gateway->>Actor: invoke
+    Actor->>API: admit and versioned saves
+    API->>DB: stage final boundary
+    API-->>Actor: committed version
+    Actor->>API: settle after native cleanup
+    API->>DB: acknowledge version
+    Actor-->>Gateway: final event
+    Gateway->>Actor: close observer connection
+    Worker->>DB: claim settled boundary
+    Worker->>Actor: pause or suspend
+    Actor-->>Worker: settled native boundary
+    Worker->>DB: publish task/history/snapshot atomically
+    Gateway->>DB: observe publication
+    Gateway-->>Client: current public task
 ```
 
 ## Runtime boundaries

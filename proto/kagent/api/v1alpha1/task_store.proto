@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "a2a.proto";
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// TaskStoreService is the private persistence API for agent runtimes. Every call
+// requires workload authority for the requested instance. Public user and share
+// credentials do not grant access to this service.
+service TaskStoreService {
+  // AdmitMessage records input before execution. A retry of the same private
+  // attempt recovers its grant until execution starts; public retries only replay.
+  rpc AdmitMessage(TaskStoreServiceAdmitMessageRequest) returns (TaskStoreServiceAdmitMessageResponse);
+  rpc GetTask(TaskStoreServiceGetTaskRequest) returns (TaskStoreServiceGetTaskResponse);
+  rpc UpdateTask(TaskStoreServiceUpdateTaskRequest) returns (TaskStoreServiceUpdateTaskResponse);
+  rpc ListTasks(TaskStoreServiceListTasksRequest) returns (TaskStoreServiceListTasksResponse);
+  // SettleTask acknowledges that native execution and SDK cleanup have stopped
+  // at this saved version. Snapshot publication can then proceed asynchronously.
+  rpc SettleTask(TaskStoreServiceSettleTaskRequest) returns (TaskStoreServiceSettleTaskResponse);
+}
+
+message StoredTask {
+  lf.a2a.v1.Task task = 1;
+  // Opaque, increasing within an instance. Reload after restoring a fork; A2A
+  // task IDs are inherited by forks, but storage versions are instance-scoped.
+  int64 version = 2;
+}
+
+message TaskStoreServiceAdmitMessageRequest {
+  // Generated once by the runtime for each incoming request; preserve on RPC retry.
+  string admission_id = 3 [(buf.validate.field).string.uuid = true];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  lf.a2a.v1.SendMessageRequest request = 2 [(buf.validate.field).required = true];
+  // Native session runtimes reserve their session while waiting for input.
+  // When set, admit only this task's continuation; existing input retries still
+  // replay. Runtimes that support several parked tasks leave this empty.
+  string reserved_task_id = 4;
+  option (buf.validate.message).cel = {
+    id: "task_store.input"
+    message: "a user message with a message ID is required"
+    expression: "has(this.request.message) && this.request.message.message_id != '' && this.request.message.role == 1"
+  };
+}
+
+message TaskStoreServiceAdmitMessageResponse {
+  StoredTask current = 1;
+  // Only a newly admitted input may invoke the executor.
+  bool admitted = 2;
+  // Present for a newly admitted continuation. Supplies the pending input
+  // request to the SDK while current contains the committed SUBMITTED state.
+  lf.a2a.v1.Task previous = 3;
+}
+
+message TaskStoreServiceGetTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string task_id = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message TaskStoreServiceGetTaskResponse {
+  StoredTask stored = 1;
+}
+
+message TaskStoreServiceUpdateTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  lf.a2a.v1.Task task = 2 [(buf.validate.field).required = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+  // Go's SDK supplies the triggering event. Snapshot-only SDKs omit it; the
+  // task then describes the complete update. History is archived separately.
+  lf.a2a.v1.StreamResponse event = 4;
+  option (buf.validate.message).cel = {
+    id: "task_store.task_identity"
+    message: "task and context IDs are required"
+    expression: "this.task.id != '' && this.task.context_id != ''"
+  };
+}
+
+message TaskStoreServiceUpdateTaskResponse {
+  // Retrying the same expected version and payload returns the original
+  // committed version, including after subsequent updates have committed.
+  int64 version = 1;
+}
+
+message TaskStoreServiceListTasksRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  lf.a2a.v1.ListTasksRequest request = 2 [(buf.validate.field).required = true];
+}
+
+message TaskStoreServiceListTasksResponse {
+  lf.a2a.v1.ListTasksResponse result = 1;
+}
+
+message TaskStoreServiceSettleTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string task_id = 2 [(buf.validate.field).string.min_len = 1];
+  int64 version = 3 [(buf.validate.field).int64.gt = 0];
+}
+
+message TaskStoreServiceSettleTaskResponse {}

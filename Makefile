@@ -134,6 +134,7 @@ print-tools-versions: ## Print tools versions
 .PHONY: proto-generate
 proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
 	cd proto && $(BUF) generate
+	cd proto && $(BUF) generate --template buf.gen.python-validation.yaml
 
 .PHONY: proto-lint
 proto-lint: ## Lint repository-owned protobuf schemas
@@ -148,7 +149,7 @@ proto-breaking: ## Check protobuf compatibility against the target branch (defau
 	fi
 
 PROTO_BREAKING_BRANCH ?= main
-PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent
+PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent python/packages/kagent-proto/src/buf
 
 .PHONY: proto-check
 proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail when committed output drifts

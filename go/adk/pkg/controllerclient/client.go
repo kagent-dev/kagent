@@ -37,14 +37,15 @@ type Config struct {
 }
 
 type Client struct {
-	connection      *grpc.ClientConn
-	timeout         time.Duration
-	maxMessageBytes int
-	agentName       string
-	tokenProvider   TokenProvider
-	memoryService   apiv1alpha1.MemoryServiceClient
-	closeOnce       sync.Once
-	closeErr        error
+	connection       *grpc.ClientConn
+	timeout          time.Duration
+	maxMessageBytes  int
+	agentName        string
+	tokenProvider    TokenProvider
+	memoryService    apiv1alpha1.MemoryServiceClient
+	taskStoreService apiv1alpha1.TaskStoreServiceClient
+	closeOnce        sync.Once
+	closeErr         error
 }
 
 func New(config Config) (*Client, error) {
@@ -84,12 +85,13 @@ func New(config Config) (*Client, error) {
 		return nil, fmt.Errorf("create controller API client for %q: %w", config.APIURL, err)
 	}
 	return &Client{
-		connection:      connection,
-		timeout:         config.Timeout,
-		maxMessageBytes: config.MaxMessageBytes,
-		agentName:       config.AgentName,
-		tokenProvider:   config.TokenProvider,
-		memoryService:   apiv1alpha1.NewMemoryServiceClient(connection),
+		connection:       connection,
+		timeout:          config.Timeout,
+		maxMessageBytes:  config.MaxMessageBytes,
+		agentName:        config.AgentName,
+		tokenProvider:    config.TokenProvider,
+		memoryService:    apiv1alpha1.NewMemoryServiceClient(connection),
+		taskStoreService: apiv1alpha1.NewTaskStoreServiceClient(connection),
 	}, nil
 }
 
@@ -113,6 +115,10 @@ func targetFromURL(rawURL string) (string, bool, error) {
 
 func (client *Client) MemoryService() apiv1alpha1.MemoryServiceClient {
 	return client.memoryService
+}
+
+func (client *Client) TaskStoreService() apiv1alpha1.TaskStoreServiceClient {
+	return client.taskStoreService
 }
 
 func (client *Client) MaxMessageBytes() int {

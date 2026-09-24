@@ -11,6 +11,11 @@ type MethodPolicies map[string]auth.AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
 	policies := MethodPolicies{
+		apiv1alpha1.TaskStoreService_AdmitMessage_FullMethodName:              auth.AccessRuntime,
+		apiv1alpha1.TaskStoreService_GetTask_FullMethodName:                   auth.AccessRuntime,
+		apiv1alpha1.TaskStoreService_UpdateTask_FullMethodName:                auth.AccessRuntime,
+		apiv1alpha1.TaskStoreService_SettleTask_FullMethodName:                auth.AccessRuntime,
+		apiv1alpha1.TaskStoreService_ListTasks_FullMethodName:                 auth.AccessRuntime,
 		apiv1alpha1.SystemService_GetVersion_FullMethodName:                   auth.AccessPublic,
 		apiv1alpha1.SystemService_GetCurrentUser_FullMethodName:               auth.AccessRead,
 		apiv1alpha1.SystemService_ListNamespaces_FullMethodName:               auth.AccessRead,

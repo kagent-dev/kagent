@@ -158,6 +158,22 @@ func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alp
 	return toAgentInstance(row)
 }
 
+// GetAgentInstanceForRuntime binds a verified Substrate actor UID to the
+// instance created for it. Deleted instances and obsolete actors cannot access
+// retained task data. Actor identity is private and is never caller metadata.
+func (c *Client) GetAgentInstanceForRuntime(ctx context.Context, id, actorUID string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := queryOne(ctx, c.db, `
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id, operation_id, executor_id
+		FROM agent_instance WHERE id = $1 AND actor_uid = $2
+		    AND state <> 'AGENT_INSTANCE_STATE_DELETED'
+	`, pgx.RowToStructByName[agentInstanceRow], id, actorUID)
+	if err != nil {
+		return nil, notFoundOr(err)
+	}
+	return toAgentInstance(row)
+}
+
 // GetAgentInstance returns an instance only when it belongs to userID. Missing instances
 // and instances owned by another user return ErrNotFound. Tombstones are hidden.
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
@@ -276,6 +292,9 @@ func (c *Client) TransitionAgentInstance(
 		if row.OperationID != nil && row.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED.String() {
 			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)
 		}
+		if err := requirePublishedTasks(ctx, tx, row.HistoryID); err != nil {
+			return err
+		}
 		// Only lifecycle fields belong to this operation. Keep concurrent renames,
 		// immutable indexed fields and unknown protobuf fields from the locked row.
 		next := proto.Clone(result).(*apiv1alpha1.AgentInstance)
@@ -346,6 +365,9 @@ func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
 		}
 		if row.State == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED.String() {
 			return nil
+		}
+		if err := requirePublishedTasks(ctx, tx, row.HistoryID); err != nil {
+			return err
 		}
 		if row.OperationID != nil && row.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED.String() {
 			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)

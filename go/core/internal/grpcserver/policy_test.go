@@ -75,7 +75,7 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 				instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+test.permission])}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
-			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies())
+			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, nil, shareStore, DefaultMethodPolicies())
 			if got := status.Code(err); got != test.wantCode {
 				t.Fatalf("authenticate(%s) code = %v (%v), want %v", test.method, got, err, test.wantCode)
 			}

@@ -23,6 +23,7 @@ import (
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -47,6 +48,7 @@ type Config struct {
 	TLSCertFile           string
 	TLSKeyFile            string
 	Authenticator         auth.AuthProvider
+	RuntimeAuthenticator  auth.AuthProvider
 	ShareStore            agentinstance.ShareStore
 	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
@@ -55,6 +57,7 @@ type Config struct {
 	PromptTemplateService *prompttemplateservice.Service
 	SystemService         *systemservice.Service
 	MemoryService         *memoryservice.Service
+	TaskStoreService      *taskstore.Service
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
 	ScheduledRunService   *scheduledrun.Service
@@ -100,14 +103,14 @@ func New(config Config) (*Server, error) {
 		grpc.ChainUnaryInterceptor(
 			loggingUnaryInterceptor,
 			recoverUnaryInterceptor,
-			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationUnaryInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
 			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			loggingStreamInterceptor,
 			recoverStreamInterceptor,
-			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationStreamInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
 			errorMappingStreamInterceptor,
 		),
 	}
@@ -138,6 +141,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
+	}
+	if config.TaskStoreService != nil {
+		apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
 	}
 	if config.AgentInstanceService != nil {
 		apiv1alpha1.RegisterAgentInstanceServiceServer(grpcServer, &agentInstanceServer{service: config.AgentInstanceService})

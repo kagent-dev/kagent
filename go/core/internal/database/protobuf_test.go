@@ -222,7 +222,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Len(t, tasks[0].History, 2)
 	forkRow, err := readAgentInstance(ctx, q, fork.Id)
 	require.NoError(t, err)
-	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)}, nil)
+	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)}, nil, false)
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))

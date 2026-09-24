@@ -112,6 +112,8 @@ CREATE TABLE agent_instance (
     pinned_checkpoint_id UUID GENERATED ALWAYS AS (
         CASE WHEN state <> 'AGENT_INSTANCE_STATE_DELETED' THEN source_checkpoint_id END
     ) STORED REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
+    -- Immutable identity of the actor created for this instance.
+    actor_uid            TEXT CHECK (actor_uid IS NULL OR actor_uid <> ''),
     operation_id         UUID,
     executor_id          UUID,
     CHECK (executor_id IS NULL OR (operation_id IS NOT NULL
@@ -188,9 +190,25 @@ CREATE TABLE agent_instance_task_event (
     task_position BIGINT,
     initial_message_id TEXT,
     request_hash BYTEA,
+    -- A runtime save consumes one version. Retain its digest so a lost RPC
+    -- response can be retried without applying the same update twice.
+    -- Runtime boundaries become public only after their native snapshot settles.
+    published BOOLEAN NOT NULL DEFAULT TRUE,
+    runtime_settled BOOLEAN NOT NULL DEFAULT FALSE,
+    finalization_executor_id UUID,
+    admission_id UUID,
+    admission_previous_sequence BIGINT,
+    expected_version BIGINT,
+    mutation_hash BYTEA,
     snapshot_atespace TEXT,
     snapshot_uri TEXT,
     snapshot_content_scope TEXT,
+    CHECK ((admission_id IS NULL AND admission_previous_sequence IS NULL)
+        OR (admission_id IS NOT NULL AND admission_previous_sequence IS NOT NULL
+            AND admission_previous_sequence >= 0)),
+    CHECK ((expected_version IS NULL AND mutation_hash IS NULL)
+        OR (expected_version IS NOT NULL AND expected_version > 0
+            AND mutation_hash IS NOT NULL AND octet_length(mutation_hash) = 32)),
     CHECK ((snapshot_atespace IS NULL AND snapshot_uri IS NULL AND snapshot_content_scope IS NULL)
         OR (snapshot_atespace IS NOT NULL AND snapshot_uri IS NOT NULL AND snapshot_content_scope IS NOT NULL)),
     CHECK (task_position IS NULL OR (task_position > 0 AND task_id IS NOT NULL AND message_id IS NULL)),
@@ -203,6 +221,15 @@ CREATE UNIQUE INDEX agent_instance_task_event_position_idx
     ON agent_instance_task_event (history_id, task_position) WHERE task_position IS NOT NULL;
 CREATE INDEX agent_instance_task_event_instance_sequence_idx
     ON agent_instance_task_event (history_id, sequence);
+CREATE INDEX agent_instance_task_event_version_idx
+    ON agent_instance_task_event (history_id, task_id, sequence DESC);
+CREATE INDEX agent_instance_task_event_unpublished_idx
+    ON agent_instance_task_event (history_id, sequence) WHERE NOT published;
+CREATE UNIQUE INDEX agent_instance_task_event_admission_idx
+    ON agent_instance_task_event (history_id, admission_id) WHERE admission_id IS NOT NULL;
+CREATE UNIQUE INDEX agent_instance_task_event_mutation_idx
+    ON agent_instance_task_event (history_id, task_id, expected_version)
+    WHERE expected_version IS NOT NULL;
 CREATE UNIQUE INDEX agent_instance_task_event_message_idx
     ON agent_instance_task_event (history_id, task_id, message_id)
     WHERE message_id IS NOT NULL;

@@ -15,17 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// CreateAgentInstanceTask atomically stores a task, its creation event, and initial
-// messages for a READY instance with no lifecycle operation. It requires an initial
-// message and matching context. Reusing the initial message ID returns the stored task if
-// the request hash matches, or ErrIdempotencyConflict otherwise. An occupied active-task
-// slot or checkpoint creation blocks new tasks with ErrConflict. The
-// boolean reports a new reservation; callers authorize access and invoke the runtime
-// separately.
-func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
+func createAgentInstanceTask(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
 	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
@@ -43,18 +35,14 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		return nil, false, err
 	}
 
+	instanceID := instance.ID.String()
 	result := task
 	created := false
-	var historyID uuid.UUID
-	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
-		if err != nil {
-			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
-		}
+	err = func() error {
 		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
 			return ErrNotFound
 		}
-		historyID = instance.HistoryID
+		historyID := instance.HistoryID
 		if task.ContextID != instance.ContextID.String() {
 			return fmt.Errorf("task context does not match AgentInstance")
 		}
@@ -71,13 +59,16 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			if err != nil {
 				return err
 			}
-			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result}, nil)
+			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result}, nil, false)
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance %s cannot accept a task in state %s with operation %s: %w", instanceID, instance.State, instance.Operation, ErrConflict)
+		}
+		if err := requirePublishedTasks(ctx, tx, instance.HistoryID); err != nil {
+			return err
 		}
 		row, err := queryOne(ctx, tx, `
 			INSERT INTO agent_instance_task (
@@ -117,41 +108,18 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		}
 		_, err = storeAgentInstanceTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, task.History)
 		return err
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("create AgentInstance task: %w", err)
-	}
-	return result, created, nil
+	}()
+	return result, created, err
 }
 
-// TaskContinuation describes the same task before and after reply admission.
-type TaskContinuation struct {
-	// Current is the persisted task after admission, or its latest state on a retry.
-	Current *a2a.Task
-	// Previous is the waiting task before a newly admitted reply. It is nil on
-	// retries, which must not dispatch the reply again.
-	Previous *a2a.Task
-}
-
-// ContinueAgentInstanceTask atomically admits a reply to a waiting task, archives
-// the question and answer, and changes the task to SUBMITTED. The instance must be
-// READY with no lifecycle operation, creating checkpoint, or other active task.
-// Identical message/hash retries return the current task without dispatch, even
-// after its state advances; reused IDs with different content return
-// ErrIdempotencyConflict. Invalid human-input replies return ErrFailedPrecondition.
-// Previous is present only for a new admission, allowing the caller to restore
-// runtime continuation state. Retries return Current without another dispatch.
-// Missing instances/tasks return ErrNotFound; callers authorize access.
-func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message) (*TaskContinuation, error) {
+// continueAgentInstanceTask admits a reply under the instance transaction;
+// Previous is present only for newly accepted input. Retries return current state.
+func continueAgentInstanceTask(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, requestHash []byte, message *a2a.Message) (*TaskAdmission, error) {
 	if message == nil || message.ID == "" || message.TaskID == "" || len(requestHash) == 0 {
 		return nil, fmt.Errorf("task reply requires message ID, task ID, and request hash")
 	}
 	var result, waiting *a2a.Task
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
-		if err != nil {
-			return notFoundOr(err)
-		}
+	err := func() error {
 		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
 			return ErrNotFound
 		}
@@ -174,13 +142,16 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 			if !bytes.Equal(hash, requestHash) {
 				return ErrIdempotencyConflict
 			}
-			return loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, []*a2a.Task{result}, nil)
+			return loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, []*a2a.Task{result}, nil, false)
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance cannot accept a reply in state %s with operation %s: %w", instance.State, instance.Operation, ErrConflict)
+		}
+		if err := requirePublishedTasks(ctx, tx, instance.HistoryID); err != nil {
+			return err
 		}
 		if result.Status.State != a2a.TaskStateInputRequired && result.Status.State != a2a.TaskStateAuthRequired {
 			return fmt.Errorf("task is not waiting for input: %w", ErrConflict)
@@ -203,7 +174,7 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 				return fmt.Errorf("ask-user response does not match the pending request: %w", ErrFailedPrecondition)
 			}
 		}
-		if err := loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, []*a2a.Task{result}, nil); err != nil {
+		if err := loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, []*a2a.Task{result}, nil, false); err != nil {
 			return err
 		}
 		waiting = result
@@ -224,7 +195,7 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		submitted.History = append(submitted.History, message)
 		now := time.Now().UTC()
 		submitted.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now}
-		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &submitted, message, nil); err != nil {
+		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &submitted, message, nil, false); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `
@@ -235,165 +206,315 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		}
 		result = &submitted
 		return nil
-	})
+	}()
 	if err != nil {
-		return nil, fmt.Errorf("continue AgentInstance task: %w", err)
+		return nil, err
 	}
-	return &TaskContinuation{Current: result, Previous: waiting}, nil
+	return &TaskAdmission{Current: result, Previous: waiting}, nil
 }
 
-// taskInterruptedMessage explains a task terminated because its runtime no
-// longer has an active execution for it.
-const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
-
-// GetActiveAgentInstanceTask returns the instance's current active task, or ErrNotFound if
-// none exists. Completed, canceled, failed, rejected, input-required, and auth-required
-// tasks are not active. Callers authorize instance access.
-func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
-	type activeTaskRow struct {
-		HistoryID uuid.UUID
-		Data      []byte
-	}
-	row, err := queryOne(ctx, c.db, `
-		SELECT t.history_id, t.data
-		FROM agent_instance_task t
-		JOIN agent_instance i ON i.history_id = t.history_id
-		WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED'
-		  AND t.state NOT IN (
-		      'TASK_STATE_COMPLETED',
-		      'TASK_STATE_CANCELED',
-		      'TASK_STATE_FAILED',
-		      'TASK_STATE_REJECTED',
-		      'TASK_STATE_INPUT_REQUIRED',
-		      'TASK_STATE_AUTH_REQUIRED'
-		  )
-	`, pgx.RowToStructByName[activeTaskRow], instanceID)
-	if err != nil {
-		return nil, fmt.Errorf("get active AgentInstance task: %w", notFoundOr(err))
-	}
-	task, err := unmarshalAgentInstanceTask(row.Data)
-	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task}, nil)
-	}
-	return task, err
+// TaskAdmission describes the committed input and whether this runtime attempt
+// may dispatch it. Previous restores a waiting SDK task for a newly admitted reply.
+// Version belongs to Current, including when Previous is supplied.
+type TaskAdmission struct {
+	Current  *a2a.Task
+	Previous *a2a.Task
+	Version  int64
+	Admitted bool
 }
 
-// InterruptActiveAgentInstanceTask atomically marks taskID failed and records its
-// interruption message and event, only if it is still the instance's active task. It
-// returns false if no active task matches. Callers authorize access and stop runtime work
-// separately.
-func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
-	interruptedTask := false
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
-	if err != nil {
-		return false, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
+// AdmitAgentInstanceMessage atomically admits a public input and records the
+// private RPC attempt. A lost admission response may retry that same attempt
+// until execution writes its first update. A different public request attempt
+// only replays the task; it never obtains another execution grant.
+func (c *Client) AdmitAgentInstanceMessage(ctx context.Context, instanceID, reservedTaskID string, attemptID uuid.UUID, requestHash []byte, message *a2a.Message) (*TaskAdmission, error) {
+	if attemptID == uuid.Nil || message == nil {
+		return nil, fmt.Errorf("runtime admission requires an attempt ID and message")
 	}
-	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := queryOne(ctx, tx, `
-			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-			    agent_instance_task
-			WHERE history_id = $1
-			  AND state NOT IN (
-			      'TASK_STATE_COMPLETED',
-			      'TASK_STATE_CANCELED',
-			      'TASK_STATE_FAILED',
-			      'TASK_STATE_REJECTED',
-			      'TASK_STATE_INPUT_REQUIRED',
-			      'TASK_STATE_AUTH_REQUIRED'
-			  )
-			FOR UPDATE
-		`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("lock active AgentInstance task: %w", err)
-		}
-		if row.ID != taskID {
-			return nil
-		}
-		task := &a2apb.Task{}
-		if err := proto.Unmarshal(row.Data, task); err != nil {
-			return fmt.Errorf("decode interrupted task: %w", err)
-		}
-		if _, err := pbconv.FromProtoTask(task); err != nil {
-			return err
-		}
-		interrupted := &a2apb.Message{
-			MessageId: uuid.NewString(), TaskId: task.Id, ContextId: task.ContextId, Role: a2apb.Role_ROLE_AGENT,
-			Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: taskInterruptedMessage}}},
-		}
-		now := time.Now()
-		status := proto.Clone(task.Status).(*a2apb.TaskStatus)
-		status.State = a2apb.TaskState_TASK_STATE_FAILED
-		status.Message = interrupted
-		status.Timestamp = timestamppb.New(now)
-		messages := append(task.History, interrupted)
-		event := &a2apb.StreamResponse{Payload: &a2apb.StreamResponse_StatusUpdate{StatusUpdate: &a2apb.TaskStatusUpdateEvent{
-			TaskId: task.Id, ContextId: task.ContextId, Status: status,
-		}}}
-		task, err = applyTaskEvent(task, event)
-		if err != nil {
-			return err
-		}
-		task.History = nil
-		data, err := proto.Marshal(task)
-		if err != nil {
-			return err
-		}
-		if _, err := saveTaskProjection(ctx, tx, instance.HistoryID, task.Id, string(a2a.TaskStateFailed), &now, data); err != nil {
-			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.Id, err)
-		}
-		if _, err := storeProtoTaskMessages(ctx, tx, instance.HistoryID, task.Id, task.ContextId, messages); err != nil {
-			return fmt.Errorf("record AgentInstance task interruption: %w", err)
-		}
-		eventData, err := proto.Marshal(event)
-		if err != nil {
-			return err
-		}
-		if _, err := insertTaskEvent(ctx, tx, taskEventWrite{
-			HistoryID: instance.HistoryID,
-			TaskID:    &task.Id,
-			Data:      eventData,
-		}); err != nil {
-			return fmt.Errorf("record task interruption status: %w", err)
-		}
-		interruptedTask = true
-		return nil
-	})
-	if err != nil {
-		return false, err
-	}
-	return interruptedTask, nil
-}
-
-// StoreAgentInstanceTaskEvent atomically saves the task state, archived messages, replay
-// event, and optional snapshot boundary. It rejects inconsistent task/context identities
-// and updates blocked by checkpoint creation. Snapshot references must already exist;
-// callers authorize access and perform external snapshot work.
-func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
-	if task == nil || event == nil {
-		return fmt.Errorf("task and event are required")
-	}
+	// Assigning an initial task ID must not turn a retry of the caller's
+	// original message into a continuation request.
+	input := *message
+	message = &input
+	result := &TaskAdmission{}
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		instance, err := lockAgentInstance(ctx, tx, instanceID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		return storeAgentInstanceTaskEvent(ctx, tx, instance, task, event, snapshot)
+		var previousVersion int64
+		if message.TaskID == "" {
+			message.TaskID = a2a.NewTaskID()
+			task := a2a.NewSubmittedTask(message, message)
+			apia2a.SetTaskCreatedAt(task, time.Now().UTC())
+			result.Current, result.Admitted, err = createAgentInstanceTask(ctx, tx, instance, requestHash, task)
+		} else {
+			previousVersion, err = taskVersion(ctx, tx, instance.HistoryID, string(message.TaskID))
+			if err != nil {
+				return err
+			}
+			var continuation *TaskAdmission
+			continuation, err = continueAgentInstanceTask(ctx, tx, instance, requestHash, message)
+			if err == nil {
+				result.Current, result.Previous = continuation.Current, continuation.Previous
+				result.Admitted = continuation.Previous != nil
+			}
+		}
+		if err != nil {
+			return err
+		}
+		result.Version, err = taskVersion(ctx, tx, instance.HistoryID, string(result.Current.ID))
+		if err != nil {
+			return err
+		}
+		if result.Admitted {
+			// Roll back the entire input if the native session is reserved.
+			// Replay is checked first, so old inputs still return their result.
+			if reservedTaskID != "" && string(result.Current.ID) != reservedTaskID {
+				return fmt.Errorf("native session is waiting for another task: %w", ErrConflict)
+			}
+			return execSQL(ctx, tx, `
+				UPDATE agent_instance_task_event SET admission_id = $2, admission_previous_sequence = $3
+				WHERE sequence = $1
+			`, result.Version, attemptID, previousVersion)
+		}
+		// Only a retry of the still-undispatched private call can recover its
+		// grant. Once any runtime update commits, this receipt is historical.
+		previousVersion, err = queryOne(ctx, tx, `
+			SELECT admission_previous_sequence FROM agent_instance_task_event
+			WHERE sequence = $1 AND admission_id = $2
+		`, pgx.RowTo[int64], result.Version, attemptID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result.Admitted = true
+		if previousVersion > 0 {
+			result.Previous, err = readTaskAtVersion(ctx, tx, instance, string(result.Current.ID), previousVersion)
+		}
+		return err
 	})
 	if err != nil {
-		return fmt.Errorf("store AgentInstance task update: %w", err)
+		return nil, fmt.Errorf("admit runtime input: %w", err)
 	}
-	return nil
+	return result, nil
+}
+
+// Reconstruct a retried continuation from its retained boundary, not the task's
+// newer projection. This path runs only after a lost private admission response.
+func readTaskAtVersion(ctx context.Context, db dbExecutor, instance agentInstanceRow, taskID string, version int64) (*a2a.Task, error) {
+	events, err := queryMany(ctx, db, `
+		SELECT sequence, history_id, task_id, data, created_at, message_id,
+		    task_position, initial_message_id, request_hash, snapshot_atespace,
+		    snapshot_uri, snapshot_content_scope
+		FROM agent_instance_task_event WHERE history_id = $1 AND task_id = $2 AND sequence <= $3
+		ORDER BY sequence
+	`, pgx.RowToStructByName[agentInstanceTaskEventRow], instance.HistoryID, taskID, version)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := replayTaskEvents(events, instance.ContextID.String())
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) != 1 {
+		return nil, fmt.Errorf("admitted task has no retained boundary")
+	}
+	task, err := unmarshalAgentInstanceTask(rows[0].Data)
+	if err != nil {
+		return nil, err
+	}
+	// Replay builds the task projection; archived messages remain independent
+	// retained events and must also stop at the original admission boundary.
+	for _, source := range events {
+		if source.MessageID == nil {
+			continue
+		}
+		event := &a2apb.StreamResponse{}
+		if err := proto.Unmarshal(source.Data, event); err != nil {
+			return nil, err
+		}
+		message, err := pbconv.FromProtoMessage(event.GetMessage())
+		if err != nil {
+			return nil, err
+		}
+		task.History = append(task.History, message)
+	}
+	if task.Status.Message != nil {
+		task.Status.Message.TaskID, task.Status.Message.ContextID = task.ID, task.ContextID
+	}
+	return task, nil
+}
+
+// UpdateAgentInstanceTask applies a runtime update only to the version it read.
+// The transition and history commit together. An identical retry returns the
+// original committed version, even after later updates; a different stale save
+// returns ErrConflict. Callers authenticate the runtime's instance authority and
+// provide a SHA-256 digest of the complete mutation. This never creates a task:
+// an input must have been admitted before its executor can save updates.
+func (c *Client) UpdateAgentInstanceTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event) (int64, error) {
+	if expectedVersion <= 0 || len(mutationHash) != 32 || task == nil || event == nil {
+		return 0, fmt.Errorf("runtime task update requires a version, digest, task, and event")
+	}
+	var version int64
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+			return ErrNotFound
+		}
+		if task.ContextID != instance.ContextID.String() {
+			return fmt.Errorf("task context does not match AgentInstance: %w", ErrFailedPrecondition)
+		}
+		type receipt struct {
+			Sequence     int64
+			MutationHash []byte
+		}
+		previous, err := queryOne(ctx, tx, `
+			SELECT sequence, mutation_hash FROM agent_instance_task_event
+			WHERE history_id = $1 AND task_id = $2 AND expected_version = $3
+		`, pgx.RowToStructByName[receipt], instance.HistoryID, string(task.ID), expectedVersion)
+		if err == nil {
+			if !bytes.Equal(previous.MutationHash, mutationHash) {
+				return ErrConflict
+			}
+			version = previous.Sequence
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		row, err := readAgentInstanceTask(ctx, tx, instance.HistoryID, string(task.ID))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		version, err = taskVersion(ctx, tx, instance.HistoryID, string(task.ID))
+		if err != nil {
+			return err
+		}
+		if expectedVersion != version {
+			return ErrConflict
+		}
+		stored, err := unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return err
+		}
+		if err := requirePublishedTasks(ctx, tx, instance.HistoryID); err != nil {
+			return err
+		}
+		if stored.Status.State.Terminal() {
+			return fmt.Errorf("a terminal task cannot be updated: %w", ErrFailedPrecondition)
+		}
+		if (stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) && !task.Status.State.Terminal() {
+			return fmt.Errorf("a waiting task requires an admitted reply: %w", ErrFailedPrecondition)
+		}
+		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
+			return fmt.Errorf("AgentInstance cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
+		}
+		boundary := task.Status.State.Terminal() || task.Status.State == a2a.TaskStateInputRequired || task.Status.State == a2a.TaskStateAuthRequired
+		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, task, event, nil, boundary); err != nil {
+			return err
+		}
+		version, err = taskVersion(ctx, tx, instance.HistoryID, string(task.ID))
+		if err != nil {
+			return err
+		}
+		if boundary {
+			if err := execSQL(ctx, tx, `
+				UPDATE agent_instance_task_event SET published = FALSE
+				WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
+			`, instance.HistoryID, string(task.ID), expectedVersion, version); err != nil {
+				return err
+			}
+		}
+		return execSQL(ctx, tx, `
+			UPDATE agent_instance_task_event SET expected_version = $2, mutation_hash = $3
+			WHERE sequence = $1
+		`, version, expectedVersion, mutationHash)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("update AgentInstance task %s: %w", task.ID, err)
+	}
+	return version, nil
+}
+
+// GetVersionedAgentInstanceTask returns one consistent task, full history, and
+// storage version for a runtime read. Versions come from the retained history,
+// so forks have independent versions even when their wire task IDs are shared.
+// Missing or deleted instances and absent tasks return ErrNotFound. Callers
+// authenticate instance authority before reading.
+func (c *Client) GetVersionedAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, int64, error) {
+	var task *a2a.Task
+	var version int64
+	err := pgx.BeginTxFunc(ctx, c.db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		type storedTask struct {
+			HistoryID uuid.UUID
+			Data      []byte
+			Version   int64
+		}
+		row, err := queryOne(ctx, tx, `
+			SELECT t.history_id, t.data,
+			    (SELECT MAX(e.sequence) FROM agent_instance_task_event e
+			     WHERE e.history_id = t.history_id AND e.task_id = t.id) AS version
+			FROM agent_instance_task t JOIN agent_instance i ON i.history_id = t.history_id
+			WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
+		`, pgx.RowToStructByName[storedTask], instanceID, taskID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		task, err = unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return err
+		}
+		version = row.Version
+		pending, err := queryOne(ctx, tx, `
+			SELECT data FROM agent_instance_task_event WHERE sequence = $1 AND NOT published
+		`, pgx.RowTo[[]byte], version)
+		if err == nil {
+			wire, err := pbconv.ToProtoTask(task)
+			if err != nil {
+				return err
+			}
+			event := &a2apb.StreamResponse{}
+			if err := proto.Unmarshal(pending, event); err != nil {
+				return err
+			}
+			wire, err = applyTaskEvent(wire, event)
+			if err != nil {
+				return err
+			}
+			task, err = pbconv.FromProtoTask(wire)
+			if err != nil {
+				return err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		return loadAgentInstanceTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, nil, true)
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("get versioned AgentInstance task %s: %w", taskID, err)
+	}
+	return task, version, nil
+}
+
+// taskVersion reads the last committed event for a task. Callers serialize
+// mutations with the instance lock or use a consistent read transaction.
+func taskVersion(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (int64, error) {
+	return queryOne(ctx, db, `
+		SELECT sequence FROM agent_instance_task_event
+		WHERE history_id = $1 AND task_id = $2 ORDER BY sequence DESC LIMIT 1
+	`, pgx.RowTo[int64], historyID, taskID)
 }
 
 // storeAgentInstanceTaskEvent persists a task transition, its messages, and optional
 // snapshot in the caller's transaction. The caller must hold the instance row lock;
 // checkpoint creation blocks the write. Continuation admission validates the waiting
 // state and retry identity before invoking this shared persistence operation.
-func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
+func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot, deferPublication bool) error {
 	if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
 		return ErrNotFound
 	}
@@ -412,11 +533,13 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 	}
 	var sequence int64
 	var stored *a2apb.Task
+	var taskRow agentInstanceTaskRow
 	if row, err := queryOne(ctx, tx, `
 		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
 		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
 		    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
+		taskRow = row
 		stored = &a2apb.Task{}
 		if err := proto.Unmarshal(row.Data, stored); err != nil {
 			return fmt.Errorf("decode stored task: %w", err)
@@ -452,13 +575,16 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 	if err != nil {
 		return err
 	}
-	taskRow, err := saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
-	if err != nil {
-		if isActiveTaskConflict(err) {
-			return fmt.Errorf("AgentInstance %s already has an active task: %w", instance.ID, ErrConflict)
+	if !deferPublication {
+		taskRow, err = saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
+		if err != nil {
+			if isActiveTaskConflict(err) {
+				return fmt.Errorf("AgentInstance %s already has an active task: %w", instance.ID, ErrConflict)
+			}
+			return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 		}
-		return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 	}
+
 	if newTask {
 		data, err := proto.Marshal(durable)
 		if err != nil {
@@ -525,22 +651,50 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 // or ErrNotFound if the instance or task is absent. Nil or negative historyLength loads
 // all history; zero skips it. Callers authorize instance access.
 func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
-	row, err := queryOne(ctx, c.db, `
-		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
-		    t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri,
-		    t.snapshot_content_scope, t.history_sequence, t.position
-		FROM agent_instance_task t
-		JOIN agent_instance i ON i.history_id = t.history_id
-		WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
-	`, pgx.RowToStructByName[agentInstanceTaskRow], instanceID, taskID)
+	return c.getPublicTask(ctx, instanceID, taskID, historyLength, false)
+}
+
+// GetSettledAgentInstanceTask reads the public task only after its pending native
+// boundary is published. ErrConflict means publication is still pending. A later
+// admitted turn may already be current; callers must not wait for an old status
+// value to recur. Ownership and missing-record semantics match GetAgentInstanceTask.
+func (c *Client) GetSettledAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
+	return c.getPublicTask(ctx, instanceID, taskID, historyLength, true)
+}
+
+// getPublicTask keeps the public projection and archived messages at one read
+// snapshot. Checking settlement never waits while holding a transaction or lock.
+func (c *Client) getPublicTask(ctx context.Context, instanceID, taskID string, historyLength *int, settled bool) (*a2a.Task, error) {
+	var task *a2a.Task
+	err := pgx.BeginTxFunc(ctx, c.db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		type publicTask struct {
+			HistoryID uuid.UUID
+			Data      []byte
+			Pending   bool
+		}
+		row, err := queryOne(ctx, tx, `
+			SELECT t.history_id, t.data,
+			    ($3::boolean AND EXISTS (SELECT 1 FROM agent_instance_task_event e
+			      WHERE e.history_id = t.history_id AND e.task_id = t.id AND NOT e.published)) AS pending
+			FROM agent_instance_task t JOIN agent_instance i ON i.history_id = t.history_id
+			WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
+		`, pgx.RowToStructByName[publicTask], instanceID, taskID, settled)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if row.Pending {
+			return ErrConflict
+		}
+		task, err = unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return err
+		}
+		return loadAgentInstanceTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, historyLength, false)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
+		return nil, fmt.Errorf("read public AgentInstance task %s: %w", taskID, err)
 	}
-	task, err := unmarshalAgentInstanceTask(row.Data)
-	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task}, historyLength)
-	}
-	return task, err
+	return task, nil
 }
 
 // ListAgentInstanceTasks returns tasks with archived messages in immutable creation order
@@ -593,7 +747,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		}
 		tasks = append(tasks, task)
 	}
-	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks, historyLength); err != nil {
+	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks, historyLength, false); err != nil {
 		return nil, 0, err
 	}
 	return tasks, int(total), nil
@@ -684,7 +838,7 @@ func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.U
 // order, limited to the latest historyLength per task. Zero clears history without a
 // query; nil or negative loads it all. Tasks without archived messages otherwise retain
 // their inline history, subject to the same limit. Malformed messages return errors.
-func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task, historyLength *int) error {
+func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task, historyLength *int, includeUnpublished bool) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -703,7 +857,7 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 			task.History = task.History[len(task.History)-*historyLength:]
 		}
 	}
-	rows, err := readTaskMessages(ctx, db, historyID, ids, historyLength)
+	rows, err := readTaskMessages(ctx, db, historyID, ids, historyLength, includeUnpublished)
 	if err != nil {
 		return fmt.Errorf("list AgentInstance task history: %w", err)
 	}
@@ -859,7 +1013,7 @@ func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID,
 // readTaskMessages returns the latest historyLength archived messages per requested task
 // in event order. Nil or negative limits load all messages. Callers authorize the history
 // and decode the returned payloads.
-func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskIDs []string, historyLength *int) ([]taskHistoryRow, error) {
+func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskIDs []string, historyLength *int, includeUnpublished bool) ([]taskHistoryRow, error) {
 	if historyLength != nil && *historyLength < 0 {
 		historyLength = nil
 	}
@@ -870,9 +1024,52 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 		    SELECT task_id, data, sequence
 		    FROM agent_instance_task_event
 		    WHERE history_id = $1 AND task_id = tasks.task_id AND message_id IS NOT NULL
+		      AND (published OR $4::boolean)
 		    ORDER BY sequence DESC
 		    LIMIT $3
 		) messages
 		ORDER BY messages.sequence
-	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs, historyLength)
+	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs, historyLength, includeUnpublished)
+}
+
+// The instance lock makes this admission barrier atomic with boundary staging.
+func requirePublishedTasks(ctx context.Context, db dbExecutor, historyID uuid.UUID) error {
+	pending, err := queryOne(ctx, db, `
+		SELECT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1 AND NOT published)
+	`, pgx.RowTo[bool], historyID)
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fmt.Errorf("runtime snapshot is not yet settled: %w", ErrFailedPrecondition)
+	}
+	return nil
+}
+
+// GetAgentInstanceInput reads an accepted public input without waking its
+// runtime. Missing input returns ErrNotFound; reusing an ID with different
+// content returns ErrIdempotencyConflict. This lookup never grants execution.
+func (c *Client) GetAgentInstanceInput(ctx context.Context, instanceID, taskID, messageID string, requestHash []byte) (*a2a.Task, error) {
+	instance, err := readAgentInstance(ctx, c.db, instanceID)
+	if err != nil {
+		return nil, notFoundOr(err)
+	}
+	type input struct {
+		TaskID      string
+		RequestHash []byte
+	}
+	row, err := queryOne(ctx, c.db, `
+		SELECT id AS task_id, request_hash FROM agent_instance_task
+		WHERE history_id = $1 AND $2::text = '' AND initial_message_id = $3
+		UNION ALL
+		SELECT task_id, request_hash FROM agent_instance_task_event
+		WHERE history_id = $1 AND $2::text <> '' AND task_id = $2 AND message_id = $3 AND request_hash IS NOT NULL
+	`, pgx.RowToStructByName[input], instance.HistoryID, taskID, messageID)
+	if err != nil {
+		return nil, notFoundOr(err)
+	}
+	if !bytes.Equal(row.RequestHash, requestHash) {
+		return nil, ErrIdempotencyConflict
+	}
+	return c.GetAgentInstanceTask(ctx, instanceID, row.TaskID, nil)
 }

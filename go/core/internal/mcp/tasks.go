@@ -182,10 +182,16 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	events := h.gateway.SendStreamingMessage(
-		context.WithoutCancel(routeContext(ctx, ref.InstanceID)),
+		routeContext(ctx, ref.InstanceID),
 		&a2atype.SendMessageRequest{Message: message},
 	)
-	go drain(events)
+	// Wait for admission to reach the runtime, then release this observer.
+	for _, err := range events {
+		if err != nil {
+			return nil, err
+		}
+		break
+	}
 	return &completeTaskResult{ResultType: "complete"}, nil
 }
 

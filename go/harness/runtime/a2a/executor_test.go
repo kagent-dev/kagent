@@ -447,6 +447,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := requestContext("task-approval", "write")
+	if executor.ReservedTaskID() != "" {
+		t.Fatal("idle session is reserved")
+	}
 	events, errs := collect(executor.Execute(t.Context(), first))
 	if len(errs) != 0 || len(events) != 2 {
 		t.Fatalf("first execution events/errors = %#v/%v", events, errs)
@@ -456,6 +459,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatalf("input-required event = %#v", events[1])
 	}
 	decisionMessage := a2atype.NewMessage(a2atype.MessageRoleUser)
+	if executor.ReservedTaskID() != first.TaskID {
+		t.Fatal("pending approval did not reserve its native session")
+	}
 	decisionMessage.TaskID, decisionMessage.ContextID = first.TaskID, first.ContextID
 	if err := apia2a.AttachHITL(decisionMessage, apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: "7", Approved: false, RejectionReason: "production is still serving traffic"}}}); err != nil {
 		t.Fatal(err)
@@ -464,6 +470,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 	_, errs = collect(executor.Execute(t.Context(), second))
 	if len(errs) != 0 || decision == nil || decision.ID != "7" || decision.Approved || decision.RejectionReason != "production is still serving traffic" {
 		t.Fatalf("approval decision = %#v, errors = %v", decision, errs)
+	}
+	if executor.ReservedTaskID() != "" {
+		t.Fatal("completed approval kept its native session reserved")
 	}
 }
 

@@ -1,5 +1,11 @@
 # API v2 execution plan
 
+> The runtime-owned TaskStore cutover supersedes the gateway-ingester direction
+> in K4/K10 below. See [A2A gateway](../architecture/a2a-gateway.md) for the new
+> ownership boundary and its outstanding Substrate #1660 deployment prerequisite.
+> Historical milestone checklists below are not evidence of cutover completion.
+
+
 ## Summary
 
 Land API v2 through four milestones:
