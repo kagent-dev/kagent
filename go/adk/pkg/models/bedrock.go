@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
@@ -252,9 +251,6 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 			yield(nil, err)
 			return
 		}
-
-		// Set telemetry attributes
-		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		if stream {
 			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, outputConfig, additionalFields, reverseNameMap, yield)
@@ -584,7 +580,6 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 		FinishReason:  finishReason,
 		UsageMetadata: usageMetadata,
 	}
-	telemetry.SetLLMResponseAttributes(ctx, response)
 	yield(response, nil)
 }
 

@@ -254,13 +254,19 @@ func (s *failingFinalizationStore) DeleteRuntimeRevision(ctx context.Context, re
 
 type fakeActorTemplates struct {
 	template           *ateapipb.ActorTemplate
+	ensureErr          error
+	getErr             error
+	createErr          error
 	deleteErr          error
 	deletedBeforeError bool
 }
 
-func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return nil }
+func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return f.ensureErr }
 
 func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	if f.template == nil {
 		return nil, status.Error(codes.NotFound, "not found")
 	}
@@ -268,7 +274,10 @@ func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (
 }
 
 func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
-	f.template = template
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	f.template = proto.CloneOf(template)
 	f.template.Metadata.Uid = "actor-uid"
 	return f.template, nil
 }

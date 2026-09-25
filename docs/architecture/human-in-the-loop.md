@@ -72,6 +72,21 @@ request may also carry `nested` child-agent correlation: `subagent_name`,
 The server rejects responses that use the wrong task/context, omit required
 decisions, duplicate IDs, or answer an operation that is no longer pending.
 
+The status message also carries a text part that describes the pause. Every
+runtime composes that text the same way, and a client receives it whether or not
+it activated the extension:
+
+- an `ask_user` pause renders its questions, joined with `; `;
+- any other pause renders the hints its tools supplied, followed by the tool
+  names in parentheses: `Deleting this file requires approval (delete_file,
+  restart_pod)`;
+- with no hints, it names the tools: `Approval is required for tool(s):
+  delete_file`;
+- a pause that carries no tool call renders `Human input is required before the
+  agent can continue.`
+
+The `hint` field of an activated payload holds that same string.
+
 ## Ownership
 
 | Component | Responsibility |

@@ -217,20 +217,13 @@ func TestRequestSpanStaysATransportSpanForTheADK(t *testing.T) {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
 	}
-	invocations := 0
 	for _, exported := range exporter.GetSpans() {
-		if exported.Name != "invocation" {
-			continue
-		}
-		invocations++
-		// The kagent-owned invocation span keeps the ADK scope name but declares
-		// the contract's schema, like every other tracer kagent creates.
-		if exported.InstrumentationScope.SchemaURL != tracing.SchemaURL {
-			t.Errorf("invocation schema URL = %q, want %q", exported.InstrumentationScope.SchemaURL, tracing.SchemaURL)
+		if exported.Name == "invocation" {
+			t.Errorf("kagent emitted a legacy invocation span in scope %q", exported.InstrumentationScope.Name)
 		}
 	}
-	if invocations != 1 {
-		t.Errorf("exported %d invocation spans, want exactly one", invocations)
+	if span.InstrumentationScope.SchemaURL != tracing.SchemaURL {
+		t.Errorf("request span schema URL = %q, want %q", span.InstrumentationScope.SchemaURL, tracing.SchemaURL)
 	}
 }
 

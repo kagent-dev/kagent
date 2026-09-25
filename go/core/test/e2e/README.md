@@ -97,6 +97,12 @@ input continuation, and cancellation.
 
 `mocks/` contains the deterministic LLM responses used by interaction tests.
 
+`TestAgentInstanceHTTPInteraction` discovers an instance's Agent Card, invokes
+the advertised JSON-RPC interface, streams a second turn, and checks task
+persistence across HTTP and gRPC. `TestAgentInstanceHTTPResubscribeAndCancel`
+subscribes to an active HTTP task and verifies cancellation on both SSE streams.
+Both cases run across the harness matrix without an instance routing header.
+
 For local interaction debugging, start any retained response fixture from the
 `go` directory:
 

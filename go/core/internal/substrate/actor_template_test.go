@@ -8,11 +8,53 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 )
+
+func TestActorTemplateSandboxClass(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		class      atev1alpha1.SandboxClass
+		wantClass  ateapipb.SandboxClass
+		wantConfig string
+		wantError  string
+	}{
+		{name: "default", wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
+		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
+		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, wantConfig: "microvm"},
+		{name: "unsupported", class: "unsupported", wantError: `unsupported sandbox class "unsupported"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &translator.Revision{
+				Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+				WorkerPoolName: "pool",
+				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
+				},
+			}
+			// Exercise builder validation independently of Digest's validation.
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			spec.SandboxClass = tt.class
+			template, err := ActorTemplateForRevision(spec, id)
+			if tt.wantError != "" {
+				require.EqualError(t, err, tt.wantError)
+				require.Nil(t, template)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
+			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
+			require.Equal(t, map[string]string{workerPoolLabelKey: "pool"}, template.GetWorkerSelector().GetMatchLabels())
+		})
+	}
+}
 
 func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{

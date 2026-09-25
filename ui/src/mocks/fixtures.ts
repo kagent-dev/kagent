@@ -693,6 +693,33 @@ export const mockHarnesses: Harness[] = [
     },
   },
   {
+    // Bring your own: the user's image serves A2A itself, so it sets a command and
+    // runs templates with no model.
+    ref: "kagent/byo-echo",
+    namespace: "kagent",
+    name: "byo-echo",
+    runtime: "byo",
+    workloadImage:
+      "ghcr.io/example/echo-agent@sha256:a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0",
+    ready: true,
+    resource: {
+      metadata: { name: "byo-echo", namespace: "kagent" },
+      spec: {
+        byo: {},
+        workload: {
+          image:
+            "ghcr.io/example/echo-agent@sha256:a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0",
+          command: ["/app/echo-agent"],
+          args: ["--port=8080"],
+        },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        allowedAgentTemplates: {
+          selector: { matchLabels: { "kagent.dev/runtime": "byo-echo" } },
+        },
+      },
+    },
+  },
+  {
     /*
      * A harness outside `kagent`.
      *

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -49,7 +48,6 @@ func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 		if modelName == "" || modelName == "anthropic" {
 			modelName = "claude-sonnet-4-20250514"
 		}
-		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		// Build request parameters
 		params := anthropic.MessageNewParams{
@@ -358,7 +356,6 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, resp)
 	_ = yield(resp, nil)
 }
 
@@ -406,6 +403,5 @@ func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params ant
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, resp)
 	yield(resp, nil)
 }

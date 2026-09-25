@@ -107,7 +107,17 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if err != nil {
 		return nil, err
 	}
-	return harnessCompiler.Compile(ctx, input)
+	result, err := harnessCompiler.Compile(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
+	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
+	if workerPool == nil {
+		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
+	}
+	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	return result, nil
 }
 
 func harnessType(harness *v1alpha3.Harness) HarnessType {

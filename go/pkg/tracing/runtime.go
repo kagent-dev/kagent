@@ -80,8 +80,10 @@ const (
 // span reports.
 const OperationInvokeAgent = conv.GenAIOperationNameInvokeAgent
 
-// TransportSpanName names the wrapper span of a runtime whose invocation
-// span comes from the runtime itself.
+// TransportSpanName names the wrapper span of a runtime that emits its own
+// invoke_agent. It ends and flushes before a quiescent event leaves the
+// process, because the gateway may suspend the Actor on that event while the
+// inbound request, and so its SERVER span, is still open.
 const TransportSpanName = "a2a.request"
 
 // Segment values for AttributeSegment.

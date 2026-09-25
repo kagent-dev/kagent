@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/contrib/exporters/autoexport"
@@ -53,10 +54,12 @@ func WithDefaults(environment []string) []string {
 }
 
 // Options identify the process. The environment wins over Defaults.
+// MetricReaders are added beside the reader the environment configures.
 type Options struct {
 	Runtime        string
 	Defaults       []attribute.KeyValue
 	SpanProcessors []sdktrace.SpanProcessor
+	MetricReaders  []sdkmetric.Reader
 }
 
 // Providers holds the SDK providers Init installed, nil for a disabled signal.
@@ -101,10 +104,18 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		providers.tracer = sdktrace.NewTracerProvider(append(options, sdktrace.WithBatcher(exporter))...)
 		otel.SetTracerProvider(providers.tracer)
 	}
+	readers := slices.Clone(opts.MetricReaders)
 	if reader, err := autoexport.NewMetricReader(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("metrics: %w", err))
 	} else if !autoexport.IsNoneMetricReader(reader) {
-		providers.meter = sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(reader))
+		readers = append(readers, reader)
+	}
+	if len(readers) > 0 {
+		options := []sdkmetric.Option{sdkmetric.WithResource(res)}
+		for _, reader := range readers {
+			options = append(options, sdkmetric.WithReader(reader))
+		}
+		providers.meter = sdkmetric.NewMeterProvider(options...)
 		otel.SetMeterProvider(providers.meter)
 	}
 	if exporter, err := autoexport.NewLogExporter(ctx); err != nil {
@@ -133,9 +144,22 @@ func (p *Providers) TracesEnabled() bool {
 	return p != nil && p.tracer != nil
 }
 
+type flushRecordKey struct{}
+
+// WithFlushRecord marks ctx as one request. Once a ForceFlush under it fails,
+// later ones return at once, so an unreachable collector costs one
+// FlushTimeout per request instead of one per flush.
+func WithFlushRecord(ctx context.Context) context.Context {
+	return context.WithValue(ctx, flushRecordKey{}, new(atomic.Bool))
+}
+
 // ForceFlush exports buffered spans and metrics, even for a canceled request.
 func (p *Providers) ForceFlush(ctx context.Context) error {
 	if p == nil || (p.tracer == nil && p.meter == nil) {
+		return nil
+	}
+	failed, _ := ctx.Value(flushRecordKey{}).(*atomic.Bool)
+	if failed != nil && failed.Load() {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), FlushTimeout)
@@ -146,6 +170,9 @@ func (p *Providers) ForceFlush(ctx context.Context) error {
 	}
 	if p.meter != nil {
 		err = errors.Join(err, p.meter.ForceFlush(ctx))
+	}
+	if err != nil && failed != nil {
+		failed.Store(true)
 	}
 	return err
 }

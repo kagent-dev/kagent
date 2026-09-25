@@ -21,7 +21,6 @@ import (
 	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
@@ -90,9 +89,6 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
-			if event.InvocationID != "" {
-				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
-			}
 			// Preserve the artifact's protocol type and assign kagent's ordering key.
 			if processed.Artifact != nil {
 				position := event.Timestamp
@@ -241,31 +237,22 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 
 		userID := "A2A_USER_" + reqCtx.ContextID
+		trustedUserID := ""
 		if callCtx, ok := a2asrv.CallContextFrom(ctx); ok && callCtx.User != nil && callCtx.User.Name != "" {
 			userID = callCtx.User.Name
+			trustedUserID = userID
 		}
 		sessionID := reqCtx.ContextID
 
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
 		// The invocation span started before this executor ran, so the request
-		// identity the span processor stamps on descendant spans has to be
-		// recorded on it directly.
+		// identity has to be recorded on it directly. ADK's own spans get it
+		// through the request attribute span processor.
 		resumed := reqCtx.StoredTask != nil &&
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
-		spanAttributes := map[string]string{
-			"kagent.user_id":                userID,
-			"gen_ai.task.id":                string(reqCtx.TaskID),
-			tracing.AttributeConversationID: sessionID,
-		}
-		if e.appName != "" {
-			spanAttributes["kagent.app_name"] = e.appName
-		}
-		ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
-		ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
-		defer invocationSpan.End()
-		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
+		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
 
 		e.logger.InfoContext(ctx, "execute",
 			"task_id", reqCtx.TaskID,
@@ -332,7 +319,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
-				e.flushTurnSpans(ctx, invocationSpan)
+				e.flushTurnSpans(ctx)
 			}
 			if !yield(event, err) {
 				return
@@ -351,6 +338,22 @@ func stampStatusMessageTimeline(event a2atype.Event) {
 		position = update.Status.Timestamp.UTC()
 	}
 	apia2a.SetTimelinePosition(update.Status.Message, position)
+}
+
+// requestSpanAttributes is the request identity every span of the turn
+// carries. The user is set only when the gateway established one.
+func requestSpanAttributes(conversationID, taskID, userID string) []attribute.KeyValue {
+	attributes := make([]attribute.KeyValue, 0, 3)
+	if conversationID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeConversationID, conversationID))
+	}
+	if taskID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeTaskID, taskID))
+	}
+	if userID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
+	}
+	return attributes
 }
 
 // endsTurn reports whether an event is the last one a turn produces: a terminal
@@ -381,14 +384,10 @@ func endsTurn(event a2atype.Event, err error) bool {
 // actor is checkpointed right after, with the spans of every streamed turn still
 // buffered and the flush's deadline expiring while the process is frozen. The
 // only window that exists for a streamed turn is before that event is yielded.
-//
-// The invocation span is ended first so it travels in the same export; the
-// deferred End in Execute becomes a no-op.
-func (e *KAgentExecutor) flushTurnSpans(ctx context.Context, invocationSpan trace.Span) {
+func (e *KAgentExecutor) flushTurnSpans(ctx context.Context) {
 	if e.flush == nil {
 		return
 	}
-	invocationSpan.End()
 	if err := e.flush(ctx); err != nil {
 		e.logger.ErrorContext(ctx, "failed to flush turn telemetry", "error", err)
 	}

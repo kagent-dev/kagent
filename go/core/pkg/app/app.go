@@ -49,7 +49,10 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
+	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -160,11 +163,19 @@ func Run(ctx context.Context, opts Options) error {
 	for _, warning := range telemetryWarnings {
 		logger.WarnContext(ctx, "invalid agent telemetry configuration; disabling signal", "error", warning)
 	}
-	// otelgrpc snapshots the global TracerProvider and propagator when its handler
-	// is constructed, so tracing has to be registered before any server is built.
-	providers, err := telemetry.Init(ctx, telemetry.Options{Defaults: []attribute.KeyValue{
+	telemetryOptions := telemetry.Options{Defaults: []attribute.KeyValue{
 		semconv.ServiceName("kagent-controller"), semconv.ServiceNamespace("kagent"), semconv.ServiceVersion(version.Version),
-	}})
+	}}
+	if metricsBindAddress() != "0" {
+		reader, err := otelprometheus.New(otelprometheus.WithRegisterer(crmetrics.Registry))
+		if err != nil {
+			return fmt.Errorf("create Prometheus metric reader: %w", err)
+		}
+		telemetryOptions.MetricReaders = []sdkmetric.Reader{reader}
+	}
+	// otelgrpc snapshots the global providers and propagator when its handler is
+	// constructed, so telemetry has to be registered before any server is built.
+	providers, err := telemetry.Init(ctx, telemetryOptions)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to initialize telemetry", "error", err)
 	}
@@ -322,17 +333,13 @@ func Run(ctx context.Context, opts Options) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
+	mux.Handle("/mcp", otelhttp.NewHandler(auth.AuthnMiddleware(authenticator)(mcpHandler), "/mcp"))
+	mux.Handle(a2agateway.HTTPPathPrefix, otelhttp.NewHandler(a2agateway.NewHTTPHandler(gateway, authenticator, store), a2agateway.HTTPPathPrefix))
 	server, err := grpcserver.New(grpcserver.Config{
-		MethodPolicies:   policies,
-		RegisterServices: opts.GRPCServices,
-		BindAddress:      env("HTTP_BIND_ADDRESS", ":8083"),
-		Reflection:       envBool("GRPC_REFLECTION"),
-		// controller-runtime's registry, which the manager's metrics server
-		// serves. Left nil, newServerMetrics builds the interceptors' counters
-		// and registers them nowhere, so every gRPC call is measured and the
-		// measurement reaches no scrape.
-		Registerer:            crmetrics.Registry,
+		MethodPolicies:        policies,
+		RegisterServices:      opts.GRPCServices,
+		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
+		Reflection:            envBool("GRPC_REFLECTION"),
 		Authenticator:         authenticator,
 		ShareStore:            store,
 		ModelService:          models,

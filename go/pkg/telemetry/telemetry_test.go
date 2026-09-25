@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -236,5 +237,35 @@ func TestForceFlushExportsMetricsWithTracesOff(t *testing.T) {
 	}
 	if exporter.exports != 1 {
 		t.Fatalf("metric exports = %d, want 1", exporter.exports)
+	}
+}
+
+type countingFailingExporter struct {
+	*tracetest.InMemoryExporter
+	calls atomic.Int32
+}
+
+func (e *countingFailingExporter) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) error {
+	e.calls.Add(1)
+	return errors.New("collector unavailable")
+}
+
+func TestForceFlushSkipsAfterAFailureInTheSameRequest(t *testing.T) {
+	exporter := &countingFailingExporter{InMemoryExporter: tracetest.NewInMemoryExporter()}
+	providers := &Providers{tracer: sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))}
+	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
+	request := WithFlushRecord(t.Context())
+	for range 2 {
+		_, span := providers.tracer.Tracer("test").Start(request, "request")
+		span.End()
+		_ = providers.ForceFlush(request)
+	}
+	if got := exporter.calls.Load(); got != 1 {
+		t.Fatalf("exports in one request = %d, want 1 after the first failure", got)
+	}
+	_, span := providers.tracer.Tracer("test").Start(t.Context(), "next")
+	span.End()
+	if err := providers.ForceFlush(WithFlushRecord(t.Context())); err == nil {
+		t.Fatal("a new request must try to export again")
 	}
 }

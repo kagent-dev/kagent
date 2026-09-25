@@ -7,10 +7,14 @@ import (
 	"slices"
 	"testing"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
+	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
+	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
@@ -25,6 +29,74 @@ func modelConfig() *v1alpha3.ModelConfig {
 	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"},
 		Spec:       v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4o"},
+	}
+}
+
+func TestCompileAgentTemplatePreservesWorkloadOverrides(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		command []string
+		args    []string
+	}{
+		{name: "image defaults"},
+		{name: "command", command: []string{"/runtime"}},
+		{name: "args", args: []string{"--verbose"}},
+		{name: "go args", args: []string{"--log-level", "debug"}},
+		{name: "go command and args", command: []string{"/app"}, args: []string{"--log-level", "debug", "--host", "0.0.0.0"}},
+		{name: "python static", command: []string{"kagent-adk"}, args: []string{"static", "--host", "0.0.0.0", "--port", "8080"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+				Spec: v1alpha3.HarnessSpec{
+					Kagent:                &v1alpha3.KagentHarness{},
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload: v1alpha3.HarnessWorkload{
+						Image:   "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
+					},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			original := harness.DeepCopy()
+			result, err := compiler(t, modelConfig()).CompileAgentTemplate(t.Context(), harness, template)
+			require.NoError(t, err)
+			require.Equal(t, tt.command, result.Command)
+			require.Equal(t, tt.args, result.Args)
+
+			revisionID, err := result.Digest()
+			require.NoError(t, err)
+			if len(tt.command) > 0 || len(tt.args) > 0 {
+				withoutOverrides := result.Revision
+				withoutOverrides.Command = nil
+				withoutOverrides.Args = nil
+				defaultID, err := withoutOverrides.Digest()
+				require.NoError(t, err)
+				require.NotEqual(t, defaultID, revisionID, "workload overrides must affect revision identity")
+			}
+			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID)
+			require.NoError(t, err)
+			require.Len(t, actorTemplate.Containers, 1)
+			container := actorTemplate.Containers[0]
+			require.Equal(t, tt.command, container.Command)
+			require.Equal(t, tt.args, container.Args)
+
+			if len(result.Command) > 0 {
+				result.Command[0] = "changed"
+			}
+			if len(result.Args) > 0 {
+				result.Args[0] = "changed"
+			}
+			require.Equal(t, original, harness, "compiled overrides must not alias the source Harness")
+			require.Equal(t, tt.command, container.Command, "container command must not alias the compiled revision")
+			require.Equal(t, tt.args, container.Args, "container args must not alias the compiled revision")
+		})
 	}
 }
 
@@ -108,12 +180,18 @@ func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
 
 func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
 	t.Helper()
-	collections := mockCollections(t, objects...)
+	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
+		v2translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
+		v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
 		v2translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
 	})
+}
+
+func defaultWorkerPool() *atev1alpha1.WorkerPool {
+	return &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
 }
 
 func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
@@ -124,6 +202,7 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
+		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
 	}
 	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
 	resolved := make([]any, 0, len(models.List()))
@@ -137,11 +216,118 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	return collections
 }
 
+func TestCompileAgentTemplateResolvesWorkerPoolSandboxClass(t *testing.T) {
+	for _, harnessType := range []v2translator.HarnessType{
+		v2translator.HarnessTypeKagent, v2translator.HarnessTypeCodex, v2translator.HarnessTypeClaude, v2translator.HarnessTypeBYO,
+	} {
+		t.Run(string(harnessType), func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: string(harnessType)},
+				Spec: v1alpha3.HarnessSpec{
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			switch harnessType {
+			case v2translator.HarnessTypeKagent:
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+			case v2translator.HarnessTypeCodex:
+				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				responses := v1alpha3.OpenAIAPIFormatResponses
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: &responses}
+			case v2translator.HarnessTypeClaude:
+				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
+			case v2translator.HarnessTypeBYO:
+				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+				harness.Spec.Workload.Command = []string{"/agent"}
+				template.Spec.ModelConfig = nil
+			}
+			originalHarness, originalTemplate := harness.DeepCopy(), template.DeepCopy()
+			var baseline *v2translator.CompileResult
+			var defaultDigest v2translator.RevisionID
+			for _, tt := range []struct {
+				name    string
+				class   atev1alpha1.SandboxClass
+				missing bool
+			}{
+				{name: "default"},
+				{name: "explicit gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "microvm", class: atev1alpha1.SandboxClassMicroVM},
+				{name: "back to gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "unsupported", class: "unsupported"},
+				{name: "missing", missing: true},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					pool := &atev1alpha1.WorkerPool{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"},
+						Spec:       atev1alpha1.WorkerPoolSpec{SandboxClass: tt.class},
+					}
+					originalPool := pool.DeepCopy()
+					objects := []any{
+						model,
+						&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
+						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+					}
+					if !tt.missing {
+						objects = append(objects, pool)
+					}
+					result, err := compiler(t, objects...).CompileAgentTemplate(t.Context(), harness, template)
+					require.Equal(t, originalHarness, harness)
+					require.Equal(t, originalTemplate, template)
+					require.Equal(t, originalPool, pool)
+					if tt.missing {
+						var missing *v2translator.WorkerPoolNotFoundError
+						require.ErrorAs(t, err, &missing)
+						require.Equal(t, types.NamespacedName{Namespace: "test", Name: "selected"}, missing.WorkerPool)
+						require.EqualError(t, err, `WorkerPool "test/selected" not found`)
+						require.Nil(t, result, "unresolved capacity must not return a partial revision")
+						return
+					}
+					require.NoError(t, err)
+					require.Equal(t, tt.class, result.SandboxClass)
+					require.Equal(t, "selected", result.WorkerPoolName)
+					require.Equal(t, "test", result.Namespace)
+					digest, err := result.Digest()
+					if tt.class == "unsupported" {
+						require.EqualError(t, err, `unsupported sandbox class "unsupported"`)
+						require.True(t, digest.IsZero())
+						return
+					}
+					require.NoError(t, err)
+					if baseline == nil {
+						baseline, defaultDigest = result, digest
+					}
+					if tt.class == atev1alpha1.SandboxClassMicroVM {
+						require.NotEqual(t, defaultDigest, digest)
+					} else {
+						require.Equal(t, defaultDigest, digest)
+					}
+					expected := *baseline
+					expected.SandboxClass = tt.class
+					require.Equal(t, expected, *result, "sandbox selection must not change other compiled inputs or warnings")
+				})
+			}
+		})
+	}
+}
+
 func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent: &v1alpha3.KagentHarness{},
+			Kagent:    &v1alpha3.KagentHarness{},
+			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"runtime": "kagent"},
 			}},
@@ -242,11 +428,14 @@ func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.Har
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
-	collections := mockCollections(t, modelConfig())
+	collections := mockCollections(t, modelConfig(), defaultWorkerPool())
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
-		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+		Spec: v1alpha3.HarnessSpec{
+			Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+		},
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
 
@@ -304,10 +493,11 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO: &v1alpha3.BYOHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
-	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeBYO: adapter,
 	}).CompileAgentTemplate(context.Background(), harness, template)
 	require.NoError(t, err)
@@ -394,7 +584,7 @@ func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 	rotated := secret.DeepCopy()
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
-	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
 	})
 	next, err := rotatedCompiler.CompileAgentTemplate(t.Context(), harness, template)

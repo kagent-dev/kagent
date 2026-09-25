@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"sync"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -72,16 +73,26 @@ func (r *taskRun) closeRuntime() error {
 	return r.closeErr
 }
 
+// runtimeDrainTimeout bounds how long a terminal turn waits for the runtime to
+// end its stream before the gateway closes it.
+var runtimeDrainTimeout = 2 * time.Second
+
 func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, writer eventqueue.Writer, events iter.Seq2[a2atype.Event, error]) {
+	next, stop := iter.Pull2(events)
 	defer func() {
 		_ = writer.Close()
 		_ = r.closeRuntime()
+		stop()
 		close(r.done)
 		_ = r.gateway.events.Destroy(ctx, r.queueID)
 		r.gateway.runs.CompareAndDelete(r.key, r)
 	}()
 
-	for event, eventErr := range events {
+	for {
+		event, eventErr, ok := next()
+		if !ok {
+			return
+		}
 		if eventErr != nil {
 			r.setError(eventErr)
 			return
@@ -92,6 +103,7 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 			// Terminal suspension must close the runtime stream so it cannot wait on
 			// itself. Input pauses checkpoint the still-live request first.
 			if updated.Status.State.Terminal() {
+				r.drainRuntime(next)
 				if closeErr := r.closeRuntime(); closeErr != nil {
 					err = fmt.Errorf("close terminal runtime stream: %w", closeErr)
 				}
@@ -116,6 +128,29 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 		if isQuiescent(task.Status.State) {
 			return
 		}
+	}
+}
+
+// drainRuntime reads the runtime stream to its end, so the call completes
+// instead of being canceled. A runtime that keeps the stream open past the
+// timeout is closed. next is not used again once this returns.
+func (r *taskRun) drainRuntime(next func() (a2atype.Event, error, bool)) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, _, ok := next(); !ok {
+				return
+			}
+		}
+	}()
+	timer := time.NewTimer(runtimeDrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		_ = r.closeRuntime()
+		<-done
 	}
 }
 

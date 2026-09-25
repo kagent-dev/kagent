@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -13,6 +14,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -292,11 +295,19 @@ func validateMCPAppResource(result *mcp.ReadResourceResult) error {
 	return nil
 }
 
+// Reconcilers discover tools outside any request, so only calls with a parent
+// span are traced. Built on first use, after telemetry is set up.
+var mcpTracedTransport = sync.OnceValue(func() http.RoundTripper {
+	return otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithFilter(func(request *http.Request) bool {
+		return trace.SpanContextFromContext(request.Context()).IsValid()
+	}))
+})
+
 func newMCPAppsHTTPClient(headers map[string]string) *http.Client {
 	if len(headers) == 0 {
-		return http.DefaultClient
+		return &http.Client{Transport: mcpTracedTransport()}
 	}
-	return &http.Client{Transport: &mcpAppsHeaderTransport{headers: headers, base: http.DefaultTransport}}
+	return &http.Client{Transport: &mcpAppsHeaderTransport{headers: headers, base: mcpTracedTransport()}}
 }
 
 type mcpAppsHeaderTransport struct {

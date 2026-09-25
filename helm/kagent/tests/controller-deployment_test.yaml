@@ -218,6 +218,19 @@ tests:
       - notExists:
           path: data.KAGENT_OTEL_RESOURCE_ATTRIBUTES
 
+  - it: should keep the SDK on for the metrics endpoint when OTLP is off
+    template: controller-configmap.yaml
+    set:
+      controller:
+        metrics:
+          enabled: true
+    asserts:
+      - notExists:
+          path: data.OTEL_SDK_DISABLED
+      - equal:
+          path: data.OTEL_METRICS_EXPORTER
+          value: "none"
+
   - it: should render SDK-spec exporter settings with signal overrides
     template: controller-configmap.yaml
     set:

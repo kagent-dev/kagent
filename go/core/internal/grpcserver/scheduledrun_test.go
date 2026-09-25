@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -191,7 +190,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(harness, testAgentTemplate("team", "report", "model")).Build()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
-		Listener: listener, Registerer: prometheus.NewRegistry(), Authenticator: &authimpl.UnsecureAuthenticator{},
+		Listener: listener, Authenticator: &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
 		ScheduledRunService:  scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
 		AgentInstanceService: agentinstance.NewService(store, &pkgauth.NoopAuthorizer{}, nil),

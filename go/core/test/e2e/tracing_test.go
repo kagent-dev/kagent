@@ -349,6 +349,22 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 					t.Errorf("%s = %q with capture disabled", key, value)
 				}
 			}
+			for _, key := range []string{"kagent.user_id", "gen_ai.task.id", "kagent.app_name"} {
+				if value := stringAttribute(invocation.span.GetAttributes(), key); value != "" {
+					t.Errorf("removed attribute %s = %q", key, value)
+				}
+			}
+			// The gateway drains the runtime stream before suspending the Actor,
+			// so the SERVER span the invocation runs under is exported too.
+			parentFound := false
+			for _, candidate := range receiver.selectSpans(traceID, agentName, "", "", nil) {
+				if bytes.Equal(candidate.span.GetSpanId(), invocation.span.GetParentSpanId()) {
+					parentFound = candidate.span.GetKind() == tracepb.Span_SPAN_KIND_SERVER
+				}
+			}
+			if !parentFound {
+				t.Errorf("invocation has no exported SERVER parent: %s", receiver.diagnostic(traceID))
+			}
 			for key, want := range map[string]string{
 				"service.name":             agentName,
 				"service.namespace":        "kagent",

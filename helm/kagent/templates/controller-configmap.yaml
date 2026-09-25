@@ -16,7 +16,7 @@ data:
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
   {{- with .Values.otel }}
-  {{- if not (or .traces.enabled .metrics.enabled .logs.enabled) }}
+  {{- if not (or .traces.enabled .metrics.enabled .logs.enabled $.Values.controller.metrics.enabled) }}
   OTEL_SDK_DISABLED: "true"
   {{- end }}
   OTEL_TRACES_EXPORTER: {{ ternary "otlp" "none" .traces.enabled | quote }}

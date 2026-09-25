@@ -39,11 +39,17 @@ type recordingExecutor struct {
 	message       *a2atype.Message
 	cleanupCalled bool
 	events        []a2atype.Event
+	// span, when set, is a span the turn emits, the way ADK does.
+	span string
 }
 
-func (e *recordingExecutor) Execute(_ context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+func (e *recordingExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		e.message = reqCtx.Message
+		if e.span != "" {
+			_, span := otel.Tracer("adk-test").Start(ctx, e.span)
+			span.End()
+		}
 		if e.events != nil {
 			for _, event := range e.events {
 				if !yield(event, nil) {
@@ -794,7 +800,7 @@ func exportedByState(t *testing.T, exporter *tracetest.InMemoryExporter, flush f
 		TaskID: "task-1", ContextID: "ctx-1",
 		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
 	}
-	builtin := &recordingExecutor{events: []a2atype.Event{
+	builtin := &recordingExecutor{span: "invoke_agent root", events: []a2atype.Event{
 		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil),
 		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil),
 	}}
@@ -817,8 +823,8 @@ func exportedByState(t *testing.T, exporter *tracetest.InMemoryExporter, flush f
 // On a checkpoint/suspend runtime the consumer of the terminal event is the
 // gateway, which closes its stream on receipt, and the actor is frozen right
 // after. Whatever is still buffered at that moment never reaches the collector,
-// so the spans must already be exported when the terminal event is yielded, and
-// the invocation span must be among them.
+// so the spans the turn emitted must already be exported when the terminal
+// event is yielded.
 func TestKAgentExecutor_ExportsSpansBeforeYieldingTheTerminalEvent(t *testing.T) {
 	exporter, flush := installRecordingTracer(t)
 
@@ -834,8 +840,8 @@ func TestKAgentExecutor_ExportsSpansBeforeYieldingTheTerminalEvent(t *testing.T)
 	for _, span := range exporter.GetSpans() {
 		names = append(names, span.Name)
 	}
-	if !slices.Contains(names, "invocation") {
-		t.Fatalf("exported spans = %v, want the invocation span among them", names)
+	if !slices.Contains(names, "invoke_agent root") {
+		t.Fatalf("exported spans = %v, want the turn's span among them", names)
 	}
 }
 
@@ -846,5 +852,34 @@ func TestKAgentExecutor_LeavesSpansToTheBatcherWithoutAFlusher(t *testing.T) {
 
 	if seen[a2atype.TaskStateCompleted] != 0 {
 		t.Fatalf("spans exported before the terminal event = %d, want 0 without a flusher", seen[a2atype.TaskStateCompleted])
+	}
+}
+
+func TestRequestSpanAttributesCarryOnlyATrustedUser(t *testing.T) {
+	tests := []struct {
+		name   string
+		userID string
+		want   map[string]string
+	}{
+		{
+			name:   "trusted user",
+			userID: "alice",
+			want:   map[string]string{"gen_ai.conversation.id": "ctx-1", "a2a.task.id": "task-1", "enduser.id": "alice"},
+		},
+		{
+			name: "no trusted user",
+			want: map[string]string{"gen_ai.conversation.id": "ctx-1", "a2a.task.id": "task-1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := map[string]string{}
+			for _, attr := range requestSpanAttributes("ctx-1", "task-1", tt.userID) {
+				got[string(attr.Key)] = attr.Value.AsString()
+			}
+			if !maps.Equal(got, tt.want) {
+				t.Fatalf("attributes = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

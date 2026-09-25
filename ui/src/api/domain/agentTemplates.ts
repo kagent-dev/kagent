@@ -123,8 +123,8 @@ export interface AgentTemplatePromptSpec {
  * the existing spec rather than replacing it.
  */
 export interface AgentTemplateSpec {
-  /** Required. A ModelConfig in the template's own namespace. */
-  modelConfig: AgentTemplateLocalRef;
+  /** A ModelConfig in the template's own namespace. Only BYO harnesses run without one. */
+  modelConfig?: AgentTemplateLocalRef;
   description?: string;
   /** Mutually exclusive with `systemPromptFrom` — the CRD rejects both. */
   systemPrompt?: string;

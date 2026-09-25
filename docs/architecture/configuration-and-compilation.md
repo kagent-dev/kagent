@@ -16,6 +16,28 @@ Both are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
 API.
 
+### kagent workload overrides
+
+The kagent compiler preserves explicit `spec.workload.command` and
+`spec.workload.args` in the runtime revision and generated ActorTemplate,
+regardless of the runtime image's implementation language. Omitted overrides
+remain unset.
+
+For example, this Harness excerpt selects debug logging for the Go ADK image
+without changing the AgentTemplate:
+
+```yaml
+spec:
+  kagent: {}
+  workload:
+    # Retain the digest-pinned Go ADK image here.
+    command: ["/app"]
+    args: ["--log-level", "debug"]
+```
+
+Command and argument changes participate in revision identity. They affect newly
+prepared revisions, not existing AgentInstances pinned to an older revision.
+
 ## Prepared revision pipeline
 
 The v2 controller collects admitted Harness/AgentTemplate pairs and compiles each
@@ -32,10 +54,12 @@ flowchart TD
     REGISTRY --> X[Codex compiler]
     REGISTRY --> C[Claude compiler]
     REGISTRY --> B[BYO compiler]
-    K --> REV[immutable revision and digest]
-    X --> REV
-    C --> REV
-    B --> REV
+    K --> POOL[resolve WorkerPool sandbox class]
+    X --> POOL
+    C --> POOL
+    B --> POOL
+    POOL --> REV[immutable revision and digest]
+    POOL -->|error| STATUS
     REV --> ATE[ate-api ActorTemplate]
     ATE --> GOLDEN[golden snapshot]
     GOLDEN -->|ready| LATEST[latest successful revision]
@@ -48,7 +72,8 @@ flowchart TD
 3. Select the harness compiler from the runtime-type registration map.
 4. Produce an immutable revision containing workload, configuration, Agent Card,
    capacity, snapshot, provenance, and inferred egress inputs.
-5. Hash the revision and apply it as an ate-api ActorTemplate.
+5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and apply
+   it as an ate-api ActorTemplate.
 6. Wait for the golden snapshot to become ready.
 7. Persist the revision and advance the pair's latest-successful pointer.
 
@@ -60,6 +85,56 @@ Harness compilers only translate inputs. The controller and Substrate adapter ow
 application and readiness. The central entry points are
 [`translator/compiler.go`](../../go/core/internal/translator/compiler.go) and
 [`controller/reconciler.go`](../../go/core/internal/controller/reconciler.go).
+
+Reconciliation and runtime-observation collections compare ActorTemplates and
+nested revision Agent Cards with protobuf semantic equality. Lazy protobuf
+reflection and size caches are not state changes and must not be inspected by
+KRT's reflection-based comparison. Other fields retain their existing equality
+semantics.
+
+### WorkerPool sandbox selection
+
+For every harness type, the controller resolves `spec.substrate.workerPoolRef`
+in the Harness/AgentTemplate namespace. The pool's `spec.sandboxClass` selects
+the ActorTemplate's sandbox configuration:
+
+| WorkerPool class | ActorTemplate sandbox class | SandboxConfig name |
+| --- | --- | --- |
+| Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
+| `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
+
+These names follow Substrate v0.2.0-beta5's standard gVisor installation and
+MicroVM setup/E2E convention. They are not API-level defaults or discovery:
+Substrate requires an explicit name and rejects a missing SandboxConfig or a
+class mismatch. Operators must install the corresponding cluster-scoped
+SandboxConfig and provision compatible workers and runtime assets. Selecting
+`microvm` does not install those prerequisites or configure a Kubernetes
+RuntimeClass.
+
+A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
+`RevisionInvalid`. Neither produces a desired ActorTemplate. The worker-pool
+selector is unchanged. WorkerPool updates are tracked through KRT and recompute
+the desired revision. Empty and explicit `gvisor` preserve the previous digest
+byte-for-byte; `microvm` participates in the digest, so its prepared runtime
+cannot be confused with a gVisor revision. Returning to gVisor restores the
+original digest. Existing AgentInstances remain pinned to their revisions.
+
+Unresolved inputs still replace the persisted desired pointer with the requested
+identity shown in status, without creating a runtime revision. This releases
+abandoned preparations for garbage collection while preserving the current
+pair's last-successful runtime.
+
+Substrate and persistence failures during preparation report
+`Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
+silently pending. Status includes a safe error code; a failed precondition also
+names the expected SandboxConfig and class. Raw backend error messages are not
+copied into Kubernetes status. Preparation keeps retrying and clears the failure
+after the prerequisite or service recovers; terminal compilation, immutable
+template conflict, and golden-snapshot failures are not retried by that poll.
+
+This selection does not by itself guarantee full MicroVM lifecycle or
+cross-node restore compatibility; those also depend on Substrate, runtime
+images, and compatible worker hardware.
 
 ## Harness-specific output
 
