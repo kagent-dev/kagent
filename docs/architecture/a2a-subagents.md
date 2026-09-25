@@ -14,11 +14,22 @@ flowchart TB
 
 ## Shared agent tools
 
-An `AgentTemplate` can bind another template as a `Shared` agent tool. The
+An `AgentTemplate` can bind another template as a `Shared` tool through `spec.tools[].subAgent.templateRef`. The
 translator resolves the referenced template in the same compilation tree and
 the selected harness compiler emits its native, in-process representation.
 Kagent, Codex, and Claude support Shared bindings according to their runtime
 capabilities.
+
+For example, in an AgentTemplate spec (or an Agent's inline `template`):
+
+```yaml
+tools:
+  - subAgent:
+      name: reviewer
+      description: Review proposed changes before applying them.
+      templateRef:
+        name: review-context
+```
 
 Tree resolution detects missing references and cycles before compilation.
 `Dedicated` bindings are represented in the API but are currently rejected;

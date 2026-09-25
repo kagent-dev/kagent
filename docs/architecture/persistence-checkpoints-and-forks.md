@@ -38,7 +38,7 @@ without duplicating SQL. Transaction boundaries remain with the owning operation
 
 ```mermaid
 flowchart TD
-    PAIR[Agent definition] --> REV[runtime revision]
+    AGENT[Agent definition] --> REV[runtime revision]
     REV --> INSTANCE[AgentInstance]
     INSTANCE --> CONTEXT[history scope + wire context]
     CONTEXT --> EVENT[immutable ordered task events]

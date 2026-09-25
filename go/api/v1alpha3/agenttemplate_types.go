@@ -65,17 +65,17 @@ type MCPToolBinding struct {
 	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
-// AgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.
+// SubAgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.
 // +kubebuilder:validation:Enum=Shared;Dedicated
-type AgentToolIsolation string
+type SubAgentToolIsolation string
 
 const (
-	AgentToolIsolationShared    AgentToolIsolation = "Shared"
-	AgentToolIsolationDedicated AgentToolIsolation = "Dedicated"
+	SubAgentToolIsolationShared    SubAgentToolIsolation = "Shared"
+	SubAgentToolIsolationDedicated SubAgentToolIsolation = "Dedicated"
 )
 
-// AgentToolBinding exposes another same-namespace AgentTemplate as a logical tool.
-type AgentToolBinding struct {
+// SubAgentToolBinding exposes another same-namespace AgentTemplate as a logical tool.
+type SubAgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
@@ -88,16 +88,16 @@ type AgentToolBinding struct {
 	TemplateRef corev1.LocalObjectReference `json:"templateRef"`
 	// +kubebuilder:default=Shared
 	// +optional
-	Isolation AgentToolIsolation `json:"isolation,omitempty"`
+	Isolation SubAgentToolIsolation `json:"isolation,omitempty"`
 }
 
 // ToolBinding selects exactly one MCP or AgentTemplate-backed tool source.
-// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.agent)",message="exactly one of mcp or agent must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.subAgent)",message="exactly one of mcp or subAgent must be specified"
 type ToolBinding struct {
 	// +optional
 	MCP *MCPToolBinding `json:"mcp,omitempty"`
 	// +optional
-	Agent *AgentToolBinding `json:"agent,omitempty"`
+	SubAgent *SubAgentToolBinding `json:"subAgent,omitempty"`
 }
 
 // AgentTemplateSkill identifies one standalone skill and its immutable source.

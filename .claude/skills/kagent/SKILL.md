@@ -12,8 +12,9 @@ kagent uses a Substrate-backed API. Do not reuse commands, manifests, or concept
 
 ## Target API
 
+- `Agent` is a `kagent.dev/v1alpha3` CRD pairing a template and Harness, each inline or referenced. It owns readiness and revision selection.
 - `Harness` is a `kagent.dev/v1alpha3` CRD describing a supported runtime adapter. The release-blocking adapters are kagent, Codex, and Claude.
-- `AgentTemplate` is a `kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and other AgentTemplate tools.
+- `AgentTemplate` is a `kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and template-backed subagent tools (`tools[].subAgent`).
 - `AgentInstance` is a PostgreSQL-backed gRPC resource representing one runnable rooted template tree and one A2A context.
 - `A2A context_id` equals the AgentInstance ID. A2A owns interaction and task history; AgentInstance APIs own lifecycle, metadata, and sharing.
 - Substrate is the only compute backend.
@@ -28,7 +29,7 @@ kagent uses a Substrate-backed API. Do not reuse commands, manifests, or concept
 
 ## Stable design constraints
 
-- One AgentInstance owns one rooted AgentTemplate tree.
+- One AgentInstance pins a compiled revision of one Agent, including its template tree.
 - AgentTemplate references are same-namespace.
 - Shared children run inside their parent runtime; Dedicated children use private, binding-scoped invocation.
 - Runtime state lives in DurableDir and must survive suspend/resume.

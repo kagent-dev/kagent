@@ -46,7 +46,7 @@ export const exampleAppExtension: AppExtensionConfig = {
   // itself. Only reachable with a conversation open, which is where the instance id
   // the link takes comes from.
   agentLinks: {
-    details: (ref) => `${EXAMPLE_PATH}?agent=${ref.id}`,
+    details: (ref) => `${EXAMPLE_PATH}?instance=${ref.id}`,
   },
 
   // Site-wide: a whole page merged into the router.

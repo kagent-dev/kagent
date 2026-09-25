@@ -5,13 +5,12 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // ManagedAgentCard describes the common private A2A contract implemented by
 // the kagent, Codex, and Claude harnesses. The gateway replaces the private
 // interface while preserving these runtime capabilities.
-func ManagedAgentCard(agentName string, template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
+func ManagedAgentCard(agentName string, template *TemplateConfiguration) *a2atype.AgentCard {
 	outputModes := []string{"text"}
 	if template.Spec.OutputSchema != nil || template.Spec.OutputSchemaFrom != nil {
 		outputModes = []string{"application/json"}

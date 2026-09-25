@@ -35,7 +35,7 @@ export type CoreRailKey = (typeof CORE_RAIL_KEYS)[number];
  * A function rather than a constant, unlike `coreNavItems`: both destinations are
  * addresses of *this* agent, so there is no list to declare until one is known. An
  * entry whose address cannot be derived is left out rather than rendered dead — an
- * instance with no prepared revision belongs to no pair, and there would be nothing
+ * instance with no prepared revision belongs to no Agent, and there would be nothing
  * at the other end of it.
  */
 export function coreRailItems(targets: {

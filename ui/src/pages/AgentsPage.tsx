@@ -6,14 +6,15 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
 import { paths } from "@/router/routes";
 import {
-  agentPairsFrom,
+  agentSummariesFrom,
+  useAgentTemplatesAcrossNamespaces,
   unmappedAgent,
   UNMAPPED_AGENT_NAME,
-  pairIdOfInstance,
+  agentRefOfInstance,
   useAgentInstances,
   useAgentsAcrossNamespaces,
   useNamespaces,
-  type AgentPair,
+  type AgentSummary,
 } from "@/api";
 import { agentNewChatUrl } from "@/components/agent/agentUrl";
 import { FilterBar } from "@/components/table/FilterBar";
@@ -76,13 +77,15 @@ export function AgentsTab() {
   );
 
   const definitions = useAgentsAcrossNamespaces(readNamespaces);
+  const templateNamespaces = useMemo(
+    () => [...new Set((definitions.data?.agents ?? [])
+      .filter((agent) => agent.resource.spec.templateRef)
+      .map((agent) => agent.namespace))],
+    [definitions.data],
+  );
+  const templates = useAgentTemplatesAcrossNamespaces(templateNamespaces);
 
-  /*
-   * Whichever read stopped this page from having anything to show.
-   *
-   * The namespace list first, because the template read depends on it: reporting
-   * "no templates" when the namespaces could not be listed names the wrong call.
-   */
+  // The namespace read precedes the Agent read.
   const loadFailure = namespaces.error ?? definitions.error;
 
   /*
@@ -98,48 +101,35 @@ export function AgentsTab() {
   const conversationCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const instance of conversations.data ?? []) {
-      const pairId = pairIdOfInstance(instance);
-      if (!pairId) continue;
-      counts.set(pairId, (counts.get(pairId) ?? 0) + 1);
+      const agentRef = agentRefOfInstance(instance);
+      if (!agentRef) continue;
+      counts.set(agentRef, (counts.get(agentRef) ?? 0) + 1);
     }
     return counts;
   }, [conversations.data]);
 
   const agents = useMemo(
-    () => agentPairsFrom(definitions.data?.agents ?? []),
-    [definitions.data],
+    () => agentSummariesFrom(definitions.data?.agents ?? [], templates.data?.templates),
+    [definitions.data, templates.data],
   );
 
 
   const refreshThisTab = async () => {
-    await Promise.all([definitions.refresh(), conversations.refresh()]);
+    await Promise.all([definitions.refresh(), templates.refresh(), conversations.refresh()]);
   };
 
   const orphanedConversations = useMemo(() => {
     if (!definitions.data || !conversations.data) return 0;
     const known = new Set(agents.map((agent) => agent.id));
-    /*
-     * A namespace whose templates could not be read tells us nothing about its
-     * conversations.
-     *
-     * Templates are read one namespace at a time, and each read can be
-     * refused on its own. When the template read for a namespace fails, none of its
-     * pairs are in `known` — so every conversation in it looks stranded, and the page
-     * says so beside a separate notice explaining that the namespace could not be read
-     * at all. Two notices about one failure, one of them an accusation about
-     * conversations that are almost certainly fine.
-     *
-     * "Not known to be orphaned" is the honest reading of a namespace we could not
-     * look in, so those are left out of the count entirely.
-     */
+    // A refused Agent read cannot establish whether its conversations are orphaned.
     const unreadable = new Set(
       (definitions.data.refused ?? []).map((entry) => entry.namespace),
     );
     return (conversations.data ?? []).filter((instance) => {
       const namespace = instance.agent?.split("/")[0];
       if (namespace && (!readNamespaces.includes(namespace) || unreadable.has(namespace))) return false;
-      const pairId = pairIdOfInstance(instance);
-      return pairId === undefined || !known.has(pairId);
+      const agentRef = agentRefOfInstance(instance);
+      return agentRef === undefined || !known.has(agentRef);
     }).length;
   }, [agents, conversations.data, definitions.data, readNamespaces]);
 
@@ -183,7 +173,7 @@ export function AgentsTab() {
         ) {
           return false;
         }
-        // Both halves of the pair and the template's description, because all three
+        // Both configuration choices and the template's description, because all three
         // are on the row: somebody hunting an agent may remember what it does rather
         // than what it is called.
         return matchesQuery(view.query, [
@@ -205,7 +195,7 @@ export function AgentsTab() {
    * when an unrelated namespace answered more slowly.
    *
    * `Unmapped conversations` is pinned to the bottom whichever way the sort runs. It is
-   * not an agent: it is a stand-in for conversations whose pair no longer exists, and
+   * not an agent: it is a stand-in for conversations whose Agent no longer exists, and
    * sorting it among real agents by its name would put it in the middle of the list on
    * a `U`. A reader looking for their agents should not have to look past it.
    *
@@ -221,12 +211,12 @@ export function AgentsTab() {
     return [...real, ...stranded];
   }, [matching, view]);
 
-  const columns = useMemo<ColumnsType<AgentPair>>(
+  const columns = useMemo<ColumnsType<AgentSummary>>(
     () => [
       {
         title: "Agent",
         key: "name",
-        sorter: byText<AgentPair>((row) => row.name),
+        sorter: byText<AgentSummary>((row) => row.name),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
           <Space orientation="vertical" size={0}>
@@ -260,7 +250,7 @@ export function AgentsTab() {
         title: "Namespace",
         key: "namespace",
         width: 150,
-        sorter: byText<AgentPair>((row) => row.namespace),
+        sorter: byText<AgentSummary>((row) => row.namespace),
         sortOrder: sortOrderFor(view, "namespace"),
         render: (_, row) => (
           <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
@@ -274,7 +264,7 @@ export function AgentsTab() {
         title: "Runs on",
         key: "harness",
         width: 180,
-        sorter: byText<AgentPair>((row) => row.harness),
+        sorter: byText<AgentSummary>((row) => row.harness),
         sortOrder: sortOrderFor(view, "harness"),
         render: (_, row) => (
           <Text
@@ -289,7 +279,7 @@ export function AgentsTab() {
         title: "Revision",
         key: "revisionState",
         width: 150,
-        sorter: byText<AgentPair>((row) => row.revisionState),
+        sorter: byText<AgentSummary>((row) => row.revisionState),
         sortOrder: sortOrderFor(view, "revisionState"),
         render: (_, row) => <RevisionTag agent={row} />,
       },
@@ -297,7 +287,7 @@ export function AgentsTab() {
         title: "Conversations",
         key: "conversations",
         width: 150,
-        sorter: byNumber<AgentPair>((row) => conversationCounts.get(row.id) ?? 0),
+        sorter: byNumber<AgentSummary>((row) => conversationCounts.get(row.id) ?? 0),
         sortOrder: sortOrderFor(view, "conversations"),
         render: (_, row) => {
           // Until the read lands there is no count, and a confident `0` would be a
@@ -329,7 +319,7 @@ export function AgentsTab() {
     <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
 
       <Text data-testid="agents-derived-note" css={{ color: theme.color.textMuted }}>
-        An Agent explicitly pairs template and Harness
+        An Agent combines template and Harness
         configurations.
       </Text>
 
@@ -362,6 +352,12 @@ export function AgentsTab() {
               </Button>
             }
           />
+        ) : null}
+
+        {templates.error || templates.data?.refused.length ? (
+          <Alert type="warning" showIcon title="Some agent descriptions could not be loaded"
+            description={templates.error?.message ?? templates.data?.refused.map((entry) => `${entry.namespace}: ${entry.reason}`).join("; ")}
+            data-testid="agent-descriptions-error" />
         ) : null}
 
         {/* The counts are the only thing this failure costs, so it is said as that
@@ -423,7 +419,7 @@ export function AgentsTab() {
           }
         />
 
-        <Table<AgentPair>
+        <Table<AgentSummary>
           data-testid="agents-table"
           rowKey={(row) => row.id}
           columns={columns}
@@ -431,7 +427,7 @@ export function AgentsTab() {
           // from also claiming the cluster is running nothing.
           dataSource={loadFailure ? [] : filtered}
           loading={definitions.isLoading}
-          onChange={listTableChange<AgentPair>(view)}
+          onChange={listTableChange<AgentSummary>(view)}
           pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
           locale={{
             emptyText: loadFailure
@@ -466,9 +462,9 @@ export function AgentsTab() {
  * different things: a revision still being prepared, which is ordinary and
  * self-correcting, and a controller that has said nothing at all, which is not a
  * failure either and must not be reported as one. `AgentRevisionState` in
- * `domain/agentPairs` is where the distinction is drawn.
+ * `domain/agentSummaries` is where the distinction is drawn.
  */
-function RevisionTag({ agent }: { agent: AgentPair }) {
+function RevisionTag({ agent }: { agent: AgentSummary }) {
   const theme = useTheme();
 
   const appearance = {
@@ -494,7 +490,7 @@ function RevisionTag({ agent }: { agent: AgentPair }) {
       : (agent.notReadyReason ??
         (agent.revisionState === "preparing"
           ? "A revision is desired and none has succeeded yet."
-          : "The controller has not reported a revision for this pair."));
+          : "The controller has not reported a revision for this Agent."));
 
   return explanation ? (
     <Tooltip title={explanation}>

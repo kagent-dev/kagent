@@ -31,11 +31,11 @@ const { Text, Paragraph } = Typography;
  * they are the same thing.
  */
 export function AgentContextPanel({
-  agent,
-  pair,
+  instance,
+  agentRef,
 }: {
   /** A conversation, when there is one open. */
-  agent?: AgentInstance;
+  instance?: AgentInstance;
   /**
    * The agent itself, for surfaces with no conversation open.
    *
@@ -44,12 +44,12 @@ export function AgentContextPanel({
    * through. Only the prepared revision needs a conversation, and it is omitted when
    * there is none rather than guessed at.
    */
-  pair?: { namespace: string; name?: string };
+  agentRef?: { namespace: string; name?: string };
 }) {
   const theme = useTheme();
 
-  const namespace = agent?.agent?.split("/")[0] ?? pair?.namespace ?? "";
-  const name = agent?.agent ? bareName(agent.agent) : pair?.name;
+  const namespace = instance?.agent?.split("/")[0] ?? agentRef?.namespace ?? "";
+  const name = instance?.agent ? bareName(instance.agent) : agentRef?.name;
   const definition = useAgent(namespace, name);
   const templateName = definition.data?.resource.spec.templateRef?.name;
   const template = useAgentTemplate(namespace, templateName);
@@ -129,10 +129,10 @@ export function AgentContextPanel({
                             {binding.mcp.server.name} (all tools)
                           </Tag>,
                         ]
-                    : binding.agent
+                    : binding.subAgent
                       ? [
                           <Tag key={`${index}-agent`} color="processing">
-                            {binding.agent.name}
+                            {binding.subAgent.name}
                           </Tag>,
                         ]
                       : [],
@@ -170,7 +170,7 @@ export function AgentContextPanel({
         </>
       ) : null}
 
-      {agent?.preparedRevision ? (
+      {instance?.preparedRevision ? (
         <Field label="Prepared revision">
           {/* What this conversation actually runs. The template above can be edited
               after an instance is cut from it, and the instance keeps its revision —
@@ -183,7 +183,7 @@ export function AgentContextPanel({
               wordBreak: "break-all",
             }}
           >
-            {agent.preparedRevision}
+            {instance.preparedRevision}
           </Text>
         </Field>
       ) : null}

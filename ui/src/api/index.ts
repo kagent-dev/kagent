@@ -71,7 +71,7 @@ export * from "./domain/substrate";
 export * from "./domain/prompts";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
-export * from "./domain/agentPairs";
+export * from "./domain/agentSummaries";
 export * from "./domain/checkpoints";
 
 export { useMcpServers, useTools } from "./hooks/useMcpServers";

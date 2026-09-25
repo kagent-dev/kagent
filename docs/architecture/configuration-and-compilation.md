@@ -9,14 +9,15 @@ location.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared or
-Dedicated agent bindings. Model configuration may be omitted for BYO images;
+Dedicated subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
 Agent compilation rejects managed harness combinations without one.
 
 `Agent` pairs one template and one Harness. Each side independently selects either
 an inline spec (`template`, `harness`) or a local reference (`templateRef`,
 `harnessRef`), with exactly one choice required per side. Inline specs are complete
 values, not overrides. References, including those inside inline specs, resolve in
-the Agent's namespace. The reusable resources have no binding to each other.
+the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
+with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
 
 All three are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public

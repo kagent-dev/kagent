@@ -41,7 +41,7 @@ type instanceWorkflow interface {
 
 type ListRequest struct {
 	AllCreators bool
-	// AgentTemplate and Harness narrow the page to one agent's conversations.
+	// Agent narrows the page to one agent's conversations.
 	// Either may be given alone.
 	Agent     *apiv1alpha1.ResourceReference
 	PageSize  int

@@ -176,14 +176,14 @@ agentRailOverrides: {
 }
 ```
 
-`agent` is the conversation the rail is drawn beside, when there is one. It is absent
+`instance` is the conversation the rail is drawn beside, when there is one. It is absent
 on the agent's own page and on a new conversation, so an entry that needs an address
 should derive it and render nothing when it cannot — which is what the application's
 own entries do when their destination cannot be derived.
 
-`pair` carries the runnable Agent's `namespace` and optional `name`, including on
+`agent` carries the runnable Agent's `namespace` and optional `name`, including on
 Agent and new-chat pages with no conversation open. An entry that links to the
-Agent definition should check `pair?.name`; template and Harness choices do not
+Agent definition should check `agent?.name`; template and Harness choices do not
 change that identity.
 
 An override's `path` lands on the entry's `to`; the rail renders its links itself, so
@@ -204,17 +204,17 @@ page reached from a rail entry does not get the rail for free. Mount it:
 import { AgentRail, useAgentConversations, useAgentInstance } from "@/appExtensions";
 
 const instance = useAgentInstance(id);
-const conversations = useAgentConversations(namespace, agentTemplate, harness);
+const conversations = useAgentConversations(namespace, agentName);
 
 <AgentRail
-  agentRef={{ id }}
+  instanceRef={{ id }}
   instance={instance.data}
   instances={{ ...conversations, data: conversations.data?.all ?? [] }}
 />
 ```
 
 The rail takes the open conversation and its siblings rather than reading them, because
-every surface mounting it already lists them. Pass `agentTitle` and `agentPair` too when
+every surface mounting it already lists them. Pass `agentTitle` and `agentRef` too when
 no conversation is open, or the identity card has nothing to name. The contributed entry
 stays lit while its own page is showing, as any core entry would.
 

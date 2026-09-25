@@ -30,7 +30,7 @@ const { Paragraph, Text } = Typography;
  *
  * ## Where this sits now
  *
- * Between an agent and its chat. The agent — the `(AgentTemplate, Harness)` pair —
+ * Between an agent and its chat. The agent — the Agent definition —
  * lists its conversations; this is one of them, and it links back up to the agent
  * rather than to the whole agents list. That is item 3 of the review, and the whole
  * of it: navigation, not a filter. "Agents filtered by this template" was circular
@@ -58,10 +58,10 @@ export function AgentDetailsPage() {
   const instances = useAgentInstances();
 
   /*
-   * The agent this conversation belongs to, when the record names a pair.
+   * The agent this conversation belongs to, when the record names an Agent.
    *
    * `undefined` is a real answer rather than a missing one: an instance with no
-   * prepared revision belongs to no pair — the controller's own list query joins it
+   * prepared revision belongs to no Agent — the controller's own list query joins it
    * as NULL — so there is genuinely no agent page to link to, and rendering a link
    * anyway would point at one that does not exist.
    */
@@ -115,7 +115,7 @@ export function AgentDetailsPage() {
             </Link>
           ) : (
             // Not a link and not a blank cell: an instance with no prepared revision
-            // belongs to no pair, which is a fact about the record rather than a
+            // belongs to no Agent, which is a fact about the record rather than a
             // link this page forgot to render.
             <ValueOrNotReported value={undefined} />
           ),
@@ -193,7 +193,7 @@ export function AgentDetailsPage() {
       >
         {id ? (
           <AgentRail
-            agentRef={{ id }}
+            instanceRef={{ id }}
             instance={data}
             instances={instances}
           />

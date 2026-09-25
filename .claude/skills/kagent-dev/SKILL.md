@@ -12,7 +12,7 @@ Use `docs/architecture` and the current implementation to understand component b
 
 ## Architecture
 
-- `Harness` and `AgentTemplate` are `kagent.dev/v1alpha3` CRDs under `go/api/v1alpha3`.
+- `Agent`, `Harness`, and `AgentTemplate` are `kagent.dev/v1alpha3` CRDs under `go/api/v1alpha3`.
 - `AgentInstance` is stored in PostgreSQL and exposed through gRPC, not Kubernetes.
 - Upstream A2A owns public interaction and history semantics.
 - Substrate Actors are the only runtime compute path.

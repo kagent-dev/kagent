@@ -119,14 +119,14 @@ export function AgentNewChatPage() {
       >
         {namespace ? (
           <AgentRail
-            agentRef={{}}
+            instanceRef={{}}
             agentTitle={{
               primary: name ?? namespace,
               secondary: namespace,
             }}
             agentHref={agentPageUrl({ namespace, name })}
             // From the URL, since there is no conversation here to read it from.
-            agentPair={{ namespace: namespace ?? "", name }}
+            agentRef={{ namespace: namespace ?? "", name }}
             instances={{ ...conversations, data: rows }}
           />
         ) : null}

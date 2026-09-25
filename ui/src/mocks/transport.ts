@@ -667,12 +667,9 @@ function requireNamespace(namespace: string): string {
 }
 
 /**
- * The check `validateOptionalName` performs on the two agent filters.
- *
- * A DNS-1123 subdomain when set, and "do not filter" when empty. Copied rather than
- * skipped because the mistake it catches is one this codebase makes easily: an
- * instance reports its pair as `namespace/name`, so passing that straight back as a
- * filter looks right and is an `InvalidArgument` on a cluster.
+ * Optional resource names must be DNS-1123 subdomains when set.
+ * An instance reports its Agent as `namespace/name`; the name field of a
+ * resource reference accepts only the name component.
  */
 const DNS_1123_SUBDOMAIN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
 
@@ -907,7 +904,7 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
   // rule on the second edit would be a form tested against the wrong backend.
   const name = requireInstanceName(input.name ?? "");
   if (call.scenario === "error") {
-    // The controller's own refusal for a pair whose prepared revision is not ready,
+    // The controller's own refusal for an Agent whose prepared revision is not ready,
     // which is the failure a reader is most likely to meet.
     throw new ConnectError(
       `no ready prepared revision for ${input.agent?.name}`,

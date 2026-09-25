@@ -39,12 +39,10 @@ type CompileResult struct {
 
 // Revision is the resolved runtime configuration for one immutable revision.
 type Revision struct {
-	// These fields identify the public attachment that produced the revision.
-	AgentName         string
-	AgentUID          string
-	Namespace         string
-	AgentTemplateName string
-	HarnessName       string
+	// These fields identify the Agent that produced the revision.
+	AgentName string
+	AgentUID  string
+	Namespace string
 
 	// Image and Environment describe the runtime container.
 	Image       string
@@ -96,8 +94,6 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentName          string                   `json:"agentName"`
 		AgentUID           string                   `json:"agentUID"`
 		Namespace          string                   `json:"namespace"`
-		AgentTemplateName  string                   `json:"agentTemplateName"`
-		HarnessName        string                   `json:"harnessName"`
 		Image              string                   `json:"image"`
 		Command            []string                 `json:"command,omitempty"`
 		Args               []string                 `json:"args,omitempty"`
@@ -110,7 +106,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		EgressDestinations []string                 `json:"egressDestinations"`
 		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass,omitempty"`
 	}{
-		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace, AgentTemplateName: r.AgentTemplateName, HarnessName: r.HarnessName,
+		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,

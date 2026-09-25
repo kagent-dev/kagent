@@ -28,7 +28,7 @@ function renderPanel(tools: unknown[]) {
     <ThemeProvider theme={themeFor("dark")}>
       <MemoryRouter>
         <AgentContextPanel
-          pair={{ namespace: "kagent", name: "assistant" }}
+          agentRef={{ namespace: "kagent", name: "assistant" }}
         />
       </MemoryRouter>
     </ThemeProvider>,
