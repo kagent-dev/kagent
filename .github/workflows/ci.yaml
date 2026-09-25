@@ -380,6 +380,21 @@ jobs:
       - name: Run make build
         env:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          # This matrix proves each image builds. Every job pushes to the `registry:2`
+          # service beside it, which goes away with the runner, so nothing downstream
+          # consumes what it produces.
+          #
+          # Only `build-controller` reads these two. It embeds the digest of every
+          # runtime it can launch, and resolving a digest means having the image — so
+          # proving the controller compiles rebuilt six images that this same matrix is
+          # already building in parallel jobs, and did it one after another. It was 19
+          # minutes, against 19s for the same job on main where the controller has no
+          # such prerequisites.
+          #
+          # The digests still get embedded everywhere they are needed: `make build`,
+          # which is what `test-e2e` and the release paths run, keeps the defaults.
+          CONTROLLER_RUNTIME_DEPS: ""
+          CONTROLLER_EMBED_DIGESTS: "false"
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}

@@ -267,9 +267,26 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
+# What `build-controller` has to build before it can embed a digest for each one.
+#
+# Overridable, and empty is a supported value. The controller binary carries the
+# digest of every runtime it can launch, and `controller-digest-ldflags.sh` resolves
+# those from a registry — so the images have to exist before it runs, which is why
+# they are prerequisites here. A build that only has to prove the controller
+# *compiles* needs none of that, and rebuilding six images to prove it is the most
+# expensive way to find out. Such a build sets this empty and turns off embedding
+# below.
+CONTROLLER_RUNTIME_DEPS ?= build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
+
+# Whether the digests are baked in. Anything that will actually run an agent needs
+# them, so this defaults on and every release path keeps it.
+CONTROLLER_EMBED_DIGESTS ?= true
+
 build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
+build-controller: buildx-create controller-manifests $(CONTROLLER_RUNTIME_DEPS)
 	@set -e; \
+	DIGEST_LDFLAGS=""; \
+	if [ "$(CONTROLLER_EMBED_DIGESTS)" = "true" ]; then \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
 		APP_IMG=$(APP_IMG) \
 		APP_FULL_IMG=$(APP_FULL_IMG) \
@@ -278,6 +295,7 @@ build-controller: buildx-create controller-manifests build-app build-app-full bu
 		ACP_SANDBOX_OPENCLAW_IMG=$(ACP_SANDBOX_OPENCLAW_IMG) \
 		ACP_SANDBOX_HERMES_IMG=$(ACP_SANDBOX_HERMES_IMG) \
 		./scripts/controller-digest-ldflags.sh); \
+	fi; \
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
 		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
 		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
