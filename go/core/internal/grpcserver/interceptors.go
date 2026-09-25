@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -143,6 +144,10 @@ func requestLogger(ctx context.Context, method, rpcType string) *slog.Logger {
 	values := []any{"component", "grpc", "grpc_method", method, "rpc_type", rpcType}
 	if remotePeer, ok := peer.FromContext(ctx); ok {
 		values = append(values, "peer", remotePeer.Addr.String())
+	}
+	// Same keys as the OTLP log records the agents export, so one query joins both.
+	if spanContext := trace.SpanContextFromContext(ctx); spanContext.IsValid() {
+		values = append(values, "trace_id", spanContext.TraceID().String(), "span_id", spanContext.SpanID().String())
 	}
 	return logging.FromContext(ctx).With(values...)
 }
