@@ -10,15 +10,34 @@ import (
 	"google.golang.org/adk/v2/session/database"
 )
 
-// LocalSessionService is used by substrate sandbox agents to store ADK session state in a local sqlite DB.
-// The DB lives inside the actor's durableDir volume (AgentConfig.session_db_url, set by the controller
-// in the rendered config Secret).
+// LocalSessionService stores one Actor's native ADK conversation in SQLite on its
+// durableDir volume (AgentConfig.session_db_url). The private database provides
+// isolation, so different Actors can safely use the same local conversation key.
+// This service must not be used to multiplex independent conversations in one DB.
+//
+// The ADK A2A executor selects state by app name, caller user ID, and context ID.
+// Here, a fork gets a new public context ID but copies the native database, and a
+// shared Session can be invoked by a different user. Neither change should select
+// an empty native conversation. We therefore keep the configured app name and
+// normalize both user and session lookup keys to the fixed local key below.
+// Forks continue the copied history and write only to their own database.
+//
+// Shared in-process subagents participate in this same native conversation.
+// A child with an independent conversation needs its own store or distinct keys;
+// remote A2A child context/task IDs are separate and are not rewritten here.
+//
+// Returned ADK sessions expose these private keys. Routing, lineage, and external
+// correlation must use the public A2A context ID carried by the executor instead.
+// Authorization and user memory must use the actual caller, never the local user
+// key. Normalizing storage keys does not grant access to a public Session.
 type LocalSessionService struct {
+	// AppendEvent already receives a native Session from Create/Get, so it can
+	// use the upstream implementation without another identity rewrite.
 	adksession.Service
 }
 
-// One Actor owns one conversation. These private keys survive snapshot forks;
-// public A2A context IDs and the caller's identity must not select native state.
+// localConversationID is a storage key scoped to one Actor's private database,
+// not a globally unique Session ID or an authenticated user identity.
 const localConversationID = "conversation"
 
 func (s *LocalSessionService) Create(ctx context.Context, request *adksession.CreateRequest) (*adksession.CreateResponse, error) {
