@@ -34,7 +34,7 @@ registries: &registries |-
 # giantswarm main`; a re-pin moves it, FORK.md "Re-pin"), stamped on every
 # published index so a consumer reads which kagent it runs from the registry.
 annotations: &annotations |-
-  index:io.giantswarm.upstream.version=main@1069fd2
+  index:io.giantswarm.upstream.version=main@dd3b240
 
 # Build arguments, one NAME=VALUE per line, what the Makefile's
 # TOOLS_IMAGE_BUILD_ARGS pass and the Dockerfiles use; ${DOCKER_IMAGE_TAG} (the
