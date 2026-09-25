@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -19,6 +20,7 @@ import (
 	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -169,6 +171,10 @@ type Reconciler struct {
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
 
+	agentFailuresMu sync.Mutex
+	// agentFailures holds when each failing Agent last failed.
+	agentFailures map[string]agentFailure
+
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
 	modelConfigStatuses      controllers.Queue
@@ -199,9 +205,7 @@ func newReconciler(
 		store:       store,
 		status:      status,
 	}
-	r.agents = newReconciliationQueue("v2-agents", func(item any) error {
-		return r.reconcileAgent(context.Background(), item.(string))
-	})
+	r.agents = newReconciliationQueue("v2-agents", r.reconcileAgentItem)
 	r.agentStatuses = newReconciliationQueue("v2-agent-status", func(item any) error {
 		return r.reconcileAgentStatus(context.Background(), item.(string))
 	})
@@ -229,12 +233,18 @@ func newReconciler(
 	return r
 }
 
+const (
+	reconciliationMaxAttempts = 10
+	// reconciliationRetryCap is the longest a failing key waits between attempts.
+	reconciliationRetryCap = 30 * time.Second
+)
+
 // Ten attempts span about 2.5 minutes. Each queue owns its backoff state;
 // fresh graph events can enqueue work again after an error budget is exhausted.
 func newReconciliationQueue(name string, reconcile func(any) error) controllers.Queue {
 	return controllers.NewQueue(name, controllers.WithGenericReconciler(reconcile),
-		controllers.WithMaxAttempts(10),
-		controllers.WithRateLimiter(workqueue.NewTypedItemExponentialFailureRateLimiter[any](time.Second, 30*time.Second)),
+		controllers.WithMaxAttempts(reconciliationMaxAttempts),
+		controllers.WithRateLimiter(workqueue.NewTypedItemExponentialFailureRateLimiter[any](time.Second, reconciliationRetryCap)),
 	)
 }
 
@@ -260,15 +270,69 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
 				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.canPrepare() && golden.GetGoldenTag() == nil {
+				if state.canPrepare() && golden.GetGoldenTag() == nil && r.agentRetryDue(state.ResourceName(), now) {
 					r.agents.Add(state.ResourceName())
 				}
 			}
 		}
 	}
+}
+
+// agentFailure is how often an Agent failed in a row and when it last did.
+type agentFailure struct {
+	attempts int
+	at       time.Time
+}
+
+// reconcileAgentItem hands a failure back to the queue until its retry budget
+// is spent. The queue would then forget the key and the next poll would start
+// its backoff over from one second, so the last error of the budget and every
+// later one are logged here and the poll retries the Agent at the backoff cap.
+func (r *Reconciler) reconcileAgentItem(item any) error {
+	key := item.(string)
+	ctx := context.Background()
+	err := r.reconcileAgent(ctx, key)
+	if attempts := r.recordAgentAttempt(key, err, time.Now()); attempts >= reconciliationMaxAttempts {
+		logging.FromContext(ctx).Error("reconcile Agent; retrying at the backoff cap",
+			"agent", key, "attempts", attempts, "error", err)
+		return nil
+	}
+	return err
+}
+
+// recordAgentAttempt returns how often the Agent failed in a row. The poll
+// must not re-add a failing Agent every tick: an Add bypasses the queue's rate
+// limiter, so the poll alone would retry a persistent failure every second.
+func (r *Reconciler) recordAgentAttempt(key string, err error, now time.Time) int {
+	r.agentFailuresMu.Lock()
+	defer r.agentFailuresMu.Unlock()
+	if err == nil {
+		delete(r.agentFailures, key)
+		return 0
+	}
+	if r.agentFailures == nil {
+		r.agentFailures = map[string]agentFailure{}
+	}
+	failure := r.agentFailures[key]
+	failure.attempts++
+	failure.at = now
+	r.agentFailures[key] = failure
+	return failure.attempts
+}
+
+// agentRetryDue leaves a failing Agent to the queue's backoff and, once the
+// queue's retry budget is spent, retries it at the backoff cap.
+func (r *Reconciler) agentRetryDue(key string, now time.Time) bool {
+	r.agentFailuresMu.Lock()
+	defer r.agentFailuresMu.Unlock()
+	failure, failing := r.agentFailures[key]
+	if !failing {
+		return true
+	}
+	return failure.attempts >= reconciliationMaxAttempts && !now.Before(failure.at.Add(reconciliationRetryCap))
 }
 
 func (r *Reconciler) Start(ctx context.Context) error {
@@ -323,6 +387,12 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 			return r.observePreparationError(*state, fmt.Errorf("ensure Atespace %s: %w", desiredRef.GetAtespace(), err))
 		}
 		observed, err = r.templates.CreateActorTemplate(ctx, state.DesiredActorTemplate)
+		if status.Code(err) == codes.InvalidArgument {
+			// Substrate validates the template before storing it, so it
+			// rejects the same revision on every attempt.
+			r.observePreparation(*state, nil, actorTemplateRejected(err))
+			return nil
+		}
 		if status.Code(err) == codes.AlreadyExists {
 			observed, err = r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 		}
@@ -376,6 +446,24 @@ func runtimePreparationFailure(err error, configName string, class atev1alpha1.S
 		Reason:    "RuntimePreparationFailed",
 		Message:   message,
 		Retryable: true,
+	}
+}
+
+// maxRejectionMessageRunes bounds the Substrate message copied into status;
+// a validation message can quote the rejected value.
+const maxRejectionMessageRunes = 1024
+
+// actorTemplateRejected publishes Substrate's validation message, which names
+// the rejected field and its limit, as a final failure of the revision.
+func actorTemplateRejected(err error) *ReconciliationFailure {
+	message := status.Convert(err).Message()
+	if runes := []rune(message); len(runes) > maxRejectionMessageRunes {
+		message = string(runes[:maxRejectionMessageRunes]) + "…"
+	}
+	return &ReconciliationFailure{
+		Condition: kagentv1alpha3.AgentConditionCompatible,
+		Reason:    "ActorTemplateRejected",
+		Message:   "Substrate rejected the ActorTemplate: " + message,
 	}
 }
 
