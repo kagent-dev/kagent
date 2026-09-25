@@ -15,6 +15,7 @@ from google.protobuf import json_format, struct_pb2
 from kagent.api.v1alpha1 import memory_pb2
 from kagent.core import AsyncControllerClient
 
+from kagent.adk._request_identity import request_user_id
 from kagent.adk.models import KAgentEmbedding
 from kagent.adk.types import EmbeddingConfig
 
@@ -74,6 +75,7 @@ class KagentMemoryService(BaseMemoryService):
             session: The session to add to memory
             model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
+        user_id = request_user_id.get() or session.user_id
         try:
             # Extract content from session events
             raw_content = self._extract_session_content(session)
@@ -112,7 +114,7 @@ class KagentMemoryService(BaseMemoryService):
 
                 item = memory_pb2.SessionMemoryInput(
                     agent_name=self.agent_name,
-                    user_id=session.user_id,
+                    user_id=user_id,
                     content=content_item,
                     vector=vector,
                 )
@@ -125,7 +127,7 @@ class KagentMemoryService(BaseMemoryService):
 
             response = await self.client.memory_service.AddSessionBatch(
                 memory_pb2.MemoryServiceAddSessionBatchRequest(items=batch_items),
-                **await self.client.call_options(session.user_id),
+                **await self.client.call_options(user_id),
             )
             logger.info("Successfully saved %d memory items via batch RPC", response.count)
         except Exception as e:
@@ -147,6 +149,7 @@ class KagentMemoryService(BaseMemoryService):
             content: The text content to save
             metadata: Optional additional metadata
         """
+        user_id = request_user_id.get() or user_id
         if not content:
             return
 
@@ -200,6 +203,7 @@ class KagentMemoryService(BaseMemoryService):
         Returns:
             SearchMemoryResponse containing matching MemoryEntry objects
         """
+        user_id = request_user_id.get() or user_id
         # Generate embedding for the query
         if not self._embedding_client:
             logger.warning("No embedding client available for search")

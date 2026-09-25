@@ -70,8 +70,8 @@ message AgentInstance {
   // Reader-supplied display name for the conversation. Empty means unnamed,
   // which is the state every instance created before this field existed is in.
   string name = 13;
-  // Output only. Opaque A2A conversation ID within this instance's authority.
-  // Forks preserve this ID; route and authorize using the instance ID.
+  // Output only. A2A conversation ID, equal to this instance's ID.
+  // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
 }
 

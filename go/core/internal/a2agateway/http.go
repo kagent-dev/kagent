@@ -1,31 +1,29 @@
 package a2agateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"google.golang.org/grpc/metadata"
 )
 
 // HTTPPathPrefix is the public A2A namespace on the core HTTP listener.
 const HTTPPathPrefix = "/agents/"
 
-// NewHTTPHandler serves a card and JSON-RPC endpoint per AgentInstance. The URL
-// selects the instance; caller-supplied routing headers cannot override it.
+// NewHTTPHandler serves a card and JSON-RPC endpoint per named Agent.
 func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvider, shares agentinstance.ShareStore) http.Handler {
 	mux := http.NewServeMux()
-	rpc := withHTTPInstance(a2asrv.NewJSONRPCHandler(gateway))
-	mux.Handle("POST "+HTTPPathPrefix+"{instanceID}", rpc)
-	mux.Handle("POST "+HTTPPathPrefix+"{instanceID}/{$}", rpc)
-	mux.Handle("GET "+HTTPPathPrefix+"{instanceID}"+a2asrv.WellKnownAgentCardPath, withHTTPInstance(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rpc := withHTTPAgent(a2asrv.NewJSONRPCHandler(gateway))
+	mux.Handle("POST "+HTTPPathPrefix+"{namespace}/{name}", rpc)
+	mux.Handle("POST "+HTTPPathPrefix+"{namespace}/{name}/{$}", rpc)
+	mux.Handle("GET "+HTTPPathPrefix+"{namespace}/{name}"+a2asrv.WellKnownAgentCardPath, withHTTPAgent(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		card, err := gateway.GetExtendedAgentCard(r.Context(), &a2atype.GetExtendedAgentCardRequest{})
 		if err != nil {
 			status := http.StatusInternalServerError
@@ -73,10 +71,9 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 	}))
 }
 
-func withHTTPInstance(next http.Handler) http.Handler {
+func withHTTPAgent(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Normalize the URL into the same routing metadata used by gRPC.
-		ctx := metadata.NewIncomingContext(r.Context(), metadata.Pairs(apia2a.AgentInstanceIDHeader, r.PathValue("instanceID")))
+		ctx := context.WithValue(r.Context(), httpAgentKey{}, r.PathValue("namespace")+"/"+r.PathValue("name"))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

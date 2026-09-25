@@ -99,3 +99,18 @@ async def test_session_memory_batches_generated_inputs(service, client):
     ]
     assert all(item.ttl_days == 7 for item in request.items)
     client.call_options.assert_awaited_once_with("user-3")
+
+
+async def test_memory_uses_request_user_instead_of_private_native_key(service, client):
+    from kagent.adk._request_identity import request_user_id
+
+    service._embedding_client.generate = AsyncMock(return_value=[0.5, 0.125])
+    token = request_user_id.set("alice")
+    try:
+        await service.add_memory(app_name="app", user_id="conversation", content="remember")
+        await service.search_memory(app_name="app", user_id="conversation", query="remember")
+    finally:
+        request_user_id.reset(token)
+    assert client.memory_service.AddSession.await_args.args[0].memory.user_id == "alice"
+    assert client.memory_service.Search.await_args.args[0].user_id == "alice"
+    assert all(call.args == ("alice",) for call in client.call_options.await_args_list)

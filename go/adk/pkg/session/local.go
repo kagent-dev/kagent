@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,34 @@ import (
 // in the rendered config Secret).
 type LocalSessionService struct {
 	adksession.Service
+}
+
+// One Actor owns one conversation. These private keys survive snapshot forks;
+// public A2A context IDs and the caller's identity must not select native state.
+const localConversationID = "conversation"
+
+func (s *LocalSessionService) Create(ctx context.Context, request *adksession.CreateRequest) (*adksession.CreateResponse, error) {
+	local := *request
+	local.UserID, local.SessionID = localConversationID, localConversationID
+	return s.Service.Create(ctx, &local)
+}
+
+func (s *LocalSessionService) Get(ctx context.Context, request *adksession.GetRequest) (*adksession.GetResponse, error) {
+	local := *request
+	local.UserID, local.SessionID = localConversationID, localConversationID
+	return s.Service.Get(ctx, &local)
+}
+
+func (s *LocalSessionService) List(ctx context.Context, request *adksession.ListRequest) (*adksession.ListResponse, error) {
+	local := *request
+	local.UserID = localConversationID
+	return s.Service.List(ctx, &local)
+}
+
+func (s *LocalSessionService) Delete(ctx context.Context, request *adksession.DeleteRequest) error {
+	local := *request
+	local.UserID, local.SessionID = localConversationID, localConversationID
+	return s.Service.Delete(ctx, &local)
 }
 
 // NewService builds the actor-local session service selected by AgentConfig.session_db_url.

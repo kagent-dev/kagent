@@ -24,7 +24,7 @@ var (
 
 // ForkAgentInstance atomically creates an instance and independent history from an owned
 // READY checkpoint, replaying only events through its saved boundary. The fork retains the
-// source context ID, revision, and snapshot reference. A repeated owner/requestID returns
+// source revision and snapshot, with fresh context and task IDs. A repeated owner/requestID returns
 // the existing fork for the same checkpoint, or ErrIdempotencyConflict otherwise. The
 // boolean reports creation; callers provision the runtime separately. A deleted
 // fork returns ErrFailedPrecondition and retains its request identity.
@@ -79,7 +79,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		historyID := uuid.New()
 		now := timestamppb.Now()
 		instance := &apiv1alpha1.AgentInstance{
-			Id: instanceID, Creator: userID, ContextId: sourceContextID.String(),
+			Id: instanceID, Creator: userID, ContextId: instanceID,
 			Name:             source.GetName(),
 			Agent:            &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
 			PreparedRevision: *checkpoint.PreparedRevision,
@@ -113,6 +113,14 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		}
 		if !slices.ContainsFunc(tasks, func(task agentInstanceTaskRow) bool { return task.ID == checkpoint.HeadTaskID }) {
 			return fmt.Errorf("checkpoint has no head task in its events")
+		}
+		events, err = forkTaskEvents(events, instanceID)
+		if err != nil {
+			return fmt.Errorf("assign fork identities: %w", err)
+		}
+		tasks, err = replayTaskEvents(events, instanceID)
+		if err != nil {
+			return fmt.Errorf("replay fork events: %w", err)
 		}
 		var copiedHistorySequence int64
 		sequences := make(map[int64]int64, len(events))
@@ -232,6 +240,16 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		}
 		if !a2a.TaskState(current.State).Terminal() {
 			return fmt.Errorf("checkpoint requires a terminal task: %w", ErrFailedPrecondition)
+		}
+		pending, err := queryOne(ctx, tx, `
+            SELECT EXISTS (SELECT 1 FROM agent_instance_task WHERE history_id = $1
+                AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_FAILED', 'TASK_STATE_CANCELED', 'TASK_STATE_REJECTED'))
+        `, pgx.RowTo[bool], instance.HistoryID)
+		if err != nil {
+			return err
+		}
+		if pending {
+			return fmt.Errorf("checkpoint requires all tasks to be terminal: %w", ErrFailedPrecondition)
 		}
 		if err := requireSettledRuntime(ctx, tx, instance.HistoryID, ""); err != nil {
 			if errors.Is(err, ErrFailedPrecondition) {

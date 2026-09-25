@@ -166,7 +166,7 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 			Answers: []kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 		})
 		reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-		response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Message: reply})
+		response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
 		if err != nil {
 			t.Fatalf("resume A2A task: %v", err)
 		}
@@ -206,7 +206,7 @@ func sendApprovedToolRequest(t *testing.T, fixture *interactionFixture, prompt, 
 	}); err != nil {
 		t.Fatalf("attach tool approval response: %v", err)
 	}
-	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Message: reply})
+	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
 	if err != nil {
 		t.Fatalf("resume A2A task after tool approval: %v", err)
 	}
@@ -308,10 +308,9 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		})
 		forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
 			"x-user-id", "e2e",
-			"x-kagent-agent-instance-id", fork.GetId(),
 		), 4*time.Minute)
 		t.Cleanup(forkCancel)
-		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fork.GetContextId(), PageSize: 10})
+		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fork.GetContextId(), PageSize: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -320,13 +319,13 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 			t.Fatalf("list fork tasks: %v", err)
 		}
 		copied, err := pbconv.FromProtoListTasksResponse(copiedResponse)
-		if err != nil || len(copied.Tasks) != 1 || copied.Tasks[0].ID != task.ID || copied.Tasks[0].ContextID != fork.GetContextId() {
+		if err != nil || len(copied.Tasks) != 1 || copied.Tasks[0].ID == task.ID || copied.Tasks[0].ContextID != fork.GetContextId() {
 			t.Fatalf("copied fork tasks = %+v, error %v", copied, err)
 		}
 		// Before its first turn a fork borrows the retained Tag snapshot. Its
 		// copied head boundary must refer to that copy, not the deleted source.
 		forkCheckpoint := createCheckpoint(t, forkCtx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID),
+			AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: string(copied.Tasks[0].ID),
 		})
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
@@ -354,8 +353,8 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 				t.Errorf("delete nested fork: %v", err)
 			}
 		})
-		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", "x-kagent-agent-instance-id", nestedID)
-		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client}
+		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
+		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client, tenant: fixture.tenant, instanceID: nestedID, contextID: nestedID}
 		_, _, nestedTask := nestedFixture.send(t, "What was the answer before the checkpoint?")
 		if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
 			t.Fatalf("nested fork task state = %s, text = %q; want checkpoint memory", nestedTask.Status.State, taskText(nestedTask))
@@ -368,7 +367,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("delete fresh fork checkpoint: %v", err)
 		}
-		forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client}
+		forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client, tenant: fixture.tenant, instanceID: fork.GetId(), contextID: fork.GetId()}
 		_, _, forkTask := forkFixture.send(t, "What was the answer before the checkpoint?")
 		if forkTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(forkTask), "The answer is 4.") {
 			t.Fatalf("fork A2A task state = %s, want COMPLETED", forkTask.Status.State)
@@ -446,7 +445,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 			}
 		}
 
-		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
+		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
 		if err != nil {
 			t.Fatalf("build ListTasks request: %v", err)
 		}
@@ -466,7 +465,7 @@ func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 
-		getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
+		getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: fixture.tenant, ID: task.ID})
 		if err != nil {
 			t.Fatalf("build GetTask request: %v", err)
 		}
@@ -482,7 +481,7 @@ func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 			t.Fatalf("persisted task = %#v, want completed task %s in context %s", got, task.ID, fixture.instanceID)
 		}
 
-		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
+		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
 		if err != nil {
 			t.Fatalf("build ListTasks request: %v", err)
 		}
@@ -498,7 +497,7 @@ func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 			t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, fixture.instanceID)
 		}
 
-		stream, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Id: string(task.ID)})
+		stream, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Tenant: fixture.tenant, Id: string(task.ID)})
 		if err != nil {
 			t.Fatalf("reconnect to completed task: %v", err)
 		}
@@ -525,6 +524,7 @@ func TestAgentInstanceActiveTask(t *testing.T) {
 func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, started <-chan struct{}) {
 	t.Helper()
 	_, request := newMessageRequest(t, "Wait for cancellation")
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.instanceID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming A2A message: %v", err)
@@ -535,7 +535,7 @@ func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, start
 		t.Fatal("runtime did not call the blocking model")
 	}
 
-	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
 	if err != nil {
 		t.Fatalf("build ListTasks request: %v", err)
 	}
@@ -553,11 +553,12 @@ func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, start
 	task := listed.Tasks[0]
 
 	_, busyRequest := newMessageRequest(t, "Second concurrent request")
+	busyRequest.Tenant, busyRequest.Message.ContextId = fixture.tenant, fixture.instanceID
 	if _, err := fixture.client.SendMessage(fixture.ctx, busyRequest); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("concurrent message error = %v, want %s", err, codes.FailedPrecondition)
 	}
 
-	subscribeRequest, err := pbconv.ToProtoSubscribeToTaskRequest(&a2atype.SubscribeToTaskRequest{ID: task.ID})
+	subscribeRequest, err := pbconv.ToProtoSubscribeToTaskRequest(&a2atype.SubscribeToTaskRequest{Tenant: fixture.tenant, ID: task.ID})
 	if err != nil {
 		t.Fatalf("build SubscribeToTask request: %v", err)
 	}
@@ -577,7 +578,7 @@ func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, start
 		t.Fatalf("subscribed task = %s, want %s", firstEvent.TaskInfo().TaskID, task.ID)
 	}
 
-	cancelRequest, err := pbconv.ToProtoCancelTaskRequest(&a2atype.CancelTaskRequest{ID: task.ID})
+	cancelRequest, err := pbconv.ToProtoCancelTaskRequest(&a2atype.CancelTaskRequest{Tenant: fixture.tenant, ID: task.ID})
 	if err != nil {
 		t.Fatalf("build CancelTask request: %v", err)
 	}
@@ -596,7 +597,7 @@ func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, start
 	waitForTaskState(t, stream, a2atype.TaskStateCanceled)
 	assertTaskStreamClosed(t, subscription)
 	assertTaskStreamClosed(t, stream)
-	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
+	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: fixture.tenant, ID: task.ID})
 	if err != nil {
 		t.Fatalf("build GetTask request: %v", err)
 	}
@@ -621,6 +622,7 @@ type interactionFixture struct {
 	system      apiv1alpha1.SystemServiceClient
 	instanceID  string
 	contextID   string
+	tenant      string
 }
 
 type sharedInteractionFixture struct {
@@ -693,9 +695,8 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 		t.Fatalf("created AgentInstance state = %s, want READY", instance.GetState())
 	}
 	return &interactionFixture{
-		ctx: metadata.AppendToOutgoingContext(ctx,
-			"x-kagent-agent-instance-id", instance.GetId(),
-		),
+		ctx:         ctx,
+		tenant:      instance.GetAgent().GetNamespace() + "/" + instance.GetAgent().GetName(),
 		client:      a2apb.NewA2AServiceClient(conn),
 		instances:   instances,
 		checkpoints: apiv1alpha1.NewCheckpointServiceClient(conn),
@@ -750,6 +751,9 @@ func newSharedInteractionFixture(t *testing.T, harness testHarness, target strin
 func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest, *a2atype.Task) {
 	t.Helper()
 	message, request := newMessageRequest(t, text)
+	message.ContextID = f.instanceID
+	request.Message.ContextId = f.instanceID
+	request.Tenant = f.tenant
 	response, err := f.client.SendMessage(f.ctx, request)
 	if err != nil {
 		t.Fatalf("send A2A message: %v", err)
@@ -1365,4 +1369,54 @@ func mockOriginService(t *testing.T, address, port string) string {
 		t.Fatal(err)
 	}
 	return service.Name + "." + service.Namespace + ".svc.cluster.local"
+}
+
+// Exercise first-message creation through the public API, including recovery
+// after a response is lost and the client retries without learning its context.
+func TestAgentA2ACreatesConversation(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
+		send := func(messageID string) *a2apb.Task {
+			t.Helper()
+			_, request := newMessageRequest(t, "What is 2+2?")
+			request.Tenant, request.Message.MessageId = fixture.tenant, messageID
+			response, err := fixture.client.SendMessage(fixture.ctx, request)
+			if err != nil {
+				t.Fatalf("send without context: %v", err)
+			}
+			task := response.GetTask()
+			if task == nil || task.ContextId == "" {
+				t.Fatalf("expected assigned conversation: %v", response)
+			}
+			return task
+		}
+		initialID := uuid.NewString()
+		first := send(initialID)
+		cleanup := func(id string) {
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+				defer cancel()
+				if err := deleteIdleInstance(ctx, fixture.instances, id); err != nil {
+					t.Errorf("delete created conversation: %v", err)
+				}
+			})
+		}
+		cleanup(first.ContextId)
+		retry := send(initialID)
+		if retry.ContextId != first.ContextId || retry.Id != first.Id {
+			t.Fatalf("retry created another task/conversation: %v vs %v", first, retry)
+		}
+		second := send(uuid.NewString())
+		cleanup(second.ContextId)
+		if second.ContextId == first.ContextId {
+			t.Fatal("new initial message must create another conversation")
+		}
+		instance, err := fixture.instances.GetAgentInstance(fixture.ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: first.ContextId})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if instance.GetAgentInstance().GetId() != first.ContextId {
+			t.Fatal("public context must identify its AgentInstance")
+		}
+	})
 }

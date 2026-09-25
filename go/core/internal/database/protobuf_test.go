@@ -198,7 +198,8 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
 	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
-	require.Equal(t, task.ID, tasks[0].ID)
+	require.NotEqual(t, task.ID, tasks[0].ID)
+	require.Equal(t, fork.Id, tasks[0].ContextID)
 	forkTaskRow, err := readAgentInstanceTask(ctx, q, forkRow.HistoryID, string(tasks[0].ID))
 	require.NoError(t, err)
 	forkTask := &a2apb.Task{}

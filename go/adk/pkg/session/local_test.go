@@ -100,7 +100,8 @@ func TestLocalSessionServiceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, sess3.Events().Len())
 
-	// Unknown sessions fail the lookup.
-	_, err = get(svc2, "missing")
-	require.Error(t, err)
+	// A fork has a new public context but continues the copied native session.
+	fork, err := get(svc2, "fork-context")
+	require.NoError(t, err)
+	require.Equal(t, 2, fork.Events().Len())
 }

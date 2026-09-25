@@ -209,13 +209,13 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
 	id := agentInstance.GetId()
 	return func() tea.Msg {
-		a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, id)
+		a2aClient, err := m.client.A2A.ForAgent(m.ctx, agentInstance.GetAgent())
 		if err != nil {
 			return instanceHistoryLoadedMsg{instanceID: id, err: err}
 		}
 		historyLength := historyMessageLimit
 		response, err := a2aClient.ListTasks(m.ctx, &a2atype.ListTasksRequest{
-			ContextID:        agentInstance.GetContextId(),
+			ContextID:        agentInstance.GetId(),
 			PageSize:         historyTaskLimit,
 			HistoryLength:    &historyLength,
 			IncludeArtifacts: true,
@@ -551,7 +551,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	}
 
 	m.status = ""
-	a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, agentInstance.GetId())
+	a2aClient, err := m.client.A2A.ForAgent(m.ctx, agentInstance.GetAgent())
 	if err != nil {
 		m.chat = nil
 		m.status = fmt.Sprintf("Failed to connect to AgentInstance: %v", err)
@@ -561,7 +561,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(m.ctx, agentInstance.GetAgent().GetName(), agentInstance.GetContextId(), send, m.verbose)
+	m.chat = newChatModel(m.ctx, agentInstance.GetAgent().GetName(), agentInstance.GetId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(agentInstance.GetState()), agentInstance.GetUpdatedAt().AsTime())
 	// Bubble Tea calls Init only on the root model, so start the chat's here.
 	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(agentInstance))

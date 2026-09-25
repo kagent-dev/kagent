@@ -487,8 +487,8 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	copied := tasks[0]
 	require.Equal(t, a2a.TaskStateCompleted, copied.Status.State)
-	if copied.ID != first.ID || copied.ContextID != source.GetContextId() || len(copied.History) != 1 ||
-		copied.History[0].ID != first.History[0].ID || copied.History[0].ContextID != source.GetContextId() ||
+	if copied.ID == first.ID || copied.ContextID != fork.GetId() || len(copied.History) != 1 ||
+		copied.History[0].ID != first.History[0].ID || copied.History[0].ContextID != fork.GetId() ||
 		copied.History[0].TaskID != copied.ID || copied.History[0].ReferenceTasks[0] != copied.ID ||
 		copied.Status.Message.ID != copied.History[0].ID || copied.Status.Message.TaskID != copied.ID {
 		t.Fatalf("reidentified task = %+v", copied)
@@ -513,7 +513,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if _, err := markAgentInstanceReady(ctx, client, fork.GetId(), "fork.example"); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint2, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", AgentInstanceId: fork.GetId(), HeadTaskId: "task-1"}, "alice", "checkpoint-request-2")
+	checkpoint2, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", AgentInstanceId: fork.GetId(), HeadTaskId: string(copied.ID)}, "alice", "checkpoint-request-2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
-	require.Equal(t, "77777777-7777-4777-8777-777777777777-task-1", fork2.GetName())
+	require.Equal(t, fork.GetId()+"-"+string(copied.ID), fork2.GetName())
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}
@@ -771,7 +771,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = markAgentInstanceReady(ctx, client, source.GetId(), "source.example")
 	require.NoError(t, err)
-	require.NotEqual(t, source.GetId(), source.GetContextId())
+	require.Equal(t, source.GetId(), source.GetContextId())
 	sourceRow, err := readAgentInstance(ctx, client.db, source.GetId())
 	require.NoError(t, err)
 	require.NotEqual(t, source.GetId(), sourceRow.HistoryID.String())
@@ -804,25 +804,30 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = markAgentInstanceReady(ctx, client, fork.GetId(), "fork.example")
 	require.NoError(t, err)
-	require.Equal(t, source.GetContextId(), fork.GetContextId())
+	require.Equal(t, fork.GetId(), fork.GetContextId())
+	require.NotEqual(t, source.GetContextId(), fork.GetContextId())
 	forkRow, err := readAgentInstance(ctx, client.db, fork.GetId())
 	require.NoError(t, err)
 	require.NotEqual(t, sourceRow.HistoryID, forkRow.HistoryID)
 
+	var forkHead string
 	for _, instance := range []*apiv1alpha1.AgentInstance{source, fork} {
 		page, total, err := client.ListAgentInstanceTasks(ctx, instance.GetId(), "", a2a.TaskStateUnspecified, nil, 1, nil)
 		require.NoError(t, err)
 		require.Equal(t, 2, total)
 		require.Len(t, page, 1)
-		require.Equal(t, a2a.TaskID("z-first"), page[0].ID)
+		require.Equal(t, "message-z-first", page[0].History[0].ID)
 		page, _, err = client.ListAgentInstanceTasks(ctx, instance.GetId(), string(page[0].ID), a2a.TaskStateUnspecified, nil, 1, nil)
 		require.NoError(t, err)
 		require.Len(t, page, 1)
-		require.Equal(t, a2a.TaskID("a-second"), page[0].ID)
+		require.Equal(t, "message-a-second", page[0].History[0].ID)
+		if instance.Id == fork.Id {
+			forkHead = string(page[0].ID)
+		}
 	}
 	// A fork can itself be checkpointed without losing task chronology.
 	nested, snapshot, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
-		Id: uuid.NewString(), AgentInstanceId: fork.GetId(), HeadTaskId: "a-second",
+		Id: uuid.NewString(), AgentInstanceId: fork.GetId(), HeadTaskId: forkHead,
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	require.Equal(t, "tag-snapshot", snapshot.URI)
@@ -833,9 +838,10 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	tasks, _, err := client.ListAgentInstanceTasks(ctx, fork2.GetId(), "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
 	require.Len(t, tasks, 2)
-	require.Equal(t, a2a.TaskID("z-first"), tasks[0].ID)
+	require.Equal(t, "message-z-first", tasks[0].History[0].ID)
 	require.Equal(t, a2a.TaskStateCompleted, tasks[0].Status.State)
-	require.Equal(t, a2a.TaskID("a-second"), tasks[1].ID)
+	require.Equal(t, "message-a-second", tasks[1].History[0].ID)
+	require.NotEqual(t, forkHead, string(tasks[1].ID))
 	wrong := *waiting
 	wrong.ContextID = fork.GetId()
 	require.Error(t, saveRuntimeTask(t, client, fork.GetId(), &wrong, &wrong, nil))

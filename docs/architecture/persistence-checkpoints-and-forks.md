@@ -2,13 +2,11 @@
 
 ## Durable interaction model
 
-`AgentInstance` represents ephemeral compute. An A2A context durably owns its
-tasks and ordered events, allowing interaction history to remain as an audit trail
-after compute is removed. New instances allocate independent instance, wire A2A
-context, and durable history IDs. `agent_instance.history_id` selects the history;
-`agent_instance.context_id` binds its public context. A composite foreign key
-ensures that binding agrees with `a2a_context`. A history belongs to at most one
-live instance, while multiple fork authorities may use the same wire context.
+`AgentInstance` is a stable conversation identity. Its replaceable Substrate Actor
+provides compute; PostgreSQL owns public task history. `AgentInstance.id` equals
+its public A2A context ID. The private `history_id` selects durable history and a
+composite foreign key ensures the context binding agrees with `a2a_context`.
+Forks receive new instance, context, and history IDs.
 
 The core PostgreSQL records are:
 
@@ -16,7 +14,7 @@ The core PostgreSQL records are:
 | --- | --- |
 | `runtime_revision` | Immutable compiled input and ate-api identity |
 | `agent_definition` | Agent status and latest successful revision |
-| `agent_instance` | Compute identity, pinned revision, lifecycle phase, and Actor identity |
+| `agent_instance` | Conversation identity, pinned revision, lifecycle phase, and Actor identity |
 | `agent_instance_share` | Instance authorization grants |
 | `a2a_context` | Durable history scope and its wire A2A context binding |
 | `agent_instance_task` | Rebuildable current A2A task state and query indexes |
@@ -47,7 +45,7 @@ flowchart TD
     REV --> CHECKPOINT
     CHECKPOINT --> TAG[Substrate snapshot tag]
     CHECKPOINT --> FORK[forked AgentInstance]
-    FORK --> NEWCTX[new history scope, same wire context]
+    FORK --> NEWCTX[new history and public context]
     EVENT -->|copy through checkpoint cutoff| NEWCTX
 ```
 
@@ -86,17 +84,26 @@ the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes 
 
 ## Forking
 
-Forking creates a new AgentInstance authority and durable history scope. It
-preserves wire context, task, message, artifact IDs, and request deduplication
-metadata while copying events through the saved cutoff and reconstructing task
-views from those events. It never reads the source's current task views. It creates a
-separate Actor from the checkpoint's snapshot tag. Private runtime session IDs and
-opaque paused-tool references therefore remain valid without runtime-specific
-rewriting. New work appends only to the fork's history; source history and the
-checkpoint remain immutable. The copied head boundary
-uses the retained Tag URI, allowing a fresh fork to be checkpointed before its
-first turn. Fork creation verifies the Tag UID and URI as well as the Actor's
-source Tag, suspended state, template, and external snapshot.
+Forking creates a new AgentInstance and context ID. It copies events through the
+saved cutoff and reconstructs task views without reading the source's current task
+views. During that copy, the store assigns fresh task IDs and rewrites typed A2A
+context/task references, including message `referenceTaskIds`. Message and artifact
+IDs, opaque metadata, and protobuf unknown fields remain intact. Task IDs are
+globally unique, so a task-only request at the Agent endpoint is unambiguous. There
+is no permanent public/native task translation table.
+
+A separate Actor starts from the checkpoint's snapshot Tag. Go and Python ADK
+Actor-local session stores use private conversation keys independent of public IDs
+and share callers; Codex and Claude retain their native session IDs. New requests
+carry the fork's public context ID while native history remains available. All tasks
+must be terminal before a checkpoint can be captured, so pending native tool calls
+cannot retain obsolete public task identities. Remote-agent IDs in opaque metadata
+still name those remote conversations and are not rewritten.
+
+New work appends only to the fork's history. Source history and the checkpoint remain
+immutable. The copied head boundary uses the retained Tag URI, allowing a fresh fork
+to be checkpointed before its first turn. Fork creation verifies the Tag UID and URI
+as well as the Actor's source Tag, suspended state, template, and external snapshot.
 
 Checkpoint sharing is not implemented. Future sharing must be restricted to data
 snapshots without process state.
@@ -105,7 +112,8 @@ The workflow lives in
 [`go/core/internal/service/checkpoint`](../../go/core/internal/service/checkpoint).
 
 Tasks have an immutable `position` independent of their opaque IDs and mutable
-status timestamps. Listing and pagination use this position; forks preserve it.
+status timestamps. Forks preserve this position. Lists across conversations order by `(position, task ID)`
+to distinguish source/fork copies at the same position.
 New tasks append after inherited tasks, including through repeated forks.
 
 Task creation records a full A2A Task event and its position. Later events carry
@@ -115,9 +123,9 @@ and replay use the same protobuf reducer, preserving opaque fields in unchanged
 subtrees. Event writes and task-view updates commit atomically. Runtime boundaries
 are retained on their final task events so the task's snapshot index is rebuildable.
 
-Forks copy public event payloads unchanged. Private mutation receipts, settlement acknowledgements, and idle lifecycle claims are not
-inherited. Fork task versions belong to the fork's new event sequence, even when
-public task IDs match the source. The new actor's projected identity and JWT
+Forks rewrite public identities while copying event payloads. Private mutation
+receipts, settlement acknowledgements, and idle lifecycle claims are not inherited.
+Fork task versions belong to the fork's new event sequence. The new actor's projected identity and JWT
 select its own history authority on every request.
  Their final boundary references the retained
 snapshot Tag, and event sequence references are rebound to the fork's event rows.
@@ -125,9 +133,9 @@ Checkpoint creation does not copy task views. Fork reconstruction costs a traver
 of the saved event history; malformed or incomplete history fails the fork transaction.
 
 Authority-scoped snapshot cloning is a kagent contract; A2A does not specify
-snapshot forks. A complete task address includes the instance route. Reads,
-writes, cancellation, subscriptions, authorization, and deduplication remain
-instance-scoped. A context or task ID alone never selects another branch.
+snapshot forks. The Agent endpoint and globally unique task ID identify a task.
+Reads, writes, cancellation, subscriptions, authorization, and dispatch remain
+scoped to the resolved instance. Forks have independent public identities.
 
 ## Unreleased schema
 

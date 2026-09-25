@@ -13,7 +13,7 @@ the agent processes.
 | `Harness`                     | Kubernetes (`kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
 | `AgentTemplate`               | Kubernetes (`kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | prepared revision             | PostgreSQL and ate-api                   | Immutable compiled runtime input and its Substrate ActorTemplate              |
-| `AgentInstance`               | PostgreSQL, exposed by gRPC              | Ephemeral compute identity and lifecycle                                      |
+| `AgentInstance`               | PostgreSQL, exposed by gRPC              | Stable conversation identity and runtime lifecycle                                      |
 | A2A context, task, and events | PostgreSQL, exposed by A2A               | Durable interaction and audit history                                         |
 | checkpoint                    | PostgreSQL plus a Substrate snapshot tag | Immutable, named restart boundary                                             |
 | Actor and durable directory   | Substrate                                | Process lifecycle and private runtime state                                   |
@@ -56,7 +56,8 @@ flowchart LR
 
 Compilation and application are separate. The translator produces an immutable
 revision; the controller applies it through ate-api. At runtime, the public A2A
-gateway routes authorized callers to Actors through the private runtime network.
+gateway exposes each Agent and resolves context IDs to AgentInstances before routing
+authorized callers to Actors through the private runtime network.
 Runtimes persist A2A state through TaskStore and publish completion after native
 cleanup. AgentInstance lifecycle workers independently pause/suspend idle Actors.
 

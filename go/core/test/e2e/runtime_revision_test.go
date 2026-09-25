@@ -56,8 +56,11 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		}
 		send := func(id string) string {
 			t.Helper()
+			instance, err := instances.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: id})
+			require.NoError(t, err)
+			ref := instance.GetAgentInstance().GetAgent()
 			fixture := &interactionFixture{
-				ctx: metadata.AppendToOutgoingContext(ctx, "x-kagent-agent-instance-id", id), client: a2apb.NewA2AServiceClient(conn),
+				ctx: ctx, client: a2apb.NewA2AServiceClient(conn), instanceID: id, contextID: id, tenant: ref.GetNamespace() + "/" + ref.GetName(),
 			}
 			_, _, task := fixture.send(t, "What is 2+2?")
 			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)

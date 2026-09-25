@@ -491,8 +491,11 @@ func (*fakeInstanceStore) CreateAgentInstance(context.Context, *apiv1alpha1.Agen
 	return nil, false, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return nil, database.ErrNotFound
+func (*fakeInstanceStore) GetAgentInstance(_ context.Context, id, _ string) (*apiv1alpha1.AgentInstance, error) {
+	if id != testInstanceID {
+		return nil, database.ErrNotFound
+	}
+	return &apiv1alpha1.AgentInstance{Id: id, ContextId: id, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
 }
 
 func (*fakeInstanceStore) ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {

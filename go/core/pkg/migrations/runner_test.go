@@ -211,8 +211,8 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
 	}
-	// Routing, wire context, and durable history are independent identities.
-	contextID := "00000000-0000-0000-0000-000000000001"
+	// The conversation is the public context; history remains private.
+	contextID := "00000000-0000-0000-0000-000000000002"
 	instanceID := "00000000-0000-0000-0000-000000000002"
 	historyID := "00000000-0000-0000-0000-000000000003"
 	execSQL(t, dsn, "INSERT INTO a2a_context (id, context_id) VALUES ($1, $2)", historyID, contextID)

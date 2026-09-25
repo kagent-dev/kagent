@@ -12,7 +12,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +34,14 @@ func (s *recordingAgentInstanceService) CreateAgentInstance(ctx context.Context,
 	return &apiv1alpha1.CreateAgentInstanceResponse{}, nil
 }
 
+func (s *recordingAgentInstanceService) GetAgentInstance(_ context.Context, request *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error) {
+	return &apiv1alpha1.GetAgentInstanceResponse{AgentInstance: &apiv1alpha1.AgentInstance{
+		Id: request.AgentInstanceId, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+	}}, nil
+}
+
 type a2aCallObservation struct {
+	contextID     string
 	id            string
 	userID        string
 	authorization string
@@ -48,13 +54,13 @@ type recordingA2AService struct {
 	observations []a2aCallObservation
 }
 
-func (s *recordingA2AService) SendMessage(ctx context.Context, _ *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
-	s.observe(ctx)
+func (s *recordingA2AService) SendMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+	s.observe(ctx, req.Tenant, req.Message.GetContextId())
 	return pbconv.ToProtoSendMessageResponse(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("hello")))
 }
 
-func (s *recordingA2AService) SendStreamingMessage(_ *a2apb.SendMessageRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
-	s.observe(stream.Context())
+func (s *recordingA2AService) SendStreamingMessage(req *a2apb.SendMessageRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+	s.observe(stream.Context(), req.Tenant, "")
 	response, err := pbconv.ToProtoStreamResponse(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("hello")))
 	if err != nil {
 		return err
@@ -62,8 +68,8 @@ func (s *recordingA2AService) SendStreamingMessage(_ *a2apb.SendMessageRequest, 
 	return stream.Send(response)
 }
 
-func (s *recordingA2AService) SubscribeToTask(_ *a2apb.SubscribeToTaskRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
-	s.observe(stream.Context())
+func (s *recordingA2AService) SubscribeToTask(req *a2apb.SubscribeToTaskRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+	s.observe(stream.Context(), req.Tenant, "")
 	response, err := pbconv.ToProtoStreamResponse(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("hello")))
 	if err != nil {
 		return err
@@ -71,13 +77,14 @@ func (s *recordingA2AService) SubscribeToTask(_ *a2apb.SubscribeToTaskRequest, s
 	return stream.Send(response)
 }
 
-func (s *recordingA2AService) observe(ctx context.Context) {
+func (s *recordingA2AService) observe(ctx context.Context, tenant, contextID string) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.observations = append(s.observations, a2aCallObservation{
-		id:            first(values.Get(kagenta2a.AgentInstanceIDHeader)),
+		id:            tenant,
+		contextID:     contextID,
 		userID:        first(values.Get(userIDHeader)),
 		authorization: first(values.Get("authorization")),
 		hasDeadline:   hasDeadline,
@@ -120,7 +127,7 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
 
-	a2aClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), agentInstanceClientTestID)
+	a2aClient, err := gatewayClient.A2A.ForAgent(context.Background(), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"})
 	require.NoError(t, err)
 	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
 		"authorization": {"Bearer model-key"},
@@ -137,10 +144,18 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 
 	a2aService.mu.Lock()
 	require.Equal(t, []a2aCallObservation{
-		{id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
-		{id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
-		{id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
+		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
+	a2aService.mu.Unlock()
+	instanceClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), agentInstanceClientTestID)
+	require.NoError(t, err)
+	_, err = instanceClient.SendMessage(context.Background(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser)})
+	require.NoError(t, err)
+	a2aService.mu.Lock()
+	require.Equal(t, agentInstanceClientTestID, a2aService.observations[3].contextID)
+	require.Equal(t, "team-a/assistant", a2aService.observations[3].id)
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(2), dialCount.Load())
 }

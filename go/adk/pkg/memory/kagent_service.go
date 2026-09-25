@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -119,6 +120,10 @@ func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session ad
 
 // storeMemory stores a single memory item via the Kagent API.
 func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content string, vector []float32) error {
+	// Native session keys survive forks; memory remains scoped to the caller.
+	if caller := auth.UserIDFromContext(ctx); caller != "" {
+		userID = caller
+	}
 	memoryInput := &apiv1alpha1.SessionMemoryInput{
 		AgentName: s.agentName,
 		UserId:    userID,
@@ -142,8 +147,12 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content s
 // SearchMemory implements memory.Service.SearchMemory.
 // It searches for relevant memories using vector similarity.
 func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
+	userID := req.UserID
+	if caller := auth.UserIDFromContext(ctx); caller != "" {
+		userID = caller
+	}
 	log := logging.FromContext(ctx)
-	log.DebugContext(ctx, "searching memory", "user_id", req.UserID)
+	log.DebugContext(ctx, "searching memory", "user_id", userID)
 
 	if req.Query == "" {
 		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
@@ -167,12 +176,12 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 	// Prepare API request
 	searchRequest := &apiv1alpha1.MemoryServiceSearchRequest{
 		AgentName: s.agentName,
-		UserId:    req.UserID,
+		UserId:    userID,
 		Vector:    vector,
 		Limit:     new(int32(5)),
 		MinScore:  new(0.3),
 	}
-	callContext, cancel := s.controllerClient.CallContext(ctx, req.UserID)
+	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
 	defer cancel()
 	response, err := s.controllerClient.MemoryService().Search(callContext, searchRequest)
 	if err != nil {

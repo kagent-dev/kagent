@@ -10,12 +10,10 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"google.golang.org/grpc/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -123,7 +121,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	if err != nil {
 		return err
 	}
-	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(apia2a.AgentInstanceIDHeader, instance.GetId()))
+	ctx = a2atype.AttachTenant(ctx, instance.GetAgent().GetNamespace()+"/"+instance.GetAgent().GetName())
 	// A lost response may precede persisting the returned task ID. Recover it
 	// from the original message, including at expiry when sending is forbidden.
 	task, err := c.executionTask(ctx, execution)
@@ -173,6 +171,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
 	message.ID = "scheduled-run/" + execution.GetId()
+	message.ContextID = instance.GetId()
 	events := c.gateway.SendStreamingMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message})
 	// The runtime assigns the task ID. Return after its first event; a lost
 	// response is recovered by the original message on the next reconciliation.
@@ -201,7 +200,7 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.S
 		}
 		return task, err
 	}
-	request := &a2atype.ListTasksRequest{PageSize: 100}
+	request := &a2atype.ListTasksRequest{PageSize: 100, ContextID: execution.GetAgentInstanceId()}
 	for {
 		page, err := c.gateway.ListTasks(ctx, request)
 		if err != nil {

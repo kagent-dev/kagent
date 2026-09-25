@@ -18,7 +18,6 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
@@ -60,7 +59,7 @@ func newHTTPTestServer(t *testing.T, store *gatewayTestStore, authorizer auth.Au
 	server := httptest.NewUnstartedServer(nil)
 	store.task = &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
 	runtime := &gatewayTestRuntime{task: store.task}
-	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "http://"+server.Listener.Addr().String()+"/")
+	gateway := newTestGateway(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "http://"+server.Listener.Addr().String()+"/")
 	server.Config.Handler = NewHTTPHandler(gateway, httpTestAuthenticator{}, shares)
 	server.Start()
 	t.Cleanup(server.Close)
@@ -85,12 +84,12 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 		}},
 	}
 	server, _ := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
-	endpoint := server.URL + HTTPPathPrefix + gatewayTestID
+	endpoint := server.URL + HTTPPathPrefix + gatewayTestAgent
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint+a2asrv.WellKnownAgentCardPath, nil)
 	require.NoError(t, err)
 	request.Header.Set("Authorization", "Bearer valid")
 	// A conflicting header must never change the URL's authority.
-	request.Header.Set(apia2a.AgentInstanceIDHeader, "12345678-1234-4234-8234-123456789abc")
+	request.Header.Set("x-kagent-agent-instance-id", "12345678-1234-4234-8234-123456789abc")
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
 	defer response.Body.Close()
@@ -100,8 +99,8 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 	var card a2atype.AgentCard
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
 	require.Equal(t, "pinned description", card.Description)
-	require.Equal(t, gatewayTestID, store.id)
-	require.Equal(t, "alice", store.userID)
+	require.Empty(t, store.id, "card discovery must not require a conversation")
+	require.Empty(t, store.userID)
 	require.Len(t, card.SupportedInterfaces, 2)
 	require.Equal(t, endpoint, card.SupportedInterfaces[0].URL)
 	require.Equal(t, a2atype.TransportProtocolJSONRPC, card.SupportedInterfaces[0].ProtocolBinding)
@@ -124,9 +123,9 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 	// JSON-RPC also uses the URL when callers supply conflicting routing headers.
 	ctx := a2aclient.AttachServiceParams(httpTestContext(t), a2aclient.ServiceParams{
 		"authorization":              {"Bearer valid"},
-		apia2a.AgentInstanceIDHeader: {"12345678-1234-4234-8234-123456789abc", "invalid"},
+		"x-kagent-agent-instance-id": {"12345678-1234-4234-8234-123456789abc", "invalid"},
 	})
-	persisted, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: task.ID})
+	persisted, err := client.GetTask(ctx, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: task.ID})
 	require.NoError(t, err)
 	require.Equal(t, task, persisted)
 	require.Equal(t, gatewayTestID, store.id)
@@ -136,7 +135,7 @@ func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
 	server, runtime := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
 	client, err := a2aclient.NewFromEndpoints(t.Context(), []*a2atype.AgentInterface{
-		a2atype.NewAgentInterface(server.URL+HTTPPathPrefix+gatewayTestID, a2atype.TransportProtocolJSONRPC),
+		a2atype.NewAgentInterface(server.URL+HTTPPathPrefix+gatewayTestAgent, a2atype.TransportProtocolJSONRPC),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Destroy()) })
@@ -154,7 +153,7 @@ func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {
 	require.NotEmpty(t, taskID)
 	// Reconnect reads the durable task without dispatching another model call.
 	var events []a2atype.Event
-	for event, err := range client.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: taskID}) {
+	for event, err := range client.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{Tenant: gatewayTestAgent, ID: taskID}) {
 		require.NoError(t, err)
 		events = append(events, event)
 	}
@@ -168,13 +167,13 @@ func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {
 		store.task = runtime.task
 		return nil
 	}
-	canceled, err := client.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: store.task.ID})
+	canceled, err := client.CancelTask(ctx, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: store.task.ID})
 	require.NoError(t, err)
 	require.Equal(t, a2atype.TaskStateCanceled, canceled.Status.State)
-	persisted, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: canceled.ID})
+	persisted, err := client.GetTask(ctx, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: canceled.ID})
 	require.NoError(t, err)
 	require.Equal(t, canceled, persisted)
-	_, err = client.GetTask(ctx, &a2atype.GetTaskRequest{ID: "missing"})
+	_, err = client.GetTask(ctx, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: "missing"})
 	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
 }
 
@@ -188,18 +187,18 @@ func TestHTTPGatewayRejectsInvalidAccess(t *testing.T) {
 		authzErr   error
 		want       int
 	}{
-		{name: "card needs authentication", method: "GET", path: gatewayTestID + a2asrv.WellKnownAgentCardPath, want: 401},
-		{name: "RPC needs authentication", method: "POST", path: gatewayTestID, want: 401},
-		{name: "card needs authorization", method: "GET", path: gatewayTestID + a2asrv.WellKnownAgentCardPath, authorized: true, authzErr: errors.New("denied"), want: 403},
-		{name: "missing instance is hidden", method: "GET", path: gatewayTestID + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: database.ErrNotFound, want: 403},
-		{name: "internal errors are hidden", method: "GET", path: gatewayTestID + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: errors.New("private connection details"), want: 500},
-		{name: "invalid instance ID", method: "GET", path: "invalid" + a2asrv.WellKnownAgentCardPath, authorized: true, want: 400},
-		{name: "unknown route", method: "GET", path: gatewayTestID + "/unknown", authorized: true, want: 404},
-		{name: "card only supports reads", method: "POST", path: gatewayTestID + a2asrv.WellKnownAgentCardPath, authorized: true, want: 405},
+		{name: "card needs authentication", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, want: 401},
+		{name: "RPC needs authentication", method: "POST", path: gatewayTestAgent, want: 401},
+		{name: "card needs authorization", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, authzErr: errors.New("denied"), want: 403},
+		{name: "missing instance is hidden", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: database.ErrNotFound, want: 403},
+		{name: "internal errors are hidden", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: errors.New("private connection details"), want: 500},
+		{name: "invalid instance ID", method: "GET", path: "invalid!/assistant" + a2asrv.WellKnownAgentCardPath, authorized: true, want: 400},
+		{name: "unknown route", method: "GET", path: gatewayTestAgent + "/unknown", authorized: true, want: 404},
+		{name: "card only supports reads", method: "POST", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, want: 405},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &gatewayTestStore{instance: gatewayTestInstance(), err: test.storeErr}
-			handler := NewHTTPHandler(New(store, &gatewayTestAuthorizer{err: test.authzErr}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
+			handler := NewHTTPHandler(newTestGateway(store, &gatewayTestAuthorizer{err: test.authzErr}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
 			request := httptest.NewRequest(test.method, HTTPPathPrefix+test.path, nil)
 			if test.authorized {
 				request.Header.Set("Authorization", "Bearer valid")
@@ -234,7 +233,7 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 					store := &gatewayTestStore{instance: gatewayTestInstance(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 					shares := &httpTestShares{permission: test.permission, instanceID: test.instanceID, err: test.storeErr}
 					runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
-					gateway := New(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+					gateway := newTestGateway(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					address := startCoreTestServer(t, gateway, shares)
 					var transport a2aclient.Transport
 					params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}, "x-share-token": {"share"}}
@@ -242,14 +241,13 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 						connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 						require.NoError(t, err)
 						transport = a2agrpc.NewGRPCTransport(connection)
-						params[apia2a.AgentInstanceIDHeader] = []string{gatewayTestID}
 					} else {
 						httpClient := &http.Client{Transport: &http.Transport{}}
 						t.Cleanup(httpClient.CloseIdleConnections)
-						transport = a2aclient.NewJSONRPCTransport("http://"+address+HTTPPathPrefix+gatewayTestID, httpClient)
+						transport = a2aclient.NewJSONRPCTransport("http://"+address+HTTPPathPrefix+gatewayTestAgent, httpClient)
 					}
 					t.Cleanup(func() { require.NoError(t, transport.Destroy()) })
-					_, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{ID: "task"})
+					_, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: "task"})
 					if test.canRead {
 						require.NoError(t, err)
 						require.Equal(t, "owner", store.userID)
@@ -258,7 +256,7 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 					}
 					digest := sha256.Sum256([]byte("share"))
 					require.Equal(t, digest[:], shares.digest)
-					_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{ID: "task"})
+					_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: "task"})
 					if test.canWrite {
 						require.NoError(t, err)
 					} else {
@@ -290,8 +288,8 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 
 func TestHTTPGatewayMalformedJSONRPC(t *testing.T) {
 	store := &gatewayTestStore{}
-	handler := NewHTTPHandler(New(store, &gatewayTestAuthorizer{}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
-	request := httptest.NewRequest(http.MethodPost, HTTPPathPrefix+gatewayTestID, strings.NewReader(`{"jsonrpc":`))
+	handler := NewHTTPHandler(newTestGateway(store, &gatewayTestAuthorizer{}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
+	request := httptest.NewRequest(http.MethodPost, HTTPPathPrefix+gatewayTestAgent, strings.NewReader(`{"jsonrpc":`))
 	request.Header.Set("Authorization", "Bearer valid")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
