@@ -164,6 +164,15 @@ function AgentForm({ agent }: { agent?: Agent }) {
     <Space orientation="vertical" size="large" css={{ display: "flex", maxWidth: 860 }}>
       <Card size="small">
         <Form layout="vertical" css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: theme.space(4) }}>
+          <Form.Item label="Name" required extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}>
+            <Input
+              data-testid="agent-form-name"
+              value={name}
+              disabled={Boolean(agent)}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="my-agent"
+            />
+          </Form.Item>
           <Form.Item label="Namespace" required extra={agent ? "Fixed once the agent exists." : undefined}>
             <Select
               data-testid="agent-form-namespace"
@@ -178,15 +187,6 @@ function AgentForm({ agent }: { agent?: Agent }) {
                 setTemplateDraft({ ...templateDraft, modelConfig: "", agentTools: [] });
               }}
               options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
-            />
-          </Form.Item>
-          <Form.Item label="Name" required extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}>
-            <Input
-              data-testid="agent-form-name"
-              value={name}
-              disabled={Boolean(agent)}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="my-agent"
             />
           </Form.Item>
         </Form>

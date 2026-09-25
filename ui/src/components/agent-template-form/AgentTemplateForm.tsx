@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -75,6 +75,7 @@ export function AgentTemplateForm({
   hasUnshownFields,
   readOnly = false,
   embedded = false,
+  namespaceField,
 }: {
   draft: AgentTemplateDraft;
   onChange: (next: AgentTemplateDraft) => void;
@@ -92,6 +93,8 @@ export function AgentTemplateForm({
   readOnly?: boolean;
   /** Inline in an Agent: only spec fields, since an inline template has no name or labels. */
   embedded?: boolean;
+  /** Rendered right after Name, so create forms read name then namespace. */
+  namespaceField?: ReactNode;
 }) {
   const theme = useTheme();
   const models = useModels();
@@ -174,6 +177,8 @@ export function AgentTemplateForm({
             />
           </Form.Item>
         ) : null}
+
+        {namespaceField}
 
         <Form.Item
           label="Model configuration"

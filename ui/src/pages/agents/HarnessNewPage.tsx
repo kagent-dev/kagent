@@ -63,6 +63,15 @@ export function HarnessNewPage() {
     >
       <Card size="small" css={{ maxWidth: 720 }}>
         <Form layout="vertical">
+          <Form.Item label="Name" required>
+            <Input
+              data-testid="harness-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="my-harness"
+            />
+          </Form.Item>
+
           <Form.Item label="Namespace" required>
             <Select
               data-testid="harness-namespace"
@@ -74,15 +83,6 @@ export function HarnessNewPage() {
                 value: row.name,
                 label: row.name,
               }))}
-            />
-          </Form.Item>
-
-          <Form.Item label="Name" required>
-            <Input
-              data-testid="harness-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="my-harness"
             />
           </Form.Item>
 
