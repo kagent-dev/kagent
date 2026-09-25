@@ -41,6 +41,10 @@ type ProcessConfig struct {
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
+	// CallerCredentials receives the caller's credential of each turn and is
+	// cleared before the turn's outcome is returned, so a parked or suspended
+	// Actor holds none.
+	CallerCredentials CallerCredentialBinder
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -168,6 +172,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if strings.TrimSpace(turn.Prompt) == "" {
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
+	defer d.bindCallerCredential(ctx)()
 	message, err := userMessage(turn.Prompt)
 	if err != nil {
 		return runtime.Outcome{}, err
@@ -240,6 +245,18 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
+}
+
+// bindCallerCredential hands the turn's caller credential to the binder and
+// returns the function that clears it. The credential lives in this process
+// only while a turn runs; a parked turn resumes with the credential of the
+// call that resumes it.
+func (d *ProcessDriver) bindCallerCredential(ctx context.Context) func() {
+	if d.config.CallerCredentials == nil {
+		return func() {}
+	}
+	d.config.CallerCredentials.Bind(CallerCredential(ctx))
+	return d.config.CallerCredentials.Clear
 }
 
 // traceEnvironment injects the trace context into the environment variables.
@@ -384,6 +401,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if decision.ID != p.pending.request.ID {
 		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, p.pending.request.ID)
 	}
+	defer p.driver.bindCallerCredential(ctx)()
 	if err := p.pending.resolve(*decision); err != nil {
 		return runtime.Outcome{}, err
 	}
@@ -401,13 +419,17 @@ func (p *pendingTurn) Cancel(_ context.Context) error {
 	return nil
 }
 
-// Close releases the Actor-local permission MCP listener. Pending process ownership is
+// Close releases the Actor-local loopback listeners. Pending process ownership is
 // transferred to the runtime.PendingTurn returned by Run.
 func (d *ProcessDriver) Close() error {
+	var errs []error
 	if d.config.ApprovalBroker != nil {
-		return d.config.ApprovalBroker.Close()
+		errs = append(errs, d.config.ApprovalBroker.Close())
 	}
-	return nil
+	if forwarder, ok := d.config.CallerCredentials.(*CredentialForwarder); ok && forwarder != nil {
+		errs = append(errs, forwarder.Close())
+	}
+	return errors.Join(errs...)
 }
 
 // emitEvent translates a Claude event to a runtime event and emits it to the
