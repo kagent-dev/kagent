@@ -7,6 +7,7 @@ import type { ChatController } from "@/api";
 import { ACCEPTED_FILES, mediaTypeOf, stageFiles } from "@/api/chat/attachments";
 import { randomId } from "@/api/randomId";
 import { AttachmentChip } from "./AttachmentChip";
+import { WindowFileDrop } from "./WindowFileDrop";
 
 // Stable React keys for staged files, which have no id of their own.
 const fileKeys = new WeakMap<File, string>();
@@ -151,24 +152,9 @@ export function ChatComposer({
     <div
       data-testid="chat-composer"
       data-can-attach={canAttach}
-      onDragOver={
-        canAttach
-          ? (event) => {
-              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-            }
-          : undefined
-      }
-      onDrop={
-        canAttach
-          ? (event) => {
-              if (!event.dataTransfer.types.includes("Files")) return;
-              event.preventDefault();
-              addFiles([...event.dataTransfer.files]);
-            }
-          : undefined
-      }
       css={{ display: "grid", gap: theme.space(2) }}
     >
+      <WindowFileDrop enabled={!!canAttach && !disabled} onFiles={addFiles} />
       {files.length ? (
         <div
           ref={stagedRef}
