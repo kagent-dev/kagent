@@ -131,4 +131,18 @@ describe("ChatMessageItem part renderers", () => {
 
     expect(screen.getByTestId("chat-message-text")).toContainHTML("<strong>there</strong>");
   });
+
+  it("never hands an empty text part to an extension renderer", () => {
+    const TextRenderer = () => <p data-testid="custom-text" />;
+    renderMessage(
+      <AppExtensionsProvider
+        extensions={[{ id: "x", name: "X", chatPartRenderers: { text: TextRenderer } }]}
+      >
+        <ChatMessageItem message={{ ...message, parts: [{ kind: "text", text: "" }] }} />
+      </AppExtensionsProvider>,
+    );
+
+    expect(screen.queryByTestId("custom-text")).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-message-pending")).toBeInTheDocument();
+  });
 });
