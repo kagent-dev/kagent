@@ -1,0 +1,97 @@
+# What the live browser suite needs on a cluster, and nothing else.
+#
+# The suite used to borrow `go/core/test/e2e/manifests/lifecycle.yaml.tmpl`, because it
+# ran inside the Go end-to-end job and that file had already been applied by the time the
+# browser started. It does not run there any more — it has its own job and its own
+# cluster, so it brings its own fixture.
+#
+# Deliberately not a copy of that one. `lifecycle.yaml.tmpl` declares five harnesses of
+# five different kinds, which costs five images to build; every harness here is a
+# `kagent` harness on the one runtime image, because what these journeys read is the
+# *list* of harnesses and which of them admits a template. The kind behind each one never
+# reaches the page.
+#
+# `${KAGENT_UI_RUNTIME_IMAGE}` is substituted by the workflow with the digest it just
+# pushed. A digest rather than a tag: the tag is reused across runs, so a node that has
+# cached it would run a different build from the one under test.
+apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: kagent
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: ${KAGENT_UI_RUNTIME_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/ui-e2e: kagent
+---
+# Two more, so the cluster has several.
+#
+# Not padding: with one harness the template form applies that harness's labels for the
+# reader, and with more than one it deliberately applies nothing and says no harness will
+# run the template yet. `shared/agent-templates/` covers both branches and picks by
+# counting what the cluster offers — so a single-harness CI cluster would silently stop
+# exercising the branch that a developer's own cluster cannot reach.
+apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: ui-e2e-alternate
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: ${KAGENT_UI_RUNTIME_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/ui-e2e: alternate
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: ui-e2e-spare
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: ${KAGENT_UI_RUNTIME_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/ui-e2e: spare
+---
+# The agent the journeys need one of.
+#
+# Named `smoke` because the workflow's readiness gate waits on that name, and because it
+# is the same fixture the Go job's own smoke template is: an agent has to exist before a
+# schedule can name one or an agents list can have a row.
+apiVersion: kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: smoke
+  namespace: kagent
+  labels:
+    kagent.dev/ui-e2e: kagent
+spec:
+  description: Minimal agent so the browser journeys have one to read and schedule
+  modelConfig:
+    name: default-model-config
+  systemPrompt: Reply briefly.

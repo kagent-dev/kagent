@@ -1,5 +1,5 @@
 import { chromium, type FullConfig, type Page } from "@playwright/test";
-import { LIVE_PROJECT } from "../playwright.config";
+import { LIVE_IS_DEPLOYED, LIVE_PROJECT } from "../playwright.config";
 
 /**
  * Waits until each server actually renders the app, not merely answers on its
@@ -119,6 +119,28 @@ async function verifyLiveWiring(page: Page, baseUrl: string): Promise<void> {
     throw new Error(
       `${baseUrl} has ${workerCount} service worker(s) registered. The mock backend ` +
         `is a service worker, so a live run cannot be trusted while one is installed.`,
+    );
+  }
+
+  if (!LIVE_IS_DEPLOYED) return;
+
+  /*
+   * The third way, and one only a deployment can be asked. The checks above lean on a
+   * build-time `VITE_API_MODE` pin, which the image has not got — what it has instead is
+   * no mock backend in it at all. So a 404 says both that fixtures cannot be served and
+   * that this is the built artifact rather than a dev server, which answers 200 and
+   * would pass every spec while testing none of the things the image is the point of.
+   */
+  const worker = await page.request.get(`${baseUrl}/mockServiceWorker.js`, {
+    failOnStatusCode: false,
+  });
+  if (worker.status() !== 404) {
+    throw new Error(
+      `${baseUrl}/mockServiceWorker.js answered ${worker.status()}, expected 404. ` +
+        `A built image does not contain that file and its nginx refuses the path, so ` +
+        `this address is serving something else — most likely a dev server, which ` +
+        `would pass these specs without testing nginx, the SPA fallback, or the ` +
+        `env-config.js rendered at pod start.`,
     );
   }
 }

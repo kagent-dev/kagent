@@ -93,7 +93,34 @@ function isScenario(value: string | null): value is MockScenario {
  * `asks-text` offers one prose field — the only shape where the field can take the
  * caret on arrival and Enter can mean "send".
  */
-export const CHAT_SCENARIOS = ["ok", "error", "slow", "asks", "asks-text"] as const;
+/**
+ * `approves` parks the turn on a tool approval request instead of a question: a
+ * different payload, and a different set of controls — approve or reject each tool,
+ * with a reason on a rejection. It is a third variation of the parked turn above rather
+ * than a new seam, because this client already yields the request at the `ChatClient`
+ * boundary; what it must not do is start emitting wire frames, which is a transport
+ * shape covered by unit tests over real bytes.
+ *
+ * `approves-one` is the same request with a single tool, which is a different set of
+ * controls rather than a shorter list of the same ones: Approve and Reject on the prompt
+ * itself, and a rejection that opens its reason with the caret already in it. A fixture
+ * with two tools cannot reach either.
+ *
+ * `asks-unknown` parks it on a request this build does not recognise, which is what a
+ * turn started without the HITL extension looks like: prose, no correlation id, nothing
+ * to answer against. The page says so and offers only the discard, and that sentence is
+ * the only thing standing between a reader and a question they cannot see is unanswerable.
+ */
+export const CHAT_SCENARIOS = [
+  "ok",
+  "error",
+  "slow",
+  "asks",
+  "asks-text",
+  "approves",
+  "approves-one",
+  "asks-unknown",
+] as const;
 
 export type ChatScenario = (typeof CHAT_SCENARIOS)[number];
 
