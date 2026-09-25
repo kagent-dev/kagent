@@ -14,10 +14,28 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `a2a.task.state` | enum | `TASK_STATE_SUBMITTED`, `TASK_STATE_WORKING`, `TASK_STATE_COMPLETED`, `TASK_STATE_FAILED`, `TASK_STATE_CANCELED`, `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_REJECTED`, `TASK_STATE_AUTH_REQUIRED` | The A2A task state that execution reported. The values are the A2A v1 wire names. An absent state does not mean success. |
 | `kagent.capture.input_truncated` | boolean |  | Whether the captured input messages were shortened to the capture budget. |
 | `kagent.capture.output_truncated` | boolean |  | Whether the captured output messages were shortened to the capture budget. |
+| `kagent.gc.stage` | enum | `discovery`, `collection` | The stage of a runtime revision garbage collection attempt. |
 | `kagent.invocation.disposition` | enum | `canceled`, `abandoned`, `interrupted` | How a segment stopped, when the task state does not say it. |
 | `kagent.invocation.relationship` | enum | `resume_origin` | Why a segment links to another span. A link attribute. A link states a relationship. It does not reparent spans and it does not move the token usage recorded under the linked span. |
 | `kagent.invocation.segment` | enum | `initial`, `resumed` | Whether an execution starts a task or continues it. A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
 | `kagent.runtime` | enum | `adk-go`, `adk-python`, `claude`, `codex`, `langgraph`, `crewai`, `openai-agents`, `byo` | The runtime that produces the model and tool spans of an agent. Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
+
+## Metrics
+
+### `kagent.runtime_revision.gc.failures`
+
+Instrument: counter. Unit: `{failure}`. Number of failed runtime revision garbage collection attempts. A monotonic integer counter. Parent cancellation is excluded; an operation deadline while the parent remains active is counted. Revision and compute identity remain in logs, never in metric attributes.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `kagent.gc.stage` | required |  |
+
+### `kagent.runtime_revision.gc.pending`
+
+Instrument: gauge. Unit: `{revision}`. Number of cleanup-eligible runtime revisions in the last successful discovery. An observable integer gauge over a cached count, without collection-time database or network access. Absent before successful discovery and while inactive; zero means a successful empty discovery. Discovery errors retain the previous count while garbage collection is active.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
 
 ## Attribute groups
 

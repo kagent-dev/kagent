@@ -220,7 +220,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			_, err = collector.discover(ctx)
 			require.NoError(t, err)
 			before := gatherRuntimeRevisionGCMetrics(t, registry)
-			require.Equal(t, float64(1), before.gauges[gcPendingMetric])
+			require.Equal(t, int64(1), before.gauges[gcPendingMetric])
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
 			if test.finalizeFailure || test.deletedBeforeError {
 				require.Nil(t, templates.template)
@@ -236,14 +236,14 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			_, err = restarted.discover(ctx)
 			require.NoError(t, err)
 			afterRestart := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
-			require.Equal(t, float64(1), afterRestart.gauges[gcPendingMetric])
+			require.Equal(t, int64(1), afterRestart.gauges[gcPendingMetric])
 			for _, failures := range afterRestart.failures {
 				require.Zero(t, failures, "a new process counter is not durable backlog state")
 			}
 			templates.deleteErr = nil
 			restarted.sweep(ctx)
 			collected := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
-			require.Zero(t, collected.gauges[gcPendingMetric])
+			require.Equal(t, map[string]int64{gcPendingMetric: 0}, collected.gauges)
 			require.Nil(t, templates.template)
 			require.Empty(t, reconciler.collections.PairRuntimeObservations.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())

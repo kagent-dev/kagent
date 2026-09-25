@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -11,8 +10,8 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 func TestRuntimeRevisionGCStart(t *testing.T) {
@@ -41,9 +40,9 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		require.Len(t, store.revisions, 1)
 		store.mu.Unlock()
 		snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
-		require.Equal(t, float64(1), snapshot.failures[string(gcStageDiscovery)])
-		require.Equal(t, float64(1), snapshot.failures[string(gcStageCollection)])
-		require.Equal(t, float64(1), snapshot.gauges[gcPendingMetric])
+		require.Equal(t, int64(1), snapshot.failures[string(gcStageDiscovery)])
+		require.Equal(t, int64(1), snapshot.failures[string(gcStageCollection)])
+		require.Equal(t, int64(1), snapshot.gauges[gcPendingMetric])
 		templates.mu.Lock()
 		templates.deleteErr = nil
 		templates.mu.Unlock()
@@ -53,11 +52,11 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		require.Equal(t, []string{"healthy", "failed"}, store.deleted, "periodic sweeps must retry without template events")
 		store.mu.Unlock()
 		snapshot = gatherRuntimeRevisionGCMetrics(t, registry)
-		require.Zero(t, snapshot.gauges[gcPendingMetric])
-		require.Equal(t, float64(1), snapshot.failures[string(gcStageCollection)])
+		require.Equal(t, map[string]int64{gcPendingMetric: 0}, snapshot.gauges)
+		require.Equal(t, int64(1), snapshot.failures[string(gcStageCollection)])
 		cancel()
 		require.NoError(t, <-done)
-		require.True(t, math.IsNaN(gatherRuntimeRevisionGCMetrics(t, registry).gauges[gcPendingMetric]),
+		require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, registry).gauges, gcPendingMetric,
 			"stopped collectors must not advertise a known backlog")
 	})
 }
@@ -74,7 +73,7 @@ func TestRuntimeRevisionGCStartCanceledContext(t *testing.T) {
 		require.Zero(t, store.lists)
 		require.Empty(t, store.begun)
 		snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
-		require.True(t, math.IsNaN(snapshot.gauges[gcPendingMetric]))
+		require.NotContains(t, snapshot.gauges, gcPendingMetric)
 		require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
 		require.Zero(t, snapshot.failures[string(gcStageCollection)])
 	})
@@ -93,18 +92,18 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- collector.Start(ctx) }()
 		synctest.Wait()
-		require.Equal(t, float64(2), gatherRuntimeRevisionGCMetrics(t, registry).gauges[gcPendingMetric],
+		require.Equal(t, int64(2), gatherRuntimeRevisionGCMetrics(t, registry).gauges[gcPendingMetric],
 			"publish discovery before waiting for a slow candidate")
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		store.mu.Lock()
 		require.Equal(t, []string{"healthy"}, store.deleted, "deadline must release the sweep to process healthy candidates")
 		store.mu.Unlock()
-		require.Equal(t, float64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)])
+		require.Equal(t, int64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)])
 		cancel() // The next sweep is blocked in the backend again.
 		require.NoError(t, <-done, "shutdown must cancel in-flight cleanup")
 		require.Len(t, store.revisions, 1, "failed deletion must retain its durable revision")
-		require.Equal(t, float64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)],
+		require.Equal(t, int64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)],
 			"parent cancellation must not count as another backend failure")
 	})
 }
@@ -123,12 +122,23 @@ type fakeGCStore struct {
 	skipFinalization bool
 }
 
-func newTestRuntimeRevisionGC(t *testing.T, store runtimeRevisionGCStore, templates runtimeRevisionGCClient) (*RuntimeRevisionGC, *prometheus.Registry) {
+func newTestRuntimeRevisionGC(t *testing.T, store runtimeRevisionGCStore, templates runtimeRevisionGCClient) (*RuntimeRevisionGC, *sdkmetric.ManualReader) {
 	t.Helper()
-	registry := prometheus.NewRegistry()
-	collector, err := NewRuntimeRevisionGC(store, templates, registry)
+	reader := sdkmetric.NewManualReader()
+	collector, err := NewRuntimeRevisionGC(store, templates, newGCTestMeterProvider(t, reader))
 	require.NoError(t, err)
-	return collector, registry
+	return collector, reader
+}
+
+func newGCTestMeterProvider(t *testing.T, readers ...sdkmetric.Reader) *sdkmetric.MeterProvider {
+	t.Helper()
+	options := make([]sdkmetric.Option, 0, len(readers))
+	for _, reader := range readers {
+		options = append(options, sdkmetric.WithReader(reader))
+	}
+	provider := sdkmetric.NewMeterProvider(options...)
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	return provider
 }
 
 func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]database.RuntimeRevision, error) {

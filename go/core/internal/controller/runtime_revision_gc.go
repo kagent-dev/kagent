@@ -3,13 +3,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -40,8 +39,8 @@ var (
 	_ manager.LeaderElectionRunnable = (*RuntimeRevisionGC)(nil)
 )
 
-func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient, registerer prometheus.Registerer) (*RuntimeRevisionGC, error) {
-	metrics, err := newRuntimeRevisionGCMetrics(registerer)
+func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient, provider metric.MeterProvider) (*RuntimeRevisionGC, error) {
+	metrics, err := newRuntimeRevisionGCMetrics(provider)
 	if err != nil {
 		return nil, err
 	}
@@ -51,13 +50,16 @@ func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisio
 func (r *RuntimeRevisionGC) NeedLeaderElection() bool { return true }
 
 func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
-	defer r.metrics.pending.Set(math.NaN())
+	defer r.metrics.pending.Store(nil)
 	ticker := time.NewTicker(runtimeRevisionGCInterval)
 	defer ticker.Stop()
 	for {
 		r.sweep(ctx)
 		select {
 		case <-ctx.Done():
+			if err := r.metrics.registration.Unregister(); err != nil {
+				return fmt.Errorf("unregister runtime revision GC pending callback: %w", err)
+			}
 			return nil
 		case <-ticker.C:
 		}
@@ -74,7 +76,7 @@ func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
 			return
 		}
 		if err := r.collect(ctx, candidate.Revision); err != nil && ctx.Err() == nil {
-			r.metrics.recordFailure(gcStageCollection)
+			r.metrics.recordFailure(ctx, gcStageCollection)
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to collect runtime revision",
 				"revision", candidate.Revision, "actor_template_atespace", candidate.ActorTemplateAtespace,
 				"actor_template_name", candidate.ActorTemplateName, "error", err)
@@ -95,11 +97,11 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeRev
 		return nil, err
 	}
 	if err != nil {
-		r.metrics.recordFailure(gcStageDiscovery)
+		r.metrics.recordFailure(ctx, gcStageDiscovery)
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
 		return nil, err
 	}
-	r.metrics.pending.Set(float64(len(revisions)))
+	r.metrics.recordPending(int64(len(revisions)))
 	return revisions, nil
 }
 

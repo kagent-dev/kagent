@@ -167,7 +167,46 @@ refinements:
     stability: development
     type: kagent.agent
   events: []
-  metrics: []
+  metrics:
+  - attributes:
+    - brief: The stage of a runtime revision garbage collection attempt.
+      key: kagent.gc.stage
+      provenance:
+        path: telemetry/registry/runtime_revision_gc.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Discovering cleanup-eligible persisted revisions.
+          id: discovery
+          stability: development
+          value: discovery
+        - brief: Claiming, deleting compute for, or finalizing a revision.
+          id: collection
+          stability: development
+          value: collection
+    brief: Number of failed runtime revision garbage collection attempts.
+    id: kagent.runtime_revision.gc.failures
+    instrument: counter
+    name: kagent.runtime_revision.gc.failures
+    note: |
+      A monotonic integer counter. Parent cancellation is excluded; an operation deadline while the parent remains active is counted. Revision and compute identity remain in logs, never in metric attributes.
+    provenance:
+      path: telemetry/registry/runtime_revision_gc.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{failure}\u0027
+  - brief: Number of cleanup-eligible runtime revisions in the last successful discovery.
+    id: kagent.runtime_revision.gc.pending
+    instrument: gauge
+    name: kagent.runtime_revision.gc.pending
+    note: |
+      An observable integer gauge over a cached count, without collection-time database or network access. Absent before successful discovery and while inactive; zero means a successful empty discovery. Discovery errors retain the previous count while garbage collection is active.
+    provenance:
+      path: telemetry/registry/runtime_revision_gc.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{revision}\u0027
   spans:
   - attributes:
     - brief: The A2A method that started the invocation.
@@ -2253,6 +2292,21 @@ registry:
       path: telemetry/registry/kagent.yaml
     stability: development
     type: boolean
+  - brief: The stage of a runtime revision garbage collection attempt.
+    key: kagent.gc.stage
+    provenance:
+      path: telemetry/registry/runtime_revision_gc.yaml
+    stability: development
+    type:
+      members:
+      - brief: Discovering cleanup-eligible persisted revisions.
+        id: discovery
+        stability: development
+        value: discovery
+      - brief: Claiming, deleting compute for, or finalizing a revision.
+        id: collection
+        stability: development
+        value: collection
   - brief: How a segment stopped, when the task state does not say it.
     key: kagent.invocation.disposition
     provenance:
@@ -2510,6 +2564,43 @@ registry:
     stability: development
     type: kagent.agent
   events: []
-  metrics: []
+  metrics:
+  - attributes:
+    - brief: The stage of a runtime revision garbage collection attempt.
+      key: kagent.gc.stage
+      provenance:
+        path: telemetry/registry/runtime_revision_gc.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Discovering cleanup-eligible persisted revisions.
+          id: discovery
+          stability: development
+          value: discovery
+        - brief: Claiming, deleting compute for, or finalizing a revision.
+          id: collection
+          stability: development
+          value: collection
+    brief: Number of failed runtime revision garbage collection attempts.
+    instrument: counter
+    name: kagent.runtime_revision.gc.failures
+    note: |
+      A monotonic integer counter. Parent cancellation is excluded; an operation deadline while the parent remains active is counted. Revision and compute identity remain in logs, never in metric attributes.
+    provenance:
+      path: telemetry/registry/runtime_revision_gc.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{failure}\u0027
+  - brief: Number of cleanup-eligible runtime revisions in the last successful discovery.
+    instrument: gauge
+    name: kagent.runtime_revision.gc.pending
+    note: |
+      An observable integer gauge over a cached count, without collection-time database or network access. Absent before successful discovery and while inactive; zero means a successful empty discovery. Discovery errors retain the previous count while garbage collection is active.
+    provenance:
+      path: telemetry/registry/runtime_revision_gc.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{revision}\u0027
   spans: []
 schema_url: https://kagent.dev/schemas/telemetry/0.1.0

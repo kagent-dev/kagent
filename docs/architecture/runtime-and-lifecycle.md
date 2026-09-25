@@ -116,15 +116,20 @@ every minute. Each candidate has a one-minute deadline; failed deletions remain
 eligible for retry without preventing other candidates from being attempted.
 Pair, instance, checkpoint, and UID protections still apply.
 
-GC registers two Prometheus collectors in the controller manager's registry.
-This instrumentation does not enable a scrape endpoint: the controller retains
-its disabled metrics listener. Export configuration and authentication are
-separate work.
+GC uses the controller's shared OpenTelemetry MeterProvider. The instruments
+are defined in the Weaver registry and are available through the existing
+Prometheus reader and configured OTLP export. This instrumentation does not
+create a provider or enable a listener: scraping remains opt-in through
+`controller.metrics.enabled`, with existing authentication settings unchanged.
 
-| Metric | Meaning |
-| --- | --- |
-| `kagent_runtime_revision_gc_pending` | Gauge of eligible persisted revisions from the last successful discovery, including incomplete deletions. No application labels. |
-| `kagent_runtime_revision_gc_failures_total{stage}` | Counter of failed attempts, with only `discovery` and `collection` stages. No revision, template, UID, namespace, or error labels. |
+| OTel metric | Instrument and unit | Meaning |
+| --- | --- | --- |
+| `kagent.runtime_revision.gc.pending` | Observable integer gauge, `{revision}` | Eligible persisted revisions from the last successful discovery, including incomplete deletions. No application attributes. |
+| `kagent.runtime_revision.gc.failures` | Integer counter, `{failure}` | Failed attempts, with only `kagent.gc.stage=discovery\|collection`. No revision, template, UID, namespace, or error attributes. |
+
+Prometheus renders these as `kagent_runtime_revision_gc_pending` and
+`kagent_runtime_revision_gc_failures_total`, with the failure attribute rendered
+as `kagent_gc_stage` (not the previous `stage` label).
 
 Pending count is sampled at the start and once at the end of each sweep,
 including an empty sweep. Scrapes perform no database or network I/O. Discovery
@@ -132,9 +137,14 @@ errors retain the previous count and increment `discovery` failures; an initial
 error stops the sweep. Parent cancellation is not counted as failure, but an
 operation's own deadline while its parent remains active is.
 
-Pending is `NaN` before discovery, on standby replicas, and after GC stops.
-Successful empty discovery reports zero. Restart reconstructs count from
-PostgreSQL and resets process-local counters. Use reset-aware `rate` or
+Pending is absent before successful discovery, on standby replicas, and after
+GC stops. This replaces the previous Prometheus-only `NaN` representation:
+integer gauges cannot represent `NaN`, and a synchronous gauge would retain
+its last value after collection stops. The observable callback reads only a
+cached count and is unregistered when GC stops. Do not fill missing samples
+with zero: only successful empty discovery reports zero.
+Restart reconstructs count from PostgreSQL and resets process-local counters.
+Use reset-aware `rate` or
 `increase`, not raw counter differences. No age or freshness metric is exposed;
 counts can remain stale during slow cleanup or after discovery errors.
 
