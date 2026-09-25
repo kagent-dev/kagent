@@ -30,7 +30,7 @@ func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
 		require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
 
 		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
 		})
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})

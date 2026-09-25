@@ -110,6 +110,7 @@ import type {
 } from "../operations";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { createContextValues } from "@connectrpc/connect";
+import { getChatClient } from "../chat";
 
 /**
  * The call options every RPC is given.
@@ -800,12 +801,24 @@ const agentInstances: Pick<
    */
   "agentInstances.checkpoints.create": async (input, options) => {
     const name = "CheckpointService/CreateCheckpoint";
-    const created = await rpc(name, options.signal, () =>
-      serviceClient(CheckpointService).createCheckpoint(
-        { agentInstanceId: input.id, requestId: input.requestId },
-        call("agentInstances.checkpoints.create", options),
-      ),
-    );
+    const deadline = Date.now() + 30_000;
+    let created;
+    for (;;) {
+      options.signal?.throwIfAborted();
+      try {
+        created = await rpc(name, options.signal, () =>
+          serviceClient(CheckpointService).createCheckpoint(
+            { agentInstanceId: input.id, requestId: input.requestId, expectedHeadTaskId: input.expectedHeadTaskId },
+            call("agentInstances.checkpoints.create", options),
+          ),
+        );
+        break;
+      } catch (error) {
+        // A retry must keep both the selected boundary and the request identity.
+        if (!(error instanceof ApiError) || error.reason !== "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
     const checkpoint = toCheckpoint(required(created.checkpoint, name, "checkpoint"));
     if (checkpoint.state !== "ready") {
       throw new ApiError(checkpoint.failure || "The snapshot did not become ready.", {
@@ -888,8 +901,11 @@ const agentInstances: Pick<
    * retry cannot leave a second checkpoint or a second fork behind.
    */
   "agentInstances.fork": async (input, options) => {
+    const history = await getChatClient().history({ id: input.id }, options);
+    const expectedHeadTaskId = history.messages.at(-1)?.taskId;
+    if (!expectedHeadTaskId) throw new ApiError("There is no completed turn to fork.", { kind: "http", url: "CheckpointService/CreateCheckpoint", status: 400 });
     const checkpoint = await agentInstances["agentInstances.checkpoints.create"](
-      { id: input.id, requestId: input.requestId },
+      { id: input.id, requestId: input.requestId, expectedHeadTaskId },
       options,
     );
     return agentInstances["agentInstances.checkpoints.fork"](

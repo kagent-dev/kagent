@@ -1,7 +1,6 @@
 """Runtime A2A persistence through the instance-scoped controller TaskStore."""
 
 import asyncio
-import os
 from pathlib import Path
 from typing import AsyncIterator, cast
 from uuid import UUID
@@ -24,6 +23,7 @@ _NATIVE_SETTLED = "kagent.task_store.native_settled"
 _PRODUCER = "kagent.task_store.producer"
 _FAILED_SAVE = "kagent.task_store.failed_save"
 _IDENTITY_PATH = Path("/run/kagent/identity/name")
+_DISPATCH_HEADER = "x-kagent-dispatch-id"
 
 
 class KAgentTaskStore(TaskStore):
@@ -42,14 +42,12 @@ class KAgentTaskStore(TaskStore):
         return str(UUID(name.removeprefix("ai-")))
 
     async def _call(self, method, request):
-        # Substrate replaces the placeholder on egress. Public user credentials
-        # never authorize a background save, and the runtime never holds a JWT.
-        metadata = (("authorization", "Bearer substrate-actor"),)
-        if os.environ.get("KAGENT_INSECURE_TASK_STORE_AUTH") == "true":
-            identity = []
-            for field in ("atespace", "name", "uid"):
-                identity.append((await asyncio.to_thread((self.identity_path.parent / field).read_text)).strip())
-            metadata = (("x-kagent-insecure-runtime-identity", "/".join(identity)),)
+        # Temporary identity transport until Substrate injects actor credentials (#1660).
+        # Reread on every call because restore rebinds these files to the new actor.
+        identity = []
+        for field in ("atespace", "name", "uid"):
+            identity.append((await asyncio.to_thread((self.identity_path.parent / field).read_text)).strip())
+        metadata = (("x-kagent-insecure-runtime-identity", "/".join(identity)),)
         for attempt in range(4):
             try:
                 return await method(
@@ -80,6 +78,8 @@ class KAgentTaskStore(TaskStore):
             request = task_store_pb2.TaskStoreServiceUpdateTaskRequest(task=task, expected_version=version)
             method = self.client.task_store_service.UpdateTask
         request.agent_instance_id = await self._instance_id()
+        if dispatch_id := context.state.get("headers", {}).get(_DISPATCH_HEADER):
+            request.dispatch_id = dispatch_id
         try:
             result = await self._call(method, request)
         except BaseException as failure:

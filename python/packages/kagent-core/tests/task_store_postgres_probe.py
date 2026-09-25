@@ -25,17 +25,6 @@ def send(message_id, task_id=""):
     return request
 
 
-class TestEgressInjection(grpc.aio.UnaryUnaryClientInterceptor):
-    """Test-only replacement for Substrate's mTLS-derived actor JWT injection."""
-
-    async def intercept_unary_unary(self, continuation, details, request):
-        metadata = [
-            (key, "Bearer " + os.environ["KAGENT_TASKSTORE_TEST_TOKEN"] if key == "authorization" else value)
-            for key, value in details.metadata
-        ]
-        return await continuation(details._replace(metadata=metadata), request)
-
-
 async def wait_public(store, task_id, state):
     async with asyncio.timeout(10):
         while True:
@@ -107,9 +96,7 @@ async def measure_persistence(store):
 
 
 async def main():
-    async with grpc.aio.insecure_channel(
-        os.environ["KAGENT_TASKSTORE_TEST_ENDPOINT"], interceptors=[TestEgressInjection()]
-    ) as channel:
+    async with grpc.aio.insecure_channel(os.environ["KAGENT_TASKSTORE_TEST_ENDPOINT"]) as channel:
         client = AsyncControllerClient(channel=channel)
         store = KAgentTaskStore(client, Path(os.environ["KAGENT_TASKSTORE_TEST_IDENTITY"]))
         runner = Runner()

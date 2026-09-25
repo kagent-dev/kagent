@@ -46,6 +46,9 @@ message CreateCheckpointRequest {
     min_len: 1
     max_len: 128
   }];
+  // The terminal turn the caller intends to save. Creation fails if a newer
+  // turn has started; retrying while its snapshot is pending keeps this value.
+  string expected_head_task_id = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message CreateCheckpointResponse {

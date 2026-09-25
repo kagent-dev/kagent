@@ -176,9 +176,7 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
-	conflict := fmt.Errorf("AgentInstance is already suspending: %w", database.ErrConflict)
-	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
+func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
@@ -188,12 +186,22 @@ func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
 		{name: "delete", call: (*Service).Delete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-			if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
-				t.Fatalf("error = %v, want code %s", err, serviceerrors.CodeAborted)
-			}
-			if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, database.ErrConflict) {
-				t.Fatalf("error = %v, want preserved conflict reason", err)
+			for _, failure := range []struct {
+				cause error
+				code  serviceerrors.Code
+			}{
+				{database.ErrConflict, serviceerrors.CodeAborted},
+				{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
+			} {
+				conflict := fmt.Errorf("AgentInstance is already suspending: %w", failure.cause)
+				service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
+				_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+				if !serviceerrors.IsCode(err, failure.code) {
+					t.Fatalf("error = %v, want code %s", err, failure.code)
+				}
+				if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, failure.cause) {
+					t.Fatalf("error = %v, want preserved contention reason", err)
+				}
 			}
 		})
 	}

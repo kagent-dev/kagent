@@ -34,6 +34,7 @@ class Storage(storerpc.TaskStoreServiceServicer):
         self.creation_committed = asyncio.Event()
         self.creation_release = asyncio.Event()
         self.creation_release.set()
+        self.dispatch_ids = []
 
     async def CreateTask(self, request, context):
         assert request.agent_instance_id == self.instance_id
@@ -57,9 +58,12 @@ class Storage(storerpc.TaskStoreServiceServicer):
         )
 
     async def _save(self, request, key, context):
+        self.dispatch_ids.append(request.dispatch_id)
         if self.reject_saves:
             await context.abort(grpc.StatusCode.UNAVAILABLE, "storage outage")
-        assert dict(context.invocation_metadata())["authorization"] == "Bearer substrate-actor"
+        assert dict(context.invocation_metadata())["x-kagent-insecure-runtime-identity"] == (
+            f"team-a/ai-{self.instance_id}/actor-uid"
+        )
         payload = request.SerializeToString(deterministic=True)
         if key in self.receipts:
             digest, version = self.receipts[key]
@@ -196,6 +200,8 @@ async def runtime(tmp_path: Path):
     instance_id = str(uuid4())
     identity = tmp_path / "name"
     identity.write_text("ai-" + instance_id)
+    (tmp_path / "atespace").write_text("team-a")
+    (tmp_path / "uid").write_text("actor-uid")
     service = Storage(instance_id)
     server = grpc.aio.server()
     storerpc.add_TaskStoreServiceServicer_to_server(service, server)
@@ -328,6 +334,17 @@ async def test_initial_save_precedes_native_execution(runtime):
         runner.release.set()
         await pending
     assert runner.calls == 1
+
+
+async def test_dispatch_fence_survives_save_retries(runtime):
+    service, _, runner, handler = runtime
+    dispatch_id = str(uuid4())
+    runner.release.set()
+    await handler.on_message_send(
+        send("dispatch"), ServerCallContext(state={"headers": {"x-kagent-dispatch-id": dispatch_id}})
+    )
+    assert len(service.dispatch_ids) > 1
+    assert set(service.dispatch_ids) == {dispatch_id}
 
 
 async def test_instance_rejects_concurrent_tasks(runtime):

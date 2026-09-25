@@ -17,26 +17,93 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ErrDispatchBusy means a send has not been forwarded because another dispatch
+// or idle lifecycle operation currently owns the instance.
+var ErrDispatchBusy = errors.New("instance temporarily unavailable for dispatch")
+
+// ReserveAgentInstanceDispatch prevents pause/suspend between routing a request
+// and its first persisted task. The attempt expires after two minutes; a late
+// first save must fail before native execution. This is not a native work lease.
+func (c *Client) ReserveAgentInstanceDispatch(ctx context.Context, instanceID string, dispatchID uuid.UUID) error {
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
+			return ErrConflict
+		}
+		blocked, err := queryOne(ctx, tx, `
+			SELECT EXISTS (SELECT 1 FROM agent_instance_task WHERE history_id = $1
+			    AND state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING'))
+			    OR EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $2 AND state = 'CREATING')
+		`, pgx.RowTo[bool], instance.HistoryID, instance.ID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return ErrConflict
+		}
+		if err := requireSettledRuntime(ctx, tx, instance.HistoryID, ""); err != nil {
+			if errors.Is(err, ErrFailedPrecondition) {
+				return ErrDispatchBusy
+			}
+			return err
+		}
+		return execSQL(ctx, tx, `
+			UPDATE agent_instance SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes'
+			WHERE id = $1
+		`, instance.ID, dispatchID)
+	})
+}
+
+// RevokeAgentInstanceDispatch fences an unused attempt. True proves its first
+// save did not commit and cannot commit later, so retrying the send is safe.
+// False does not prove acceptance: callers must preserve ambiguous outcomes.
+func (c *Client) RevokeAgentInstanceDispatch(ctx context.Context, instanceID string, dispatchID uuid.UUID, messageID string) (bool, error) {
+	var notAccepted bool
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE agent_instance SET dispatch_id = NULL, dispatch_expires_at = NULL
+			WHERE id = $1 AND dispatch_id = $2
+		`, instance.ID, dispatchID)
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		// A continuation may have saved its input while still marked waiting.
+		// Revoking that attempt is safe, but it is not an unaccepted input.
+		notAccepted, err = queryOne(ctx, tx, `
+			SELECT NOT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1 AND message_id = $2)
+		`, pgx.RowTo[bool], instance.HistoryID, messageID)
+		return err
+	})
+	return notAccepted, err
+}
+
 // UpdateAgentInstanceTask applies a runtime update only to the version it read.
 // The transition and history commit together. An identical retry returns the
 // original committed version, even after later updates; a different stale save
 // returns ErrConflict. Callers authenticate the runtime's instance authority and
 // provide a SHA-256 digest of the complete mutation. This never creates a task.
-func (c *Client) UpdateAgentInstanceTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event) (int64, error) {
+func (c *Client) UpdateAgentInstanceTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
 	if expectedVersion <= 0 {
 		return 0, fmt.Errorf("task update requires a stored version")
 	}
-	return c.writeRuntimeTask(ctx, instanceID, expectedVersion, mutationHash, task, event)
+	return c.writeRuntimeTask(ctx, instanceID, expectedVersion, mutationHash, task, event, dispatchID)
 }
 
 // CreateRuntimeTask stores a new SDK task and its history atomically. An identical
 // storage retry returns the original version; a different write to the same ID
 // conflicts. It does not deduplicate user requests or grant execution permission.
-func (c *Client) CreateRuntimeTask(ctx context.Context, instanceID string, mutationHash []byte, task *a2a.Task) (int64, error) {
-	return c.writeRuntimeTask(ctx, instanceID, 0, mutationHash, task, task)
+func (c *Client) CreateRuntimeTask(ctx context.Context, instanceID string, mutationHash []byte, task *a2a.Task, dispatchID string) (int64, error) {
+	return c.writeRuntimeTask(ctx, instanceID, 0, mutationHash, task, task, dispatchID)
 }
 
-func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event) (int64, error) {
+func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
 	if expectedVersion < 0 || len(mutationHash) != 32 || task == nil || event == nil {
 		return 0, fmt.Errorf("runtime task update requires a version, digest, task, and event")
 	}
@@ -73,9 +140,6 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if err := requireSettledRuntime(ctx, tx, instance.HistoryID); err != nil {
-			return err
-		}
 		var stored *a2a.Task
 		row, err := readAgentInstanceTask(ctx, tx, instance.HistoryID, string(task.ID))
 		if expectedVersion == 0 {
@@ -106,6 +170,22 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
+		}
+		if (stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) && dispatchID != "" {
+			tag, err := tx.Exec(ctx, `
+				UPDATE agent_instance SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
+				    dispatch_expires_at = CASE WHEN $3 THEN dispatch_expires_at END
+				WHERE id = $1 AND dispatch_id = $2 AND dispatch_expires_at > clock_timestamp()
+			`, instance.ID, dispatchID, stored != nil && stored.Status.State == task.Status.State)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() != 1 {
+				return fmt.Errorf("dispatch expired or was revoked before acceptance: %w", ErrFailedPrecondition)
+			}
+		}
+		if err := requireSettledRuntime(ctx, tx, instance.HistoryID, dispatchID); err != nil {
+			return err
 		}
 		// New execution supersedes idle work that no worker has claimed yet.
 		// Keep the marker for idempotent acknowledgements of the older boundary.
@@ -709,13 +789,16 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs, historyLength, includeUnpublished)
 }
 
-// requireSettledRuntime rejects unfinished native cleanup or claimed idle work.
+// requireSettledRuntime rejects unfinished native cleanup, claimed idle work, or
+// another unexpired dispatch. A writer may pass its own dispatch ID.
 // Callers hold the instance lock so new execution and lifecycle claims cannot race.
-func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UUID) error {
+func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UUID, dispatchID string) error {
 	pending, err := queryOne(ctx, db, `
 		SELECT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1
 		    AND (NOT published OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
-	`, pgx.RowTo[bool], historyID)
+		    OR EXISTS (SELECT 1 FROM agent_instance WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
+		        AND ($2::text = '' OR dispatch_id::text <> $2))
+	`, pgx.RowTo[bool], historyID, dispatchID)
 	if err != nil {
 		return err
 	}

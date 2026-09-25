@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 
@@ -33,8 +34,12 @@ type settledExecutor struct {
 
 // Before allocates per-call persistence coordination without creating tasks or
 // modifying the SDK's reads. Native sessions may reserve one parked task.
-func (e *settledExecutor) Before(ctx context.Context, _ *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
+func (e *settledExecutor) Before(ctx context.Context, call *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
+	state := &execution{ready: make(chan struct{})}
 	if send, ok := request.Payload.(*a2a.SendMessageRequest); ok {
+		if values, ok := call.ServiceParams().Get(apia2a.DispatchHeader); ok && len(values) == 1 {
+			state.dispatchID = &values[0]
+		}
 		// Give callers a protocol-level busy response for active work. The SDK's
 		// limiter remains authoritative for simultaneous starts before tracking.
 		e.mu.Lock()
@@ -52,16 +57,17 @@ func (e *settledExecutor) Before(ctx context.Context, _ *a2asrv.CallContext, req
 			}
 		}
 	}
-	return context.WithValue(ctx, executionKey{}, &execution{ready: make(chan struct{})}), nil, nil
+	return context.WithValue(ctx, executionKey{}, state), nil, nil
 }
 
 type executionKey struct{}
 type execution struct {
-	ready    chan struct{}
-	failed   atomic.Bool
-	canceled atomic.Bool
-	boundary atomic.Int64
-	cleaned  bool // guarded by settledExecutor.mu
+	dispatchID *string
+	ready      chan struct{}
+	failed     atomic.Bool
+	canceled   atomic.Bool
+	boundary   atomic.Int64
+	cleaned    bool // guarded by settledExecutor.mu
 }
 
 func executionFailed(ctx context.Context) bool {

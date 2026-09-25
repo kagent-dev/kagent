@@ -107,13 +107,13 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	assertRetained()
 	task := newAgentInstanceTask("task", "message")
 	task.ContextID = instance.GetContextId()
-	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("request"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("request"), task, "")
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, instance.GetId(), task, task,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
-		Id: uuid.NewString(), AgentInstanceId: instance.GetId(),
+		Id: uuid.NewString(), AgentInstanceId: instance.GetId(), HeadTaskId: string(task.ID),
 	}, "alice", "checkpoint")
 	require.NoError(t, err)
 	require.ErrorIs(t, deleteInstance(ctx, client, instance.GetId()), ErrConflict)

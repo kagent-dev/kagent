@@ -27,6 +27,8 @@ import (
 )
 
 type instanceStore interface {
+	ReserveAgentInstanceDispatch(context.Context, string, uuid.UUID) error
+	RevokeAgentInstanceDispatch(context.Context, string, uuid.UUID, string) (bool, error)
 	GetAgentInstanceByID(context.Context, string) (*apiv1alpha1.AgentInstance, error)
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
@@ -255,6 +257,11 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 	if err != nil {
 		return nil, err
 	}
+	ctx, dispatchID, err := g.reserveDispatch(ctx, instance.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer g.finishDispatch(ctx, instance.Id, dispatchID, req.Message.ID, nil)
 	client, err := g.dial(ctx, instance)
 	if err != nil {
 		return nil, err
@@ -263,11 +270,13 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 	defer closeRuntime()
 	result, err := client.SendMessage(ctx, req)
 	if err != nil {
+		err = g.finishDispatch(ctx, instance.Id, dispatchID, req.Message.ID, err)
 		_ = closeRuntime()
 		// Native settlement can pause the runtime before its unary response is
 		// delivered. Recover only this accepted input's durable boundary.
-		var protocolErr *a2atype.Error
-		if ctx.Err() == nil && !errors.As(err, &protocolErr) {
+		// The gRPC SDK maps proxy connection failures to A2A InternalError.
+		// Preserve explicit protocol rejections, including unwrapped sentinels.
+		if ctx.Err() == nil && a2atype.ErrorReason(err) == a2atype.ErrorReason(a2atype.ErrInternalError) {
 			if task, readErr := g.store.GetAgentInstanceTaskByMessage(ctx, instance.Id, string(req.Message.TaskID), req.Message.ID); readErr == nil {
 				if recovered, recoverErr := g.recoverBoundary(ctx, instance.Id, task.ID, historyLength); recovered != nil || recoverErr != nil {
 					return recovered, recoverErr
@@ -310,7 +319,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 	}
 	// The SDK subscription supplies its own initial task and later events.
 	// Do not concatenate an unrelated stored snapshot with that live stream.
-	return g.observe(ctx, instance, req.ID, nil, client, client.SubscribeToTask(ctx, req))
+	return g.observe(ctx, instance, req.ID, "", nil, client, client.SubscribeToTask(ctx, req))
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
@@ -318,21 +327,86 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 	if err != nil {
 		return errorEvents(err)
 	}
-	client, err := g.dial(ctx, instance)
-	if err != nil {
-		return errorEvents(err)
-	}
 	var historyLength *int
 	if req.Config != nil {
 		historyLength = req.Config.HistoryLength
 	}
-	return g.observe(ctx, instance, req.Message.TaskID, historyLength, client, client.SendStreamingMessage(ctx, req))
+	return func(yield func(a2atype.Event, error) bool) {
+		ctx, dispatchID, err := g.reserveDispatch(ctx, instance.Id)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer g.finishDispatch(ctx, instance.Id, dispatchID, req.Message.ID, nil)
+		client, err := g.dial(ctx, instance)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		events := func(next func(a2atype.Event, error) bool) {
+			for event, err := range client.SendStreamingMessage(ctx, req) {
+				if err != nil {
+					next(nil, g.finishDispatch(ctx, instance.Id, dispatchID, req.Message.ID, err))
+					return
+				}
+				if !next(event, nil) {
+					return
+				}
+			}
+			next(nil, g.finishDispatch(ctx, instance.Id, dispatchID, req.Message.ID, a2atype.ErrInternalError))
+		}
+		g.observe(ctx, instance, req.Message.TaskID, req.Message.ID, historyLength, client, events)(yield)
+	}
+}
+
+// reserveDispatch waits only before forwarding input. No runtime send is retried
+// on an ambiguous transport error, and no SQL lock is held during dispatch.
+func (g *Gateway) reserveDispatch(ctx context.Context, instanceID string) (context.Context, uuid.UUID, error) {
+	id := uuid.New()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for {
+		err := g.store.ReserveAgentInstanceDispatch(ctx, instanceID, id)
+		if err == nil {
+			return a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.DispatchHeader: {id.String()}}), id, nil
+		}
+		if !errors.Is(err, database.ErrDispatchBusy) {
+			return ctx, uuid.Nil, g.storeError(ctx, err)
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx, uuid.Nil, ctx.Err()
+		case <-deadline.C:
+			timer.Stop()
+			return ctx, uuid.Nil, sendNotAccepted()
+		case <-timer.C:
+		}
+	}
+}
+
+func sendNotAccepted() error {
+	return a2atype.NewError(a2atype.ErrUnsupportedOperation, "input was not accepted; retry after the instance becomes available").
+		WithErrorInfoMeta(map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED", "retryAfterMs": "100"})
+}
+
+func (g *Gateway) finishDispatch(ctx context.Context, instanceID string, id uuid.UUID, messageID string, sendErr error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	revoked, err := g.store.RevokeAgentInstanceDispatch(ctx, instanceID, id, messageID)
+	if err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "release runtime dispatch", "instance_id", instanceID, "error", err)
+	} else if revoked && sendErr != nil && a2atype.ErrorReason(sendErr) == a2atype.ErrorReason(a2atype.ErrInternalError) {
+		return sendNotAccepted()
+	}
+	return sendErr
 }
 
 // observe owns only this observer's runtime connection. Losing it cannot cancel
 // execution. Final task state becomes visible after native cleanup acknowledges
 // the saved version. Publication is independent of runtime pause/suspend.
-func (g *Gateway) observe(ctx context.Context, instance *apiv1alpha1.AgentInstance, taskID a2atype.TaskID, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
+func (g *Gateway) observe(ctx context.Context, instance *apiv1alpha1.AgentInstance, taskID a2atype.TaskID, messageID string, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		closeRuntime := sync.OnceValue(client.Destroy)
 		defer closeRuntime()
@@ -369,7 +443,16 @@ func (g *Gateway) observe(ctx context.Context, instance *apiv1alpha1.AgentInstan
 		}
 		// Finish can race a subscription attach or stop the runtime stream.
 		// Recover only durable public state; an incomplete stream is an error.
-		if taskID != "" && ctx.Err() == nil {
+		if messageID != "" && ctx.Err() == nil {
+			// A continuation's previous waiting boundary is not its response.
+			task, err := g.store.GetAgentInstanceTaskByMessage(ctx, instance.Id, string(taskID), messageID)
+			if err == nil {
+				taskID = task.ID
+			} else {
+				taskID = ""
+			}
+		}
+		if taskID != "" && ctx.Err() == nil && (streamErr == nil || a2atype.ErrorReason(streamErr) == a2atype.ErrorReason(a2atype.ErrInternalError) || (messageID == "" && errors.Is(streamErr, a2atype.ErrTaskNotFound))) {
 			_ = closeRuntime()
 			if task, err := g.recoverBoundary(ctx, instance.Id, taskID, historyLength); task != nil || err != nil {
 				yield(task, err)

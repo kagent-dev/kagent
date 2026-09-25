@@ -296,11 +296,6 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	authenticator, authorizer := opts.resolve()
-	var runtimeAuthenticator auth.AuthProvider
-	if kagentenv.InsecureTaskStoreAuth.Get() {
-		logger.WarnContext(ctx, "insecure TaskStore runtime identity enabled; use only in isolated E2E deployments")
-		runtimeAuthenticator = taskstore.NewInsecureAuthenticator()
-	}
 	resourceNamespace := env("KAGENT_NAMESPACE", "kagent")
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
@@ -351,7 +346,7 @@ func Run(ctx context.Context, opts Options) error {
 		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
 		Reflection:            envBool("GRPC_REFLECTION"),
 		Authenticator:         authenticator,
-		RuntimeAuthenticator:  runtimeAuthenticator,
+		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,

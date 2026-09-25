@@ -17,6 +17,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/google/uuid"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -40,6 +41,8 @@ func (gatewayTestSession) Principal() auth.Principal {
 }
 
 type gatewayTestStore struct {
+	reserveErr    error
+	revoked       bool
 	instance      *apiv1alpha1.AgentInstance
 	revision      *database.RuntimeRevision
 	err           error
@@ -53,6 +56,14 @@ type gatewayTestStore struct {
 	id, userID    string
 	unscoped      bool
 	settledRead   func() error
+}
+
+func (s *gatewayTestStore) ReserveAgentInstanceDispatch(context.Context, string, uuid.UUID) error {
+	return s.reserveErr
+}
+
+func (s *gatewayTestStore) RevokeAgentInstanceDispatch(context.Context, string, uuid.UUID, string) (bool, error) {
+	return s.revoked, nil
 }
 
 func (s *gatewayTestStore) GetAgentInstanceByID(_ context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
@@ -673,37 +684,90 @@ func TestGatewayObservesPublicationAfterAnotherContinuation(t *testing.T) {
 }
 
 func TestGatewayRecoversUnaryResponseLostDuringFinalization(t *testing.T) {
-	for _, state := range []a2atype.TaskState{a2atype.TaskStateCompleted, a2atype.TaskStateInputRequired, a2atype.TaskStateWorking} {
-		t.Run(string(state), func(t *testing.T) {
-			instance := gatewayTestInstance()
-			current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: state}}
-			lost := errors.New("runtime connection closed during snapshot")
-			store := &gatewayTestStore{instance: instance, task: current}
-			runtime := &gatewayTestRuntime{onSend: func() error {
-				store.replay = current
-				return lost
-			}}
-			reads := 0
-			store.settledRead = func() error {
-				if !runtime.destroyed {
-					t.Fatal("recovery retained the runtime connection")
-				}
-				reads++
-				if isQuiescent(state) && reads == 1 {
-					return database.ErrConflict
-				}
-				return nil
-			}
-			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
-			result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
-			if isQuiescent(state) {
-				if err != nil || result != current || reads != 2 {
-					t.Fatalf("recovery = %v, %v; reads = %d", result, err, reads)
-				}
-			} else if !errors.Is(err, lost) || result != nil {
-				t.Fatalf("incomplete task became successful response: %v, %v", result, err)
+	for _, failure := range []struct {
+		name    string
+		err     error
+		recover bool
+	}{
+		{"connection lost", errors.New("runtime connection closed during snapshot"), true},
+		// The A2A gRPC transport converts Substrate proxy failures to InternalError.
+		{"proxy error", a2atype.NewError(a2atype.ErrInternalError, "upstream call failed: broken pipe"), true},
+		{"invalid input", a2atype.ErrInvalidParams, false},
+		{"permission denied", a2atype.ErrUnauthorized, false},
+	} {
+		t.Run(failure.name, func(t *testing.T) {
+			for _, state := range []a2atype.TaskState{a2atype.TaskStateCompleted, a2atype.TaskStateInputRequired, a2atype.TaskStateWorking} {
+				t.Run(string(state), func(t *testing.T) {
+					instance := gatewayTestInstance()
+					current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: state}}
+					lost := failure.err
+					store := &gatewayTestStore{instance: instance, task: current}
+					runtime := &gatewayTestRuntime{onSend: func() error {
+						store.replay = current
+						return lost
+					}}
+					reads := 0
+					store.settledRead = func() error {
+						if !runtime.destroyed {
+							t.Fatal("recovery retained the runtime connection")
+						}
+						reads++
+						if isQuiescent(state) && reads == 1 {
+							return database.ErrConflict
+						}
+						return nil
+					}
+					gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+					result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+					if failure.recover && isQuiescent(state) {
+						if err != nil || result != current || reads != 2 {
+							t.Fatalf("recovery = %v, %v; reads = %d", result, err, reads)
+						}
+					} else if !errors.Is(err, lost) || result != nil {
+						t.Fatalf("incomplete task became successful response: %v, %v", result, err)
+					}
+				})
 			}
 		})
+	}
+}
+
+func TestGatewayReportsOnlyRevokedAttemptsAsNotAccepted(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		store := &gatewayTestStore{instance: gatewayTestInstance(), revoked: revoked, taskErr: database.ErrNotFound}
+		failure := a2atype.NewError(a2atype.ErrInternalError, "connection lost before response")
+		runtime := &gatewayTestRuntime{onSend: func() error { return failure }}
+		gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+		_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+		var protocolError *a2atype.Error
+		if !errors.As(err, &protocolError) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if revoked {
+			meta := protocolError.ErrorInfo().Value["metadata"].(map[string]string)
+			if meta["reason"] != "KAGENT_SEND_NOT_ACCEPTED" {
+				t.Fatalf("missing retry contract: %v", protocolError)
+			}
+		} else if !errors.Is(err, a2atype.ErrInternalError) {
+			t.Fatalf("ambiguous send became retryable: %v", err)
+		}
+		if runtime.sendCalls != 1 {
+			t.Fatalf("retried a transport failure: %d sends", runtime.sendCalls)
+		}
+	}
+}
+
+func TestGatewayDoesNotRecoverAnUnacceptedInput(t *testing.T) {
+	instance := gatewayTestInstance()
+	// An earlier completed task cannot stand in for an input the runtime never saved.
+	current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	lost := a2atype.NewError(a2atype.ErrInternalError, "upstream call failed: broken pipe")
+	store := &gatewayTestStore{instance: instance, task: current}
+	runtime := &gatewayTestRuntime{onSend: func() error { return lost }}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	if result != nil || !errors.Is(err, lost) {
+		t.Fatalf("unaccepted input recovered an unrelated task: %v, %v", result, err)
 	}
 }
 

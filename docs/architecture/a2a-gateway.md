@@ -53,13 +53,30 @@ An independent AgentInstance lifecycle worker pauses waiting actors or suspends
 terminal ones and records their matching snapshot. A new turn can supersede idle
 work that has not been claimed. Once claimed, pause/suspend blocks new execution,
 explicit lifecycle changes, and checkpoint capture until its outcome is recorded.
-Clients may receive a busy/precondition error if new work races a claimed operation.
+The gateway reserves dispatch on the instance before forwarding input. A reservation
+blocks idle work, checkpoint capture, and explicit lifecycle operations until the
+runtime saves an active task. Continuations may first save input while waiting;
+the reservation stays held until their active save. Each attempt expires after two
+minutes, and late first saves are rejected before native work. This timeout never
+transfers permission to execute running native work.
+
+The gateway waits up to ten seconds for a claimed idle operation before forwarding.
+A rejected send carries A2A `ErrorInfo.metadata.reason=KAGENT_SEND_NOT_ACCEPTED`
+(and `retryAfterMs=100`) only if no dispatch occurred, or the unused attempt was
+atomically revoked and its input was never persisted. Clients may retry that
+response with the same message. They must not blindly retry transport errors.
+Persistence and revocation serialize on the instance; an ambiguous outcome stays
+an error, and previously accepted input is recovered only from its own saved task.
 Uncertain issued work remains claimed; it cannot safely be reassigned just because
 a timeout expires. It blocks new execution but never hides completed task results.
 
 Checkpoint readiness is separate from task completion. Creating a checkpoint
-requires the snapshot for the latest settled conversation boundary and returns
-FailedPrecondition while that snapshot is unavailable. A checkpoint reservation
+requires `expected_head_task_id`, the terminal task the caller intends to capture.
+The store checks that boundary atomically. `FailedPrecondition` includes a
+`google.rpc.ErrorInfo` in domain `kagent.dev`: `KAGENT_CHECKPOINT_SNAPSHOT_PENDING`
+permits retry with the same request and task IDs; `KAGENT_CHECKPOINT_CONVERSATION_ADVANCED`
+requires refreshing the conversation and choosing a new boundary. The UI retries
+only the pending reason, for at most 30 seconds. A checkpoint reservation
 blocks both new turns and idle lifecycle work while the snapshot is retained.
 
 The persistence model enforces:
@@ -94,6 +111,11 @@ Both adapters persist an initial active event before native work, stop execution
 on persistence failure, and wait for native cleanup before settling a boundary.
 Go uses the SDK cleanup callback; Python withholds the final event until its native
 runner returns. Snapshot work runs independently after publication.
+Substrate self-suspend is planned. Moving suspension into the runtime after native
+cleanup and final persistence may remove the API-side worker and settlement
+handoff. Current Go ADK cancellation and SDK-generated failures can save final
+state before cleanup, so `SettleTask` remains until those ordering guarantees hold.
+
 SDK upgrades must run the real gRPC/PostgreSQL fixtures covering failed saves,
 cancellation, continuation, disconnects, and slow subscribers.
 
@@ -125,25 +147,18 @@ execution. Other harnesses retain their existing policy for parked tasks. All ha
 
 ## Runtime authority and deployment prerequisite
 
-TaskStore requests require the Substrate actor JWT described in
-[Substrate #1660](https://github.com/agent-substrate/substrate/issues/1660).
-The API verifies the trusted issuer, signature, audience, expiry, atespace,
-actor name, and recorded actor UID. User and share credentials cannot grant
-private persistence access. The runtime rereads its projected actor name for
-routing after restore; it never issues or refreshes runtime credentials itself.
+TaskStore currently uses a temporary unsigned
+`x-kagent-insecure-runtime-identity` header carrying the projected atespace, actor
+name, and UID. Go and Python reread those files on every call so restored actors
+use their own identity. The API checks the requested instance, atespace, and
+recorded actor UID; user and share credentials do not grant private persistence
+access. Public authentication remains unchanged.
 
-Production injection and issuer/JWKS wiring are pending upstream. The default
-API rejects private TaskStore requests until that authenticator is configured;
-the worktree's signed-token injection fixture is test-only. Live Substrate
-restore and snapshot conformance passes with the isolated test identity below;
-production actor credential injection and refresh still require verification.
+This is the single prerelease path, with no configuration switch. The header can
+be forged and does not establish verified actor identity. These builds are for
+isolated deployments until [Substrate #1660](https://github.com/agent-substrate/substrate/issues/1660)
+supplies actor JWT injection. That implementation will replace the header path
+outright, including trusted issuer/JWKS, signature, audience, and expiry validation;
+there will be no fallback to unsigned headers.
+
 Push notifications are outside this cutover and are rejected by the public gateway.
-
-
-For isolated E2E testing while Substrate actor JWT injection is pending, set
-`KAGENT_INSECURE_TASK_STORE_AUTH=true` on both the API (`controller.env`) and
-runtime (`Harness.spec.env`). Go and Python then send an unsigned
-`x-kagent-insecure-runtime-identity` header from the projected atespace, actor
-name and UID. The API still checks the recorded instance authority and UID;
-public authentication is unchanged. This identity can be forged, so the switch
-is default-off and must only be used in an isolated test deployment.

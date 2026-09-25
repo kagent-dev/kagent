@@ -16,12 +16,14 @@ class StoredTask(_message.Message):
     def __init__(self, task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ..., version: _Optional[int] = ...) -> None: ...
 
 class TaskStoreServiceCreateTaskRequest(_message.Message):
-    __slots__ = ("agent_instance_id", "task")
+    __slots__ = ("agent_instance_id", "task", "dispatch_id")
     AGENT_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_FIELD_NUMBER: _ClassVar[int]
+    DISPATCH_ID_FIELD_NUMBER: _ClassVar[int]
     agent_instance_id: str
     task: _a2a_pb2.Task
-    def __init__(self, agent_instance_id: _Optional[str] = ..., task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ...) -> None: ...
+    dispatch_id: str
+    def __init__(self, agent_instance_id: _Optional[str] = ..., task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ..., dispatch_id: _Optional[str] = ...) -> None: ...
 
 class TaskStoreServiceCreateTaskResponse(_message.Message):
     __slots__ = ("version",)
@@ -44,16 +46,18 @@ class TaskStoreServiceGetTaskResponse(_message.Message):
     def __init__(self, stored: _Optional[_Union[StoredTask, _Mapping]] = ...) -> None: ...
 
 class TaskStoreServiceUpdateTaskRequest(_message.Message):
-    __slots__ = ("agent_instance_id", "task", "expected_version", "event")
+    __slots__ = ("agent_instance_id", "task", "expected_version", "event", "dispatch_id")
     AGENT_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_FIELD_NUMBER: _ClassVar[int]
     EXPECTED_VERSION_FIELD_NUMBER: _ClassVar[int]
     EVENT_FIELD_NUMBER: _ClassVar[int]
+    DISPATCH_ID_FIELD_NUMBER: _ClassVar[int]
     agent_instance_id: str
     task: _a2a_pb2.Task
     expected_version: int
     event: _a2a_pb2.StreamResponse
-    def __init__(self, agent_instance_id: _Optional[str] = ..., task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ..., expected_version: _Optional[int] = ..., event: _Optional[_Union[_a2a_pb2.StreamResponse, _Mapping]] = ...) -> None: ...
+    dispatch_id: str
+    def __init__(self, agent_instance_id: _Optional[str] = ..., task: _Optional[_Union[_a2a_pb2.Task, _Mapping]] = ..., expected_version: _Optional[int] = ..., event: _Optional[_Union[_a2a_pb2.StreamResponse, _Mapping]] = ..., dispatch_id: _Optional[str] = ...) -> None: ...
 
 class TaskStoreServiceUpdateTaskResponse(_message.Message):
     __slots__ = ("version",)

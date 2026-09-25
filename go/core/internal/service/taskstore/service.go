@@ -24,9 +24,9 @@ import (
 type Store interface {
 	SettleAgentInstanceTask(context.Context, string, string, int64) error
 	GetAgentInstanceForRuntime(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
-	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task) (int64, error)
+	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task, string) (int64, error)
 	GetVersionedAgentInstanceTask(context.Context, string, string) (*a2a.Task, int64, error)
-	UpdateAgentInstanceTask(context.Context, string, int64, []byte, *a2a.Task, a2a.Event) (int64, error)
+	UpdateAgentInstanceTask(context.Context, string, int64, []byte, *a2a.Task, a2a.Event, string) (int64, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int, *int) ([]*a2a.Task, int, error)
 }
 
@@ -71,7 +71,7 @@ func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 		return nil, err
 	}
 	hash := sha256.Sum256(data)
-	version, err := s.store.CreateRuntimeTask(ctx, input.AgentInstanceId, hash[:], task)
+	version, err := s.store.CreateRuntimeTask(ctx, input.AgentInstanceId, hash[:], task, input.GetDispatchId())
 	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: version}, storageError(err)
 }
 
@@ -112,7 +112,7 @@ func (s *Service) UpdateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 		return nil, err
 	}
 	hash := sha256.Sum256(data)
-	version, err := s.store.UpdateAgentInstanceTask(ctx, input.AgentInstanceId, input.ExpectedVersion, hash[:], task, event)
+	version, err := s.store.UpdateAgentInstanceTask(ctx, input.AgentInstanceId, input.ExpectedVersion, hash[:], task, event, input.GetDispatchId())
 	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: version}, storageError(err)
 }
 

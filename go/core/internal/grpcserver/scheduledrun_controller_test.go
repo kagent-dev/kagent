@@ -16,6 +16,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
@@ -50,6 +51,9 @@ type lostTaskLinkStore struct {
 func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, lease database.ScheduledRunExecutionLease, progress database.ScheduledRunExecutionProgress) error {
 	if s.loseTaskLink {
 		progress.TaskID = ""
+		// Simulate losing the observation, including a final task recovered by
+		// the gateway. A successful observation cannot lose only its identity.
+		progress.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	}
 	err := s.Client.UpdateScheduledRunExecution(ctx, lease, progress)
 	if err == nil && s.updated != nil {
@@ -205,7 +209,11 @@ func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2a
 		return nil, err
 	}
 	hash := sha256.Sum256(data)
-	_, err = r.store.CreateRuntimeTask(ctx, instanceID, hash[:], current)
+	dispatch := metadata.ValueFromIncomingContext(ctx, apia2a.DispatchHeader)
+	if len(dispatch) != 1 {
+		return nil, status.Error(codes.InvalidArgument, "gateway dispatch token missing")
+	}
+	_, err = r.store.CreateRuntimeTask(ctx, instanceID, hash[:], current, dispatch[0])
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +252,7 @@ func (r *scheduledControllerRuntime) persistTask(ctx context.Context, instanceID
 		return err
 	}
 	hash := sha256.Sum256(data)
-	version, err = r.store.UpdateAgentInstanceTask(ctx, instanceID, version, hash[:], task, task)
+	version, err = r.store.UpdateAgentInstanceTask(ctx, instanceID, version, hash[:], task, task, "")
 	if err != nil {
 		return err
 	}

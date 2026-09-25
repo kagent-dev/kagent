@@ -2,23 +2,18 @@ package grpcserver
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"fmt"
 	"iter"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/protobuf/proto"
 
@@ -57,19 +52,19 @@ type lostRuntimeSaveResponse struct {
 	releaseCreate chan struct{}
 }
 
-func (s *lostRuntimeSaveResponse) UpdateAgentInstanceTask(ctx context.Context, id string, version int64, hash []byte, task *a2a.Task, event a2a.Event) (int64, error) {
-	next, err := s.Client.UpdateAgentInstanceTask(ctx, id, version, hash, task, event)
+func (s *lostRuntimeSaveResponse) UpdateAgentInstanceTask(ctx context.Context, id string, version int64, hash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
+	next, err := s.Client.UpdateAgentInstanceTask(ctx, id, version, hash, task, event, dispatchID)
 	if err == nil && s.lost.CompareAndSwap(false, true) {
 		return 0, status.Error(codes.Unavailable, "lost response after committing runtime save")
 	}
 	return next, err
 }
 
-func (s *lostRuntimeSaveResponse) CreateRuntimeTask(ctx context.Context, id string, hash []byte, task *a2a.Task) (int64, error) {
+func (s *lostRuntimeSaveResponse) CreateRuntimeTask(ctx context.Context, id string, hash []byte, task *a2a.Task, dispatchID string) (int64, error) {
 	if len(task.History) > 0 && task.History[0].Parts[0].Text() == "reject-create" {
 		return 0, status.Error(codes.FailedPrecondition, "injected initial-save failure")
 	}
-	version, err := s.Client.CreateRuntimeTask(ctx, id, hash, task)
+	version, err := s.Client.CreateRuntimeTask(ctx, id, hash, task, dispatchID)
 	if err == nil && len(task.History) > 0 && task.History[0].Parts[0].Text() == "late" {
 		s.delayedCreate <- string(task.ID)
 		<-s.releaseCreate
@@ -115,15 +110,6 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
-	for _, insecureIdentity := range []bool{false, true} {
-		t.Run(fmt.Sprintf("insecure_identity=%t", insecureIdentity), func(t *testing.T) {
-			testRuntimeTaskStoreThroughGRPC(t, insecureIdentity)
-		})
-	}
-}
-
-func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
-	t.Setenv(apia2a.InsecureTaskStoreAuthEnv, strconv.FormatBool(insecureIdentity))
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	dbtest.MigrateT(t, dsn, false)
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
@@ -132,24 +118,11 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	store := &lostRuntimeSaveResponse{Client: database.NewClient(db), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}
 	instance := createTaskStoreInstance(t, store.Client)
 	id := instance.Id
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	const issuer = "https://substrate.test"
-	authority, err := taskstore.NewAuthenticator(issuer, func(*jwt.Token) (any, error) { return &key.PublicKey, nil })
-	require.NoError(t, err)
-	if insecureIdentity {
-		authority = taskstore.NewInsecureAuthenticator()
-	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
-		"iss": issuer, "aud": "kagent-task-store", "exp": time.Now().Add(time.Hour).Unix(),
-		"ate.dev": map[string]any{"atespace": "team-a", "actorName": "ai-" + id, "actorUID": "actor-uid"},
-	}).SignedString(key)
-	require.NoError(t, err)
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	tasks := taskstore.NewService(store)
 	server, err := New(Config{
 		Listener: listener, Registerer: prometheus.NewRegistry(), SystemService: testSystemService(),
-		Authenticator: &authimpl.UnsecureAuthenticator{}, RuntimeAuthenticator: authority,
+		Authenticator: &authimpl.UnsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
 		TaskStoreService: tasks,
 	})
 	require.NoError(t, err)
@@ -164,17 +137,6 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	controller, err := controllerclient.New(controllerclient.Config{
 		APIURL: "http://api.test", DialOptions: []grpc.DialOption{
 			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
-			// Test fixture for Substrate egress injection. The adapter holds only
-			// a placeholder; the real gateway must derive identity from mTLS.
-			grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-				md, _ := metadata.FromOutgoingContext(ctx)
-				if values := md.Get("authorization"); len(values) == 1 && values[0] == "Bearer substrate-actor" {
-					md = md.Copy()
-					md.Set("authorization", "Bearer "+token)
-					ctx = metadata.NewOutgoingContext(ctx, md)
-				}
-				return invoke(ctx, method, req, reply, cc, opts...)
-			}),
 		},
 	})
 	require.NoError(t, err)
@@ -186,47 +148,22 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	forged := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice", "x-agent-name", id))
 	_, err = private.GetTask(forged, read)
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
-	authenticated := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer "+token))
-	if insecureIdentity {
-		authenticated = metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/ai-"+id+"/actor-uid"))
-	} else {
-		_, err = private.GetTask(metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/ai-"+id+"/actor-uid")), read)
-		require.Equal(t, codes.Unauthenticated, status.Code(err), "signed identity mode must ignore unsigned headers")
-	}
+	authenticated := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/ai-"+id+"/actor-uid"))
 	_, err = private.GetTask(authenticated, &apiv1alpha1.TaskStoreServiceGetTaskRequest{AgentInstanceId: uuid.NewString(), TaskId: "absent"})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	_, err = private.GetTask(metadata.AppendToOutgoingContext(authenticated, "x-share-token", "share"), read)
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	for _, test := range []struct {
-		name  string
-		claim string
-		value any
-		want  codes.Code
+		name     string
+		atespace string
+		actorUID string
+		want     codes.Code
 	}{
-		{"issuer", "iss", "https://untrusted.test", codes.Unauthenticated},
-		{"audience", "aud", "another-service", codes.Unauthenticated},
-		{"expired", "exp", time.Now().Add(-time.Minute).Unix(), codes.Unauthenticated},
-		{"replaced actor", "actorUID", "replacement-uid", codes.NotFound},
-		{"wrong atespace", "atespace", "another-team", codes.PermissionDenied},
+		{"replaced actor", "team-a", "replacement-uid", codes.NotFound},
+		{"wrong atespace", "another-team", "actor-uid", codes.PermissionDenied},
 	} {
-		if insecureIdentity && test.claim != "actorUID" && test.claim != "atespace" {
-			continue // Signature validation belongs to signed identity mode.
-		}
 		t.Run(test.name, func(t *testing.T) {
-			claims := jwt.MapClaims{"iss": issuer, "aud": "kagent-task-store", "exp": time.Now().Add(time.Hour).Unix(),
-				"ate.dev": map[string]any{"atespace": "team-a", "actorName": "ai-" + id, "actorUID": "actor-uid"}}
-			if test.claim == "actorUID" || test.claim == "atespace" {
-				claims["ate.dev"].(map[string]any)[test.claim] = test.value
-			} else {
-				claims[test.claim] = test.value
-			}
-			badToken, err := jwt.NewWithClaims(jwt.SigningMethodES256, claims).SignedString(key)
-			require.NoError(t, err)
-			badIdentity := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer "+badToken))
-			if insecureIdentity {
-				actor := claims["ate.dev"].(map[string]any)
-				badIdentity = metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, fmt.Sprintf("%s/%s/%s", actor["atespace"], actor["actorName"], actor["actorUID"])))
-			}
+			badIdentity := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, fmt.Sprintf("%s/ai-%s/%s", test.atespace, id, test.actorUID)))
 			_, err = private.GetTask(badIdentity, read)
 			require.Equal(t, test.want, status.Code(err))
 		})
@@ -470,9 +407,9 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 	require.NoError(t, err)
 	if python := os.Getenv("KAGENT_TEST_PYTHON"); python != "" {
 		t.Run("python SDK with PostgreSQL", func(t *testing.T) {
-			// Run the Python adapter against this same authenticated API and
-			// PostgreSQL instance. Only native work and egress JWT injection are
-			// controlled fixtures. Enable with the repository venv's interpreter.
+			// Run the Python adapter against this same API and PostgreSQL instance.
+			// Only native work is a controlled fixture. Enable with the repository
+			// venv's interpreter.
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			go func() { _ = server.server.Serve(listener) }()
@@ -491,7 +428,6 @@ func testRuntimeTaskStoreThroughGRPC(t *testing.T, insecureIdentity bool) {
 				"KAGENT_TASKSTORE_TEST_ENDPOINT="+listener.Addr().String(),
 				"KAGENT_TASKSTORE_TEST_IDENTITY="+identityPath,
 				"KAGENT_TASKSTORE_TEST_CONTEXT="+instance.ContextId,
-				"KAGENT_TASKSTORE_TEST_TOKEN="+token,
 			)
 			output, err := command.CombinedOutput()
 			require.NoError(t, err, "%s", output)

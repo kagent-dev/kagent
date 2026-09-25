@@ -257,11 +257,11 @@ func TestInsecureRuntimeIdentityDoesNotAuthorizePublicAPI(t *testing.T) {
 			t.Fatalf("default %s: %v", method, err)
 		}
 	}
-	_, err := authenticate(ctx, readMethod, public, taskstore.NewInsecureAuthenticator(), nil, policies)
+	_, err := authenticate(ctx, readMethod, public, &taskstore.Authenticator{}, nil, policies)
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("runtime test mode authorized public API: %v", err)
 	}
-	_, err = authenticate(ctx, runtimeMethod, public, taskstore.NewInsecureAuthenticator(), nil, policies)
+	_, err = authenticate(ctx, runtimeMethod, public, &taskstore.Authenticator{}, nil, policies)
 	if err != nil {
 		t.Fatalf("explicit runtime test mode rejected identity: %v", err)
 	}

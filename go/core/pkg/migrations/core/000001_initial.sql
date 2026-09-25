@@ -114,6 +114,11 @@ CREATE TABLE agent_instance (
     actor_uid            TEXT CHECK (actor_uid IS NULL OR actor_uid <> ''),
     operation_id         UUID,
     executor_id          UUID,
+    -- Fences gateway dispatch until its first active task save. Expiry only
+    -- revokes unaccepted work; it never transfers native execution ownership.
+    dispatch_id          UUID,
+    dispatch_expires_at  TIMESTAMPTZ,
+    CHECK ((dispatch_id IS NULL) = (dispatch_expires_at IS NULL)),
     CHECK (executor_id IS NULL OR (operation_id IS NOT NULL
         AND operation <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
         AND state <> 'AGENT_INSTANCE_STATE_DELETED')),

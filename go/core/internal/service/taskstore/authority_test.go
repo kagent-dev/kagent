@@ -30,7 +30,7 @@ func TestInsecureRuntimeIdentity(t *testing.T) {
 			for _, value := range test.values {
 				headers.Add(apia2a.InsecureRuntimeIdentityHeader, value)
 			}
-			session, err := NewInsecureAuthenticator().Authenticate(t.Context(), headers, nil)
+			session, err := (&Authenticator{}).Authenticate(t.Context(), headers, nil)
 			if !test.valid {
 				require.Error(t, err)
 				return

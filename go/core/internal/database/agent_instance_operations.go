@@ -86,7 +86,7 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 		if !canStart {
 			return fmt.Errorf("AgentInstance cannot start %s from %s with operation %s: %w", kind, instance.State, instance.Operation, ErrConflict)
 		}
-		if err := requireSettledRuntime(ctx, tx, row.HistoryID); err != nil {
+		if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
 			return err
 		}
 		instance.Operation, instance.UpdatedAt = kind, timestamppb.Now()

@@ -142,7 +142,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	task := &a2a.Task{ID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
 		History: []*a2a.Message{{ID: "message", Role: a2a.MessageRoleUser, Parts: a2a.ContentParts{a2a.NewTextPart("hello")}}},
 	}
-	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task, "")
 	require.NoError(t, err)
 	// Simulate a newer writer using the same binary SQL boundary.
 	taskRow, err := readAgentInstanceTask(ctx, q, row.HistoryID, string(task.ID))
@@ -169,7 +169,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
-	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
+	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}
 	addUnknown(checkpointRequest)
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
 	require.NoError(t, err)

@@ -1,6 +1,10 @@
 version: v2
 # Browser clients only use public APIs; runtime persistence is private.
 inputs:
+  # Structured gRPC error reasons used by checkpoint retries.
+  - module: buf.build/googleapis/googleapis:c17df5b2beca46928cc87d5656bd5343
+    types:
+      - google.rpc.ErrorInfo
   - directory: .
     exclude_paths:
       - a2a.proto

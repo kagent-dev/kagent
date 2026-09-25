@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -12,11 +13,13 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -126,14 +129,33 @@ func TestMCPCheckpointFork(t *testing.T) {
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		endpoint := mcpEndpoint(t)
-		if result := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false); result["resultType"] != "complete" {
-			t.Fatalf("initial invocation = %#v", result)
+		initial := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false)
+		if initial["resultType"] != "complete" {
+			t.Fatalf("initial invocation = %#v", initial)
 		}
+		taskID := initial["structuredContent"].(map[string]any)["task_id"].(string)
 
-		created := mcpCall(t, endpoint, "tools/call", map[string]any{
+		request := map[string]any{
 			"name":      "create_agent_instance_checkpoint",
-			"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
-		}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
+			"arguments": map[string]any{"agent_instance_id": fixture.instanceID, "request_id": uuid.NewString(), "expected_head_task_id": taskID},
+		}
+		// Task completion precedes its idle snapshot. Retry the same checkpoint
+		// request until that snapshot is available; report the last tool error.
+		var result map[string]any
+		err := wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, 2*time.Minute, true, func(context.Context) (bool, error) {
+			result = mcpCall(t, endpoint, "tools/call", request, false)["result"].(map[string]any)
+			if result["isError"] != true {
+				return true, nil
+			}
+			if meta, ok := result["_meta"].(map[string]any); ok && meta["kagent.dev/error-reason"] == "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" {
+				return false, nil
+			}
+			return false, fmt.Errorf("checkpoint failed: %v", result)
+		})
+		if err != nil {
+			t.Fatalf("create checkpoint: %v; last result: %#v", err, result)
+		}
+		created := result["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
 		checkpointID := created["id"].(string)
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
@@ -160,8 +182,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cancel()
-			_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: forkID})
-			if err != nil && status.Code(err) != codes.NotFound {
+			if err := deleteIdleInstance(ctx, fixture.instances, forkID); err != nil {
 				t.Errorf("delete fork AgentInstance: %v", err)
 			}
 		})
@@ -185,7 +206,11 @@ func mcpInvoke(t *testing.T, endpoint, instanceID, message string, tasks bool) m
 			"agent_instance_id": instanceID, "message": message,
 		},
 	}, tasks)
-	return response["result"].(map[string]any)
+	result, ok := response["result"].(map[string]any)
+	if !ok || result["isError"] == true || (tasks && result["taskId"] == nil) {
+		t.Fatalf("MCP invocation failed: %#v", response)
+	}
+	return result
 }
 
 func waitMCPTask(t *testing.T, endpoint, taskID, status string) map[string]any {

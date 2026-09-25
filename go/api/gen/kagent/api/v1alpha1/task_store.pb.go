@@ -81,8 +81,10 @@ type TaskStoreServiceCreateTaskRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	Task            *v1.Task               `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Gateway attempt fence, consumed by the first active save before native work.
+	DispatchId    *string `protobuf:"bytes,3,opt,name=dispatch_id,json=dispatchId,proto3,oneof" json:"dispatch_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskStoreServiceCreateTaskRequest) Reset() {
@@ -127,6 +129,13 @@ func (x *TaskStoreServiceCreateTaskRequest) GetTask() *v1.Task {
 		return x.Task
 	}
 	return nil
+}
+
+func (x *TaskStoreServiceCreateTaskRequest) GetDispatchId() string {
+	if x != nil && x.DispatchId != nil {
+		return *x.DispatchId
+	}
+	return ""
 }
 
 type TaskStoreServiceCreateTaskResponse struct {
@@ -277,6 +286,7 @@ type TaskStoreServiceUpdateTaskRequest struct {
 	// Go's SDK supplies the triggering event. Snapshot-only SDKs omit it; the
 	// task then describes the complete update. History is archived separately.
 	Event         *v1.StreamResponse `protobuf:"bytes,4,opt,name=event,proto3" json:"event,omitempty"`
+	DispatchId    *string            `protobuf:"bytes,5,opt,name=dispatch_id,json=dispatchId,proto3,oneof" json:"dispatch_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -337,6 +347,13 @@ func (x *TaskStoreServiceUpdateTaskRequest) GetEvent() *v1.StreamResponse {
 		return x.Event
 	}
 	return nil
+}
+
+func (x *TaskStoreServiceUpdateTaskRequest) GetDispatchId() string {
+	if x != nil && x.DispatchId != nil {
+		return *x.DispatchId
+	}
+	return ""
 }
 
 type TaskStoreServiceUpdateTaskResponse struct {
@@ -585,24 +602,30 @@ const file_kagent_api_v1alpha1_task_store_proto_rawDesc = "" +
 	"\n" +
 	"StoredTask\x12#\n" +
 	"\x04task\x18\x01 \x01(\v2\x0f.lf.a2a.v1.TaskR\x04task\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\x03R\aversion\"\xfe\x01\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\"\xbe\x02\n" +
 	"!TaskStoreServiceCreateTaskRequest\x124\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12+\n" +
-	"\x04task\x18\x02 \x01(\v2\x0f.lf.a2a.v1.TaskB\x06\xbaH\x03\xc8\x01\x01R\x04task:v\xbaHs\x1aq\n" +
-	"\x1atask_store.create_identity\x12!task and context IDs are required\x1a0this.task.id != '' && this.task.context_id != ''\">\n" +
+	"\x04task\x18\x02 \x01(\v2\x0f.lf.a2a.v1.TaskB\x06\xbaH\x03\xc8\x01\x01R\x04task\x12.\n" +
+	"\vdispatch_id\x18\x03 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01H\x00R\n" +
+	"dispatchId\x88\x01\x01:v\xbaHs\x1aq\n" +
+	"\x1atask_store.create_identity\x12!task and context IDs are required\x1a0this.task.id != '' && this.task.context_id != ''B\x0e\n" +
+	"\f_dispatch_id\">\n" +
 	"\"TaskStoreServiceCreateTaskResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\"x\n" +
 	"\x1eTaskStoreServiceGetTaskRequest\x124\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12 \n" +
 	"\atask_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06taskId\"Z\n" +
 	"\x1fTaskStoreServiceGetTaskResponse\x127\n" +
-	"\x06stored\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.StoredTaskR\x06stored\"\xe1\x02\n" +
+	"\x06stored\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.StoredTaskR\x06stored\"\xa1\x03\n" +
 	"!TaskStoreServiceUpdateTaskRequest\x124\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12+\n" +
 	"\x04task\x18\x02 \x01(\v2\x0f.lf.a2a.v1.TaskB\x06\xbaH\x03\xc8\x01\x01R\x04task\x122\n" +
 	"\x10expected_version\x18\x03 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x0fexpectedVersion\x12/\n" +
-	"\x05event\x18\x04 \x01(\v2\x19.lf.a2a.v1.StreamResponseR\x05event:t\xbaHq\x1ao\n" +
-	"\x18task_store.task_identity\x12!task and context IDs are required\x1a0this.task.id != '' && this.task.context_id != ''\">\n" +
+	"\x05event\x18\x04 \x01(\v2\x19.lf.a2a.v1.StreamResponseR\x05event\x12.\n" +
+	"\vdispatch_id\x18\x05 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01H\x00R\n" +
+	"dispatchId\x88\x01\x01:t\xbaHq\x1ao\n" +
+	"\x18task_store.task_identity\x12!task and context IDs are required\x1a0this.task.id != '' && this.task.context_id != ''B\x0e\n" +
+	"\f_dispatch_id\">\n" +
 	"\"TaskStoreServiceUpdateTaskResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\"\x97\x01\n" +
 	" TaskStoreServiceListTasksRequest\x124\n" +
@@ -685,6 +708,8 @@ func file_kagent_api_v1alpha1_task_store_proto_init() {
 	if File_kagent_api_v1alpha1_task_store_proto != nil {
 		return
 	}
+	file_kagent_api_v1alpha1_task_store_proto_msgTypes[1].OneofWrappers = []any{}
+	file_kagent_api_v1alpha1_task_store_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

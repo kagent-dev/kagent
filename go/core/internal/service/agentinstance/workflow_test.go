@@ -274,18 +274,18 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	message.ContextID = source.ContextId
 	task := a2a.NewSubmittedTask(message, message)
 	createHash := sha256.Sum256([]byte("fixture-create"))
-	initialVersion, err := store.CreateRuntimeTask(t.Context(), source.Id, createHash[:], task)
+	initialVersion, err := store.CreateRuntimeTask(t.Context(), source.Id, createHash[:], task, "")
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	hash := sha256.Sum256([]byte("fixture-complete"))
-	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, initialVersion, hash[:], task, task)
+	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, initialVersion, hash[:], task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, store.SettleAgentInstanceTask(t.Context(), source.Id, string(task.ID), version))
 	boundary, err := store.ClaimInstanceQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, store.FinishInstanceQuiescence(t.Context(), boundary,
 		&database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
-	checkpoint, _, err := store.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id}, source.Creator, uuid.NewString())
+	checkpoint, _, err := store.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id, HeadTaskId: string(task.ID)}, source.Creator, uuid.NewString())
 	require.NoError(t, err)
 	_, err = store.FinalizeAgentInstanceCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshots/snapshot-1", "")
 	require.NoError(t, err)

@@ -25,12 +25,12 @@ func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
 	require.NoError(t, saveRuntimeTask(t, client, instance.GetId(), task, task,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx,
-		&apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.GetId()}, "alice", uuid.NewString())
+		&apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.GetId(), HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 
 	next := newAgentInstanceTask("next", "next-message")
 	next.ContextID = instance.GetContextId()
-	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("next-request"), next)
+	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("next-request"), next, "")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, saveRuntimeTask(t, client, instance.GetId(), task, task, nil), ErrFailedPrecondition)
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
@@ -40,7 +40,7 @@ func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag", "retained", "")
 	require.ErrorIs(t, err, ErrNotFound)
-	version, err := client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("next-request"), next)
+	version, err := client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("next-request"), next, "")
 	require.NoError(t, err)
 	require.Positive(t, version)
 }

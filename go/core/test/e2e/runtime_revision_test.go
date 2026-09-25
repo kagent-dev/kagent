@@ -52,12 +52,9 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			t.Helper()
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cleanupCancel()
-			_, err := instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: id})
-			if status.Code(err) != codes.NotFound {
-				require.NoError(t, err)
-			}
+			require.NoError(t, deleteIdleInstance(cleanupCtx, instances, id))
 		}
-		send := func(id string) {
+		send := func(id string) string {
 			t.Helper()
 			fixture := &interactionFixture{
 				ctx: metadata.AppendToOutgoingContext(ctx, "x-kagent-agent-instance-id", id), client: a2apb.NewA2AServiceClient(conn),
@@ -65,6 +62,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			_, _, task := fixture.send(t, "What is 2+2?")
 			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
 			require.True(t, strings.Contains(taskText(task), "The answer is 4."))
+			return string(task.ID)
 		}
 		// No FailedPrecondition retry: Ready must already be backed by a persisted
 		// successful revision when the first create request arrives.
@@ -72,7 +70,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		source := created.GetAgentInstance()
 		t.Cleanup(func() { deleteInstance(source.GetId()) })
-		send(source.GetId())
+		sourceTaskID := send(source.GetId())
 
 		// Observe the actual runtime through the public inventory API before deleting
 		// references, so an empty response cannot falsely prove cleanup later.
@@ -122,7 +120,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		send(fallback.GetAgentInstance().GetId())
 		deleteInstance(fallback.GetAgentInstance().GetId())
 
-		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: source.GetId(), RequestId: uuid.NewString()})
+		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: source.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: sourceTaskID})
 		checkpointID := checkpointResponse.GetCheckpoint().GetId()
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)

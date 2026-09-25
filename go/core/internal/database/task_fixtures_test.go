@@ -21,9 +21,9 @@ func saveRuntimeTask(t *testing.T, client *Client, instanceID string, task *a2a.
 	stored, version, err := client.GetVersionedAgentInstanceTask(ctx, instanceID, string(task.ID))
 	digest := taskMutationHash(uuid.NewString())
 	if errors.Is(err, ErrNotFound) {
-		version, err = client.CreateRuntimeTask(ctx, instanceID, digest, task)
+		version, err = client.CreateRuntimeTask(ctx, instanceID, digest, task, "")
 	} else if err == nil {
-		version, err = client.UpdateAgentInstanceTask(ctx, instanceID, version, digest, task, event)
+		version, err = client.UpdateAgentInstanceTask(ctx, instanceID, version, digest, task, event, "")
 	}
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.AgentInstanc
 	require.NoError(t, err)
 	task := newAgentInstanceTask("task", "initial")
 	task.ContextID = instance.ContextId
-	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, taskMutationHash("initial request"), task)
+	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, taskMutationHash("initial request"), task, "")
 	require.NoError(t, err)
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which database?"))}
 	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, nil))

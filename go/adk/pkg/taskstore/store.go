@@ -52,26 +52,22 @@ func (s *Store) callContext(ctx context.Context) (context.Context, context.Cance
 	ctx, cancel := s.client.CallContext(ctx, "")
 	md, _ := metadata.FromOutgoingContext(ctx)
 	md = md.Copy()
-	// Substrate replaces this placeholder with the actor JWT on egress. The
-	// actor never receives or refreshes credentials, including on reconnect.
-	md.Set("authorization", "Bearer substrate-actor")
+	md.Delete("authorization")
 	md.Delete("x-user-id")
 	md.Delete("x-agent-name")
 	md.Delete("x-share-token")
-	md.Delete(apia2a.InsecureRuntimeIdentityHeader)
-	if os.Getenv(apia2a.InsecureTaskStoreAuthEnv) == "true" {
-		var identity []string
-		for _, field := range []string{"atespace", "name", "uid"} {
-			value, err := os.ReadFile(filepath.Join(filepath.Dir(s.identityPath), field))
-			if err != nil {
-				cancel()
-				return nil, nil, fmt.Errorf("read insecure runtime identity %s: %w", field, err)
-			}
-			identity = append(identity, strings.TrimSpace(string(value)))
+	// Temporary identity transport until Substrate injects actor credentials (#1660).
+	// Reread on every call because restore rebinds these files to the new actor.
+	var identity []string
+	for _, field := range []string{"atespace", "name", "uid"} {
+		value, err := os.ReadFile(filepath.Join(filepath.Dir(s.identityPath), field))
+		if err != nil {
+			cancel()
+			return nil, nil, fmt.Errorf("read runtime identity %s: %w", field, err)
 		}
-		md.Delete("authorization")
-		md.Set(apia2a.InsecureRuntimeIdentityHeader, strings.Join(identity, "/"))
+		identity = append(identity, strings.TrimSpace(string(value)))
 	}
+	md.Set(apia2a.InsecureRuntimeIdentityHeader, strings.Join(identity, "/"))
 	return metadata.NewOutgoingContext(ctx, md), cancel, nil
 }
 
@@ -89,6 +85,9 @@ func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVe
 		return 0, fmt.Errorf("previous task persistence failed")
 	}
 	request := &apiv1alpha1.TaskStoreServiceCreateTaskRequest{AgentInstanceId: id, Task: wire}
+	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
+		request.DispatchId = state.dispatchID
+	}
 	var response *apiv1alpha1.TaskStoreServiceCreateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
@@ -120,6 +119,9 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 		return 0, err
 	}
 	request := &apiv1alpha1.TaskStoreServiceUpdateTaskRequest{AgentInstanceId: id, Task: task, Event: event, ExpectedVersion: int64(update.PrevVersion)}
+	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
+		request.DispatchId = state.dispatchID
+	}
 	var response *apiv1alpha1.TaskStoreServiceUpdateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error

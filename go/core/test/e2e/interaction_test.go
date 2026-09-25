@@ -33,6 +33,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -227,8 +228,10 @@ func createCheckpoint(t *testing.T, ctx context.Context, client apiv1alpha1.Chec
 	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var err error
 		result, err = client.CreateCheckpoint(ctx, request)
-		if status.Code(err) == codes.FailedPrecondition {
-			return false, nil
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" {
+				return false, nil
+			}
 		}
 		return err == nil, err
 	})
@@ -247,7 +250,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startForkMemoryMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 		created := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID),
 		})
 		checkpoint := created.GetCheckpoint()
 		t.Cleanup(func() {
@@ -283,9 +286,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		if later.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(later), "The answer is 6.") {
 			t.Fatalf("source continuation state = %s, text = %q; want a new answer after the checkpoint", later.Status.State, taskText(later))
 		}
-		if _, err := fixture.instances.DeleteAgentInstance(fixture.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			AgentInstanceId: fixture.instanceID,
-		}); err != nil {
+		if err := deleteIdleInstance(fixture.ctx, fixture.instances, fixture.instanceID); err != nil {
 			t.Fatalf("delete checkpoint source: %v", err)
 		}
 		forked, err := fixture.checkpoints.ForkAgentInstance(fixture.ctx, &apiv1alpha1.ForkAgentInstanceRequest{
@@ -301,10 +302,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cleanupCancel()
-			_, cleanupErr := fixture.instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
-				AgentInstanceId: fork.GetId(),
-			})
-			if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
+			if cleanupErr := deleteIdleInstance(cleanupCtx, fixture.instances, fork.GetId()); cleanupErr != nil {
 				t.Errorf("delete fork AgentInstance: %v", cleanupErr)
 			}
 		})
@@ -328,7 +326,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		// Before its first turn a fork borrows the retained Tag snapshot. Its
 		// copied head boundary must refer to that copy, not the deleted source.
 		forkCheckpoint := createCheckpoint(t, forkCtx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(),
+			AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID),
 		})
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
@@ -352,8 +350,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cancel()
-			_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: nestedID})
-			if err != nil && status.Code(err) != codes.NotFound {
+			if err := deleteIdleInstance(ctx, fixture.instances, nestedID); err != nil {
 				t.Errorf("delete nested fork: %v", err)
 			}
 		})
@@ -363,7 +360,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
 			t.Fatalf("nested fork task state = %s, text = %q; want checkpoint memory", nestedTask.Status.State, taskText(nestedTask))
 		}
-		if _, err := fixture.instances.DeleteAgentInstance(nestedCtx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: nestedID}); err != nil {
+		if err := deleteIdleInstance(nestedCtx, fixture.instances, nestedID); err != nil {
 			t.Fatalf("delete nested fork: %v", err)
 		}
 		if _, err := fixture.checkpoints.DeleteCheckpoint(forkCtx, &apiv1alpha1.DeleteCheckpointRequest{
@@ -376,9 +373,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		if forkTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(forkTask), "The answer is 4.") {
 			t.Fatalf("fork A2A task state = %s, want COMPLETED", forkTask.Status.State)
 		}
-		if _, err := fixture.instances.DeleteAgentInstance(forkCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			AgentInstanceId: fork.GetId(),
-		}); err != nil {
+		if err := deleteIdleInstance(forkCtx, fixture.instances, fork.GetId()); err != nil {
 			t.Fatalf("delete fork AgentInstance: %v", err)
 		}
 		if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
@@ -690,10 +685,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 		defer cleanupCancel()
 		// DeleteAgentInstance returns only after its Substrate Actor has been
 		// suspended and deleted, so this cleanup covers both resources.
-		_, cleanupErr := instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			AgentInstanceId: instance.GetId(),
-		})
-		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
+		if cleanupErr := deleteIdleInstance(cleanupCtx, instances, instance.GetId()); cleanupErr != nil {
 			t.Errorf("delete AgentInstance: %v", cleanupErr)
 		}
 	})
@@ -711,6 +703,22 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 		instanceID:  instance.GetId(),
 		contextID:   instance.GetContextId(),
 	}
+}
+
+// Completion is public before automatic suspension finishes. Cleanup retries
+// only the precondition indicating that lifecycle work still owns the instance.
+func deleteIdleInstance(ctx context.Context, instances apiv1alpha1.AgentInstanceServiceClient, id string) error {
+	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+		_, err := instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: id})
+		switch status.Code(err) {
+		case codes.OK, codes.NotFound:
+			return true, nil
+		case codes.FailedPrecondition:
+			return false, nil
+		default:
+			return false, err
+		}
+	})
 }
 
 func newSharedInteractionFixture(t *testing.T, harness testHarness, target string) *sharedInteractionFixture {

@@ -1,12 +1,12 @@
 package a2a
 
 // RuntimeIdentityPath is projected by Substrate and rebound on restore. It is
-// routing metadata, not authority; TaskStore authenticates the injected actor JWT.
+// routing metadata. Temporary TaskStore headers use it until Substrate #1660.
 const RuntimeIdentityPath = "/run/kagent/identity/name"
 
-// InsecureTaskStoreAuthEnv enables unsigned runtime identity for isolated tests.
-// Both the API and runtime must opt in. Never enable it on a shared deployment.
-const InsecureTaskStoreAuthEnv = "KAGENT_INSECURE_TASK_STORE_AUTH"
-
-// InsecureRuntimeIdentityHeader carries atespace/actor-name/actor-UID in test mode.
+// InsecureRuntimeIdentityHeader temporarily carries atespace/actor-name/actor-UID
+// until Substrate supplies verified actor credentials (#1660).
 const InsecureRuntimeIdentityHeader = "x-kagent-insecure-runtime-identity"
+
+// DispatchHeader carries the gateway's attempt fence to the runtime TaskStore.
+const DispatchHeader = "x-kagent-dispatch-id"

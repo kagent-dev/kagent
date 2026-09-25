@@ -241,7 +241,7 @@ export interface AgentInstancesApi {
    */
   checkpoints: {
     list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
-    create(id: string): Promise<Checkpoint>;
+    create(id: string, expectedHeadTaskId: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
     /**
      * Names a boundary, which is what a fork of it is called too.
@@ -372,10 +372,11 @@ export function createApiClient(): KagentApiClient {
       checkpoints: {
         list: (id, options) =>
           invoke("agentInstances.checkpoints.list", { id }, options),
-        create: (id) =>
+        create: (id, expectedHeadTaskId) =>
           invoke("agentInstances.checkpoints.create", {
             id,
             requestId: randomId(),
+            expectedHeadTaskId,
           }),
         fork: (checkpointId, name) =>
           invoke("agentInstances.checkpoints.fork", {

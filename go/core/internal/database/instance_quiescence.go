@@ -39,6 +39,7 @@ func (c *Client) ClaimInstanceQuiescence(ctx context.Context) (*InstanceQuiescen
 			  AND e.quiescence_executor_id IS NULL
 			  AND i.state = 'AGENT_INSTANCE_STATE_READY'
 			  AND i.operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
+			  AND (i.dispatch_expires_at IS NULL OR i.dispatch_expires_at <= clock_timestamp())
 			  AND NOT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = i.id AND state = 'CREATING')
 			ORDER BY e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
 		`, pgx.RowToStructByName[candidate])
@@ -71,6 +72,7 @@ func (c *Client) ClaimInstanceQuiescence(ctx context.Context) (*InstanceQuiescen
 			UPDATE agent_instance_task_event SET quiescence_executor_id = $2
 			WHERE sequence = $1 AND published AND quiescence_pending
 			  AND quiescence_executor_id IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM agent_instance WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
 			  AND NOT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $3 AND state = 'CREATING')
 		`, result.Version, result.ExecutorID, instance.ID)
 		if err != nil {

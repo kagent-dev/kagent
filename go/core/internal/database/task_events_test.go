@@ -26,7 +26,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	task := newAgentInstanceTask("task", "initial-message")
 	task.ContextID = instance.ContextId
-	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task, "")
 	require.NoError(t, err)
 	assertReplay := func() {
 		t.Helper()
@@ -78,7 +78,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question}
 	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, nil))
 	assertReplay()
-	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "hitl-checkpoint")
+	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	// Both a user reply and an immediate message result must persist their status.
@@ -96,7 +96,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, message, snapshot))
 		assertReplay()
 	}
-	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "checkpoint")
+	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
 	require.NoError(t, err)
