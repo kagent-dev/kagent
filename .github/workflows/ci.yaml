@@ -100,7 +100,7 @@ jobs:
           # runtimes it ships with, and says so as ordinary make prerequisites, so make
           # still builds those first. `buildx-create` is idempotent, so the several
           # branches of the graph that depend on it can run it at once.
-          make -j4 build
+          make -j"$(nproc)" build
           make helm-install-provider
           make push-test-agent push-test-skill
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -434,7 +434,11 @@ jobs:
           # controller embeds the digests of the six runtimes it ships with, so
           # `build-controller` has them as prerequisites and built them one after another.
           # They are independent of each other, and make knows it.
-          make -j4 build-${{ matrix.image }}
+          #
+          # `nproc` rather than a fixed width, because this job runs on a 2-vCPU runner
+          # and the e2e one on a 4-vCPU: a number that suits one starves or thrashes the
+          # other, and the right answer is whatever the runner has.
+          make -j"$(nproc)" build-${{ matrix.image }}
         working-directory: ./
 
   go-lint:
