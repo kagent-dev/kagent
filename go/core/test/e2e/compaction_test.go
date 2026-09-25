@@ -106,9 +106,6 @@ func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerMod
 			PromptTemplate: compactionSummaryPrompt + "\n\n{conversation_history}",
 		},
 	}
-	harness.Spec.AllowedAgentTemplates = &v1alpha3.HarnessAgentTemplateAdmission{
-		Selector: metav1.LabelSelector{MatchLabels: map[string]string{compactionRuntimeLabel: compactionRuntime}},
-	}
 	if err := kube.Create(t.Context(), harness); err != nil {
 		t.Fatalf("create compaction Harness: %v", err)
 	}

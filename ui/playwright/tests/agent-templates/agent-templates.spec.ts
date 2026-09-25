@@ -8,47 +8,7 @@ import {
   selectOption,
 } from "../../helpers/resource";
 
-/**
- * Agent templates — the whole life of one, in a single journey.
- *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md`.
- *
- * ## The property this spec exists for
- *
- * **A template no harness admits cannot be used, and nothing about it looks wrong.** A
- * `Harness` admits templates through a label selector, and the CRD is explicit that a
- * harness with no selector admits none — so a template whose labels match nothing
- * reaches no prepared revision and every `CreateAgentInstance` naming it is refused. It
- * still has a model, a prompt, a row in this list.
- *
- * That was confirmed against a cluster before any of this was built: an unlabelled
- * template sat at `status: {observedGeneration: 1}` with no harnesses at all, and adding
- * the one label its harness selects on took it to *"ActorTemplate golden snapshot is
- * ready"* in about ten seconds.
- *
- * So the "Runs on" column, the warning in the form and the button that applies a
- * harness's labels are the feature, not decoration — and they are what steps 1, 4 and 5
- * cover.
- *
- * ## The second property
- *
- * **Reading a template is not the same act as changing one.** A row opens a details
- * page with editing as a mode rather than a page of inputs with Save waiting, which is
- * why steps 6 and
- * 7 assert the *reading* state as well as the writing one — and why they assert both are
- * the same component, since a separate read-only view is what would drift.
- *
- * ## One thing the ordering buys, and one it costs
- *
- * The mock backend keeps writes in the page's own memory, so a `page.goto` starts a
- * backend that has never heard of the template just made. Everything from step 5 onwards
- * therefore clicks through rather than navigating, and the created template survives all
- * the way to the delete that removes it. The cost is that a failure stops the steps after
- * it; the recording shows where.
- */
-
-/** The one this journey makes, reads, edits and removes. */
+/** A reusable template can be authored without choosing an Agent or Harness. */
 const CREATED = "browser-made";
 
 /*
@@ -67,14 +27,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expectSettled(page);
 
     const row = rowNamed(page, "k8s-agent-7f3a91c");
-    await expect(row).toContainText("k8s-agent");
+
     await expect(row).toContainText("default-model-config");
 
     // `note-taker` carries no labels at all. It is a complete, valid template that can
     // never become an agent, and only this column says so.
-    const unusable = page.getByTestId("template-unusable-note-taker");
-    await expect(unusable).toBeVisible();
-    await expect(unusable).toContainText("No harness");
+
   });
 
   await test.step("2. the list narrows like every other landing page", async () => {
@@ -129,11 +87,6 @@ test("agent templates: a template is created, read, edited and deleted", async (
       await page.getByTestId("template-form-mcp-remove-0").click();
     });
 
-    const admission = page.getByTestId("template-form-admission");
-    await expect(admission).toContainText("No harness will run this template");
-    // And it says the template itself is fine, because it is — the reader should not go
-    // looking for a mistake in their model or prompt.
-    await expect(admission).toContainText("Nothing is wrong with the template itself");
 
     // Only the name is required: a BYO harness runs a template with no model.
     await expect(page.getByTestId("template-submit")).toBeDisabled();
@@ -144,16 +97,9 @@ test("agent templates: a template is created, read, edited and deleted", async (
     });
   });
 
-  await test.step("5. one button makes it admissible, and it saves", async () => {
+  await test.step("5. the template saves without creating an Agent", async () => {
     await page.getByTestId("template-form-name").fill(CREATED);
     await selectOption(page, "template-form-model", "default-model-config");
-
-    // The step that is easiest to miss, and the one that makes a template usable: it
-    // applies whatever labels that harness's selector matches on.
-    await page.getByTestId("template-form-admit-k8s-agent").click();
-    await expect(page.getByTestId("template-form-admission")).toContainText(
-      "admitted by k8s-agent",
-    );
 
     await expect(page.getByTestId("template-submit")).toBeEnabled();
     await page.getByTestId("template-submit").click();
@@ -161,10 +107,6 @@ test("agent templates: a template is created, read, edited and deleted", async (
 
     const row = rowNamed(page, CREATED);
     await expect(row).toBeVisible({ timeout: 30_000 });
-    // The admission is the controller's answer, recomputed from the labels — not an
-    // echo of what the form claimed.
-    await expect(row).toContainText("k8s-agent");
-
     /*
      * And the list comes back narrowed to the namespace that was being worked in.
      *
@@ -213,25 +155,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
 
     // The single most important fact about a template, and the one nothing about the
     // template itself reveals. A reader who has to press Edit to find it will not.
-    await expect(page.getByTestId("template-admission-status")).toContainText(
-      "k8s-agent",
-    );
+
   });
 
-  await test.step("7. the Agents tab lists the pairs this template is half of", async () => {
-    await page.getByRole("tab", { name: /Agents/ }).click();
-    // One row per admitting harness. A pair is the durable runnable thing — the template
-    // alone does nothing, and an instance is one conversation with a pair.
-    await expect(page.getByTestId("template-agents-table")).toContainText("k8s-agent");
-    /*
-     * Counted, which the pair list alone cannot tell you: a pair exists the moment a
-     * harness admits the template, whether or not anyone has ever talked to it. So
-     * "which harnesses run this" and "is anything using this" are different questions,
-     * and only the second one stops a reader deleting something in use.
-     */
-    await expect(page.getByTestId("template-pair-conversations").first()).toContainText(
-      /\d+ conversations?/,
-    );
+  await test.step("7. saving a template does not create an Agent", async () => {
+    await page.getByRole("tab", {name: /Agents/}).click();
+    await expect(page.getByTestId("template-agents-table")).toContainText("No Agent directly references this template.");
   });
 
   await test.step("8. Edit turns the same fields into the form, in place", async () => {
@@ -295,27 +224,13 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(deleteButton).toContainText("Delete template");
     await deleteButton.click();
 
-    /*
-     * Measured against the controller, not read off the schema. A scratch template with
-     * a live pair was deleted over gRPC on a cluster: the call was accepted, the
-     * resource went, and the `agent_template_harness_pair` row survived in Postgres with
-     * `retired_at` set — retired, not removed. The revision collector skips any revision
-     * an `agent_instance.prepared_revision` points at before the `ON DELETE RESTRICT` on
-     * that column could fire, so an agent's revision is retained *for it*; and
-     * `GetLatestRuntimeRevisionForInstance` requires `retired_at IS NULL`, which is what
-     * stops anything new being cut from the template afterwards.
-     *
-     * **What it must not say is that the agents keep running.** A (template, harness)
-     * pair *is* an agent here, and deleting the template retires the pair — that is
-     * exactly the mechanism that stops new work. What survives is the conversations
-     * already open, each holding a revision retained for it.
-     */
-    const consequence = page.getByTestId("template-delete-consequence");
-    await expect(consequence).toContainText("1 agent is built from this template");
+    // Existing revisions survive deletion; future configuration needs this reference.
+    const consequence = confirmation(page);
+    await expect(consequence).toContainText("Existing conversations");
     await expect(consequence).toContainText(
-      "Conversations already open with it keep working",
+      "last successful revisions are retained",
     );
-    await expect(consequence).toContainText("no new one can be started");
+    await expect(consequence).toContainText("cannot prepare new configuration");
   });
 
   await test.step("12. confirming removes it, and the list that opens does not show it", async () => {
@@ -333,23 +248,20 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page).toHaveURL(/[?&]ns=kagent(&|$)/);
   });
 
-  await test.step("13. a template nothing runs says that instead", async () => {
-    // The other branch of the same sentence. Telling a reader that conversations will
-    // keep working when no harness ever admitted the template would be noise dressed as
-    // care.
+  await test.step("13. deletion also works for an unused template", async () => {
     await page.getByTestId("templates-filters-search").fill("note-taker");
     await page.getByTestId("template-link-note-taker").click();
     await page.waitForURL(/\/agent-templates\/kagent\/note-taker/);
 
     await page.getByTestId("delete-note-taker").click();
-    await expect(page.getByTestId("template-delete-consequence")).toContainText(
-      "no agent was ever built from it",
+    await expect(confirmation(page)).toContainText(
+      "last successful revisions are retained",
     );
   });
 
   await test.step("14. an agent in the Agents tab opens that agent", async () => {
     // The tab answers "what is built from this template", and each answer is a
-    // (template, harness) pair — which is what an agent is. Leaving the rows as text
+    // explicit Agent referencing it. Leaving the rows as text
     // made it a dead end: it named the thing the reader wanted and gave them no way to
     // reach it.
     await page.keyboard.press("Escape");
@@ -379,12 +291,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
     );
 
     await page.getByRole("tab", { name: /Agents/ }).click();
-    await page.getByTestId("template-agent-link-k8s-agent").click();
+    await page.getByTestId("template-agent-link-k8s-agent-7f3a91c").click();
 
-    // The agent's own page, addressed as the pair it is. It has no heading or actions
+    // The agent's own page, addressed by its identity. It has no heading or actions
     // row of its own: the rail names the agent and holds both, so the offer of a new
     // conversation is what says the page arrived.
-    await page.waitForURL(/\/agents\/kagent\/k8s-agent-7f3a91c\/on\/k8s-agent$/);
+    await page.waitForURL(/\/agents\/kagent\/k8s-agent-7f3a91c$/);
     await expect(page.getByTestId("chat-new-session")).toBeVisible({ timeout: 30_000 });
   });
 

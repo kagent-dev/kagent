@@ -14,7 +14,7 @@ import {
   relativeAge,
   stateAppearance,
 } from "@/components/agent-instances/instanceLabels";
-import { buildPath, paths } from "@/router/routes";
+import { paths } from "@/router/routes";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { bareName, isNotFound, useAgentInstance, useAgentInstances } from "@/api";
@@ -66,11 +66,10 @@ export function AgentDetailsPage() {
    * anyway would point at one that does not exist.
    */
   const agentHref =
-    data?.harness && data.agentTemplate
+    data?.agent
       ? agentPageUrl({
-          namespace: data.agentTemplate.split("/")[0],
-          agentTemplate: bareName(data.agentTemplate),
-          harness: bareName(data.harness),
+          namespace: data.agent.split("/")[0],
+          name: bareName(data.agent),
         })
       : undefined;
 
@@ -112,7 +111,7 @@ export function AgentDetailsPage() {
               data-testid="instance-agent-link"
               css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
             >
-              {`${bareName(data.agentTemplate ?? "")} on ${bareName(data.harness ?? "")}`}
+              {data.agent}
             </Link>
           ) : (
             // Not a link and not a blank cell: an instance with no prepared revision
@@ -120,31 +119,6 @@ export function AgentDetailsPage() {
             // link this page forgot to render.
             <ValueOrNotReported value={undefined} />
           ),
-        },
-        {
-          key: "agentTemplate",
-          label: "Agent template",
-          children: data.agentTemplate ? (
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: data.agentTemplate.split("/")[0],
-                name: bareName(data.agentTemplate),
-              })}
-              data-testid="instance-template-link"
-              css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
-            >
-              {data.agentTemplate}
-            </Link>
-          ) : (
-            <ValueOrNotReported value={undefined} />
-          ),
-        },
-        {
-          key: "harness",
-          label: "Harness",
-          // Not a link: `HarnessService` is read-only in this build, so there is no
-          // harness page to open. The template is the half a reader can change.
-          children: <ValueOrNotReported value={data.harness} mono />,
         },
         {
           key: "preparedRevision",

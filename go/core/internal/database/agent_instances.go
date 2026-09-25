@@ -50,15 +50,14 @@ func marshalAgentInstance(instance *apiv1alpha1.AgentInstance) ([]byte, error) {
 	return data, nil
 }
 
-// sameAgentInstanceRequest reports whether two creation requests target the same harness
-// and agent template. Names and other mutable fields do not affect retry identity.
+// sameAgentInstanceRequest reports whether two creation requests target the same Agent. Names and other mutable fields do not affect retry identity.
 func sameAgentInstanceRequest(instance, request *apiv1alpha1.AgentInstance) bool {
-	return proto.Equal(instance.GetHarness(), request.GetHarness()) && proto.Equal(instance.GetAgentTemplate(), request.GetAgentTemplate())
+	return proto.Equal(instance.GetAgent(), request.GetAgent())
 }
 
 // CreateAgentInstance atomically reserves an instance, its conversation history, and the
 // latest successful runtime revision. A repeated creator/requestID returns the existing
-// instance when the harness and template match, or ErrIdempotencyConflict otherwise. A
+// instance when the Agent matches, or ErrIdempotencyConflict otherwise. A
 // deleted instance returns ErrFailedPrecondition and keeps its request ID reserved. The
 // boolean reports whether this call created the instance; runtime provisioning belongs to
 // the caller.
@@ -105,7 +104,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 }
 
 // insertAgentInstance reserves a new conversation in CREATING/CREATE and pins the active
-// template/harness pair's latest successful revision. Callers must supply a transaction so
+// Agent's latest successful revision. Callers must supply a transaction so
 // the history and instance commit together. A missing prepared target returns ErrNotFound;
 // a duplicate creator/requestID returns pgx.ErrNoRows for the caller to resolve.
 func insertAgentInstance(ctx context.Context, db pgx.Tx, request *apiv1alpha1.AgentInstance, requestID string) (agentInstanceRow, error) {
@@ -115,18 +114,10 @@ func insertAgentInstance(ctx context.Context, db pgx.Tx, request *apiv1alpha1.Ag
 	}
 	revision, err := queryOne(ctx, db, `
 		SELECT r.revision, clock_timestamp() AS db_time
-		FROM agent_template_harness_pair p
+		FROM agent_definition p
 		JOIN runtime_revision r ON r.revision = p.latest_successful_revision
-		WHERE p.namespace = $1
-		  AND p.namespace = $2
-		  AND p.agent_template_name = $3
-		  AND p.harness_name = $4
-		  AND p.retired_at IS NULL
-	`,
-		pgx.RowToStructByName[preparedRevision], request.GetHarness().GetNamespace(),
-		request.GetAgentTemplate().GetNamespace(), request.GetAgentTemplate().GetName(),
-		request.GetHarness().GetName(),
-	)
+  WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
+ `, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
 	if err != nil {
 		return agentInstanceRow{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
 	}
@@ -188,7 +179,7 @@ func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv
 }
 
 // ListAgentInstances returns up to Limit instances in ascending ID order after AfterID,
-// filtered by optional template/harness references. It restricts results to
+// filtered by optional Agent reference. It restricts results to
 // UserID unless AllUsers is set; callers must authorize that broader access.
 func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	rows, err := queryMany(ctx, c.db, `
@@ -197,14 +188,12 @@ func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuer
 		LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 		WHERE i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND ($1::boolean OR i.user_id = $2)
 		  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
-		  AND ($4::text = '' OR (r.agent_template_name = $4 AND r.namespace = $5))
-		  AND ($6::text = '' OR (r.harness_name = $6 AND r.namespace = $7))
+		  AND ($4::text = '' OR (r.agent_name = $4 AND r.namespace = $5))
 		ORDER BY i.id
-		LIMIT $8
+		LIMIT $6
 	`,
 		pgx.RowToStructByName[agentInstanceRow], query.AllUsers, query.UserID, query.AfterID,
-		query.AgentTemplate.GetName(), query.AgentTemplate.GetNamespace(), query.Harness.GetName(),
-		query.Harness.GetNamespace(), int32(query.Limit),
+		query.Agent.GetName(), query.Agent.GetNamespace(), int32(query.Limit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstances: %w", err)

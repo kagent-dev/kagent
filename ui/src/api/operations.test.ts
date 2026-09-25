@@ -742,8 +742,7 @@ describe("agent instances", () => {
       id: INSTANCE_ID,
       contextId: "distinct-a2a-context",
       creator: "alice@example.com",
-      harness: { namespace: "kagent", name: "k8s-agent" },
-      agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+      agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
       preparedRevision: "rev-7f3a91c",
       a2aAuthority: "k8s-agent.kagent.svc:8080",
       state: PbAgentInstanceState.READY,
@@ -779,8 +778,7 @@ describe("agent instances", () => {
     expect(ready?.contextId).toBe("distinct-a2a-context");
     expect(ready?.state).toBe("ready");
     expect(ready?.operation).toBe("unspecified");
-    expect(ready?.harness).toBe("kagent/k8s-agent");
-    expect(ready?.agentTemplate).toBe("kagent/k8s-agent-7f3a91c");
+    expect(ready?.agent).toBe("kagent/k8s-agent-7f3a91c");
     expect(ready?.createdAt).toBe("2026-01-01T00:00:00.000Z");
 
     expect(suspended?.state).toBe("suspended");
@@ -824,8 +822,7 @@ describe("agent instances", () => {
         listAgentInstances: () => ({
           agentInstances: [
             instanceMessage({
-              harness: undefined,
-              agentTemplate: undefined,
+              agent: undefined,
               preparedRevision: "",
               a2aAuthority: "",
               createdAt: undefined,
@@ -839,8 +836,7 @@ describe("agent instances", () => {
     });
 
     const [row] = await apiClient.agentInstances.list();
-    expect(row.harness).toBeUndefined();
-    expect(row.agentTemplate).toBeUndefined();
+    expect(row.agent).toBeUndefined();
     expect(row.preparedRevision).toBeUndefined();
     expect(row.a2aAuthority).toBeUndefined();
     expect(row.createdAt).toBe("");

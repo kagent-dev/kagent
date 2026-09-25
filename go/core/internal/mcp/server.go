@@ -40,10 +40,9 @@ type ListAgentInstancesInput struct {
 }
 
 type AgentInstanceSummary struct {
-	ID            string `json:"id"`
-	AgentTemplate string `json:"agent_template"`
-	Harness       string `json:"harness"`
-	State         string `json:"state"`
+	ID    string `json:"id"`
+	Agent string `json:"agent"`
+	State string `json:"state"`
 }
 
 type ListAgentInstancesOutput struct {
@@ -116,7 +115,7 @@ func (h *Handler) listAgentInstances(ctx context.Context, _ *mcp.CallToolRequest
 		if i > 0 {
 			text.WriteByte('\n')
 		}
-		fmt.Fprintf(&text, "%s (%s via %s)", instance.ID, instance.AgentTemplate, instance.Harness)
+		fmt.Fprintf(&text, "%s (%s)", instance.ID, instance.Agent)
 	}
 	if text.Len() == 0 {
 		text.WriteString("No ready AgentInstances found.")

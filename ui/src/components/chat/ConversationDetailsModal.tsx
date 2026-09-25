@@ -41,12 +41,11 @@ export function ConversationDetailsModal({
   const data = instance.data;
   const [isRenaming, setRenaming] = useState(false);
 
-  const agentHref = data?.agentTemplate && data.harness
+  const agentHref = data?.agent
     ? agentPageUrl({
-      namespace: data.agentTemplate.split("/")[0],
+      namespace: data.agent.split("/")[0],
 
-        agentTemplate: bareName(data.agentTemplate),
-        harness: bareName(data.harness),
+        name: bareName(data.agent),
       })
     : undefined;
 

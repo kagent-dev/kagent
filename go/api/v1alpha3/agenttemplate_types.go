@@ -216,54 +216,9 @@ type AgentTemplateSpec struct {
 	Plugins []PluginBundle `json:"plugins,omitempty"`
 }
 
-const (
-	AgentTemplateConditionAccepted     = "Accepted"
-	AgentTemplateConditionResolvedRefs = "ResolvedRefs"
-	AgentTemplateConditionCompatible   = "Compatible"
-	AgentTemplateConditionReady        = "Ready"
-)
-
-// AgentTemplateHarnessStatus reports runtime revision state for one admitting Harness.
-type AgentTemplateHarnessStatus struct {
-	// Harness names a same-namespace Harness whose admission selector matches
-	// this AgentTemplate.
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Harness string `json:"harness"`
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	DesiredRevision string `json:"desiredRevision"`
-	// +kubebuilder:validation:MinLength=1
-	// +optional
-	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
-	// Warnings reports non-blocking compatibility decisions made while compiling
-	// this AgentTemplate for the Harness.
-	// +kubebuilder:validation:MaxItems=100
-	// +listType=set
-	// +optional
-	Warnings []string `json:"warnings,omitempty"`
-	// +kubebuilder:validation:MaxItems=4
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// AgentTemplateStatus is the controller-observed state for each admitting Harness.
-type AgentTemplateStatus struct {
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Harnesses has at most one entry for each admitting Harness.
-	// +listType=map
-	// +listMapKey=harness
-	// +optional
-	Harnesses []AgentTemplateHarnessStatus `json:"harnesses,omitempty"`
-}
-
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agenttemplates,singular=agenttemplate,categories=kagent
-// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // AgentTemplate defines portable agent behavior.
@@ -274,8 +229,6 @@ type AgentTemplate struct {
 
 	// +required
 	Spec AgentTemplateSpec `json:"spec"`
-	// +optional
-	Status AgentTemplateStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

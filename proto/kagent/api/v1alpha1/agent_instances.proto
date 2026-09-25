@@ -55,8 +55,9 @@ message Failure {
 message AgentInstance {
   string id = 1;
   string creator = 2;
-  ResourceReference harness = 3;
-  ResourceReference agent_template = 4;
+  reserved 3, 4;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 15;
   string prepared_revision = 5;
   string a2a_authority = 6;
   AgentInstanceState state = 7;
@@ -75,13 +76,9 @@ message AgentInstance {
 }
 
 message CreateAgentInstanceRequest {
-  ResourceReference harness = 1 [(buf.validate.field).required = true];
-  ResourceReference agent_template = 2 [(buf.validate.field).required = true];
-  option (buf.validate.message).cel = {
-    id: "same_target_namespace"
-    message: "Harness and AgentTemplate must be in the same namespace"
-    expression: "this.harness.namespace == this.agent_template.namespace"
-  };
+  reserved 1, 2;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 5 [(buf.validate.field).required = true];
   string request_id = 3 [(buf.validate.field).string = {
     min_len: 1
     max_len: 128
@@ -111,12 +108,11 @@ message ListAgentInstancesRequest {
   // Includes instances created by other users when authorized.
   bool all_creators = 2;
   PageRequest page = 3;
-  // Narrows the list to the conversations of one agent, an agent being an
-  // (AgentTemplate, Harness) pair. Either may be given alone. Both are matched
-  // against the pair the instance's prepared revision was built from, so they
-  // also select instances created before these fields existed.
-  ResourceReference agent_template = 4;
-  ResourceReference harness = 5;
+  reserved 4, 5;
+  reserved "agent_template", "harness";
+  // Filters by the Agent that produced each instance's pinned revision.
+  ResourceReference agent = 6;
+
 }
 
 message ListAgentInstancesResponse {

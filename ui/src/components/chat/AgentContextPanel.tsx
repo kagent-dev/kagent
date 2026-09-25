@@ -1,7 +1,7 @@
 import { Alert, Skeleton, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link } from "react-router-dom";
-import { useAgentTemplate, type AgentInstance } from "@/api";
+import { useAgent, useAgentTemplate, bareName, type AgentInstance } from "@/api";
 import { buildPath, paths } from "@/router/routes";
 
 const { Text, Paragraph } = Typography;
@@ -44,25 +44,25 @@ export function AgentContextPanel({
    * through. Only the prepared revision needs a conversation, and it is omitted when
    * there is none rather than guessed at.
    */
-  pair?: { namespace: string; agentTemplate?: string; harness?: string };
+  pair?: { namespace: string; name?: string };
 }) {
   const theme = useTheme();
 
-  const namespace = agent?.agentTemplate?.split("/")[0] ?? pair?.namespace ?? "";
-  const templateRef = agent?.agentTemplate ?? pair?.agentTemplate;
-  const harnessRef = agent?.harness ?? pair?.harness;
-
-  const slash = templateRef?.indexOf("/") ?? -1;
-  const templateNamespace = slash === -1 ? namespace : templateRef!.slice(0, slash);
-  const templateName = slash === -1 ? templateRef : templateRef!.slice(slash + 1);
-  const template = useAgentTemplate(templateNamespace, templateName);
-
-  const spec = template.data?.resource.spec;
+  const namespace = agent?.agent?.split("/")[0] ?? pair?.namespace ?? "";
+  const name = agent?.agent ? bareName(agent.agent) : pair?.name;
+  const definition = useAgent(namespace, name);
+  const templateName = definition.data?.resource.spec.templateRef?.name;
+  const template = useAgentTemplate(namespace, templateName);
+  const templateNamespace = namespace;
+  const templateRef = templateName;
+  const harnessRef = definition.data?.resource.spec.harnessRef?.name ?? (definition.data?.resource.spec.harness ? "Inline" : undefined);
+  const spec = definition.data?.resource.spec.template ?? template.data?.resource.spec;
+  const error = definition.error ?? template.error;
   const tools = spec?.tools ?? [];
 
   return (
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
-      <Field label="Agent">
+      <Field label="Template">
         {templateRef && templateNamespace && templateName ? (
           <Link
             to={buildPath(paths.agentTemplateDetail, {
@@ -76,7 +76,7 @@ export function AgentContextPanel({
             </Text>
           </Link>
         ) : (
-          <Text css={{ color: theme.color.textMuted }}>Not reported</Text>
+          <Text css={{ color: theme.color.textMuted }}>{definition.data?.resource.spec.template ? "Inline" : "Not reported"}</Text>
         )}
       </Field>
 
@@ -86,9 +86,9 @@ export function AgentContextPanel({
         </Text>
       </Field>
 
-      {template.isLoading ? (
+      {definition.isLoading || template.isLoading ? (
         <Skeleton active paragraph={{ rows: 4 }} data-testid="chat-agent-context-loading" />
-      ) : template.error ? (
+      ) : error ? (
         /* The conversation above is unaffected — it is read from the gateway, not from
            the template — so this is a note beside the transcript rather than a failure
            of the page. */
@@ -97,7 +97,7 @@ export function AgentContextPanel({
           showIcon
           data-testid="chat-agent-context-error"
           title="Could not read this agent's template"
-          description={template.error.message}
+          description={error.message}
         />
       ) : spec ? (
         <>

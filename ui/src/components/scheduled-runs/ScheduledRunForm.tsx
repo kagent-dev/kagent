@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
-import { agentPairsFrom, newConversationBlockedReason, useAgentTemplatesAcrossNamespaces, useNamespaces } from "@/api";
+import { agentPairsFrom, newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
 import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
@@ -40,8 +40,8 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   // Retain the key after a failed response: retrying must not create another schedule.
   const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
-  const templates = useAgentTemplatesAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
-  const agents = agentPairsFrom(templates.data?.templates ?? []);
+  const templates = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
+  const agents = agentPairsFrom(templates.data?.agents ?? []);
   const config = schedule?.config;
   const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
   const watched = Form.useWatch([], form) as FormValues | undefined;
@@ -76,8 +76,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
         if (!agent) throw new Error("Choose an available agent.");
         saved = (await invoke("scheduledRuns.create", {
           requestId,
-          harness: { namespace: agent.namespace, name: agent.harness },
-          agentTemplate: { namespace: agent.namespace, name: agent.agentTemplate },
+          agent: { namespace: agent.namespace, name: agent.name },
           config: nextConfig,
         })).scheduledRun;
       }
@@ -108,7 +107,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
             placeholder="Choose an agent" options={agents.map((agent) => {
               const blocked = newConversationBlockedReason(agent);
               return { value: agent.id, disabled: !!blocked,
-                label: `${agent.namespace}/${agent.agentTemplate} on ${agent.harness}${blocked ? ` — ${blocked}` : ""}` };
+                label: `${agent.namespace}/${agent.name}${blocked ? ` — ${blocked}` : ""}` };
             })} />
         </Form.Item>
       </>}

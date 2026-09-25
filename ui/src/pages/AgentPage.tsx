@@ -1,3 +1,4 @@
+import { AgentDefinitionEditor } from "@/components/agent/AgentDefinitionEditor";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Card, Space, Table, Tag, Tooltip, Typography } from "antd";
@@ -21,8 +22,7 @@ import {
   isNotFound,
   newConversationBlockedReason,
   useAgentConversations,
-  useAgentTemplate,
-  useInvalidateAgentTemplates,
+  useAgent,
   type AgentInstance,
   type AgentPair,
 } from "@/api";
@@ -52,71 +52,17 @@ const { Paragraph, Text } = Typography;
 const FILTER_IDS: readonly string[] = ["state"];
 const PAGE_SIZE = 25;
 
-/**
- * One agent, and the conversations people have had with it.
- *
- * An agent is a `(AgentTemplate, Harness)` pair and an `AgentInstance` is one
- * conversation with it — so this is the page between the two: the agents list leads
- * here, and each row here leads to a chat. See `api/domain/agentPairs`.
- *
- * ## The narrowing here really is server-side
- *
- * `ListAgentInstances` gained `agent_template` and `harness`, which the controller
- * resolves through the instance's `prepared_revision` to the pair it was built from.
- * That matters twice over: the list is paged, so filtering it in the browser would
- * search one page and report "no conversations" about a row further down; and
- * resolving through the revision rather than through labels selects conversations
- * stored before the fields existed, with no migration and no backfill.
- *
- * Search and sort are still the browser's, over whatever pages have been read, and
- * the note under the table says so rather than implying otherwise.
- *
- * ## Somebody else's conversation is listed and cannot be opened
- *
- * This is the part worth reading before changing anything here. The list is asked
- * for with `all_creators` always — the old "include agents created by others" switch
- * is gone, because a list that hides most of a shared cluster by default is a list
- * that misleads. But an instance is scoped to its creator on *read*:
- * `GetAgentInstance` resolves through `WHERE id = $1 AND user_id = $2`, and the A2A gateway reads the instance through that same call. So a
- * conversation somebody else started is listable and genuinely not openable — its
- * record page and its chat both answer `NotFound`, and a share link is the only way
- * in.
- *
- * Listing such a row with a link into a chat that will fail would be worse than not
- * listing it at all, so those rows carry no link and say whose they are. The page
- * says it once, above the table, so the absence of a link reads as a rule rather
- * than as a bug.
- */
+/** An Agent definition and the conversations pinned to its revisions. */
 export function AgentPage() {
   const theme = useTheme();
+  const [editing, setEditing] = useState(false);
   const navigate = useNavigate();
-  const { namespace, agentTemplate, harness } = useParams<{
-    namespace: string;
-    agentTemplate: string;
-    harness: string;
-  }>();
+  const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const view = useListView(FILTER_IDS);
-
-  const template = useAgentTemplate(namespace, agentTemplate);
-  const invalidateTemplates = useInvalidateAgentTemplates();
-  const conversations = useAgentConversations(namespace, agentTemplate, harness);
-
-  /*
-   * The agent itself: this template's pair with *this* harness.
-   *
-   * Found among the pairs the template reports rather than assumed to exist. A
-   * template admitted by two harnesses is two agents, and an address naming a
-   * harness that no longer admits it is an address for an agent that has been
-   * retired — which is a different answer from "the template is missing" and is
-   * worth saying separately.
-   */
-  const agent: AgentPair | undefined = useMemo(() => {
-    if (!template.data || !harness) return undefined;
-    return agentPairsOf(template.data).find((pair) => pair.harness === harness);
-  }, [template.data, harness]);
-
-  const templateMissing = template.error !== undefined && isNotFound(template.error);
-  const notAdmitted = template.data !== undefined && agent === undefined;
+  const definition = useAgent(namespace, name);
+  const conversations = useAgentConversations(namespace, name);
+  const agent = useMemo(() => definition.data ? agentPairsOf(definition.data)[0] : undefined, [definition.data]);
+  const agentMissing = definition.error !== undefined && isNotFound(definition.error);
 
   /*
    * Memoised rather than defaulted inline: `?? []` builds a new array on every
@@ -184,58 +130,11 @@ export function AgentPage() {
    * create now belongs to the first message; see `AgentNewChatPage`.
    */
   function startConversation(): void {
-    if (!namespace || !agentTemplate || !harness) return;
-    navigate(
-      buildPath(paths.agentNewChat, { namespace, agentTemplate, harness }),
-    );
+    if (namespace && name) navigate(buildPath(paths.agentNewChat, { namespace, name }));
   }
 
-  /*
-   * Delete every conversation, then the template.
-   *
-   * In that order and not the other: deleting the template retires the pair, and a
-   * conversation whose pair is retired still runs — it holds a prepared revision the
-   * collector keeps for it — so it would be left behind with nothing describing it.
-   *
-   * The conversations go in parallel because they are independent, and the template only
-   * after all of them have: a partial delete that removed the template first would leave
-   * a state no page can explain.
-   */
   async function removeAgent(): Promise<void> {
-    /*
-     * Only the conversations this reader can actually delete.
-     *
-     * An instance is scoped to its creator on every write as well as every read, so
-     * deleting somebody else's is refused — and a delete that tried them all failed
-     * partway, leaving the agent half-removed with no way to finish. `openableIds` is
-     * the controller's own answer about which are this reader's, which is the same
-     * answer the rows use to decide whether to offer a delete at all.
-     *
-     * The ones left behind keep running, exactly as they would if the template were
-     * deleted on its own — see the prompt, which says so rather than implying the agent
-     * is gone entirely.
-     */
-    const mine = rows.filter((row) => openableIds?.has(row.id) ?? true);
-    await Promise.all(
-      mine.map((row) => apiClient.agentInstances.remove(row.id)),
-    );
-
-    /*
-     * The template goes only when nothing is left behind.
-     *
-     * Deleting it retires the pair, and a conversation whose pair is retired keeps
-     * running with nothing describing it — reachable only from the unmapped list. Doing
-     * that to somebody else's conversation, to tidy up an agent they did not ask to
-     * delete, is not ours to do.
-     *
-     * So when every conversation was this reader's, the mapping goes with them and the
-     * agent is gone. When any belonged to someone else, the conversations this reader
-     * owned are deleted and the agent stays — which the prompt says before they commit.
-     */
-    const strandsOthers = mine.length < rows.length;
-    if (!strandsOthers && agentTemplate && namespace) {
-      await apiClient.agentBuildingBlocks.removeAgentTemplate(namespace, agentTemplate);
-    }
+    if (namespace && name) await apiClient.agentBuildingBlocks.removeAgent(namespace, name);
   }
 
   /*
@@ -314,7 +213,7 @@ export function AgentPage() {
               )}
               <ExtensionSlot
                 id="app_agents_agentsList_agentListItem_badge"
-                context={{ agentName: row.id, namespace: row.agentTemplate?.split("/")[0] ?? "" }}
+                context={{ agentName: row.id, namespace: row.agent?.split("/")[0] ?? "" }}
               />
             </Space>
           );
@@ -413,6 +312,7 @@ export function AgentPage() {
     // now: a reason attached to a control the reader may never hover is a reason they
     // never read.
     <PageFrame>
+      {editing && definition.data && <AgentDefinitionEditor agent={definition.data} onClose={() => setEditing(false)} onSaved={() => {setEditing(false); void definition.refresh();}} />}
       {/*
         The same rail as the conversation surfaces.
 
@@ -451,13 +351,13 @@ export function AgentPage() {
           <AgentRail
             agentRef={{}}
             agentTitle={{
-              primary: agentTemplate ?? namespace,
-              secondary: harness ? `on ${harness}` : namespace,
+              primary: name ?? namespace,
+              secondary: namespace,
             }}
-            agentHref={agentPageUrl({ namespace, agentTemplate, harness })}
+            agentHref={agentPageUrl({ namespace, name })}
             // Known from the URL here, so the switcher can leave this agent out of its
             // own list without waiting for a conversation that does not exist.
-            agentPair={{ namespace: namespace ?? "", agentTemplate, harness }}
+            agentPair={{ namespace: namespace ?? "", name }}
             instances={{ ...conversations, data: rows }}
             onNewChat={startConversation}
           />
@@ -468,12 +368,12 @@ export function AgentPage() {
         size="middle"
         css={{ display: "flex", flex: 1, minWidth: 0 }}
       >
-        {templateMissing ? (
+        {agentMissing ? (
           <Alert
             type="warning"
             showIcon
-            title="This agent's template does not exist"
-            description={`No agent template ${agentTemplate ?? ""} was found in ${namespace ?? "that namespace"}. Conversations cut from it keep running — an instance runs from the revision it was built against — but no new ones can be started and this page has nothing to describe.`}
+            title="This Agent does not exist"
+            description={`No Agent ${name ?? ""} was found in ${namespace ?? "that namespace"}. Conversations cut from it keep running — an instance runs from the revision it was built against — but no new ones can be started and this page has nothing to describe.`}
             data-testid="agent-template-missing"
             action={
               <Link to={paths.agents}>
@@ -481,28 +381,18 @@ export function AgentPage() {
               </Link>
             }
           />
-        ) : template.error ? (
+        ) : definition.error ? (
           <Alert
             type="error"
             showIcon
-            title="Could not load this agent's template"
-            description={template.error.message}
+            title="Could not load this Agent"
+            description={definition.error.message}
             data-testid="agent-template-error"
             action={
-              <Button size="small" onClick={() => void template.refresh()}>
+              <Button size="small" onClick={() => void definition.refresh()}>
                 Try again
               </Button>
             }
-          />
-        ) : null}
-
-        {notAdmitted ? (
-          <Alert
-            type="warning"
-            showIcon
-            title={`The ${harness} harness no longer admits this template`}
-            description="A harness admits templates by label selector, and the controller retires the pair when the labels stop matching. The conversations below still exist, and no new one can be started until the labels agree again."
-            data-testid="agent-not-admitted"
           />
         ) : null}
 
@@ -674,8 +564,8 @@ export function AgentPage() {
 
         {/* Below the conversations, because a conversation is what a reader came here
             for and a schedule is how some of them got started. */}
-        {namespace && agentTemplate && harness ? (
-          <AgentSchedules pair={{ namespace, agentTemplate, harness }} />
+        {namespace && name ? (
+          <AgentSchedules pair={{ namespace, name }} />
         ) : null}
       </Space>
 
@@ -697,58 +587,15 @@ export function AgentPage() {
         }}
         data-testid="agent-context-aside"
       >
-        <AgentContextPanel pair={{ namespace: namespace ?? "", agentTemplate, harness }} />
+        <AgentContextPanel pair={{ namespace: namespace ?? "", name }} />
 
-        {/*
-          Deleting the agent, which is more than one object.
-
-          An agent is a (template, harness) pair, and the pair is *derived* — the
-          controller materialises it from admission and retires it when the labels stop
-          matching. So there is nothing to delete called "the agent": deleting the
-          template retires the pair, which is what stops new conversations, and the
-          conversations already open are separate rows that outlive it.
-
-          Both halves happen here, conversations first. Deleting the template alone
-          would leave every conversation running against a retired pair with no way back
-          to the thing that describes them.
-        */}
         {agent ? (
           <div css={{ marginTop: theme.space(5) }}>
-            <DeleteResourceButton
-              kind="agent"
-              name={`${agentTemplate} on ${harness}`}
-              label="Delete agent"
-              outlined
+            <Button onClick={() => setEditing(true)} icon={<Pencil size={14} />}>Edit Agent</Button>
+            <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
               onDelete={removeAgent}
-              /* The agents list derives its agents from the template read, so it is
-                 swept — though being unmounted here, it re-reads on mount instead. */
-              onDeleted={async () => {
-                await invalidateTemplates().catch(() => {});
-                navigate(paths.agents);
-              }}
-              description={
-                <span css={{ display: "inline-block", maxWidth: 320 }} data-testid="agent-delete-consequence">
-                  {(() => {
-                    const mine = rows.filter((row) => openableIds?.has(row.id) ?? true).length;
-                    const others = rows.length - mine;
-                    const yours =
-                      mine === 0
-                        ? "You have no conversations with this agent. "
-                        : `${mine} of your ${mine === 1 ? "conversation" : "conversations"} will be deleted, and cannot be recovered. `;
-                    // Said plainly rather than left to be discovered: an instance is
-                    // scoped to its creator on write as well as read, so somebody
-                    // else's cannot be deleted from here and will keep running.
-                    // Two different outcomes, and which one applies is decided by
-                    // whether anything would be left stranded.
-                    const theirs =
-                      others > 0
-                        ? `${others} started by other people cannot be deleted from here, so they keep running and the agent stays — it is only gone once nothing is left under it. `
-                        : "The agent template is deleted too, which is what stops this agent existing. ";
-                    return `${yours}${theirs}`;
-                  })()}
-                  Deleting the conversations releases the workers they hold.
-                </span>
-              }
+              onDeleted={() => navigate(paths.agents)}
+              description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
             />
           </div>
         ) : null}
@@ -822,6 +669,7 @@ function AgentIdentityCard({ agent }: { agent: AgentPair }) {
         }}
       >
         <IdentityField label="Agent template">
+          {agent.definition?.resource.spec.templateRef ? (
           <Link
             to={buildPath(paths.agentTemplateDetail, {
               namespace: agent.namespace,
@@ -845,6 +693,7 @@ function AgentIdentityCard({ agent }: { agent: AgentPair }) {
             </Text>
             <Pencil size={12} aria-hidden color={theme.color.textMuted} />
           </Link>
+          ) : <Text>Inline template</Text>}
         </IdentityField>
 
         <IdentityField label="Runs on">
@@ -886,8 +735,7 @@ function AgentIdentityCard({ agent }: { agent: AgentPair }) {
         data-testid="agent-identity-note"
       >
         The template says what this agent does and the harness says how it runs.
-        Editing the template changes every agent cut from it, not only this one — a
-        template admitted by two harnesses is two agents sharing one configuration.
+        Referenced templates and Harnesses can be shared. Inline configuration belongs to this Agent.
       </Paragraph>
     </Card>
   );

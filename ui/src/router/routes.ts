@@ -20,7 +20,7 @@ export const paths = {
    */
   agents: "/agents",
   /** One Kubernetes template/harness pair, listing its conversations. */
-  agent: "/agents/:namespace/:agentTemplate/on/:harness",
+  agent: "/agents/:namespace/:name",
   /*
    * A conversation with this agent that does not exist yet.
    *
@@ -35,7 +35,7 @@ export const paths = {
    * reader waits in the meantime. It redirects to `agentChat` as soon as the create
    * returns.
    */
-  agentNewChat: "/agents/:namespace/:agentTemplate/on/:harness/new",
+  agentNewChat: "/agents/:namespace/:name/new",
   /*
    * Conversations that belong to no agent.
    *

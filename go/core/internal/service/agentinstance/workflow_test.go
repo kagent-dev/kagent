@@ -149,14 +149,14 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.AgentInst
 	t.Cleanup(pool.Close)
 	client := database.NewClient(pool)
 	revision := &database.RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid", SourceSnapshot: []byte("{}"),
-		AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
+		Revision: "revision-1", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		SourceSnapshot: []byte("{}"),
+		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	require.NoError(t, client.UpsertAgentTemplateHarnessPair(t.Context(), database.AgentTemplateHarnessPair{Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid", HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision}))
+	require.NoError(t, client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}))
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, true))
-	instance, _, err := client.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{Id: uuid.NewString(), Creator: "alice", Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
+	instance, _, err := client.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, revision: revision}, instance
 }
@@ -293,7 +293,7 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	fork, _, err := store.ForkAgentInstance(t.Context(), checkpoint.Id, source.Creator, requestID, uuid.NewString())
 	require.NoError(t, err)
 	// An ordinary Create must not reuse a fork request ID, even for the same pair.
-	_, _, err = store.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{Id: uuid.NewString(), Creator: source.Creator, Harness: source.Harness, AgentTemplate: source.AgentTemplate, Name: fork.Name}, requestID)
+	_, _, err = store.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{Id: uuid.NewString(), Creator: source.Creator, Agent: source.Agent, Name: fork.Name}, requestID)
 	require.ErrorIs(t, err, database.ErrIdempotencyConflict)
 	return fork, checkpoint.Id
 }
@@ -391,12 +391,12 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
 	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors))
 	ctx := serviceTestContext("alice")
-	instance, err := service.Create(ctx, fixture.Harness, fixture.AgentTemplate, "retry-request", "conversation")
+	instance, err := service.Create(ctx, fixture.Agent, "retry-request", "conversation")
 	require.NoError(t, err)
 	suspended, err := service.Suspend(ctx, instance.Id)
 	require.NoError(t, err)
 	mutations := actors.mutations.Load()
-	retried, err := service.Create(ctx, fixture.Harness, fixture.AgentTemplate, "retry-request", "ignored retry name")
+	retried, err := service.Create(ctx, fixture.Agent, "retry-request", "ignored retry name")
 	require.NoError(t, err)
 	require.Equal(t, suspended.Id, retried.Id)
 	require.Equal(t, suspended.State, retried.State)
@@ -406,7 +406,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
-	_, err = service.Create(ctx, fixture.Harness, fixture.AgentTemplate, "retry-request", "")
+	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
 	_, err = service.Get(ctx, instance.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))

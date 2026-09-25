@@ -251,7 +251,7 @@ function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: strin
           {conversationTitle(row, autoTitle)}
         </Link>
         <Text css={{ display: "block", color: theme.color.textMuted, fontSize: 12 }}>
-          {row.agentTemplate ?? "template not reported"}
+          {row.agent ?? "template not reported"}
         </Text>
       </div>
       <div css={{ flexShrink: 0, textAlign: "right" }}>

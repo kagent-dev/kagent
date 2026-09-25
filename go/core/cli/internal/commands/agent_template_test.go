@@ -51,7 +51,7 @@ func TestValidateAgentTemplateGetCfg(t *testing.T) {
 	}
 }
 
-func TestGetAgentTemplatesTableReportsHarnessReadiness(t *testing.T) {
+func TestGetAgentTemplatesTableReportsNames(t *testing.T) {
 	clientSet := clientfake.NewSimpleClientset()
 	clientSet.PrependReactor("list", "agenttemplates", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		options := action.(interface{ GetListOptions() metav1.ListOptions }).GetListOptions()
@@ -60,8 +60,8 @@ func TestGetAgentTemplatesTableReportsHarnessReadiness(t *testing.T) {
 		return true, &apiv1alpha3.AgentTemplateList{
 			ListMeta: metav1.ListMeta{Continue: "next-page"},
 			Items: []apiv1alpha3.AgentTemplate{
-				templateWithReadyCondition("ready-template", "kagent", metav1.ConditionTrue),
-				templateWithReadyCondition("not-ready-template", "codex", metav1.ConditionFalse),
+				templateNamed("ready-template"),
+				templateNamed("not-ready-template"),
 				{ObjectMeta: metav1.ObjectMeta{Name: "unknown-template"}},
 			},
 		}, nil
@@ -73,12 +73,8 @@ func TestGetAgentTemplatesTableReportsHarnessReadiness(t *testing.T) {
 	}, clioutput.FormatTable, &output)
 	require.NoError(t, err)
 	assert.Contains(t, output.String(), "ready-template")
-	assert.Contains(t, output.String(), "kagent")
-	assert.Contains(t, output.String(), "TRUE")
 	assert.Contains(t, output.String(), "not-ready-template")
-	assert.Contains(t, output.String(), "FALSE")
 	assert.Contains(t, output.String(), "unknown-template")
-	assert.Contains(t, output.String(), "UNKNOWN")
 	assert.NotContains(t, output.String(), "Items:")
 	assert.Contains(t, output.String(), "Next page token: next-page")
 }
@@ -91,8 +87,8 @@ func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
 		return true, &apiv1alpha3.AgentTemplateList{
 			ListMeta: metav1.ListMeta{Continue: "next-page"},
 			Items: []apiv1alpha3.AgentTemplate{
-				templateWithReadyCondition("ready-template", "kagent", metav1.ConditionTrue),
-				templateWithReadyCondition("not-ready-template", "codex", metav1.ConditionFalse),
+				templateNamed("ready-template"),
+				templateNamed("not-ready-template"),
 				{ObjectMeta: metav1.ObjectMeta{Name: "unknown-template"}},
 			},
 		}, nil
@@ -106,22 +102,12 @@ func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
 	assert.True(t, json.Valid(output.Bytes()))
 	assert.Contains(t, output.String(), `"continue":"next-page"`)
 	assert.Contains(t, output.String(), `"name":"ready-template"`)
-	assert.Contains(t, output.String(), `"status":"True"`)
 	assert.Contains(t, output.String(), `"name":"not-ready-template"`)
-	assert.Contains(t, output.String(), `"status":"False"`)
 	assert.Contains(t, output.String(), `"name":"unknown-template"`)
 }
 
-func templateWithReadyCondition(name, harness string, status metav1.ConditionStatus) apiv1alpha3.AgentTemplate {
-	return apiv1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Status: apiv1alpha3.AgentTemplateStatus{Harnesses: []apiv1alpha3.AgentTemplateHarnessStatus{{
-			Harness: harness,
-			Conditions: []metav1.Condition{{
-				Type: apiv1alpha3.AgentTemplateConditionReady, Status: status, Reason: "Test", Message: "test",
-			}},
-		}}},
-	}
+func templateNamed(name string) apiv1alpha3.AgentTemplate {
+	return apiv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name}}
 }
 
 func TestReadAgentTemplateManifest(t *testing.T) {

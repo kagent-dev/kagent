@@ -36,19 +36,15 @@ func (f *fakeLister) ListAgentInstances(_ context.Context, request *apiv1alpha1.
 // fakeCatalog stands in for the Kubernetes read.
 type fakeCatalog struct {
 	namespaces []namespaceCount
-	harnesses  []string
-	templates  []string
+	agents     []string
 	err        error
 }
 
 func (f *fakeCatalog) Namespaces(context.Context) ([]namespaceCount, error) {
 	return f.namespaces, f.err
 }
-func (f *fakeCatalog) Harnesses(context.Context, string) ([]string, error) {
-	return f.harnesses, f.err
-}
-func (f *fakeCatalog) AgentTemplates(context.Context, string) ([]string, error) {
-	return f.templates, f.err
+func (f *fakeCatalog) Agents(context.Context, string) ([]string, error) {
+	return f.agents, f.err
 }
 
 func testWorkspace(t *testing.T, lister instanceLister) *workspaceModel {
@@ -73,10 +69,10 @@ func workspaceInstance(id, template string, state apiv1alpha1.AgentInstanceState
 	return &apiv1alpha1.AgentInstance{
 		Id: id,
 
-		AgentTemplate: &apiv1alpha1.ResourceReference{Name: template},
-		Harness:       &apiv1alpha1.ResourceReference{Name: "kagent"},
-		State:         state,
-		CreatedAt:     timestamppb.New(created),
+		Agent: &apiv1alpha1.ResourceReference{Name: template},
+
+		State:     state,
+		CreatedAt: timestamppb.New(created),
 	}
 }
 
@@ -213,27 +209,19 @@ func TestWorkspaceCascadeFiltersOnCursorMove(t *testing.T) {
 	loaded(m)
 
 	// Every distinct template gets a row, after "(all)".
-	require.Len(t, m.templates.Items(), 3)
-	assert.Equal(t, nameItem{name: allNames, count: 2}, m.templates.Items()[0])
+	require.Len(t, m.agents.Items(), 3)
+	assert.Equal(t, nameItem{name: allNames, count: 2}, m.agents.Items()[0])
 	require.Len(t, m.instances.Items(), 2)
 
-	m.focus = panelTemplates
+	m.focus = panelAgents
 	m.forward(tea.KeyMsg{Type: tea.KeyDown})
-	assert.Equal(t, "reporter", m.template)
+	assert.Equal(t, "reporter", m.agent)
 	require.Len(t, m.instances.Items(), 1)
 	assert.Equal(t, "c", m.instances.Items()[0].(instanceItem).GetId())
 
 	m.forward(tea.KeyMsg{Type: tea.KeyUp}) // back to "(all)"
-	assert.Empty(t, m.template)
+	assert.Empty(t, m.agent)
 	assert.Len(t, m.instances.Items(), 2)
-
-	// A different harness invalidates the template chosen under the old one.
-	m.forward(tea.KeyMsg{Type: tea.KeyDown})
-	require.Equal(t, "reporter", m.template)
-	m.focus = panelHarnesses
-	m.forward(tea.KeyMsg{Type: tea.KeyDown})
-	assert.Equal(t, "kagent", m.harness)
-	assert.Empty(t, m.template, "the template panel resets under a new harness")
 }
 
 func TestWorkspaceKeys(t *testing.T) {
@@ -246,16 +234,16 @@ func TestWorkspaceKeys(t *testing.T) {
 	}{
 		{
 			name: "a digit focuses its panel", focus: panelChat,
-			key:       tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")},
-			wantFocus: panelTemplates,
+			key:       tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")},
+			wantFocus: panelAgents,
 		},
 		{
 			name: "tab cycles forward", focus: panelInstances,
 			key: tea.KeyMsg{Type: tea.KeyTab}, wantFocus: panelChat,
 		},
 		{
-			name: "enter drills down a cascade panel", focus: panelHarnesses,
-			key: tea.KeyMsg{Type: tea.KeyEnter}, wantFocus: panelTemplates,
+			name: "enter drills down a cascade panel", focus: panelNamespaces,
+			key: tea.KeyMsg{Type: tea.KeyEnter}, wantFocus: panelAgents,
 		},
 		{
 			name: "ctrl+r reloads", focus: panelChat,
@@ -338,8 +326,7 @@ func TestWorkspaceCatalog(t *testing.T) {
 		{
 			name: "an unused template is listed at zero",
 			catalog: &fakeCatalog{
-				harnesses: []string{"kagent"},
-				templates: []string{"smoke", "reporter"},
+				agents: []string{"smoke", "reporter"},
 			},
 			wantNames: map[string]int{allNames: 1, "smoke": 1, "reporter": 0},
 		},
@@ -348,7 +335,7 @@ func TestWorkspaceCatalog(t *testing.T) {
 			name:       "falls back to instance names",
 			catalog:    &fakeCatalog{err: errors.New("no kubeconfig")},
 			wantNames:  map[string]int{allNames: 1, "smoke": 1},
-			wantStatus: "only AgentTemplates that have instances",
+			wantStatus: "only Agents that have instances",
 		},
 		{
 			name:       "a nil catalog is not fatal",
@@ -369,7 +356,7 @@ func TestWorkspaceCatalog(t *testing.T) {
 			m.Update(m.loadCatalog()())
 
 			got := map[string]int{}
-			for _, item := range m.templates.Items() {
+			for _, item := range m.agents.Items() {
 				row := item.(nameItem)
 				got[row.name] = row.count
 			}
@@ -391,7 +378,7 @@ func TestWorkspaceNamespacePanel(t *testing.T) {
 		{
 			name: "lists namespaces with template counts",
 			catalog: &fakeCatalog{namespaces: []namespaceCount{
-				{Name: "kagent", Templates: 3}, {Name: "team-b", Templates: 1},
+				{Name: "kagent", Agents: 3}, {Name: "team-b", Agents: 1},
 			}},
 			want: []nameItem{{name: "kagent", count: 3}, {name: "team-b", count: 1}},
 		},

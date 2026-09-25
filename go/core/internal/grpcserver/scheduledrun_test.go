@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -36,7 +37,7 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	store, client, instances, owner := scheduledRunTestServer(t)
 	visitor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "bob"))
 	request := &apiv1alpha1.CreateScheduledRunRequest{
-		Harness: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
 		Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
 	}
 	created, err := client.CreateScheduledRun(owner, request)
@@ -141,7 +142,7 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 		name   string
 		change func(*apiv1alpha1.CreateScheduledRunRequest)
 	}{
-		{"invalid namespace", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Harness.Namespace = "Bad/Namespace" }},
+		{"invalid namespace", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Agent.Namespace = "Bad/Namespace" }},
 		{"missing config", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Config = nil }},
 		{"blank prompt", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Config.Prompt = " \n\t" }},
 		{"negative duration", func(r *apiv1alpha1.CreateScheduledRunRequest) {
@@ -177,18 +178,17 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
 	store := database.NewClient(db)
-	pair := database.AgentTemplateHarnessPair{Namespace: "team", AgentTemplateName: "report", AgentTemplateUID: "template-uid", HarnessName: "runtime", HarnessUID: "harness-uid", DesiredRevision: "scheduled-revision"}
-	require.NoError(t, store.UpsertAgentTemplateHarnessPair(t.Context(), pair))
+	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
+	require.NoError(t, store.UpsertAgentDefinition(t.Context(), pair))
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
-		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName, AgentTemplateUID: pair.AgentTemplateUID,
-		HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID, SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
+		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentName: pair.AgentName, AgentUID: pair.AgentUID,
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
 	}, true))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
-	harness := testHarness("team", "runtime", "pool")
-	harness.Spec.AllowedAgentTemplates = &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}
-	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(harness, testAgentTemplate("team", "report", "model")).Build()
+	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "report"}, Spec: v1alpha3.AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "report"}, HarnessRef: &corev1.LocalObjectReference{Name: "runtime"}}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent).Build()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener: listener, Authenticator: &authimpl.UnsecureAuthenticator{},
@@ -214,8 +214,8 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 func TestScheduledRunServiceDeletesMalformedConfig(t *testing.T) {
 	store, client, _, owner := scheduledRunTestServer(t)
 	created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
+
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
 		Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
 	})
 	require.NoError(t, err)

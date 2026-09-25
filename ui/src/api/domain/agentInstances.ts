@@ -102,14 +102,14 @@ export interface AgentInstance {
   /** Who created it. Empty on a cluster with no authentication in front. */
   creator: string;
   /** `namespace/name` of the Harness it runs, when the record carries one. */
-  harness?: string;
+  agent?: string;
   /**
    * `namespace/name` of the AgentTemplate it was cut from.
    *
    * With the harness above, this is the agent: the pair is what `ListAgentInstances`
    * narrows on, and what an agent's page is addressed by.
    */
-  agentTemplate?: string;
+
   /** The runtime revision this instance was prepared against. */
   preparedRevision?: string;
   /** Where its A2A endpoint is served, for a caller that wants to reach it. */

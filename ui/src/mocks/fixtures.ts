@@ -404,8 +404,7 @@ export const mockAgentInstances: AgentInstance[] = [
     // proves a list of conversations can read as a list of things somebody chose.
     name: "Tuesday cluster review",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/k8s-agent",
-    agentTemplate: "kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-6f1c9d20.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -420,8 +419,7 @@ export const mockAgentInstances: AgentInstance[] = [
     // and a page that rendered a bare UUID as a name would be obvious.
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/k8s-agent",
-    agentTemplate: "kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-b28e4f13.kagent.svc.cluster.local:8080",
     state: "suspended",
@@ -442,8 +440,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/support-triage",
-    agentTemplate: "kagent/support-triage-2b91d0e",
+    agent: "kagent/support-triage-2b91d0e",
     preparedRevision: "rev-2b91d0e",
     // Not yet reachable: the controller fills the authority once the actor is
     // running, so an instance still being created has none. A page that printed an
@@ -459,8 +456,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Escalation from the weekend",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/support-triage",
-    agentTemplate: "kagent/support-triage-2b91d0e",
+    agent: "kagent/support-triage-2b91d0e",
     preparedRevision: "rev-2b91d0e",
     a2aAuthority: undefined,
     state: "failed",
@@ -478,8 +474,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: "bob@example.com",
-    harness: "kagent/k8s-agent",
-    agentTemplate: "kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-3c9a1e64.kagent.svc.cluster.local:8080",
     state: "deleting",
@@ -494,8 +489,7 @@ export const mockAgentInstances: AgentInstance[] = [
     // conversation rather than as a blank.
     name: "Search relevance spike",
     creator: "bob@example.com",
-    harness: "kagent/k8s-agent",
-    agentTemplate: "kagent/k8s-agent-7f3a91c",
+    agent: "kagent/k8s-agent-7f3a91c",
     preparedRevision: "rev-7f3a91c",
     a2aAuthority: "k8s-agent-8e5f2b09.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -516,8 +510,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: "",
-    harness: undefined,
-    agentTemplate: undefined,
+    agent: undefined,
     preparedRevision: undefined,
     a2aAuthority: undefined,
     state: "unspecified",
@@ -530,11 +523,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Weekly numbers",
     creator: MOCK_INSTANCE_CREATOR,
-    // The harness in `analytics`, not the one in `kagent`: admission never crosses a
-    // namespace, so a conversation whose pair spanned two would be one the
-    // controller could not have produced.
-    harness: "analytics/reporting",
-    agentTemplate: "analytics/reporting-agent-9d4e2f1",
+    agent: "analytics/reporting-agent-9d4e2f1",
     preparedRevision: "rev-9d4e2f1",
     a2aAuthority: "reporting-agent-5a3c8e17.analytics.svc.cluster.local:8080",
     state: "ready",
@@ -556,8 +545,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Drafting the runbook",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/k8s-agent",
-    agentTemplate: "kagent/shared-brain",
+    agent: "kagent/shared-brain",
     preparedRevision: "rev-shared-k8s",
     a2aAuthority: "shared-brain-1d4f7a92.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -580,8 +568,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "Scratch conversation",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/support-triage",
-    agentTemplate: "kagent/support-triage-2b91d0e",
+    agent: "kagent/support-triage-2b91d0e",
     preparedRevision: "rev-2b91d0e",
     a2aAuthority: undefined,
     state: "ready",
@@ -594,8 +581,7 @@ export const mockAgentInstances: AgentInstance[] = [
 
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
-    harness: "kagent/fast-lane",
-    agentTemplate: "kagent/shared-brain",
+    agent: "kagent/shared-brain-fast",
     preparedRevision: "rev-shared-fast",
     a2aAuthority: "shared-brain-2b6e0c45.kagent.svc.cluster.local:8080",
     state: "ready",
@@ -631,12 +617,6 @@ export const mockHarnesses: Harness[] = [
       spec: {
         kagent: {},
         substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
-        // The selector is the whole of admission: a harness with none admits no
-        // templates at all, which the CRD says explicitly. A fixture without one
-        // would make every template unusable and every admission control dead.
-        allowedAgentTemplates: {
-          selector: { matchLabels: { "kagent.dev/runtime": "k8s-agent" } },
-        },
       },
     },
   },
@@ -656,22 +636,11 @@ export const mockHarnesses: Harness[] = [
       spec: {
         claude: {},
         substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
-        allowedAgentTemplates: {
-          selector: { matchLabels: { "kagent.dev/runtime": "support-triage" } },
-        },
       },
     },
   },
   {
-    /*
-     * The second harness that admits `shared-brain`.
-     *
-     * It exists so the fixtures carry a template admitted by *two* harnesses, which
-     * is the case that makes an agent a pair rather than a template: one
-     * configuration, two runtimes, two prepared revisions and two separate sets of
-     * conversations. A fixture set where every template had exactly one harness
-     * would let the agents page collapse the two and stay green.
-     */
+
     ref: "kagent/fast-lane",
     namespace: "kagent",
     name: "fast-lane",
@@ -684,11 +653,6 @@ export const mockHarnesses: Harness[] = [
       spec: {
         codex: {},
         substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
-        // Selects the *shared* label rather than a runtime name, which is how one
-        // template comes to be admitted by two harnesses on a real cluster.
-        allowedAgentTemplates: {
-          selector: { matchLabels: { "kagent.dev/tier": "shared" } },
-        },
       },
     },
   },
@@ -713,20 +677,11 @@ export const mockHarnesses: Harness[] = [
           args: ["--port=8080"],
         },
         substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
-        allowedAgentTemplates: {
-          selector: { matchLabels: { "kagent.dev/runtime": "byo-echo" } },
-        },
       },
     },
   },
   {
-    /*
-     * A harness outside `kagent`.
-     *
-     * Admission never crosses a namespace, so this one is what makes the
-     * `analytics` template an agent at all — and it is what catches a page or a
-     * fixture that matched harnesses to templates on labels alone.
-     */
+
     ref: "analytics/reporting",
     namespace: "analytics",
     name: "reporting",
@@ -739,23 +694,12 @@ export const mockHarnesses: Harness[] = [
       spec: {
         kagent: {},
         substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
-        allowedAgentTemplates: {
-          selector: { matchLabels: { "kagent.dev/runtime": "reporting" } },
-        },
       },
     },
   },
 ];
 
-/**
- * The templates an agent can be built from.
- *
- * `admittingHarnesses` is what makes the create form's narrowing real: a harness
- * admits templates through a label selector, and only the template's *status* says
- * which ones matched. `note-taker` is admitted by nothing, which is the state the
- * form has to explain rather than hide — a template missing from the picker sends a
- * reader looking for a bug in their template.
- */
+
 export const mockAgentTemplates: AgentTemplate[] = [
   {
     ref: "kagent/k8s-agent-7f3a91c",
@@ -763,34 +707,11 @@ export const mockAgentTemplates: AgentTemplate[] = [
     name: "k8s-agent-7f3a91c",
     modelConfigRef: "kagent/default-model-config",
     description: "Answers questions about workloads in the cluster.",
-    admittingHarnesses: ["k8s-agent"],
     resource: {
-      // The label is what a harness admits on, so a fixture without one would be a
-      // template no harness could run — which is a real state, and `note-taker`
-      // below is the one that covers it.
       metadata: {
         name: "k8s-agent-7f3a91c",
         namespace: "kagent",
         labels: { "kagent.dev/runtime": "k8s-agent" },
-      },
-      /*
-       * One entry per admitting harness — which is one entry per *agent*.
-       *
-       * This is where the agents list comes from: the controller derives
-       * `admittingHarnesses` from exactly this field, and it carries the revision
-       * state as well as the name. A fixture that filled `admittingHarnesses` and
-       * left the status empty would serve a template that reports two harnesses and
-       * produces no agents, and only the page would notice.
-       */
-      status: {
-        observedGeneration: 1,
-        harnesses: [
-          {
-            harness: "k8s-agent",
-            desiredRevision: "rev-7f3a91c",
-            latestSuccessfulRevision: "rev-7f3a91c",
-          },
-        ],
       },
       spec: {
         modelConfig: { name: "default-model-config" },
@@ -823,38 +744,11 @@ export const mockAgentTemplates: AgentTemplate[] = [
     name: "support-triage-2b91d0e",
     modelConfigRef: "kagent/default-model-config",
     description: "Triages inbound support conversations.",
-    admittingHarnesses: ["support-triage"],
     resource: {
       metadata: {
         name: "support-triage-2b91d0e",
         namespace: "kagent",
         labels: { "kagent.dev/runtime": "support-triage" },
-      },
-      /*
-       * Admitted, and still preparing.
-       *
-       * A desired revision with none successful yet, because its harness has not
-       * reported ready. That is the third state the agents list has to render and
-       * the one most easily got wrong: it is not a failure, so a row saying "broken"
-       * about it would be inventing a fact — and a create against it really is
-       * refused, with `FailedPrecondition`.
-       */
-      status: {
-        observedGeneration: 3,
-        harnesses: [
-          {
-            harness: "support-triage",
-            desiredRevision: "rev-2b91d0e",
-            conditions: [
-              {
-                type: "Ready",
-                status: "False",
-                reason: "ActorTemplateNotReady",
-                message: "Waiting for the golden snapshot of the support-triage harness.",
-              },
-            ],
-          },
-        ],
       },
       spec: {
         modelConfig: { name: "default-model-config" },
@@ -871,17 +765,8 @@ export const mockAgentTemplates: AgentTemplate[] = [
     name: "note-taker",
     modelConfigRef: "kagent/default-model-config",
     description: "Summarises a conversation into notes.",
-    // No harness admits it, which the create form names rather than hiding.
-    admittingHarnesses: [],
     resource: {
-      // No labels at all, which is why nothing admits it. This is the shape a
-      // template takes when it is authored without thinking about admission, and
-      // the one the form exists to stop a reader creating by accident.
       metadata: { name: "note-taker", namespace: "kagent" },
-      // The status a cluster really wrote for an unlabelled template: the generation
-      // observed and nothing else. It is *not* an agent, and it is why the agents
-      // list can be shorter than the templates list without anything being wrong.
-      status: { observedGeneration: 1 },
       spec: {
         modelConfig: { name: "default-model-config" },
         description: "Summarises a conversation into notes.",
@@ -905,27 +790,11 @@ export const mockAgentTemplates: AgentTemplate[] = [
     name: "shared-brain",
     modelConfigRef: "kagent/default-model-config",
     description: "One configuration, run on two different runtimes.",
-    admittingHarnesses: ["fast-lane", "k8s-agent"],
     resource: {
       metadata: {
         name: "shared-brain",
         namespace: "kagent",
         labels: { "kagent.dev/runtime": "k8s-agent", "kagent.dev/tier": "shared" },
-      },
-      status: {
-        observedGeneration: 2,
-        harnesses: [
-          {
-            harness: "fast-lane",
-            desiredRevision: "rev-shared-fast",
-            latestSuccessfulRevision: "rev-shared-fast",
-          },
-          {
-            harness: "k8s-agent",
-            desiredRevision: "rev-shared-k8s",
-            latestSuccessfulRevision: "rev-shared-k8s",
-          },
-        ],
       },
       spec: {
         modelConfig: { name: "default-model-config" },
@@ -948,22 +817,11 @@ export const mockAgentTemplates: AgentTemplate[] = [
     name: "reporting-agent-9d4e2f1",
     modelConfigRef: "analytics/default-model-config",
     description: "Turns weekly numbers into a summary.",
-    admittingHarnesses: ["reporting"],
     resource: {
       metadata: {
         name: "reporting-agent-9d4e2f1",
         namespace: "analytics",
         labels: { "kagent.dev/runtime": "reporting" },
-      },
-      status: {
-        observedGeneration: 1,
-        harnesses: [
-          {
-            harness: "reporting",
-            desiredRevision: "rev-9d4e2f1",
-            latestSuccessfulRevision: "rev-9d4e2f1",
-          },
-        ],
       },
       spec: {
         modelConfig: { name: "default-model-config" },
@@ -972,4 +830,129 @@ export const mockAgentTemplates: AgentTemplate[] = [
       },
     },
   },
+];
+
+export const mockAgents: import("@/api/domain/agents").Agent[] = [
+  {
+    "ref": "kagent/k8s-agent-7f3a91c",
+    "namespace": "kagent",
+    "name": "k8s-agent-7f3a91c",
+    "resource": {
+      "metadata": {
+        "name": "k8s-agent-7f3a91c",
+        "namespace": "kagent"
+      },
+      "spec": {
+        "templateRef": {
+          "name": "k8s-agent-7f3a91c"
+        },
+        "harnessRef": {
+          "name": "k8s-agent"
+        }
+      },
+      "status": {
+        "desiredRevision": "rev-7f3a91c",
+        "latestSuccessfulRevision": "rev-7f3a91c"
+      }
+    }
+  },
+  {
+    "ref": "kagent/support-triage-2b91d0e",
+    "namespace": "kagent",
+    "name": "support-triage-2b91d0e",
+    "resource": {
+      "metadata": {
+        "name": "support-triage-2b91d0e",
+        "namespace": "kagent"
+      },
+      "spec": {
+        "templateRef": {
+          "name": "support-triage-2b91d0e"
+        },
+        "harnessRef": {
+          "name": "support-triage"
+        }
+      },
+      "status": {
+        "desiredRevision": "rev-2b91d0e",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "ActorTemplateNotReady",
+            "message": "Waiting for the golden snapshot of the support-triage harness."
+          }
+        ]
+      }
+    }
+  },
+  {
+    "ref": "kagent/shared-brain-fast",
+    "namespace": "kagent",
+    "name": "shared-brain-fast",
+    "resource": {
+      "metadata": {
+        "name": "shared-brain-fast",
+        "namespace": "kagent"
+      },
+      "spec": {
+        "templateRef": {
+          "name": "shared-brain"
+        },
+        "harnessRef": {
+          "name": "fast-lane"
+        }
+      },
+      "status": {
+        "desiredRevision": "rev-shared-fast",
+        "latestSuccessfulRevision": "rev-shared-fast"
+      }
+    }
+  },
+  {
+    "ref": "kagent/shared-brain",
+    "namespace": "kagent",
+    "name": "shared-brain",
+    "resource": {
+      "metadata": {
+        "name": "shared-brain",
+        "namespace": "kagent"
+      },
+      "spec": {
+        "templateRef": {
+          "name": "shared-brain"
+        },
+        "harnessRef": {
+          "name": "k8s-agent"
+        }
+      },
+      "status": {
+        "desiredRevision": "rev-shared-k8s",
+        "latestSuccessfulRevision": "rev-shared-k8s"
+      }
+    }
+  },
+  {
+    "ref": "analytics/reporting-agent-9d4e2f1",
+    "namespace": "analytics",
+    "name": "reporting-agent-9d4e2f1",
+    "resource": {
+      "metadata": {
+        "name": "reporting-agent-9d4e2f1",
+        "namespace": "analytics"
+      },
+      "spec": {
+        "templateRef": {
+          "name": "reporting-agent-9d4e2f1"
+        },
+        "harnessRef": {
+          "name": "reporting"
+        }
+      },
+      "status": {
+        "desiredRevision": "rev-9d4e2f1",
+        "latestSuccessfulRevision": "rev-9d4e2f1"
+      }
+    }
+  }
 ];

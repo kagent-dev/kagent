@@ -10,6 +10,7 @@ import (
 // Collections contains every typed input used while compiling a revision.
 // Production supplies informer-backed collections; tests supply KRT mocks.
 type Collections struct {
+	Harnesses            krt.Collection[*v1alpha3.Harness]
 	AgentTemplates       krt.Collection[*v1alpha3.AgentTemplate]
 	ResolvedModelConfigs krt.Collection[ResolvedModelConfig]
 	RemoteMCPServers     krt.Collection[*v1alpha3.RemoteMCPServer]

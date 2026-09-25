@@ -16,8 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/protobuf/proto"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -41,9 +39,9 @@ type Service struct {
 }
 
 type CreateRequest struct {
-	Harness, AgentTemplate *apiv1alpha1.ResourceReference
-	RequestID              string
-	Config                 *apiv1alpha1.ScheduledRunConfig
+	Agent     *apiv1alpha1.ResourceReference
+	RequestID string
+	Config    *apiv1alpha1.ScheduledRunConfig
 }
 
 func NewService(store serviceStore, kube client.Reader, authorizer auth.Authorizer) *Service {
@@ -61,7 +59,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 	}
 	// Hash original normalized inputs, not the mutable persisted configuration.
 	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&apiv1alpha1.CreateScheduledRunRequest{
-		Harness: request.Harness, AgentTemplate: request.AgentTemplate, Config: config,
+		Agent: request.Agent, Config: config,
 	})
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Invalid schedule inputs", err)
@@ -76,8 +74,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 	}
 	schedule := &apiv1alpha1.ScheduledRun{
 		Creator: creator, Config: config,
-		Harness:       proto.CloneOf(request.Harness),
-		AgentTemplate: proto.CloneOf(request.AgentTemplate),
+		Agent: proto.CloneOf(request.Agent),
 	}
 	if err := s.authorizeTarget(ctx, schedule); err != nil {
 		return nil, err
@@ -212,45 +209,24 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1alpha1.ScheduledRun) error {
 	session, _ := auth.AuthSessionFrom(ctx) // Each public operation authorizes before target access.
 	principal := session.Principal()
-	for _, resource := range []struct {
-		kind, name string
-		verb       auth.Verb
-	}{
-		{"Harness", schedule.Harness.Namespace + "/" + schedule.Harness.Name, auth.VerbGet},
-		{"AgentTemplate", schedule.AgentTemplate.Namespace + "/" + schedule.AgentTemplate.Name, auth.VerbGet},
-		{"AgentInstance", "", auth.VerbCreate},
-	} {
-		if err := s.authorizer.Check(ctx, principal, resource.verb, auth.Resource{Type: resource.kind, Name: resource.name}); err != nil {
-			return serviceerrors.NewPermissionDenied("Not authorized to run target pair", err)
-		}
+	if err := s.authorizer.Check(ctx, principal, auth.VerbGet, auth.Resource{
+		Type: "Agent", Namespace: schedule.Agent.Namespace, Name: schedule.Agent.Name,
+	}); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized to run Agent", err)
+	}
+	if err := s.authorizer.Check(ctx, principal, auth.VerbCreate, auth.Resource{Type: "AgentInstance"}); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized to create AgentInstance", err)
 	}
 	return nil
 }
 
 func (s *Service) validateTarget(ctx context.Context, schedule *apiv1alpha1.ScheduledRun) error {
-	harness := &v1alpha3.Harness{}
-	template := &v1alpha3.AgentTemplate{}
-	for _, target := range []client.Object{harness, template} {
-		name := schedule.Harness.Name
-		if target == template {
-			name = schedule.AgentTemplate.Name
+	agent := &v1alpha3.Agent{}
+	if err := s.kube.Get(ctx, types.NamespacedName{Namespace: schedule.Agent.Namespace, Name: schedule.Agent.Name}, agent); err != nil {
+		if apierrors.IsNotFound(err) {
+			return serviceerrors.NewFailedPrecondition("Agent does not exist", err)
 		}
-		if err := s.kube.Get(ctx, types.NamespacedName{Namespace: schedule.Harness.Namespace, Name: name}, target); err != nil {
-			if apierrors.IsNotFound(err) {
-				return serviceerrors.NewFailedPrecondition("Target pair does not exist", err)
-			}
-			return serviceerrors.NewInternal("Failed to resolve target pair", err)
-		}
-	}
-	if harness.Spec.AllowedAgentTemplates == nil {
-		return serviceerrors.NewFailedPrecondition("Harness does not admit AgentTemplate", nil)
-	}
-	selector, err := metav1.LabelSelectorAsSelector(&harness.Spec.AllowedAgentTemplates.Selector)
-	if err != nil {
-		return serviceerrors.NewFailedPrecondition("Invalid Harness admission selector", err)
-	}
-	if !selector.Matches(labels.Set(template.Labels)) {
-		return serviceerrors.NewFailedPrecondition("Harness does not admit AgentTemplate", nil)
+		return serviceerrors.NewInternal("Failed to resolve Agent", err)
 	}
 	return nil
 }

@@ -35,7 +35,9 @@ import {
   isNotFound,
   useAgentTemplate,
   useInvalidateAgentTemplates,
-  type AgentTemplateHarnessStatus,
+  type AgentPair,
+  useAgentsAcrossNamespaces,
+  agentPairsFrom,
 } from "@/api";
 import { pairRevisionCondition } from "./agentTemplateRevision";
 
@@ -43,42 +45,7 @@ const { Text, Paragraph } = Typography;
 
 const TAB_PARAM = "tab";
 
-/**
- * One agent template: what it is, what runs it, and how to stop it existing.
- *
- * ## Why this is a details page and not the edit form
- *
- * Because clicking a row to *look* at something and landing in a page of inputs with
- * Save waiting makes editing the default and reading the deliberate act, which is the
- * wrong way round. Every field being an input also says the values are provisional
- * when they are the cluster's. So reading is the page, and editing is a mode of it.
- *
- * The fields are the *same component* either way — `AgentTemplateForm` with
- * `readOnly` — deliberately, and not as a convenience. Two renderings of one spec
- * drift, and the one nobody edits is the one that quietly stops showing a field the
- * CRD gained; a reader would then see a template that looks complete and is not.
- *
- * ## The two tabs
- *
- * **Details** is the spec. **Agents** is `status.harnesses[]`: one row per
- * `(template, harness)` pair, which is the durable runnable thing — a template on its
- * own does nothing, and an `AgentInstance` is one conversation with a pair rather
- * than the agent itself. That list is free here because the same field drives the
- * "Runs on" column on the templates list.
- *
- * ## What is deliberately missing
- *
- * A conversation count per pair. The column is present and says so rather than being
- * left out, because a tab that answers "what runs this" without answering "is anything
- * actually using it" should say which question it is not answering. See the column
- * itself for what the API can and cannot do here — it is not what it was thought to be.
- *
- * ## Admission is on the Details tab, not behind Edit
- *
- * "No harness will run this template" is the single most important fact about a
- * template and the one nothing about the template itself reveals. A reader who has to
- * press Edit to discover it is a reader who will not discover it.
- */
+
 export function AgentTemplateDetailsPage() {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -145,40 +112,9 @@ export function AgentTemplateDetailsPage() {
 
   const missing = template.error !== undefined && isNotFound(template.error);
 
-  /*
-   * Every agent this template is half of, one row per harness that admits it.
-   *
-   * Built from `admittingHarnesses` rather than straight off
-   * `status.harnesses[]`, because those are two different claims and only the first
-   * is guaranteed. `admittingHarnesses` is what the service resolved and what the
-   * "Runs on" column already trusts; `status.harnesses[]` is the *detail* the
-   * controller recorded for each pair, and it can be absent while admission is not —
-   * a pair the controller has admitted but not yet reconciled has no conditions and
-   * no revision. Reading only the second renders "no agent exists for this template"
-   * over a template that plainly has one, which is the wrong answer stated
-   * confidently.
-   *
-   * So admission decides the rows and the status supplies what it has.
-   */
-  const pairs: AgentTemplateHarnessStatus[] = useMemo(() => {
-    if (!template.data) return [];
-    const reported = new Map(
-      (template.data.resource.status?.harnesses ?? []).map((entry) => [
-        entry.harness,
-        entry,
-      ]),
-    );
-    const rows = template.data.admittingHarnesses.map(
-      (harness) => reported.get(harness) ?? { harness },
-    );
-    // A pair the controller reported that admission no longer lists is a real state —
-    // a template whose labels have just changed — and dropping it would hide an agent
-    // that still exists.
-    for (const [harness, entry] of reported) {
-      if (!template.data.admittingHarnesses.includes(harness)) rows.push(entry);
-    }
-    return rows;
-  }, [template.data]);
+  const agents = useAgentsAcrossNamespaces(namespace ? [namespace] : undefined);
+  const pairs = useMemo(() => agentPairsFrom((agents.data?.agents ?? []).filter(agent =>
+    agent.resource.spec.templateRef?.name === name)), [agents.data, name]);
 
   /** Leaves edit mode, discarding the draft. Asks first when there is one to lose. */
   function stopEditing() {
@@ -252,7 +188,7 @@ export function AgentTemplateDetailsPage() {
 
   const problems = draft ? draftProblems(draft, { isCreate: false }) : [];
 
-  const pairColumns = useMemo<ColumnsType<AgentTemplateHarnessStatus>>(
+  const pairColumns = useMemo<ColumnsType<AgentPair>>(
     () => [
       {
         /*
@@ -271,15 +207,13 @@ export function AgentTemplateDetailsPage() {
         key: "harness",
         render: (_, row) => {
           const href = agentPageUrl({
-            namespace: template.data?.namespace,
-            agentTemplate: template.data?.name,
-            harness: bareHarnessName(row.harness),
+            namespace: row.namespace, name: row.name,
           });
           const label = (
-            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.harness}</span>
+            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.name}</span>
           );
           return href ? (
-            <Link to={href} data-testid={`template-agent-link-${bareHarnessName(row.harness)}`}>
+            <Link to={href} data-testid={`template-agent-link-${row.name}`}>
               {label}
             </Link>
           ) : (
@@ -298,7 +232,7 @@ export function AgentTemplateDetailsPage() {
         title: "Revision state",
         key: "state",
         render: (_, row) => {
-          const conditions = row.conditions ?? [];
+          const conditions = row.definition?.resource.status?.conditions ?? [];
           const condition = pairRevisionCondition(conditions);
           if (!condition) {
             return (
@@ -339,7 +273,7 @@ export function AgentTemplateDetailsPage() {
           // successful one means the pair is still being prepared, which is a different
           // state from having none — so they are shown as different things.
           const successful = row.latestSuccessfulRevision;
-          const desired = row.desiredRevision;
+          const desired = row.definition?.resource.status?.desiredRevision;
           if (successful) {
             return (
               <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
@@ -368,11 +302,10 @@ export function AgentTemplateDetailsPage() {
         title: "Conversations",
         key: "conversations",
         width: 160,
-        render: (_: unknown, pair: AgentTemplateHarnessStatus) => (
+        render: (_: unknown, pair: AgentPair) => (
           <PairConversationCount
             namespace={template.data?.namespace}
-            agentTemplate={template.data?.name}
-            harness={bareHarnessName(pair.harness)}
+            name={pair.name}
           />
         ),
       },
@@ -401,13 +334,13 @@ export function AgentTemplateDetailsPage() {
           ) : null}
           {/*
             In the header rather than at the foot of the page.
-            
+
             It used to sit below a rule under the form, which put a destructive action
             somewhere a reader only reaches by scrolling past everything else — and made
             it read as a footnote rather than as one of this page's actions. Outlined for
             the same reason: a text button next to "Edit" and "Back" reads as a link, and
             a link is what people click while meaning to navigate.
-            
+
             More prominent means the confirmation is doing more work than before, so the
             measured consequence it carries matters more, not less — see the description
             below, which is read off a delete actually performed against a cluster.
@@ -420,30 +353,7 @@ export function AgentTemplateDetailsPage() {
             onDeleted={afterDelete}
             label="Delete template"
             outlined
-            // The count the Agents tab already has, in the prompt where
-            // the decision is actually made.
-            //
-            // `pairs` counts harnesses that admit this template, and under
-            // this model a (template, harness) pair *is* an agent — so the
-            // noun is right. What it must not claim is that those agents
-            // keep running: deleting the template retires the pair, which
-            // is precisely what stops new conversations being started. The
-            // things that keep running are the conversations already open,
-            // each holding a prepared revision the collector retains for
-            // it. Measured on a cluster, not inferred from the schema.
-            description={
-              <span
-                css={{ display: "inline-block", maxWidth: 320 }}
-                data-testid="template-delete-consequence"
-              >
-                {pairs.length === 0
-                  ? "No harness admits this template, so no agent was ever built from it. "
-                  : pairs.length === 1
-                    ? "1 agent is built from this template. Conversations already open with it keep working; no new one can be started. "
-                    : `${pairs.length} agents are built from this template. Conversations already open with them keep working; no new ones can be started. `}
-                This cannot be undone.
-              </span>
-            }
+            description="Agents referencing this template cannot prepare new configuration until it is restored or replaced. Existing conversations and last successful revisions are retained."
             />
           ) : null}
           <Button onClick={() => navigate(agentTemplatesTab)}>Back to templates</Button>
@@ -490,35 +400,8 @@ export function AgentTemplateDetailsPage() {
 
         {draft && template.data ? (
           <>
-            {/*
-              What the controller made of it, which is the half a form cannot show:
-              whether a harness admits it, and whether a revision was prepared. Above
-              the tabs, because it is true of the template rather than of either tab —
-              and on screen whether or not the reader has pressed Edit.
-            */}
-            <Space size={8} wrap data-testid="template-admission-status">
-              <Text css={{ color: theme.color.textMuted }}>Runs on</Text>
-              {template.data.admittingHarnesses.length > 0 ? (
-                template.data.admittingHarnesses.map((harness) => (
-                  <Tag key={harness} color="success">
-                    {harness}
-                  </Tag>
-                ))
-              ) : (
-                <Tag color="warning">No harness — no agent can be created from it</Tag>
-              )}
-              {/*
-                A draft is not lost by moving between tabs — it lives on this page, not
-                in the tab — but a reader who wandered off mid-edit should be able to
-                see that from wherever they are.
-              */}
-              {isDirty ? (
-                <Tag color="warning" data-testid="template-unsaved">
-                  Unsaved changes
-                </Tag>
-              ) : null}
-            </Space>
-
+            {isDirty ? <Tag color="warning" data-testid="template-unsaved">Unsaved changes</Tag> : null}
+            {agents.error ? <Alert type="error" title="Could not load Agents using this template" description={agents.error.message} /> : null}
             <Tabs
               activeKey={activeTab}
               onChange={setTab}
@@ -586,20 +469,18 @@ export function AgentTemplateDetailsPage() {
                       <Paragraph
                         css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}
                       >
-                        An agent is this template paired with a harness. The pair is the
-                        durable runnable thing — a conversation is one instance cut from
-                        it — so this is every agent that exists because of this template.
+                        Agents that directly reference this reusable template. Child-template references can also reuse it.
                       </Paragraph>
 
-                      <Table<AgentTemplateHarnessStatus>
+                      <Table<AgentPair>
                         data-testid="template-agents-table"
-                        rowKey={(row) => row.harness}
+                        rowKey={(row) => row.name}
                         columns={pairColumns}
                         dataSource={pairs}
                         pagination={false}
                         locale={{
                           emptyText:
-                            "No harness admits this template, so no agent exists for it. A harness admits templates through a label selector — add the label it selects on from the Details tab.",
+                            "No Agent directly references this template.",
                         }}
                       />
                     </Space>
@@ -634,28 +515,16 @@ export function AgentTemplateDetailsPage() {
   );
 }
 
-/**
- * How many conversations are open with one agent.
- *
- * A count, not a list: the question this column answers is "is anything actually using
- * this?", which the pair list cannot — a pair exists the moment a harness admits the
- * template, whether or not anyone has ever talked to it.
- *
- * A failed read says so rather than rendering zero. Zero and "could not tell" are
- * different answers, and the one that matters here is the one a reader would act on: a
- * template that looks unused is a template someone deletes.
- */
+
 function PairConversationCount({
   namespace,
-  agentTemplate,
-  harness,
+  name,
 }: {
   namespace: string | undefined;
-  agentTemplate: string | undefined;
-  harness: string | undefined;
+  name: string | undefined;
 }) {
   const theme = useTheme();
-  const conversations = useAgentConversations(namespace, agentTemplate, harness);
+  const conversations = useAgentConversations(namespace, name);
 
   if (conversations.isLoading) {
     return <Skeleton.Input active size="small" style={{ width: 60, height: 18 }} />;
@@ -698,11 +567,4 @@ function PairConversationCount({
       {label}
     </Text>
   );
-}
-
-/** `namespace/name` → `name`; a pair's status may carry either form. */
-function bareHarnessName(harness: string | undefined): string | undefined {
-  if (!harness) return undefined;
-  const slash = harness.indexOf("/");
-  return slash === -1 ? harness : harness.slice(slash + 1);
 }

@@ -3,6 +3,7 @@
   - kagent.dev
   resources:
   - harnesses
+  - agents
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs
@@ -18,7 +19,7 @@
   - kagent.dev
   resources:
   - harnesses/finalizers
-  - agenttemplates/finalizers
+  - agents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers

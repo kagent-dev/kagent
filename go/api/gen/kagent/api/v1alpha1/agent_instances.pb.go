@@ -246,8 +246,7 @@ type AgentInstance struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Creator          string                 `protobuf:"bytes,2,opt,name=creator,proto3" json:"creator,omitempty"`
-	Harness          *ResourceReference     `protobuf:"bytes,3,opt,name=harness,proto3" json:"harness,omitempty"`
-	AgentTemplate    *ResourceReference     `protobuf:"bytes,4,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
+	Agent            *ResourceReference     `protobuf:"bytes,15,opt,name=agent,proto3" json:"agent,omitempty"`
 	PreparedRevision string                 `protobuf:"bytes,5,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
 	A2AAuthority     string                 `protobuf:"bytes,6,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
 	State            AgentInstanceState     `protobuf:"varint,7,opt,name=state,proto3,enum=kagent.api.v1alpha1.AgentInstanceState" json:"state,omitempty"`
@@ -309,16 +308,9 @@ func (x *AgentInstance) GetCreator() string {
 	return ""
 }
 
-func (x *AgentInstance) GetHarness() *ResourceReference {
+func (x *AgentInstance) GetAgent() *ResourceReference {
 	if x != nil {
-		return x.Harness
-	}
-	return nil
-}
-
-func (x *AgentInstance) GetAgentTemplate() *ResourceReference {
-	if x != nil {
-		return x.AgentTemplate
+		return x.Agent
 	}
 	return nil
 }
@@ -387,10 +379,9 @@ func (x *AgentInstance) GetContextId() string {
 }
 
 type CreateAgentInstanceRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Harness       *ResourceReference     `protobuf:"bytes,1,opt,name=harness,proto3" json:"harness,omitempty"`
-	AgentTemplate *ResourceReference     `protobuf:"bytes,2,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
-	RequestId     string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Agent     *ResourceReference     `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
+	RequestId string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// Optional display name. Empty means unnamed.
 	Name          string `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -427,16 +418,9 @@ func (*CreateAgentInstanceRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *CreateAgentInstanceRequest) GetHarness() *ResourceReference {
+func (x *CreateAgentInstanceRequest) GetAgent() *ResourceReference {
 	if x != nil {
-		return x.Harness
-	}
-	return nil
-}
-
-func (x *CreateAgentInstanceRequest) GetAgentTemplate() *ResourceReference {
-	if x != nil {
-		return x.AgentTemplate
+		return x.Agent
 	}
 	return nil
 }
@@ -592,12 +576,8 @@ type ListAgentInstancesRequest struct {
 	// Includes instances created by other users when authorized.
 	AllCreators bool         `protobuf:"varint,2,opt,name=all_creators,json=allCreators,proto3" json:"all_creators,omitempty"`
 	Page        *PageRequest `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
-	// Narrows the list to the conversations of one agent, an agent being an
-	// (AgentTemplate, Harness) pair. Either may be given alone. Both are matched
-	// against the pair the instance's prepared revision was built from, so they
-	// also select instances created before these fields existed.
-	AgentTemplate *ResourceReference `protobuf:"bytes,4,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
-	Harness       *ResourceReference `protobuf:"bytes,5,opt,name=harness,proto3" json:"harness,omitempty"`
+	// Filters by the Agent that produced each instance's pinned revision.
+	Agent         *ResourceReference `protobuf:"bytes,6,opt,name=agent,proto3" json:"agent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -646,16 +626,9 @@ func (x *ListAgentInstancesRequest) GetPage() *PageRequest {
 	return nil
 }
 
-func (x *ListAgentInstancesRequest) GetAgentTemplate() *ResourceReference {
+func (x *ListAgentInstancesRequest) GetAgent() *ResourceReference {
 	if x != nil {
-		return x.AgentTemplate
-	}
-	return nil
-}
-
-func (x *ListAgentInstancesRequest) GetHarness() *ResourceReference {
-	if x != nil {
-		return x.Harness
+		return x.Agent
 	}
 	return nil
 }
@@ -1438,12 +1411,11 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	")kagent/api/v1alpha1/agent_instances.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x95\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xe7\x04\n" +
 	"\rAgentInstance\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\acreator\x18\x02 \x01(\tR\acreator\x12@\n" +
-	"\aharness\x18\x03 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\aharness\x12M\n" +
-	"\x0eagent_template\x18\x04 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\ragentTemplate\x12+\n" +
+	"\acreator\x18\x02 \x01(\tR\acreator\x12<\n" +
+	"\x05agent\x18\x0f \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x05agent\x12+\n" +
 	"\x11prepared_revision\x18\x05 \x01(\tR\x10preparedRevision\x12#\n" +
 	"\ra2a_authority\x18\x06 \x01(\tR\fa2aAuthority\x12=\n" +
 	"\x05state\x18\a \x01(\x0e2'.kagent.api.v1alpha1.AgentInstanceStateR\x05state\x12I\n" +
@@ -1456,26 +1428,23 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x12\n" +
 	"\x04name\x18\r \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x0e \x01(\tR\tcontextIdJ\x04\b\f\x10\rR\x06labels\"\xce\x03\n" +
-	"\x1aCreateAgentInstanceRequest\x12H\n" +
-	"\aharness\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\aharness\x12U\n" +
-	"\x0eagent_template\x18\x02 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\ragentTemplate\x12)\n" +
+	"context_id\x18\x0e \x01(\tR\tcontextIdJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\f\x10\rR\aharnessR\x0eagent_templateR\x06labels\"\x85\x02\n" +
+	"\x1aCreateAgentInstanceRequest\x12D\n" +
+	"\x05agent\x18\x05 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x05agent\x12)\n" +
 	"\n" +
 	"request_id\x18\x03 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12Q\n" +
-	"\x04name\x18\x04 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name:\x90\x01\xbaH\x8c\x01\x1a\x89\x01\n" +
-	"\x15same_target_namespace\x127Harness and AgentTemplate must be in the same namespace\x1a7this.harness.namespace == this.agent_template.namespace\"h\n" +
+	"\x04name\x18\x04 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04nameJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aharnessR\x0eagent_template\"h\n" +
 	"\x1bCreateAgentInstanceResponse\x12I\n" +
 	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"O\n" +
 	"\x17GetAgentInstanceRequest\x124\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\"e\n" +
 	"\x18GetAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x99\x02\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xeb\x01\n" +
 	"\x19ListAgentInstancesRequest\x12!\n" +
 	"\fall_creators\x18\x02 \x01(\bR\vallCreators\x124\n" +
-	"\x04page\x18\x03 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12M\n" +
-	"\x0eagent_template\x18\x04 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\ragentTemplate\x12@\n" +
-	"\aharness\x18\x05 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\aharnessJ\x04\b\x01\x10\x02R\fmatch_labels\"\xa0\x01\n" +
+	"\x04page\x18\x03 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12<\n" +
+	"\x05agent\x18\x06 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x05agentJ\x04\b\x01\x10\x02J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\fmatch_labelsR\x0eagent_templateR\aharness\"\xa0\x01\n" +
 	"\x1aListAgentInstancesResponse\x12K\n" +
 	"\x0fagent_instances\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentInstanceR\x0eagentInstances\x125\n" +
 	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"\xa9\x01\n" +
@@ -1600,58 +1569,55 @@ var file_kagent_api_v1alpha1_agent_instances_proto_goTypes = []any{
 	(*PageResponse)(nil),                     // 29: kagent.api.v1alpha1.PageResponse
 }
 var file_kagent_api_v1alpha1_agent_instances_proto_depIdxs = []int32{
-	26, // 0: kagent.api.v1alpha1.AgentInstance.harness:type_name -> kagent.api.v1alpha1.ResourceReference
-	26, // 1: kagent.api.v1alpha1.AgentInstance.agent_template:type_name -> kagent.api.v1alpha1.ResourceReference
-	0,  // 2: kagent.api.v1alpha1.AgentInstance.state:type_name -> kagent.api.v1alpha1.AgentInstanceState
-	1,  // 3: kagent.api.v1alpha1.AgentInstance.operation:type_name -> kagent.api.v1alpha1.AgentInstanceOperation
-	3,  // 4: kagent.api.v1alpha1.AgentInstance.failure:type_name -> kagent.api.v1alpha1.Failure
-	27, // 5: kagent.api.v1alpha1.AgentInstance.created_at:type_name -> google.protobuf.Timestamp
-	27, // 6: kagent.api.v1alpha1.AgentInstance.updated_at:type_name -> google.protobuf.Timestamp
-	26, // 7: kagent.api.v1alpha1.CreateAgentInstanceRequest.harness:type_name -> kagent.api.v1alpha1.ResourceReference
-	26, // 8: kagent.api.v1alpha1.CreateAgentInstanceRequest.agent_template:type_name -> kagent.api.v1alpha1.ResourceReference
-	4,  // 9: kagent.api.v1alpha1.CreateAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 10: kagent.api.v1alpha1.GetAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	28, // 11: kagent.api.v1alpha1.ListAgentInstancesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
-	26, // 12: kagent.api.v1alpha1.ListAgentInstancesRequest.agent_template:type_name -> kagent.api.v1alpha1.ResourceReference
-	26, // 13: kagent.api.v1alpha1.ListAgentInstancesRequest.harness:type_name -> kagent.api.v1alpha1.ResourceReference
-	4,  // 14: kagent.api.v1alpha1.ListAgentInstancesResponse.agent_instances:type_name -> kagent.api.v1alpha1.AgentInstance
-	29, // 15: kagent.api.v1alpha1.ListAgentInstancesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
-	4,  // 16: kagent.api.v1alpha1.UpdateAgentInstanceNameResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 17: kagent.api.v1alpha1.SuspendAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 18: kagent.api.v1alpha1.ResumeAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	4,  // 19: kagent.api.v1alpha1.DeleteAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	2,  // 20: kagent.api.v1alpha1.AgentInstanceShare.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
-	27, // 21: kagent.api.v1alpha1.AgentInstanceShare.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 22: kagent.api.v1alpha1.CreateAgentInstanceShareRequest.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
-	19, // 23: kagent.api.v1alpha1.CreateAgentInstanceShareResponse.share:type_name -> kagent.api.v1alpha1.AgentInstanceShare
-	28, // 24: kagent.api.v1alpha1.ListAgentInstanceSharesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
-	19, // 25: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.shares:type_name -> kagent.api.v1alpha1.AgentInstanceShare
-	29, // 26: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
-	5,  // 27: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:input_type -> kagent.api.v1alpha1.CreateAgentInstanceRequest
-	7,  // 28: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:input_type -> kagent.api.v1alpha1.GetAgentInstanceRequest
-	9,  // 29: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:input_type -> kagent.api.v1alpha1.ListAgentInstancesRequest
-	11, // 30: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:input_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameRequest
-	13, // 31: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:input_type -> kagent.api.v1alpha1.SuspendAgentInstanceRequest
-	15, // 32: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:input_type -> kagent.api.v1alpha1.ResumeAgentInstanceRequest
-	17, // 33: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:input_type -> kagent.api.v1alpha1.DeleteAgentInstanceRequest
-	20, // 34: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:input_type -> kagent.api.v1alpha1.CreateAgentInstanceShareRequest
-	22, // 35: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:input_type -> kagent.api.v1alpha1.ListAgentInstanceSharesRequest
-	24, // 36: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:input_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareRequest
-	6,  // 37: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:output_type -> kagent.api.v1alpha1.CreateAgentInstanceResponse
-	8,  // 38: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:output_type -> kagent.api.v1alpha1.GetAgentInstanceResponse
-	10, // 39: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:output_type -> kagent.api.v1alpha1.ListAgentInstancesResponse
-	12, // 40: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:output_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameResponse
-	14, // 41: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:output_type -> kagent.api.v1alpha1.SuspendAgentInstanceResponse
-	16, // 42: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:output_type -> kagent.api.v1alpha1.ResumeAgentInstanceResponse
-	18, // 43: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:output_type -> kagent.api.v1alpha1.DeleteAgentInstanceResponse
-	21, // 44: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:output_type -> kagent.api.v1alpha1.CreateAgentInstanceShareResponse
-	23, // 45: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:output_type -> kagent.api.v1alpha1.ListAgentInstanceSharesResponse
-	25, // 46: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:output_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareResponse
-	37, // [37:47] is the sub-list for method output_type
-	27, // [27:37] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	26, // 0: kagent.api.v1alpha1.AgentInstance.agent:type_name -> kagent.api.v1alpha1.ResourceReference
+	0,  // 1: kagent.api.v1alpha1.AgentInstance.state:type_name -> kagent.api.v1alpha1.AgentInstanceState
+	1,  // 2: kagent.api.v1alpha1.AgentInstance.operation:type_name -> kagent.api.v1alpha1.AgentInstanceOperation
+	3,  // 3: kagent.api.v1alpha1.AgentInstance.failure:type_name -> kagent.api.v1alpha1.Failure
+	27, // 4: kagent.api.v1alpha1.AgentInstance.created_at:type_name -> google.protobuf.Timestamp
+	27, // 5: kagent.api.v1alpha1.AgentInstance.updated_at:type_name -> google.protobuf.Timestamp
+	26, // 6: kagent.api.v1alpha1.CreateAgentInstanceRequest.agent:type_name -> kagent.api.v1alpha1.ResourceReference
+	4,  // 7: kagent.api.v1alpha1.CreateAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 8: kagent.api.v1alpha1.GetAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	28, // 9: kagent.api.v1alpha1.ListAgentInstancesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
+	26, // 10: kagent.api.v1alpha1.ListAgentInstancesRequest.agent:type_name -> kagent.api.v1alpha1.ResourceReference
+	4,  // 11: kagent.api.v1alpha1.ListAgentInstancesResponse.agent_instances:type_name -> kagent.api.v1alpha1.AgentInstance
+	29, // 12: kagent.api.v1alpha1.ListAgentInstancesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	4,  // 13: kagent.api.v1alpha1.UpdateAgentInstanceNameResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 14: kagent.api.v1alpha1.SuspendAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 15: kagent.api.v1alpha1.ResumeAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 16: kagent.api.v1alpha1.DeleteAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	2,  // 17: kagent.api.v1alpha1.AgentInstanceShare.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
+	27, // 18: kagent.api.v1alpha1.AgentInstanceShare.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 19: kagent.api.v1alpha1.CreateAgentInstanceShareRequest.permission:type_name -> kagent.api.v1alpha1.AgentInstanceSharePermission
+	19, // 20: kagent.api.v1alpha1.CreateAgentInstanceShareResponse.share:type_name -> kagent.api.v1alpha1.AgentInstanceShare
+	28, // 21: kagent.api.v1alpha1.ListAgentInstanceSharesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
+	19, // 22: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.shares:type_name -> kagent.api.v1alpha1.AgentInstanceShare
+	29, // 23: kagent.api.v1alpha1.ListAgentInstanceSharesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	5,  // 24: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:input_type -> kagent.api.v1alpha1.CreateAgentInstanceRequest
+	7,  // 25: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:input_type -> kagent.api.v1alpha1.GetAgentInstanceRequest
+	9,  // 26: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:input_type -> kagent.api.v1alpha1.ListAgentInstancesRequest
+	11, // 27: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:input_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameRequest
+	13, // 28: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:input_type -> kagent.api.v1alpha1.SuspendAgentInstanceRequest
+	15, // 29: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:input_type -> kagent.api.v1alpha1.ResumeAgentInstanceRequest
+	17, // 30: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:input_type -> kagent.api.v1alpha1.DeleteAgentInstanceRequest
+	20, // 31: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:input_type -> kagent.api.v1alpha1.CreateAgentInstanceShareRequest
+	22, // 32: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:input_type -> kagent.api.v1alpha1.ListAgentInstanceSharesRequest
+	24, // 33: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:input_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareRequest
+	6,  // 34: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:output_type -> kagent.api.v1alpha1.CreateAgentInstanceResponse
+	8,  // 35: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:output_type -> kagent.api.v1alpha1.GetAgentInstanceResponse
+	10, // 36: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:output_type -> kagent.api.v1alpha1.ListAgentInstancesResponse
+	12, // 37: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:output_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameResponse
+	14, // 38: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:output_type -> kagent.api.v1alpha1.SuspendAgentInstanceResponse
+	16, // 39: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:output_type -> kagent.api.v1alpha1.ResumeAgentInstanceResponse
+	18, // 40: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:output_type -> kagent.api.v1alpha1.DeleteAgentInstanceResponse
+	21, // 41: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstanceShare:output_type -> kagent.api.v1alpha1.CreateAgentInstanceShareResponse
+	23, // 42: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstanceShares:output_type -> kagent.api.v1alpha1.ListAgentInstanceSharesResponse
+	25, // 43: kagent.api.v1alpha1.AgentInstanceService.RevokeAgentInstanceShare:output_type -> kagent.api.v1alpha1.RevokeAgentInstanceShareResponse
+	34, // [34:44] is the sub-list for method output_type
+	24, // [24:34] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_agent_instances_proto_init() }

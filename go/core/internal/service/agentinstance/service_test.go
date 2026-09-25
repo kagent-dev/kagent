@@ -116,7 +116,7 @@ func TestServiceCreateUsesAuthenticatedOwnerAndGeneratedUUID(t *testing.T) {
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 
-	instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
+	instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestServiceCreateMapsStoreErrors(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service := NewService(&serviceTestStore{createErr: test.err}, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			_, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
+			_, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
 			if !serviceerrors.IsCode(err, test.code) {
 				t.Fatalf("Create() error = %v, want code %s", err, test.code)
 			}
@@ -168,7 +168,7 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service := NewService(&serviceTestStore{}, test.authorizer, serviceTestWorkflow{})
-			_, err := service.Create(test.ctx, &apiv1alpha1.ResourceReference{Namespace: test.namespace, Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: test.namespace, Name: "assistant"}, "request-1", "")
+			_, err := service.Create(test.ctx, &apiv1alpha1.ResourceReference{Namespace: test.namespace, Name: "assistant"}, "request-1", "")
 			if !serviceerrors.IsCode(err, test.code) {
 				t.Fatalf("Create() error = %v, want code %s", err, test.code)
 			}
@@ -298,7 +298,7 @@ func TestServiceCreateCarriesTheNameAndLeavesAnOmittedOneEmpty(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &serviceTestStore{}
 			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", test.given)
+			instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", test.given)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -435,40 +435,16 @@ func (a *recordingAuthorizer) Check(_ context.Context, _ auth.Principal, verb au
 	return nil
 }
 
-func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		request  ListRequest
-		wantPair [2]string
-	}{
-		{
-			name:     "both halves of the pair",
-			request:  ListRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
-			wantPair: [2]string{"assistant", "kagent"},
-		},
-		{
-			name:     "template alone",
-			request:  ListRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
-			wantPair: [2]string{"assistant", ""},
-		},
-		{
-			name:     "neither, which lists everything",
-			request:  ListRequest{},
-			wantPair: [2]string{"", ""},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store := &serviceTestStore{}
-			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			_, err := service.List(serviceTestContext("alice"), test.request)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := [2]string{store.listQuery.AgentTemplate.GetName(), store.listQuery.Harness.GetName()}
-			if got != test.wantPair {
-				t.Fatalf("store query pair = %v, want %v", got, test.wantPair)
-			}
-		})
+func TestServiceListPassesAgentToStore(t *testing.T) {
+	store := &serviceTestStore{}
+	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+	agent := &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
+	_, err := service.List(serviceTestContext("alice"), ListRequest{Agent: agent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.listQuery.Agent != agent {
+		t.Fatal("Agent filter was lost")
 	}
 }
 

@@ -20,9 +20,8 @@ type panelID int
 const (
 	panelChat       panelID = 0
 	panelNamespaces panelID = 1
-	panelHarnesses  panelID = 2
-	panelTemplates  panelID = 3
-	panelInstances  panelID = 4
+	panelAgents     panelID = 2
+	panelInstances  panelID = 3
 	lastListPanel           = panelInstances
 )
 
@@ -30,10 +29,8 @@ func (p panelID) title() string {
 	switch p {
 	case panelNamespaces:
 		return "Namespaces"
-	case panelHarnesses:
-		return "Harnesses"
-	case panelTemplates:
-		return "AgentTemplates"
+	case panelAgents:
+		return "Agents"
 	case panelInstances:
 		return "AgentInstances"
 	default:
@@ -106,7 +103,7 @@ type instanceItem struct {
 // FilterValue lets `/` match on template, ID prefix, or state.
 func (i instanceItem) FilterValue() string {
 	return strings.Join([]string{
-		i.GetAgentTemplate().GetName(),
+		i.GetAgent().GetName(),
 		i.GetId(),
 		instance.StateLabel(i.GetState()),
 	}, " ")
@@ -185,7 +182,7 @@ func instanceRow(item list.Item, width int) string {
 	}
 	glyph, colour := stateGlyph(row.GetState())
 	shortID := instance.ShortID(row.GetId())
-	name := truncate(row.GetAgentTemplate().GetName(), max(width-len(shortID)-4, 1))
+	name := truncate(row.GetAgent().GetName(), max(width-len(shortID)-4, 1))
 	return fmt.Sprintf("%s %s %s",
 		lipgloss.NewStyle().Foreground(colour).Render(glyph),
 		pad(name, max(width-len(shortID)-4, 1)),

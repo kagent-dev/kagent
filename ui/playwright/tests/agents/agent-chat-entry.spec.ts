@@ -84,7 +84,7 @@ test("agents: the list is the way in to a conversation, through the agent", asyn
     // the same agent while the menu behind it listed agents that never changed.
     const identity = page.getByTestId("agent-rail-identity");
     await expect(identity).toContainText(agents.k8s.template);
-    await expect(identity).toContainText(`on ${agents.k8s.harness}`);
+    await expect(identity).toContainText("kagent");
 
     // The conversation is still named, one row among its siblings, which is where a
     // reader picks between them.

@@ -24,10 +24,11 @@ import type {
 } from "@/api/domain/agentInstances";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
-import { admitsLabels } from "@/api/domain/harnesses";
+import type { Agent } from "@/api/domain/agents";
 import {
   mockAgentInstances,
   mockAgentTemplates,
+  mockAgents,
   mockHarnesses,
   mockMcpServers,
   mockModels,
@@ -37,6 +38,7 @@ import {
 
 /** What has been written during this browsing session. */
 const created = {
+  agents: [] as Agent[],
   models: [] as ModelConfig[],
   mcpServers: [] as ToolServerResponse[],
   prompts: [] as PromptTemplateDetail[],
@@ -207,84 +209,19 @@ export function allAgentTemplates(): AgentTemplate[] {
   ).filter((row) => isLive(agentTemplateRef(row)));
 }
 
-/**
- * Records a written template, recomputing which harnesses admit it.
- *
- * Admission is derived rather than stored, because on a cluster it *is* derived:
- * the controller matches each Harness's label selector against the template's
- * labels and writes the result into status. A fixture that let a caller assert
- * `admittingHarnesses` directly would happily accept a template whose labels admit
- * nothing while reporting that a harness would run it — which is the exact
- * confusion this form exists to prevent.
- */
 export function saveAgentTemplate(row: AgentTemplate): AgentTemplate {
-  const labels = row.resource.metadata.labels ?? {};
-  const admitting = mockHarnesses
-    // Admission never crosses a namespace: a Harness selects templates beside it,
-    // so a fixture that matched on labels alone would admit a template the
-    // controller never would — and the agents page reads admission to decide what
-    // exists at all.
-    .filter((harness) => harness.namespace === row.namespace)
-    // A harness with no selector admits none — `admitsLabels` is the one place
-    // that rule lives, shared with the form's preview so the two cannot disagree.
-    .filter((harness) => admitsLabels(harness, labels))
-    .map((harness) => harness.name);
+  const at = created.agentTemplates.findIndex(existing => existing.ref === row.ref);
+  if (at === -1) created.agentTemplates.push(row); else created.agentTemplates[at] = row;
+  return row;
+}
 
-  const stored: AgentTemplate = {
-    ...row,
-    admittingHarnesses: admitting.map((harness) => harness),
-    resource: {
-      ...row.resource,
-      /*
-       * The status the controller would write, written here too.
-       *
-       * `admittingHarnesses` is *derived from* this on a cluster — the service reads
-       * `status.harnesses[].harness` — so a fixture that filled one and not the
-       * other would let the two disagree, and the agents page reads the status half
-       * because it carries the revision as well as the name. Whichever half a test
-       * looked at would then be the half that was right.
-       *
-       * A ready harness gets a successful revision; one the controller has not
-       * observed gets only a desired one, which is the "preparing" state a
-       * freshly-labelled template really passes through.
-       */
-      status: {
-        ...row.resource.status,
-        harnesses: admitting.map((harnessName) => {
-          const harness = mockHarnesses.find(
-            (candidate) =>
-              candidate.namespace === row.namespace && candidate.name === harnessName,
-          );
-          const revision = `rev-${row.name}-${harnessName}`;
-          return harness?.ready
-            ? {
-                harness: harnessName,
-                desiredRevision: revision,
-                latestSuccessfulRevision: revision,
-              }
-            : {
-                harness: harnessName,
-                desiredRevision: revision,
-                conditions: [
-                  {
-                    type: "Ready",
-                    status: "False",
-                    reason: "HarnessNotReady",
-                    message: `The ${harnessName} harness has not reported ready, so no revision has been built yet.`,
-                  },
-                ],
-              };
-        }),
-      },
-    },
-  };
-  const ref = agentTemplateRef(stored);
-  const at = created.agentTemplates.findIndex(
-    (existing) => agentTemplateRef(existing) === ref,
-  );
-  if (at === -1) created.agentTemplates.push(stored);
-  else created.agentTemplates[at] = stored;
-  return stored;
+export function allAgents(): Agent[] {
+  return dedupeByRef([...mockAgents, ...created.agents], row => row.ref).filter(row => isLive(`Agent:${row.ref}`));
+}
+export function saveAgent(row: Agent): Agent {
+  const at = created.agents.findIndex(existing => existing.ref === row.ref);
+  if (at === -1) created.agents.push(row); else created.agents[at] = row;
+  return row;
 }
 
 // ---------------------------------------------------------------------------

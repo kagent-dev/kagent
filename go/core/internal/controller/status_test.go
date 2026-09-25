@@ -9,13 +9,13 @@ import (
 
 func TestStatusForPairPublishesCompilationWarnings(t *testing.T) {
 	warnings := []string{"partial MCP selection is not enforced"}
-	state := PairReconciliation{
-		Pair:       AgentTemplateHarnessPair{Harness: &kagentv1alpha3.Harness{}},
+	state := AgentReconciliation{
+		Agent:      &kagentv1alpha3.Agent{},
 		Revision:   &v2translator.Revision{},
 		Warnings:   warnings,
 		RevisionID: v2translator.RevisionID{1},
 	}
-	status := statusForPair(state, 1, "")
+	status := statusForAgent(state, 1, "")
 	if len(status.Warnings) != 1 || status.Warnings[0] != warnings[0] {
 		t.Fatalf("warnings = %v, want %v", status.Warnings, warnings)
 	}

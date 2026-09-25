@@ -91,16 +91,16 @@ The `requests` channel carries a new pending request from the MCP handler to the
 process driver. The per-request `decision chan runtime.ApprovalDecision` carries
 the response in the other direction. The channel is not durable storage: the
 full Actor memory snapshot preserves the live Claude process, blocked handler,
-and channel together until the same task resumes. If we want to switch to DATA 
-snapshot in the future, we will need to switch to using deferred tool call with 
+and channel together until the same task resumes. If we want to switch to DATA
+snapshot in the future, we will need to switch to using deferred tool call with
 hooks instead.
 
 See [defer a tool call for later](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later).
 
-The `permission-prompt-tool` might not work if you modify the permission rules, 
-permission mode, hooks (like `PreToolUse / PermissionRequest`) since they resolve 
-the tool calls first before Claude's permission system invoke the `permission-prompt-tool`. 
-If this tool does not respond (e.g. error or timeout or failed connection), 
+The `permission-prompt-tool` might not work if you modify the permission rules,
+permission mode, hooks (like `PreToolUse / PermissionRequest`) since they resolve
+the tool calls first before Claude's permission system invoke the `permission-prompt-tool`.
+If this tool does not respond (e.g. error or timeout or failed connection),
 the unresolved requests are denied, not approved.
 
 ## Planned / not yet supported
@@ -129,10 +129,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: claude
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -159,4 +155,15 @@ spec:
           commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
       skills:
         - migrate-agent-plugin
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: kagent-claude
+  namespace: kagent
+spec:
+  templateRef:
+    name: kagent-claude
+  harnessRef:
+    name: claude-e2e
 ```

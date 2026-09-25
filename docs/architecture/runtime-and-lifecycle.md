@@ -6,8 +6,7 @@ Kubernetes resource.
 
 ## Creation and state
 
-Creation selects the latest successful revision for the Harness/AgentTemplate
-pair, creates a deterministic Actor initially suspended, and marks the instance
+Creation selects the latest successful revision for the Agent, creates a deterministic Actor initially suspended, and marks the instance
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; AgentInstance creation does not resume
 an Actor merely to probe `/readyz`.

@@ -372,7 +372,11 @@ type provenanceEntry struct {
 
 func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	harness := input.Harness
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
+	var entries []provenanceEntry
+	// Inline configuration is recorded by the enclosing Agent provenance.
+	if harness.Kind != "Agent" {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec))
+	}
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {
@@ -386,7 +390,9 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
 		template, model := agent.Template, agent.ResolvedModelConfig.Config
-		addObject("AgentTemplate", template.Name, template.UID, template.Generation, template.Spec)
+		if template.Kind != "Agent" {
+			addObject("AgentTemplate", template.Name, template.UID, template.Generation, template.Spec)
+		}
 		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}

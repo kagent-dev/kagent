@@ -117,15 +117,14 @@ func get(
 
 func writeInstancesTable(w io.Writer, instances []*apiv1alpha1.AgentInstance, nextPageToken string) error {
 	tw := table.NewWriter()
-	tw.AppendHeader(table.Row{"ID", "AGENT TEMPLATE", "HARNESS", "STATE", "CREATED"})
+	tw.AppendHeader(table.Row{"ID", "AGENT", "STATE", "CREATED"})
 	for _, instance := range instances {
 		if instance == nil {
 			continue
 		}
 		tw.AppendRow(table.Row{
 			instance.GetId(),
-			resourceName(instance.GetAgentTemplate()),
-			resourceName(instance.GetHarness()),
+			resourceName(instance.GetAgent()),
 			strings.TrimPrefix(instance.GetState().String(), "AGENT_INSTANCE_STATE_"),
 			formatTimestamp(instance.GetCreatedAt()),
 		})

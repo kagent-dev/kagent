@@ -504,20 +504,20 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 func createTaskStoreInstance(t *testing.T, store *database.Client) *apiv1alpha1.AgentInstance {
 	t.Helper()
 	revision := database.RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid", SourceSnapshot: []byte("{}"),
-		AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
+		Revision: "revision-1", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		SourceSnapshot: []byte("{}"),
+		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	require.NoError(t, store.UpsertAgentTemplateHarnessPair(t.Context(), database.AgentTemplateHarnessPair{
-		Namespace: revision.Namespace, AgentTemplateName: revision.AgentTemplateName, AgentTemplateUID: revision.AgentTemplateUID,
-		HarnessName: revision.HarnessName, HarnessUID: revision.HarnessUID, DesiredRevision: revision.Revision,
+	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
+		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
+		DesiredRevision: revision.Revision,
 	}))
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, true))
 	instance, _, err := store.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{
 		Id: uuid.NewString(), Creator: "alice",
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}, uuid.NewString())
 	require.NoError(t, err)
 	operation, err := store.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
