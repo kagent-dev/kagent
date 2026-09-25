@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 
@@ -23,6 +24,13 @@ const (
 	defaultContainerName = "kagent"
 	durableDataVolume    = "data"
 	durableDataMount     = "/data"
+)
+
+const (
+	// Substrate's ActorTemplate validation caps a container at 32 environment
+	// variables and each value at 32768 characters, counted in code points.
+	maxEnvironmentVariables  = 32
+	maxEnvironmentValueRunes = 32768
 )
 
 const egressTrustVolume = "egress-trust"
@@ -76,8 +84,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if err != nil {
 		return nil, err
 	}
-	if len(actorEnv) > 32 {
-		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
+	if len(actorEnv) > maxEnvironmentVariables {
+		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most %d", len(actorEnv), maxEnvironmentVariables)
+	}
+	if err := checkEnvironmentValueSizes(actorEnv); err != nil {
+		return nil, err
 	}
 	sandboxConfig, err := sandboxConfigForClass(spec.SandboxClass)
 	if err != nil {
@@ -206,6 +217,28 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 		result = append(result, &ateapipb.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return result, nil
+}
+
+// checkEnvironmentValueSizes rejects a value Substrate would refuse, so the
+// failure reaches the pair's status instead of every CreateActorTemplate call.
+func checkEnvironmentValueSizes(environment []*ateapipb.EnvVar) error {
+	for _, variable := range environment {
+		size := utf8.RuneCountInString(variable.GetValue())
+		if size <= maxEnvironmentValueRunes {
+			continue
+		}
+		switch variable.GetName() {
+		case "KAGENT_CONFIG_JSON":
+			return fmt.Errorf("compiled agent config is %d characters after JSON encoding; Substrate accepts at most %d in environment variable %s. Move long reference material, such as a long system prompt, into a skill",
+				size, maxEnvironmentValueRunes, variable.GetName())
+		case "KAGENT_AGENT_CARD_JSON":
+			return fmt.Errorf("agent card is %d characters after JSON encoding; Substrate accepts at most %d in environment variable %s. Shorten the agent description",
+				size, maxEnvironmentValueRunes, variable.GetName())
+		default:
+			return fmt.Errorf("environment variable %s is %d characters; Substrate accepts at most %d", variable.GetName(), size, maxEnvironmentValueRunes)
+		}
+	}
+	return nil
 }
 
 func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxConfig, error) {
