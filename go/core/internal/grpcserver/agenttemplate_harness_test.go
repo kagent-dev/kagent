@@ -291,3 +291,17 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	_, err = client.DeleteHarness(ctx, &apiv1alpha1.DeleteHarnessRequest{Ref: ref})
 	assertCode(t, err, codes.NotFound)
 }
+
+func TestHarnessRuntime(t *testing.T) {
+	for want, spec := range map[string]v1alpha3.HarnessSpec{
+		harnessRuntimeKagent: {Kagent: &v1alpha3.KagentHarness{}},
+		harnessRuntimeCodex:  {Codex: &v1alpha3.CodexHarness{}},
+		harnessRuntimeClaude: {Claude: &v1alpha3.ClaudeHarness{}},
+		harnessRuntimeBYO:    {BYO: &v1alpha3.BYOHarness{}},
+		"":                   {},
+	} {
+		if got := harnessRuntime(&v1alpha3.Harness{Spec: spec}); got != want {
+			t.Errorf("harnessRuntime() = %q, want %q", got, want)
+		}
+	}
+}

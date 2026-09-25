@@ -5,6 +5,33 @@ import { themeFor } from "@/theme/theme";
 import { ChatMessageItem } from "./ChatMessageItem";
 
 describe("ChatMessageItem interaction layout", () => {
+  it("renders a JSON DataPart as the agent's structured result, not a tool result", () => {
+    render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ChatMessageItem
+          message={{
+            id: "answer-1",
+            role: "agent",
+            createdAt: "2026-09-03T00:00:00Z",
+            parts: [
+              {
+                kind: "data",
+                dataKind: "structured_output",
+                data: { status: "success", payload: { customerId: "12345" } },
+                mediaType: "application/json",
+                metadata: { "kagent.dev/a2a/output-schema-sha256": "abc123456789" },
+              },
+            ],
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("chat-structured-output")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy JSON" })).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-tool-result")).not.toBeInTheDocument();
+  });
+
   it("gives a short user-carried ask_user record the full notification lane", () => {
     render(
       <ThemeProvider theme={themeFor("dark")}>

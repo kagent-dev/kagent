@@ -992,9 +992,21 @@ func TestModelToEmbeddingConfig_TLS(t *testing.T) {
 		TLSCACertPath:         &caPath,
 		TLSDisableSystemCAs:   &disableSystem,
 	}
-	got := ModelToEmbeddingConfig(&OpenAI{BaseModel: want})
-	if got.TLSInsecureSkipVerify != want.TLSInsecureSkipVerify || got.TLSCACertPath != want.TLSCACertPath || got.TLSDisableSystemCAs != want.TLSDisableSystemCAs {
-		t.Fatalf("TLS config = %#v, want %#v", got, want)
+	tests := []struct {
+		name  string
+		model Model
+	}{
+		{"OpenAI", &OpenAI{BaseModel: want}},
+		{"Foundry", &Foundry{BaseModel: want}},
+		{"Mistral", &Mistral{BaseModel: want}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ModelToEmbeddingConfig(tt.model)
+			if got.TLSInsecureSkipVerify != want.TLSInsecureSkipVerify || got.TLSCACertPath != want.TLSCACertPath || got.TLSDisableSystemCAs != want.TLSDisableSystemCAs {
+				t.Fatalf("TLS config = %#v, want %#v", got, want)
+			}
+		})
 	}
 
 	var decoded EmbeddingConfig

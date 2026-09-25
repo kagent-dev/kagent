@@ -23,7 +23,8 @@ const { Text, Paragraph } = Typography;
  * The form is short because the CRD is strict, and every constraint below is one the
  * cluster enforces with CEL rather than something invented here:
  *
- * - exactly one adapter — `kagent`, `codex` or `claude`;
+ * - exactly one adapter — `kagent`, `codex`, `claude` or `byo`;
+ * - a `byo` harness must set a command, since its image is the user's own;
  * - `workload.image` pinned by sha256 digest, because a tag can move under a running
  *   agent and the CRD refuses one outright;
  * - a worker pool name, which is where this harness's Substrate Actors are scheduled.
@@ -42,6 +43,8 @@ export function HarnessNewPage() {
   const [name, setName] = useState("");
   const [adapter, setAdapter] = useState<HarnessAdapter>("kagent");
   const [image, setImage] = useState("");
+  const [command, setCommand] = useState<string[]>([]);
+  const [args, setArgs] = useState<string[]>([]);
   const [workerPool, setWorkerPool] = useState("");
   const [snapshotLocation, setSnapshotLocation] = useState("");
   const [selectorKey, setSelectorKey] = useState("");
@@ -49,6 +52,7 @@ export function HarnessNewPage() {
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
 
+  const byo = adapter === "byo";
   const imagePinned = HARNESS_IMAGE_PATTERN.test(image.trim());
   const admitsNothing = selectorKey.trim() === "" || selectorValue.trim() === "";
   // The snapshot location counts, because the CRD requires it. Left out of this
@@ -58,6 +62,7 @@ export function HarnessNewPage() {
     Boolean(namespace) &&
     name.trim() !== "" &&
     imagePinned &&
+    (!byo || command.length > 0) &&
     workerPool.trim() !== "" &&
     snapshotLocation.trim() !== "";
 
@@ -74,7 +79,11 @@ export function HarnessNewPage() {
           spec: {
             // Exactly one, which is what the CRD's own rule requires.
             [adapter]: {},
-            workload: { image: image.trim() },
+            workload: {
+              image: image.trim(),
+              ...(command.length > 0 ? { command } : {}),
+              ...(args.length > 0 ? { args } : {}),
+            },
             substrate: {
               workerPoolRef: { name: workerPool.trim() },
               snapshotPolicy: { location: snapshotLocation.trim() },
@@ -160,6 +169,38 @@ export function HarnessNewPage() {
               value={image}
               onChange={(event) => setImage(event.target.value)}
               placeholder="ghcr.io/example/runtime@sha256:…"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Command"
+            required={byo}
+            extra={
+              byo
+                ? "Required for bring-your-own images. Press Enter after each part."
+                : "Overrides the image entrypoint. Press Enter after each part."
+            }
+          >
+            <Select
+              mode="tags"
+              data-testid="harness-command"
+              value={command}
+              onChange={setCommand}
+              open={false}
+              suffixIcon={null}
+              placeholder="/app/server"
+            />
+          </Form.Item>
+
+          <Form.Item label="Arguments" extra="Overrides the image arguments. Press Enter after each one.">
+            <Select
+              mode="tags"
+              data-testid="harness-args"
+              value={args}
+              onChange={setArgs}
+              open={false}
+              suffixIcon={null}
+              placeholder="--port=8080"
             />
           </Form.Item>
 

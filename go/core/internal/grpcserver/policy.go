@@ -75,6 +75,7 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1alpha1.CheckpointService_ListCheckpoints_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.CheckpointService_DeleteCheckpoint_FullMethodName] = auth.AccessDelete
 	policies[apiv1alpha1.CheckpointService_ForkAgentInstance_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.CheckpointService_UpdateCheckpointName_FullMethodName] = auth.AccessUpdate
 	policies[a2apb.A2AService_SendMessage_FullMethodName] = auth.AccessCreate
 	policies[a2apb.A2AService_SendStreamingMessage_FullMethodName] = auth.AccessCreate
 	policies[a2apb.A2AService_GetTask_FullMethodName] = auth.AccessRead

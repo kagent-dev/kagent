@@ -41,14 +41,16 @@ import (
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
@@ -60,6 +62,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -158,15 +162,17 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	// otelgrpc snapshots the global TracerProvider and propagator when its handler
 	// is constructed, so tracing has to be registered before any server is built.
-	shutdownTracing, err := telemetry.InitTracerProvider(ctx, version.Version)
+	providers, err := telemetry.Init(ctx, telemetry.Options{Defaults: []attribute.KeyValue{
+		semconv.ServiceName("kagent-controller"), semconv.ServiceNamespace("kagent"), semconv.ServiceVersion(version.Version),
+	}})
 	if err != nil {
-		return fmt.Errorf("initialize tracing: %w", err)
+		logger.ErrorContext(ctx, "failed to initialize telemetry", "error", err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := shutdownTracing(shutdownCtx); err != nil {
-			logger.ErrorContext(shutdownCtx, "failed to shut down tracing", "error", err)
+		if err := providers.Shutdown(shutdownCtx); err != nil {
+			logger.ErrorContext(shutdownCtx, "failed to shut down telemetry", "error", err)
 		}
 	}()
 
@@ -216,11 +222,21 @@ func Run(ctx context.Context, opts Options) error {
 		// Forbidden response without a failing Namespace informer blocking startup.
 		managerClientOptions.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Namespace{}}}
 	}
+	metricsOptions := metricsserver.Options{
+		BindAddress:   metricsBindAddress(),
+		SecureServing: kagentenv.MetricsSecure.Get(),
+	}
+	if metricsOptions.SecureServing {
+		// SecureServing alone only encrypts. The filter authenticates the scraper
+		// with a TokenReview and authorizes it with a SubjectAccessReview on the
+		// /metrics nonResourceURL.
+		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
 		Client:                  managerClientOptions,
-		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		Metrics:                 metricsOptions,
 		LeaderElection:          kagentenv.LeaderElect.Get(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
@@ -307,11 +323,17 @@ func Run(ctx context.Context, opts Options) error {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
+	mux.Handle(a2agateway.HTTPPathPrefix, a2agateway.NewHTTPHandler(gateway, authenticator, store))
 	server, err := grpcserver.New(grpcserver.Config{
-		MethodPolicies:        policies,
-		RegisterServices:      opts.GRPCServices,
-		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
-		Reflection:            envBool("GRPC_REFLECTION"),
+		MethodPolicies:   policies,
+		RegisterServices: opts.GRPCServices,
+		BindAddress:      env("HTTP_BIND_ADDRESS", ":8083"),
+		Reflection:       envBool("GRPC_REFLECTION"),
+		// controller-runtime's registry, which the manager's metrics server
+		// serves. Left nil, newServerMetrics builds the interceptors' counters
+		// and registers them nowhere, so every gRPC call is measured and the
+		// measurement reaches no scrape.
+		Registerer:            crmetrics.Registry,
 		Authenticator:         authenticator,
 		ShareStore:            store,
 		ModelService:          models,
@@ -367,6 +389,16 @@ func env(name, fallback string) string {
 func envBool(name string) bool {
 	value, _ := strconv.ParseBool(os.Getenv(name))
 	return value
+}
+
+// metricsBindAddress resolves METRICS_BIND_ADDRESS. controller-runtime reads an
+// empty address as "unset" and falls back to :8080, so an empty value would
+// serve metrics on a port nobody asked for. "0" disables the metrics server.
+func metricsBindAddress() string {
+	if address := kagentenv.MetricsBindAddress.Get(); address != "" {
+		return address
+	}
+	return "0"
 }
 
 func namespaces(value string) []string {

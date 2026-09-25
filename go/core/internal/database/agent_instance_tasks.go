@@ -51,6 +51,9 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
+		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+			return ErrNotFound
+		}
 		historyID = instance.HistoryID
 		if task.ContextID != instance.ContextID.String() {
 			return fmt.Errorf("task context does not match AgentInstance")
@@ -148,6 +151,9 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		instance, err := lockAgentInstance(ctx, tx, instanceID)
 		if err != nil {
 			return notFoundOr(err)
+		}
+		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+			return ErrNotFound
 		}
 		if message.ContextID != instance.ContextID.String() {
 			return fmt.Errorf("task reply context does not match AgentInstance")
@@ -252,7 +258,7 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 		SELECT t.history_id, t.data
 		FROM agent_instance_task t
 		JOIN agent_instance i ON i.history_id = t.history_id
-		WHERE i.id = $1
+		WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED'
 		  AND t.state NOT IN (
 		      'TASK_STATE_COMPLETED',
 		      'TASK_STATE_CANCELED',
@@ -388,6 +394,9 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 // checkpoint creation blocks the write. Continuation admission validates the waiting
 // state and retry identity before invoking this shared persistence operation.
 func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
+	if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+		return ErrNotFound
+	}
 	historyID := instance.HistoryID
 	if event.TaskInfo().ContextID != instance.ContextID.String() || task.ContextID != instance.ContextID.String() {
 		return fmt.Errorf("task event context does not match AgentInstance")
@@ -522,7 +531,7 @@ func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID st
 		    t.snapshot_content_scope, t.history_sequence, t.position
 		FROM agent_instance_task t
 		JOIN agent_instance i ON i.history_id = t.history_id
-		WHERE i.id = $1 AND t.id = $2
+		WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
 	`, pgx.RowToStructByName[agentInstanceTaskRow], instanceID, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))

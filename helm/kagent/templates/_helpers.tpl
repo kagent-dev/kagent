@@ -51,15 +51,49 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
-Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
-Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > empty (watch all).
+Watch namespaces - transforms the list of namespaces cached by the controller into a comma-separated string.
+controller.watchNamespaces is an explicit override; otherwise the watch scope is the resolved RBAC scope
+(kagent.rbacNamespaces), so the controller never watches a namespace its Roles do not cover and never
+holds a cluster-wide cache when RBAC is namespaced. An explicit rbac.namespaces: [] therefore also
+clears the watch scope back to cluster-wide.
 */}}
 {{- define "kagent.watchNamespaces" -}}
 {{- if .Values.controller.watchNamespaces -}}
   {{- .Values.controller.watchNamespaces | uniq | join "," -}}
-{{- else if and .Values.rbac .Values.rbac.namespaces -}}
-  {{- .Values.rbac.namespaces | uniq | join "," -}}
+{{- else -}}
+  {{- include "kagent.rbacNamespaces" . | fromJsonArray | join "," -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The resolved RBAC scope, as a JSON list so callers can range over it.
+Precedence: rbac.namespaces > global.watchNamespaces > empty (cluster-scoped).
+The global is a fallback, not an override: a values file that sets rbac.namespaces
+renders exactly what it rendered before the global existed.
+
+hasKey, not coalesce: an explicit `rbac.namespaces: []` means "cluster-scoped",
+and coalesce would skip it as empty -- silently namespacing an install that
+asked not to be. A present key always wins, even empty.
+
+controller.watchNamespaces joins the scope: the controller needs a Role in
+every namespace it watches, so a watch entry outside the RBAC list would be a
+permanent Forbidden loop. kagent.rbac.validate rejects that mix for an explicit
+rbac.namespaces; under the global the watch entries are folded in instead.
+
+The install namespace is appended only on the global path. The global is a
+shared signal an umbrella may aim at other charts entirely; failing this
+chart's render because that list omits its namespace would brick an install
+the value was never about. An explicit rbac.namespaces keeps the hard fail --
+there the operator is talking about this chart.
+*/}}
+{{- define "kagent.rbacNamespaces" -}}
+{{- $scope := list -}}
+{{- if and .Values.rbac (hasKey .Values.rbac "namespaces") -}}
+{{- $scope = .Values.rbac.namespaces | default list -}}
+{{- else if ((.Values.global).watchNamespaces) -}}
+{{- $scope = concat (.Values.global).watchNamespaces (.Values.controller.watchNamespaces | default list) (list (include "kagent.namespace" .)) -}}
+{{- end -}}
+{{- $scope | uniq | sortAlpha | toJson -}}
 {{- end -}}
 
 {{/*
@@ -69,10 +103,22 @@ Guards on the rbac block
 {{- if and .Values.rbac (hasKey .Values.rbac "clusterScoped") -}}
 {{- fail "rbac.clusterScoped has been removed. Leave rbac.namespaces empty for cluster-scoped RBAC, or set rbac.namespaces=[<ns>, ...] for namespaced RBAC." -}}
 {{- end -}}
+{{- $resolved := include "kagent.rbacNamespaces" . | fromJsonArray -}}
 {{- if and .Values.rbac .Values.rbac.namespaces -}}
 {{- $installNs := include "kagent.namespace" . -}}
 {{- if not (has $installNs .Values.rbac.namespaces) -}}
 {{- fail (printf "rbac.namespaces is set but does not include the install namespace %q" $installNs) -}}
+{{- end -}}
+{{/*
+A watch wider than the RBAC scope is never valid: the controller lists and
+watches namespaces its Roles do not cover, and every reconcile there returns
+Forbidden at runtime with only a log line to show for it. Narrower is fine --
+an operator may grant Roles broadly and watch a subset to keep the cache small.
+*/}}
+{{- range $ns := (.Values.controller.watchNamespaces | default list) -}}
+{{- if not (has $ns $.Values.rbac.namespaces) -}}
+{{- fail (printf "controller.watchNamespaces includes %q but rbac.namespaces does not. The controller would watch a namespace it has no Role in, and every list/watch there returns Forbidden at runtime. Add %q to rbac.namespaces, or remove it from controller.watchNamespaces. Prefer setting only global.watchNamespaces, which scopes RBAC and the watch together." $ns $ns) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -235,7 +281,8 @@ Bundled PostgreSQL image - constructs the full image reference from registry/rep
 */}}
 {{- define "kagent.postgresql.image" -}}
 {{- $pg := .Values.database.postgres.bundled -}}
-{{- $parts := compact (list $pg.image.registry $pg.image.repository $pg.image.name) -}}
+{{- $registry := default $pg.image.registry (include "kagent.globalImageRegistry" .) -}}
+{{- $parts := compact (list $registry $pg.image.repository $pg.image.name) -}}
 {{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
 {{- end -}}
 
@@ -266,11 +313,32 @@ Controller Service host:port for nginx upstream (no scheme).
 imagePullSecrets from global values (for subchart usage).
 Reads .Values.global.imagePullSecrets set by the parent chart.
 */}}
+{{/*
+imagePullSecrets for a pod spec: a component-local list (or the chart-level
+one) merged (union) with global.imagePullSecrets. One definition, called from
+every pod spec -- the merge written twice drifts, and the pod that misses a
+semantics change fails ImagePullBackOff only in the air-gap case the global
+exists for.
+
+Usage: {{ include "kagent.imagePullSecrets" (dict "root" $ "local" .Values.controller.imagePullSecrets) }}
+*/}}
+{{/*
+imagePullPolicy for a container: the component's own value, then the chart-level
+imagePullPolicy, then global.imagePullPolicy, then IfNotPresent. One definition so
+the fallback chain cannot drift between pods.
+
+Usage: {{ include "kagent.imagePullPolicy" (dict "root" $ "local" .Values.controller.image.pullPolicy) }}
+*/}}
+{{- define "kagent.imagePullPolicy" -}}
+{{- .local | default .root.Values.imagePullPolicy | default ((.root.Values.global).imagePullPolicy) | default "IfNotPresent" -}}
+{{- end -}}
+
 {{- define "kagent.imagePullSecrets" -}}
-{{- $global := ((.Values.global).imagePullSecrets) | default list -}}
-{{- if $global -}}
+{{- $local := .local | default .root.Values.imagePullSecrets | default list -}}
+{{- $merged := concat $local (((.root.Values.global).imagePullSecrets) | default list) | uniq -}}
+{{- if $merged -}}
 imagePullSecrets:
-{{- toYaml $global | nindent 2 }}
+{{- toYaml $merged | nindent 2 }}
 {{- end -}}
 {{- end -}}
 
@@ -322,12 +390,89 @@ oauth2-proxy to evaluate, instead of trying to evaluate it itself). It is
 forwarded to kagent's branded /login page.
 */}}
 {{- define "kagent.oauth2ProxySignInHTML" -}}
+{{- /* The oauth2-proxy checksum renders this without `ui`, so a basePath change alone doesn't roll the pod. */ -}}
+{{- $base := trimSuffix "/" ((.Values.ui | default dict).basePath | default "") -}}
 <!DOCTYPE html>
 <html>
 <head>
-  <meta http-equiv="refresh" content="0;url=/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}">
-  <script>window.location.href = "/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}";</script>
+  <meta http-equiv="refresh" content="0;url={{ $base }}/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}">
+  <script>window.location.href = "{{ $base }}/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}";</script>
 </head>
 <body>Redirecting to login...</body>
 </html>
 {{- end -}}
+
+{{/*
+The controller container image. Builds the image root from controller.image and
+resolves it through kagent.images.image, so the deployment carries one short
+call. The top-level tag wins over the component tag, as it always has.
+*/}}
+{{- define "kagent.controllerImage" -}}
+{{- $root := dict "registry" (.Values.controller.image.registry | default .Values.registry) "repository" .Values.controller.image.repository "tag" (coalesce .Values.tag .Values.controller.image.tag .Chart.Version) -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+
+{{/*
+global.imageRegistry, normalized. A trailing slash is an easy value to ship
+("mirror.example/") and every consumer joins the registry onto a path with its
+own "/", so the raw value would render an image reference with a double slash
+that fails at pull time. Every template that reads the global goes through
+this helper so the tolerance is uniform across the chart.
+*/}}
+{{- define "kagent.globalImageRegistry" -}}
+{{- ((.Values.global).imageRegistry) | default "" | trimSuffix "/" -}}
+{{- end -}}
+
+{{/*
+Rewrite a full image reference onto global.imageRegistry, for values that carry
+a whole reference in one string rather than registry/repository/tag keys.
+Follows the container runtime's rule for deciding whether the first path
+segment is a registry: it is one only when it contains a dot or a colon, is
+exactly "localhost", or contains an uppercase letter (a repository path is
+lowercase-only, so an uppercase segment can only be a host). A host-carrying
+reference has that segment replaced so the mirror sees a stable path; a bare
+Docker Hub-style name is prefixed instead. When global.imageRegistry is unset
+the reference passes through unchanged.
+Call with (dict "root" $ "image" <reference>).
+*/}}
+{{- define "kagent.mirroredImage" -}}
+{{- $ref := .image -}}
+{{- $mirror := include "kagent.globalImageRegistry" .root -}}
+{{- if and $mirror $ref -}}
+  {{- $parts := splitList "/" $ref -}}
+  {{- $first := first $parts -}}
+  {{- if and (gt (len $parts) 1) (or (contains "." $first) (contains ":" $first) (eq $first "localhost") (ne $first ($first | lower))) -}}
+    {{- printf "%s/%s" $mirror (join "/" (rest $parts)) -}}
+  {{- else -}}
+    {{- printf "%s/%s" $mirror $ref -}}
+  {{- end -}}
+{{- else -}}
+  {{- $ref -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The ui container image. Same tag precedence as the controller: the top-level
+tag wins over the component tag.
+*/}}
+{{- define "kagent.uiImage" -}}
+{{- $root := dict "registry" (.Values.ui.image.registry | default .Values.registry) "repository" .Values.ui.image.repository "tag" (coalesce .Values.tag .Values.ui.image.tag .Chart.Version) -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+
+{{/*
+Operator resource attributes as an OTEL_RESOURCE_ATTRIBUTES value.
+*/}}
+{{- define "kagent.otel.resourceAttributes" -}}
+{{- $entries := list -}}
+{{- range $key, $value := .Values.otel.resourceAttributes -}}
+{{- if or (contains "," $key) (contains "=" $key) -}}
+{{- fail (printf "otel.resourceAttributes key %q must not contain ',' or '='" $key) -}}
+{{- end -}}
+{{- $encoded := toString $value | replace "%" "%25" | replace "," "%2C" | replace "=" "%3D" -}}
+{{- $entries = append $entries (printf "%s=%s" $key $encoded) -}}
+{{- end -}}
+{{- join "," $entries -}}
+{{- end }}

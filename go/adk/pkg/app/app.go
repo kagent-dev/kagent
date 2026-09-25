@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	adkagent "google.golang.org/adk/v2/agent"
 )
 
@@ -44,6 +46,10 @@ type AppConfig struct {
 	// ShutdownTimeout is the graceful shutdown timeout. Defaults to 5 seconds.
 	ShutdownTimeout time.Duration
 
+	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
+	HealthPaths   []string
+	HealthHandler http.Handler
+
 	// Logger is the structured logger. If nil, a JSON logger is created.
 	Logger *slog.Logger
 
@@ -54,6 +60,12 @@ type AppConfig struct {
 	// Agent is the ADK agent used to enrich the agent card with skills via
 	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
+
+	// Telemetry is the compiler-owned telemetry contract for this runtime. Its
+	// static identity is stamped on every invocation span. The zero value
+	// leaves invocation spans without a runtime or agent identity.
+	Telemetry tracing.RuntimeTelemetry
+	Flush     func(context.Context) error
 }
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
@@ -130,6 +142,10 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		Host:            cfg.Host,
 		Port:            cfg.Port,
 		ShutdownTimeout: cfg.ShutdownTimeout,
+		HealthPaths:     cfg.HealthPaths,
+		HealthHandler:   cfg.HealthHandler,
+		Telemetry:       cfg.Telemetry,
+		Flush:           cfg.Flush,
 	}
 
 	a2aServer, err := server.NewA2AServer(buildAgentCard(cfg), executor, log, serverConfig, handlerOpts...)

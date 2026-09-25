@@ -87,8 +87,12 @@ type Checkpoint struct {
 	State           CheckpointState        `protobuf:"varint,5,opt,name=state,proto3,enum=kagent.api.v1alpha1.CheckpointState" json:"state,omitempty"`
 	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Failure         *Failure               `protobuf:"bytes,7,opt,name=failure,proto3" json:"failure,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Display name for the checkpoint, and the name a fork taken from it is given.
+	// Defaulted at creation from the source instance and the turn the boundary sits
+	// at, because both are what a reader has to tell two boundaries apart by.
+	Name          string `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Checkpoint) Reset() {
@@ -168,6 +172,13 @@ func (x *Checkpoint) GetFailure() *Failure {
 		return x.Failure
 	}
 	return nil
+}
+
+func (x *Checkpoint) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
 }
 
 type CreateCheckpointRequest struct {
@@ -634,11 +645,109 @@ func (x *ForkAgentInstanceResponse) GetAgentInstance() *AgentInstance {
 	return nil
 }
 
+type UpdateCheckpointNameRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	CheckpointId string                 `protobuf:"bytes,1,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
+	// The new display name. Empty restores the generated default rather than leaving
+	// the checkpoint nameless, so a fork always has something to be called.
+	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateCheckpointNameRequest) Reset() {
+	*x = UpdateCheckpointNameRequest{}
+	mi := &file_kagent_api_v1alpha1_checkpoints_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateCheckpointNameRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateCheckpointNameRequest) ProtoMessage() {}
+
+func (x *UpdateCheckpointNameRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_checkpoints_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateCheckpointNameRequest.ProtoReflect.Descriptor instead.
+func (*UpdateCheckpointNameRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_checkpoints_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *UpdateCheckpointNameRequest) GetCheckpointId() string {
+	if x != nil {
+		return x.CheckpointId
+	}
+	return ""
+}
+
+func (x *UpdateCheckpointNameRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type UpdateCheckpointNameResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Checkpoint    *Checkpoint            `protobuf:"bytes,1,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateCheckpointNameResponse) Reset() {
+	*x = UpdateCheckpointNameResponse{}
+	mi := &file_kagent_api_v1alpha1_checkpoints_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateCheckpointNameResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateCheckpointNameResponse) ProtoMessage() {}
+
+func (x *UpdateCheckpointNameResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_checkpoints_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateCheckpointNameResponse.ProtoReflect.Descriptor instead.
+func (*UpdateCheckpointNameResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_checkpoints_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *UpdateCheckpointNameResponse) GetCheckpoint() *Checkpoint {
+	if x != nil {
+		return x.Checkpoint
+	}
+	return nil
+}
+
 var File_kagent_api_v1alpha1_checkpoints_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\n" +
-	"%kagent/api/v1alpha1/checkpoints.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a)kagent/api/v1alpha1/agent_instances.proto\x1a kagent/api/v1alpha1/common.proto\"\xc4\x02\n" +
+	"%kagent/api/v1alpha1/checkpoints.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a)kagent/api/v1alpha1/agent_instances.proto\x1a kagent/api/v1alpha1/common.proto\"\xd8\x02\n" +
 	"\n" +
 	"Checkpoint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
@@ -649,7 +758,8 @@ const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\x05state\x18\x05 \x01(\x0e2$.kagent.api.v1alpha1.CheckpointStateR\x05state\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
-	"\afailure\x18\a \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\"z\n" +
+	"\afailure\x18\a \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\x12\x12\n" +
+	"\x04name\x18\b \x01(\tR\x04name\"z\n" +
 	"\x17CreateCheckpointRequest\x124\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12)\n" +
 	"\n" +
@@ -680,19 +790,27 @@ const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"f\n" +
 	"\x19ForkAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance*\xaa\x01\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x9f\x01\n" +
+	"\x1bUpdateCheckpointNameRequest\x12-\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\fcheckpointId\x12Q\n" +
+	"\x04name\x18\x02 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\"_\n" +
+	"\x1cUpdateCheckpointNameResponse\x12?\n" +
+	"\n" +
+	"checkpoint\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.CheckpointR\n" +
+	"checkpoint*\xaa\x01\n" +
 	"\x0fCheckpointState\x12 \n" +
 	"\x1cCHECKPOINT_STATE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19CHECKPOINT_STATE_CREATING\x10\x01\x12\x1a\n" +
 	"\x16CHECKPOINT_STATE_READY\x10\x02\x12\x1b\n" +
 	"\x17CHECKPOINT_STATE_FAILED\x10\x03\x12\x1d\n" +
-	"\x19CHECKPOINT_STATE_DELETING\x10\x042\xbf\x04\n" +
+	"\x19CHECKPOINT_STATE_DELETING\x10\x042\xbc\x05\n" +
 	"\x11CheckpointService\x12o\n" +
 	"\x10CreateCheckpoint\x12,.kagent.api.v1alpha1.CreateCheckpointRequest\x1a-.kagent.api.v1alpha1.CreateCheckpointResponse\x12f\n" +
 	"\rGetCheckpoint\x12).kagent.api.v1alpha1.GetCheckpointRequest\x1a*.kagent.api.v1alpha1.GetCheckpointResponse\x12l\n" +
 	"\x0fListCheckpoints\x12+.kagent.api.v1alpha1.ListCheckpointsRequest\x1a,.kagent.api.v1alpha1.ListCheckpointsResponse\x12o\n" +
 	"\x10DeleteCheckpoint\x12,.kagent.api.v1alpha1.DeleteCheckpointRequest\x1a-.kagent.api.v1alpha1.DeleteCheckpointResponse\x12r\n" +
-	"\x11ForkAgentInstance\x12-.kagent.api.v1alpha1.ForkAgentInstanceRequest\x1a..kagent.api.v1alpha1.ForkAgentInstanceResponseBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
+	"\x11ForkAgentInstance\x12-.kagent.api.v1alpha1.ForkAgentInstanceRequest\x1a..kagent.api.v1alpha1.ForkAgentInstanceResponse\x12{\n" +
+	"\x14UpdateCheckpointName\x120.kagent.api.v1alpha1.UpdateCheckpointNameRequest\x1a1.kagent.api.v1alpha1.UpdateCheckpointNameResponseBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
 
 var (
 	file_kagent_api_v1alpha1_checkpoints_proto_rawDescOnce sync.Once
@@ -707,51 +825,56 @@ func file_kagent_api_v1alpha1_checkpoints_proto_rawDescGZIP() []byte {
 }
 
 var file_kagent_api_v1alpha1_checkpoints_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_kagent_api_v1alpha1_checkpoints_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_kagent_api_v1alpha1_checkpoints_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_kagent_api_v1alpha1_checkpoints_proto_goTypes = []any{
-	(CheckpointState)(0),              // 0: kagent.api.v1alpha1.CheckpointState
-	(*Checkpoint)(nil),                // 1: kagent.api.v1alpha1.Checkpoint
-	(*CreateCheckpointRequest)(nil),   // 2: kagent.api.v1alpha1.CreateCheckpointRequest
-	(*CreateCheckpointResponse)(nil),  // 3: kagent.api.v1alpha1.CreateCheckpointResponse
-	(*GetCheckpointRequest)(nil),      // 4: kagent.api.v1alpha1.GetCheckpointRequest
-	(*GetCheckpointResponse)(nil),     // 5: kagent.api.v1alpha1.GetCheckpointResponse
-	(*ListCheckpointsRequest)(nil),    // 6: kagent.api.v1alpha1.ListCheckpointsRequest
-	(*ListCheckpointsResponse)(nil),   // 7: kagent.api.v1alpha1.ListCheckpointsResponse
-	(*DeleteCheckpointRequest)(nil),   // 8: kagent.api.v1alpha1.DeleteCheckpointRequest
-	(*DeleteCheckpointResponse)(nil),  // 9: kagent.api.v1alpha1.DeleteCheckpointResponse
-	(*ForkAgentInstanceRequest)(nil),  // 10: kagent.api.v1alpha1.ForkAgentInstanceRequest
-	(*ForkAgentInstanceResponse)(nil), // 11: kagent.api.v1alpha1.ForkAgentInstanceResponse
-	(*timestamppb.Timestamp)(nil),     // 12: google.protobuf.Timestamp
-	(*Failure)(nil),                   // 13: kagent.api.v1alpha1.Failure
-	(*PageRequest)(nil),               // 14: kagent.api.v1alpha1.PageRequest
-	(*PageResponse)(nil),              // 15: kagent.api.v1alpha1.PageResponse
-	(*AgentInstance)(nil),             // 16: kagent.api.v1alpha1.AgentInstance
+	(CheckpointState)(0),                 // 0: kagent.api.v1alpha1.CheckpointState
+	(*Checkpoint)(nil),                   // 1: kagent.api.v1alpha1.Checkpoint
+	(*CreateCheckpointRequest)(nil),      // 2: kagent.api.v1alpha1.CreateCheckpointRequest
+	(*CreateCheckpointResponse)(nil),     // 3: kagent.api.v1alpha1.CreateCheckpointResponse
+	(*GetCheckpointRequest)(nil),         // 4: kagent.api.v1alpha1.GetCheckpointRequest
+	(*GetCheckpointResponse)(nil),        // 5: kagent.api.v1alpha1.GetCheckpointResponse
+	(*ListCheckpointsRequest)(nil),       // 6: kagent.api.v1alpha1.ListCheckpointsRequest
+	(*ListCheckpointsResponse)(nil),      // 7: kagent.api.v1alpha1.ListCheckpointsResponse
+	(*DeleteCheckpointRequest)(nil),      // 8: kagent.api.v1alpha1.DeleteCheckpointRequest
+	(*DeleteCheckpointResponse)(nil),     // 9: kagent.api.v1alpha1.DeleteCheckpointResponse
+	(*ForkAgentInstanceRequest)(nil),     // 10: kagent.api.v1alpha1.ForkAgentInstanceRequest
+	(*ForkAgentInstanceResponse)(nil),    // 11: kagent.api.v1alpha1.ForkAgentInstanceResponse
+	(*UpdateCheckpointNameRequest)(nil),  // 12: kagent.api.v1alpha1.UpdateCheckpointNameRequest
+	(*UpdateCheckpointNameResponse)(nil), // 13: kagent.api.v1alpha1.UpdateCheckpointNameResponse
+	(*timestamppb.Timestamp)(nil),        // 14: google.protobuf.Timestamp
+	(*Failure)(nil),                      // 15: kagent.api.v1alpha1.Failure
+	(*PageRequest)(nil),                  // 16: kagent.api.v1alpha1.PageRequest
+	(*PageResponse)(nil),                 // 17: kagent.api.v1alpha1.PageResponse
+	(*AgentInstance)(nil),                // 18: kagent.api.v1alpha1.AgentInstance
 }
 var file_kagent_api_v1alpha1_checkpoints_proto_depIdxs = []int32{
 	0,  // 0: kagent.api.v1alpha1.Checkpoint.state:type_name -> kagent.api.v1alpha1.CheckpointState
-	12, // 1: kagent.api.v1alpha1.Checkpoint.created_at:type_name -> google.protobuf.Timestamp
-	13, // 2: kagent.api.v1alpha1.Checkpoint.failure:type_name -> kagent.api.v1alpha1.Failure
+	14, // 1: kagent.api.v1alpha1.Checkpoint.created_at:type_name -> google.protobuf.Timestamp
+	15, // 2: kagent.api.v1alpha1.Checkpoint.failure:type_name -> kagent.api.v1alpha1.Failure
 	1,  // 3: kagent.api.v1alpha1.CreateCheckpointResponse.checkpoint:type_name -> kagent.api.v1alpha1.Checkpoint
 	1,  // 4: kagent.api.v1alpha1.GetCheckpointResponse.checkpoint:type_name -> kagent.api.v1alpha1.Checkpoint
-	14, // 5: kagent.api.v1alpha1.ListCheckpointsRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
+	16, // 5: kagent.api.v1alpha1.ListCheckpointsRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
 	1,  // 6: kagent.api.v1alpha1.ListCheckpointsResponse.checkpoints:type_name -> kagent.api.v1alpha1.Checkpoint
-	15, // 7: kagent.api.v1alpha1.ListCheckpointsResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
-	16, // 8: kagent.api.v1alpha1.ForkAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
-	2,  // 9: kagent.api.v1alpha1.CheckpointService.CreateCheckpoint:input_type -> kagent.api.v1alpha1.CreateCheckpointRequest
-	4,  // 10: kagent.api.v1alpha1.CheckpointService.GetCheckpoint:input_type -> kagent.api.v1alpha1.GetCheckpointRequest
-	6,  // 11: kagent.api.v1alpha1.CheckpointService.ListCheckpoints:input_type -> kagent.api.v1alpha1.ListCheckpointsRequest
-	8,  // 12: kagent.api.v1alpha1.CheckpointService.DeleteCheckpoint:input_type -> kagent.api.v1alpha1.DeleteCheckpointRequest
-	10, // 13: kagent.api.v1alpha1.CheckpointService.ForkAgentInstance:input_type -> kagent.api.v1alpha1.ForkAgentInstanceRequest
-	3,  // 14: kagent.api.v1alpha1.CheckpointService.CreateCheckpoint:output_type -> kagent.api.v1alpha1.CreateCheckpointResponse
-	5,  // 15: kagent.api.v1alpha1.CheckpointService.GetCheckpoint:output_type -> kagent.api.v1alpha1.GetCheckpointResponse
-	7,  // 16: kagent.api.v1alpha1.CheckpointService.ListCheckpoints:output_type -> kagent.api.v1alpha1.ListCheckpointsResponse
-	9,  // 17: kagent.api.v1alpha1.CheckpointService.DeleteCheckpoint:output_type -> kagent.api.v1alpha1.DeleteCheckpointResponse
-	11, // 18: kagent.api.v1alpha1.CheckpointService.ForkAgentInstance:output_type -> kagent.api.v1alpha1.ForkAgentInstanceResponse
-	14, // [14:19] is the sub-list for method output_type
-	9,  // [9:14] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	17, // 7: kagent.api.v1alpha1.ListCheckpointsResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	18, // 8: kagent.api.v1alpha1.ForkAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	1,  // 9: kagent.api.v1alpha1.UpdateCheckpointNameResponse.checkpoint:type_name -> kagent.api.v1alpha1.Checkpoint
+	2,  // 10: kagent.api.v1alpha1.CheckpointService.CreateCheckpoint:input_type -> kagent.api.v1alpha1.CreateCheckpointRequest
+	4,  // 11: kagent.api.v1alpha1.CheckpointService.GetCheckpoint:input_type -> kagent.api.v1alpha1.GetCheckpointRequest
+	6,  // 12: kagent.api.v1alpha1.CheckpointService.ListCheckpoints:input_type -> kagent.api.v1alpha1.ListCheckpointsRequest
+	8,  // 13: kagent.api.v1alpha1.CheckpointService.DeleteCheckpoint:input_type -> kagent.api.v1alpha1.DeleteCheckpointRequest
+	10, // 14: kagent.api.v1alpha1.CheckpointService.ForkAgentInstance:input_type -> kagent.api.v1alpha1.ForkAgentInstanceRequest
+	12, // 15: kagent.api.v1alpha1.CheckpointService.UpdateCheckpointName:input_type -> kagent.api.v1alpha1.UpdateCheckpointNameRequest
+	3,  // 16: kagent.api.v1alpha1.CheckpointService.CreateCheckpoint:output_type -> kagent.api.v1alpha1.CreateCheckpointResponse
+	5,  // 17: kagent.api.v1alpha1.CheckpointService.GetCheckpoint:output_type -> kagent.api.v1alpha1.GetCheckpointResponse
+	7,  // 18: kagent.api.v1alpha1.CheckpointService.ListCheckpoints:output_type -> kagent.api.v1alpha1.ListCheckpointsResponse
+	9,  // 19: kagent.api.v1alpha1.CheckpointService.DeleteCheckpoint:output_type -> kagent.api.v1alpha1.DeleteCheckpointResponse
+	11, // 20: kagent.api.v1alpha1.CheckpointService.ForkAgentInstance:output_type -> kagent.api.v1alpha1.ForkAgentInstanceResponse
+	13, // 21: kagent.api.v1alpha1.CheckpointService.UpdateCheckpointName:output_type -> kagent.api.v1alpha1.UpdateCheckpointNameResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_checkpoints_proto_init() }
@@ -767,7 +890,7 @@ func file_kagent_api_v1alpha1_checkpoints_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1alpha1_checkpoints_proto_rawDesc), len(file_kagent_api_v1alpha1_checkpoints_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

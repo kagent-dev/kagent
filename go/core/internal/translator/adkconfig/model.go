@@ -1,21 +1,19 @@
 package adkconfig
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path"
 	"regexp"
-	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -42,8 +40,8 @@ type modelRuntime struct {
 
 // resolveModel collapses provider-specific translation output into the subset
 // needed to compile a runtime revision.
-func (c *Builder) resolveModel(ctx context.Context, resolved *v2translator.ResolvedModelConfig) (*modelRuntime, error) {
-	model, data, err := c.translateModel(ctx, resolved)
+func resolveModel(resolved *v2translator.ResolvedModelConfig) (*modelRuntime, error) {
+	model, data, err := translateModel(resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -206,37 +204,11 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 	}
 }
 
-// resolveFoundryEndpoint returns the Foundry endpoint, preferring the inline
-// value and otherwise resolving it from the referenced ConfigMap (endpointFrom),
-// which lets Azure Service Operator own the account endpoint.
-func (c *Builder) resolveFoundryEndpoint(_ context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
-	if cfg.Endpoint != "" {
-		return cfg.Endpoint, nil
-	}
-	if cfg.EndpointFrom == nil {
-		return "", nil
-	}
-	ref := cfg.EndpointFrom
-	fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
-	if fetched == nil {
-		return "", fmt.Errorf("failed to get Foundry endpoint config map %s: not found", ref.Name)
-	}
-	cm := *fetched
-	value, ok := cm.Data[ref.Key]
-	if !ok {
-		if ref.Optional != nil && *ref.Optional {
-			return "", nil
-		}
-		return "", fmt.Errorf("the Foundry endpoint config map %s does not contain key %q", ref.Name, ref.Key)
-	}
-	return value, nil
-}
-
 // translateModel owns the v2 ModelConfig-to-ADK mapping. The provider branches
 // are intentionally local rather than calling the legacy translator: v2 can
 // now evolve and eventually replace that code without a compatibility layer.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
+func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
 	if resolved == nil || resolved.Config == nil {
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}
@@ -495,14 +467,35 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		if model.Spec.Ollama == nil {
 			return nil, nil, fmt.Errorf("ollama model config is required")
 		}
-		host := model.Spec.Ollama.Host
-		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
-			host = "http://" + host
+		// Only set a host when the operator gave one. An empty value keeps
+		// OLLAMA_API_BASE unset so the runtime applies its own cloud/local
+		// routing; writing a default here would look operator-chosen and pin
+		// every cloud model to the local daemon.
+		if model.Spec.Ollama.Host != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.OllamaAPIBase.Name(),
+				Value: withDefaultScheme(model.Spec.Ollama.Host),
+			})
 		}
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  env.OllamaAPIBase.Name(),
-			Value: host,
-		})
+		// Bind the Secret only when the model reaches api.ollama.com; the
+		// gateway injects the key at egress, while the agent sees only a
+		// placeholder. The same predicate decides the credential binding.
+		// Local models and operator-supplied daemon hosts have no cloud
+		// binding, so they must not receive a Secret-backed environment ref.
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
+			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.OllamaAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
 		ollama := &adk.Ollama{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
@@ -691,15 +684,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		cfg := model.Spec.Foundry
 
-		// Resolve the endpoint, which may come from an inline value or from a
-		// ConfigMap written by Azure Service Operator (endpointFrom).
-		endpoint, err := c.resolveFoundryEndpoint(ctx, model.Namespace, cfg)
-		if err != nil {
-			return nil, nil, err
-		}
-		if endpoint == "" {
-			return nil, nil, fmt.Errorf("foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
-		}
+		endpoint := resolved.FoundryEndpoint
 
 		// Implicit auth: mount the API key only when a secret is provided and
 		// passthrough is off; otherwise the runtime uses DefaultAzureCredential
@@ -718,8 +703,8 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 			})
 		}
 
-		// Endpoint is validated above; Deployment (required) and APIVersion
-		// (defaulted) are guaranteed by the CRD — all three are always set.
+		// The shared resolver supplies the endpoint; Deployment (required) and
+		// APIVersion (defaulted) are guaranteed by the CRD.
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars,
 			corev1.EnvVar{
 				Name:  env.FoundryEndpoint.Name(),
@@ -757,6 +742,49 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return foundry, modelDeploymentData, nil
+	case v1alpha3.ModelProviderMistral:
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.MistralAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+		mistral := &adk.Mistral{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+		}
+		populateTLSFields(&mistral.BaseModel, model.Spec.TLS)
+		mistral.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		if model.Spec.Mistral != nil {
+			spec := model.Spec.Mistral
+			if spec.BaseURL != nil {
+				mistral.BaseUrl = *spec.BaseURL
+			}
+			if spec.Temperature != nil {
+				mistral.Temperature = utils.ParseStringToFloat64(*spec.Temperature)
+			}
+			if spec.TopP != nil {
+				mistral.TopP = utils.ParseStringToFloat64(*spec.TopP)
+			}
+			if spec.MaxTokens != nil {
+				mistral.MaxTokens = spec.MaxTokens
+			}
+			if spec.Timeout != nil {
+				mistral.Timeout = spec.Timeout
+			}
+		}
+
+		return mistral, modelDeploymentData, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}

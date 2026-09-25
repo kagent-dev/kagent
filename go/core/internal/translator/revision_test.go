@@ -5,27 +5,70 @@ import (
 	"testing"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
+func TestRevisionDigestIncludesSandboxClass(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent"}
+	original, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, "3edf8e1756778ce192e3c834e6ebd8e2421dc23e9d64ade7d6ee3c6d6897cd6d", original.String())
+
+	revision.SandboxClass = atev1alpha1.SandboxClassGvisor
+	gvisor, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, original, gvisor, "explicit gVisor must preserve the existing default revision")
+	require.Equal(t, atev1alpha1.SandboxClassGvisor, revision.SandboxClass, "hashing must not mutate the revision")
+
+	revision.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	microvm, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, gvisor, microvm, "changing sandbox class must create a new immutable revision")
+	repeated, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, microvm, repeated)
+
+	revision.SandboxClass = "unsupported"
+	invalid, err := revision.Digest()
+	require.EqualError(t, err, `unsupported sandbox class "unsupported"`)
+	require.True(t, invalid.IsZero())
+}
+
 func TestRevisionDigestIncludesProvenance(t *testing.T) {
-	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", Provenance: []byte(`[{"kind":"Secret","hash":"first"}]`)}
+	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", Provenance: []byte(`[{"kind":"ConfigMap","hash":"first"}]`)}
 	first, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision.Provenance = []byte(`[{"kind":"Secret","hash":"second"}]`)
+	revision.Provenance = []byte(`[{"kind":"ConfigMap","hash":"second"}]`)
 	second, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first == second {
-		t.Fatal("secret rotation did not change runtime revision")
+		t.Fatal("configuration change did not change runtime revision")
 	}
 	if len(first.Short()) != 12 || !strings.HasPrefix(first.String(), first.Short()) {
 		t.Fatalf("short revision %q is not a prefix of %q", first.Short(), first.String())
+	}
+}
+
+func TestRevisionDigestIncludesConfig(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude", ConfigJSON: []byte(`{"version":5,"runtime_telemetry":{"capture_content":false}}`)}
+	first, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.ConfigJSON = []byte(`{"version":5,"runtime_telemetry":{"capture_content":true}}`)
+	second, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("compiled configuration change did not change runtime revision")
 	}
 }
 

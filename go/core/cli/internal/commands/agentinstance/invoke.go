@@ -205,7 +205,10 @@ type tableStreamWriter struct {
 }
 
 func (w *tableStreamWriter) Write(_ a2atype.Event, result a2atype.SendMessageResult) error {
-	text := sendResultText(result)
+	text, err := sendResultText(result)
+	if err != nil {
+		return err
+	}
 	if text == w.text {
 		return nil
 	}
@@ -245,7 +248,10 @@ func writeSendResult(w io.Writer, format clioutput.Format, result a2atype.SendMe
 }
 
 func writeTableResult(w io.Writer, result a2atype.SendMessageResult) error {
-	text := sendResultText(result)
+	text, err := sendResultText(result)
+	if err != nil {
+		return err
+	}
 	if text != "" {
 		if _, err := io.WriteString(w, text); err != nil {
 			return fmt.Errorf("write invoke output: %w", err)
@@ -280,32 +286,40 @@ func writeTableContinuation(w io.Writer, result a2atype.SendMessageResult) error
 	return nil
 }
 
-func sendResultText(result a2atype.SendMessageResult) string {
+func sendResultText(result a2atype.SendMessageResult) (string, error) {
 	switch result := result.(type) {
 	case *a2atype.Message:
 		return messageText(result)
 	case *a2atype.Task:
 		groups := make([]string, 0, len(result.Artifacts)+1)
-		if text := messageText(result.Status.Message); text != "" {
-			groups = append(groups, text)
+		statusText, err := messageText(result.Status.Message)
+		if err != nil {
+			return "", err
+		}
+		if statusText != "" {
+			groups = append(groups, statusText)
 		}
 		for _, artifact := range result.Artifacts {
 			if artifact == nil {
 				continue
 			}
-			if text := clia2a.PartsText(artifact.Parts); text != "" {
+			text, err := clia2a.PartsText(artifact.Parts)
+			if err != nil {
+				return "", err
+			}
+			if text != "" {
 				groups = append(groups, text)
 			}
 		}
-		return strings.Join(groups, "\n")
+		return strings.Join(groups, "\n"), nil
 	default:
-		return ""
+		return "", nil
 	}
 }
 
-func messageText(message *a2atype.Message) string {
+func messageText(message *a2atype.Message) (string, error) {
 	if message == nil {
-		return ""
+		return "", nil
 	}
 	return clia2a.PartsText(message.Parts)
 }

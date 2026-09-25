@@ -22,7 +22,7 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from google.protobuf.json_format import MessageToDict
-from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
+from kagent.core.a2a import now_timestamp
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -93,15 +93,11 @@ class CrewAIAgentExecutor(AgentExecutor):
                         timestamp=now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    metadata={
-                        get_kagent_metadata_key("app_name"): self.app_name,
-                        get_kagent_metadata_key("session_id"): context.context_id,
-                    },
                 )
             )
 
             # This listener will capture and convert CrewAI events and enqueue them to A2A event queue
-            A2ACrewAIListener(context, event_queue, self.app_name)
+            A2ACrewAIListener(context, event_queue)
 
             try:
                 inputs = None

@@ -2,15 +2,20 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from opentelemetry.propagate import get_global_textmap
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.trace import get_current_span
 
 from kagent.core.tracing import _utils
 
 
+@pytest.fixture(autouse=True)
+def _metrics_off_unless_asked(monkeypatch):
+    monkeypatch.setenv("OTEL_METRICS_EXPORTER", "none")
+
+
 def test_configure_tracing_logging_enabled_uses_logger_provider(monkeypatch):
-    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
 
     instrument_calls = {}
 
@@ -51,8 +56,8 @@ def test_configure_tracing_logging_enabled_uses_logger_provider(monkeypatch):
 
 
 def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
-    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
 
     instrument_calls = {}
 
@@ -83,12 +88,20 @@ def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
     assert instrument_calls["google_logger_provider"] is None
 
 
-def test_configure_resource_merges_otel_env_attributes(monkeypatch):
-    # OTEL_RESOURCE_ATTRIBUTES is the only way to set deployment.environment.name
-    # or service.version. The bare Resource() constructor ignores it entirely.
-    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
-    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=prod,service.version=1.4.2")
+@pytest.mark.parametrize(
+    ("service_name", "expected_name", "expected_namespace"),
+    [("demo-kagent", "demo-kagent", "team"), (None, "test-agent", "team")],
+)
+def test_configure_resource_lets_the_environment_win(monkeypatch, service_name, expected_name, expected_namespace):
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=prod,service.version=1.4.2,service.namespace=team"
+    )
+    if service_name is None:
+        monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    else:
+        monkeypatch.setenv("OTEL_SERVICE_NAME", service_name)
 
     captured = {}
 
@@ -111,17 +124,16 @@ def test_configure_resource_merges_otel_env_attributes(monkeypatch):
     _utils.configure(name="test-agent", namespace="test-ns")
 
     attributes = captured["resource"].attributes
-    # Identity stays under our control; env-supplied attributes come along.
-    assert attributes["service.name"] == "test-agent"
-    assert attributes["service.namespace"] == "test-ns"
+    assert attributes["service.name"] == expected_name
+    assert attributes["service.namespace"] == expected_namespace
     assert attributes["deployment.environment.name"] == "prod"
     assert attributes["service.version"] == "1.4.2"
     assert attributes["telemetry.sdk.language"] == "python"
 
 
 def test_configure_all_disabled_skips_instrumentation(monkeypatch):
-    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
 
     instrument_calls = {"openai_instrumented": False, "google_instrumented": False}
 
@@ -153,8 +165,8 @@ def test_configure_all_disabled_skips_instrumentation(monkeypatch):
 @pytest.mark.parametrize("logging_enabled", [True, False])
 def test_configure_instrument_openai_client_false_skips_openai(monkeypatch, logging_enabled):
     # A signal is enabled either way; only the OpenAI client instrumentor must be skipped.
-    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true" if logging_enabled else "false")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp" if logging_enabled else "none")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
 
     instrument_calls = {"openai_instrumented": False}
 
@@ -184,13 +196,38 @@ def test_configure_instrument_openai_client_false_skips_openai(monkeypatch, logg
     assert instrument_calls["anthropic_called"] is True
 
 
-def test_otel_sdk_default_propagator_includes_w3c_tracecontext():
-    """The OTEL SDK must propagate W3C TraceContext by default.
+def test_configure_propagates_trace_context_without_baggage(monkeypatch):
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_PROPAGATORS", "")
+    previous = get_global_textmap()
+    try:
+        _utils.configure(name="test", namespace="test")
+        assert sorted(get_global_textmap().fields) == ["traceparent", "tracestate"]
+        _assert_extracts_trace_context()
+    finally:
+        set_global_textmap(previous)
 
-    kagent relies on this to extract incoming traceparent headers without any
-    explicit set_global_textmap call.  If an OTEL SDK upgrade removes this
-    default, this test will fail and explicit configuration will be needed.
-    """
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, True),
+        ({"OTEL_TRACES_EXPORTER": "none"}, False),
+        ({"OTEL_TRACES_EXPORTER": "console,otlp"}, True),
+        ({"OTEL_TRACES_EXPORTER": "otlp", "OTEL_SDK_DISABLED": "true"}, False),
+    ],
+)
+def test_signal_enabled_follows_the_sdk(monkeypatch, env, expected):
+    for key in ("OTEL_TRACES_EXPORTER", "OTEL_SDK_DISABLED"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    assert _utils.signal_enabled("TRACES") is expected
+
+
+def _assert_extracts_trace_context():
     trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736
     span_id = 0x00F067AA0BA902B7
     carrier = {"traceparent": f"00-{trace_id:032x}-{span_id:016x}-01"}
@@ -234,26 +271,6 @@ def test_force_flush_calls_provider_force_flush(monkeypatch):
     assert calls == [3000]
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("500", 500),
-        ("not-a-number", 3000),
-        ("0", 3000),
-        ("-100", 3000),
-    ],
-)
-def test_force_flush_timeout_env_override(monkeypatch, raw, expected):
-    calls = []
-    provider = SimpleNamespace(force_flush=lambda timeout: calls.append(timeout))
-    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
-    monkeypatch.setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", raw)
-
-    _utils.force_flush()
-
-    assert calls == [expected]
-
-
 def test_force_flush_noop_without_provider_support(monkeypatch):
     # The default (no-op) provider has no force_flush; must not raise.
     monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())
@@ -287,26 +304,12 @@ def _flush_test_app():
     return app
 
 
-@pytest.mark.parametrize(
-    ("env_value", "expect_installed"),
-    [
-        ("true", True),
-        ("false", False),
-        (None, False),
-    ],
-)
-def test_configure_gates_post_response_flush_on_env(monkeypatch, env_value, expect_installed):
-    # Pre-response flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH (set
-    # by the controller on Agent Substrate actors); ordinary deployments keep
-    # pure batch-timer export.
+@pytest.mark.parametrize(("traces", "expect_installed"), [("otlp", True), ("none", False)])
+def test_configure_installs_post_response_flush_with_traces(monkeypatch, traces, expect_installed):
     from fastapi import FastAPI
 
-    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
-    if env_value is None:
-        monkeypatch.delenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", raising=False)
-    else:
-        monkeypatch.setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", env_value)
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", traces)
 
     installed = []
     monkeypatch.setattr(_utils, "_add_post_response_flush", lambda app: installed.append(app))
@@ -417,3 +420,42 @@ def test_post_response_flush_exports_server_span(monkeypatch):
     names = [span.name for span in exporter.get_finished_spans()]
     assert any("POST" in name for name in names), f"server span not exported by flush, got {names}"
     provider.shutdown()
+
+
+def test_configure_exports_metrics_when_enabled(monkeypatch):
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_METRICS_EXPORTER", "otlp")
+    installed = {}
+    monkeypatch.setattr(_utils, "_create_metric_exporter", lambda **kwargs: installed.setdefault("exporter", object()))
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", lambda exporter: ("reader", exporter))
+    monkeypatch.setattr(
+        _utils, "MeterProvider", lambda resource, metric_readers: installed.setdefault("readers", metric_readers)
+    )
+    monkeypatch.setattr(
+        _utils.metrics, "set_meter_provider", lambda provider: installed.setdefault("provider", provider)
+    )
+    flushes = []
+    monkeypatch.setattr(_utils, "_add_post_response_flush", lambda app: flushes.append(app))
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    _utils.configure(name="test", namespace="test", fastapi_app=app)
+
+    assert installed["readers"] == [("reader", installed["exporter"])]
+    assert installed["provider"] is installed["readers"]
+    assert flushes == [app]
+
+
+def test_force_flush_flushes_the_meter_provider(monkeypatch):
+    calls = []
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        _utils.metrics, "get_meter_provider", lambda: SimpleNamespace(force_flush=lambda timeout: calls.append(timeout))
+    )
+
+    _utils.force_flush()
+
+    assert calls == [3000]

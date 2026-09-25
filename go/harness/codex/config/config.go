@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
-	Version            = 2
+	Version            = 3
 	PinnedCodexVersion = "0.148.0"
 )
 
@@ -36,9 +37,13 @@ type Config struct {
 	SkillResources       *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers           map[string]MCPServer   `json:"mcp_servers,omitempty"`
 	Telemetry            *Telemetry             `json:"telemetry,omitempty"`
-	MaxFrameBytes        int                    `json:"max_frame_bytes"`
-	MaxStderrBytes       int                    `json:"max_stderr_bytes"`
-	InterruptGraceMillis int                    `json:"interrupt_grace_millis"`
+	// RuntimeTelemetry carries the compiler-owned span identity and content
+	// capture policy for the Go wrapper. Telemetry above configures the native
+	// Codex exporters, which are a separate producer.
+	RuntimeTelemetry     tracing.RuntimeTelemetry `json:"runtime_telemetry,omitzero"`
+	MaxFrameBytes        int                      `json:"max_frame_bytes"`
+	MaxStderrBytes       int                      `json:"max_stderr_bytes"`
+	InterruptGraceMillis int                      `json:"interrupt_grace_millis"`
 }
 
 // Telemetry contains the compiler-owned native signal exporter settings.
@@ -111,6 +116,12 @@ func (c Config) Validate() error {
 	}
 	if c.Provider.Name != "openai" && c.Provider.Name != "amazon-bedrock" {
 		return fmt.Errorf("unsupported Codex provider %q", c.Provider.Name)
+	}
+	if err := c.RuntimeTelemetry.Validate(); err != nil {
+		return err
+	}
+	if runtime := c.RuntimeTelemetry.Runtime; runtime != "" && runtime != tracing.RuntimeCodex {
+		return fmt.Errorf("codex runtime telemetry names runtime %q", runtime)
 	}
 	if c.Telemetry != nil {
 		if c.Telemetry.Traces == nil && c.Telemetry.Logs == nil {

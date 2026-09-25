@@ -192,57 +192,130 @@ tests:
           path: data.PROXY_URL
           value: "http://proxy.kagent.svc.cluster.local:8080"
 
-  - it: should preserve signal protocols when traces and logs share an endpoint
+  - it: should switch every SDK off by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.OTEL_SDK_DISABLED
+          value: "true"
+      - equal:
+          path: data.OTEL_TRACES_EXPORTER
+          value: "none"
+      - equal:
+          path: data.OTEL_METRICS_EXPORTER
+          value: "none"
+      - equal:
+          path: data.OTEL_LOGS_EXPORTER
+          value: "none"
+      - equal:
+          path: data.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
+          value: "NO_CONTENT"
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
+          value: "false"
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+      - notExists:
+          path: data.KAGENT_OTEL_RESOURCE_ATTRIBUTES
+
+  - it: should render SDK-spec exporter settings with signal overrides
     template: controller-configmap.yaml
     set:
       otel:
-        tracing:
+        exporter:
+          otlp:
+            endpoint: "http://collector:4317"
+            timeout: "5000"
+        traces:
           enabled: true
-          exporter:
-            otlp:
-              endpoint: "http://collector:4317"
-              protocol: "grpc"
-        logging:
+        metrics:
           enabled: true
-          exporter:
-            otlp:
-              endpoint: "http://collector:4317"
-              protocol: "http/protobuf"
+        logs:
+          enabled: true
+          endpoint: "http://logs:4318/v1/logs"
+          protocol: "http/protobuf"
     asserts:
+      - notExists:
+          path: data.OTEL_SDK_DISABLED
+      - equal:
+          path: data.OTEL_TRACES_EXPORTER
+          value: "otlp"
+      - equal:
+          path: data.OTEL_METRICS_EXPORTER
+          value: "otlp"
       - equal:
           path: data.OTEL_EXPORTER_OTLP_ENDPOINT
           value: "http://collector:4317"
       - equal:
-          path: data.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+          path: data.OTEL_EXPORTER_OTLP_PROTOCOL
           value: "grpc"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TIMEOUT
+          value: "5000"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+          value: "http://logs:4318/v1/logs"
       - equal:
           path: data.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL
           value: "http/protobuf"
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
 
-  - it: should disable sensitive telemetry capture by default
-    template: controller-configmap.yaml
-    asserts:
-      - equal:
-          path: data.KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT
-          value: "false"
-      - equal:
-          path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
-          value: "false"
-
-  - it: should configure sensitive telemetry capture independently
+  - it: should configure capture and resource attributes
     template: controller-configmap.yaml
     set:
       otel:
-        captureSensitiveContent: true
-        logging:
-          captureRawApiBodies: true
+        capture:
+          messageContent: true
+          maxBytes: "4096"
+          rawApiBodies: true
+        resourceAttributes:
+          deployment.environment.name: prod
+          k8s.cluster.name: east
     asserts:
       - equal:
-          path: data.KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT
-          value: "true"
+          path: data.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
+          value: "SPAN_ONLY"
+      - equal:
+          path: data.KAGENT_OTEL_MAX_CAPTURE_BYTES
+          value: "4096"
       - equal:
           path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
           value: "true"
+      - equal:
+          path: data.KAGENT_OTEL_RESOURCE_ATTRIBUTES
+          value: "deployment.environment.name=prod,k8s.cluster.name=east"
+
+  - it: should percent-encode resource attribute values
+    template: controller-configmap.yaml
+    set:
+      otel:
+        resourceAttributes:
+          team: "a,b=c%d"
+    asserts:
+      - equal:
+          path: data.KAGENT_OTEL_RESOURCE_ATTRIBUTES
+          value: "team=a%2Cb%3Dc%25d"
+
+  - it: should identify the controller pod on its own telemetry
+    template: controller-deployment.yaml
+    set:
+      otel:
+        resourceAttributes:
+          k8s.cluster.name: east
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: K8S_POD_UID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+            value: "k8s.cluster.name=east,service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller"
 
   - it: should not set PROXY_URL when not set
     template: controller-configmap.yaml
@@ -313,6 +386,30 @@ tests:
       - equal:
           path: data.WATCH_NAMESPACES
           value: "explicit-ns"
+
+  - it: should derive watch namespaces from global.watchNamespaces, install namespace included
+    template: controller-configmap.yaml
+    set:
+      global:
+        watchNamespaces:
+          - team-a
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "NAMESPACE,team-a"
+
+  - it: should watch all namespaces when an explicit empty rbac.namespaces overrides the global
+    template: controller-configmap.yaml
+    set:
+      rbac:
+        namespaces: []
+      global:
+        watchNamespaces:
+          - team-a
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: ""
 
   - it: should set podAnnotations
     template: controller-deployment.yaml

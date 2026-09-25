@@ -1,0 +1,5 @@
+templates:
+  - pattern: resolved.yaml.j2
+    file_name: resolved.yaml
+    application_mode: single
+    filter: "{schema_url, registry, refinements}"

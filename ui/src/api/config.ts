@@ -9,7 +9,7 @@
  * precedence.
  */
 
-import { env, envFlag } from "@/env";
+import { env, envFlag, withBasePath } from "@/env";
 
 export type ApiMode = "mock" | "live";
 
@@ -71,7 +71,7 @@ export const isMockMode = apiMode === "mock";
  * environment has to arrive synchronously — see `@/env`.
  */
 export const apiBaseUrl: string = stripTrailingSlash(
-  apiMode === "live" ? env("API_BASE_URL") : MOCK_API_BASE_URL,
+  apiMode === "live" ? withBasePath(env("API_BASE_URL")) : MOCK_API_BASE_URL,
 );
 
 /** How long a unary request may run before the client aborts it. Streams use the idle timeout in `useChat` instead. */

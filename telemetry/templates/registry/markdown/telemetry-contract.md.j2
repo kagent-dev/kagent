@@ -1,0 +1,53 @@
+# Telemetry contract reference
+
+<!-- Generated from telemetry/registry by `make semconv-generate`. Do not edit. -->
+
+This page lists what the [registry](../../telemetry/registry) defines.
+[Telemetry](telemetry.md) explains how kagent uses it.
+
+## Attributes kagent owns
+
+| Attribute | Type | Values | Description |
+| --- | --- | --- | --- |
+{% for a in ctx.attributes -%}
+| `{{ a.key }}` | {{ a.type }} | {% for v in a.values %}`{{ v }}`{% if not loop.last %}, {% endif %}{% endfor %} | {{ a.brief }}{% if a.note %} {{ a.note }}{% endif %} |
+{% endfor %}
+## Attribute groups
+{% for g in ctx.groups %}
+### `{{ g.id }}`
+
+{{ g.brief }}{% if g.note %} {{ g.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in g.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
+## Spans
+{% for s in ctx.spans %}
+### `{{ s.id }}`
+
+Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in s.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
+## Resource
+{% for e in ctx.entities %}
+### `{{ e.type }}`
+
+{{ e.brief }}{% if e.note %} {{ e.note }}{% endif %}
+
+| Attribute | Role | Requirement | Note |
+| --- | --- | --- | --- |
+{% for a in e.identity -%}
+| `{{ a.key }}` | identity | {{ a.req }} | {{ a.note }} |
+{% endfor -%}
+{% for a in e.description -%}
+| `{{ a.key }}` | description | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}

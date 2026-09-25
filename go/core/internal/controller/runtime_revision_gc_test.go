@@ -120,7 +120,7 @@ type fakeGCTemplates struct {
 	block     bool
 }
 
-func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name, _ string) error {
+func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if name == "failed" {

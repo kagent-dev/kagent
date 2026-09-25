@@ -252,6 +252,17 @@ export interface OperationMap {
   };
 
   /**
+   * Names a saved boundary, which is also what a fork taken from it will be called.
+   *
+   * An empty name is how a reader's own title is cleared: the controller puts its
+   * generated default back rather than leaving the boundary nameless.
+   */
+  "agentInstances.checkpoints.rename": {
+    input: { checkpointId: string; name: string };
+    output: Checkpoint;
+  };
+
+  /**
    * Deletes an instance.
    *
    * Irreversible, and it takes the conversation with it: the instance *is* the

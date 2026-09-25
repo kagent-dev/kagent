@@ -1,6 +1,5 @@
 import faulthandler
 import logging
-import os
 from typing import Union
 
 from a2a.server.request_handlers import DefaultRequestHandlerV2
@@ -16,6 +15,7 @@ from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
+from kagent.core.tracing import signal_enabled
 from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
 from crewai import Crew, Flow
@@ -84,8 +84,7 @@ class KAgentApp:
         if self.tracing:
             configure_tracing(self.config.name, self.config.namespace, app)
             # Setup crewAI instrumentor separately as core configure does not include it
-            tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-            if tracing_enabled:
+            if signal_enabled("TRACES"):
                 CrewAIInstrumentor().instrument()
 
         app.add_route("/health", methods=["GET"], route=def_health_check)

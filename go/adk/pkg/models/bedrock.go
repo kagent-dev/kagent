@@ -247,16 +247,45 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 		}
 
 		additionalFields := m.buildAdditionalModelRequestFields()
+		outputConfig, err := bedrockOutputConfig(req.Config)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
 		// Set telemetry attributes
 		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		if stream {
-			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, reverseNameMap, yield)
+			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, outputConfig, additionalFields, reverseNameMap, yield)
 		} else {
-			m.generateNonStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, reverseNameMap, yield)
+			m.generateNonStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, outputConfig, additionalFields, reverseNameMap, yield)
 		}
 	}
+}
+
+// bedrockOutputConfig maps ADK's response schema to the Bedrock Converse
+// structured-output shape.
+func bedrockOutputConfig(config *genai.GenerateContentConfig) (*types.OutputConfig, error) {
+	schema, err := structuredOutputSchema(config)
+	if err != nil || schema == nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Bedrock output schema: %w", err)
+	}
+	return &types.OutputConfig{
+		TextFormat: &types.OutputFormat{
+			Type: types.OutputFormatTypeJsonSchema,
+			Structure: &types.OutputFormatStructureMemberJsonSchema{
+				Value: types.JsonSchemaDefinition{
+					Name:   aws.String(structuredOutputName),
+					Schema: aws.String(string(encoded)),
+				},
+			},
+		},
+	}, nil
 }
 
 // buildAdditionalModelRequestFields returns a document.Interface containing
@@ -273,13 +302,14 @@ func (m *BedrockModel) buildAdditionalModelRequestFields() document.Interface {
 // generateStreaming handles streaming responses from Bedrock ConverseStream.
 // It properly handles both text and tool use content blocks during streaming.
 // reverseNameMap maps sanitized Bedrock tool names back to their original names.
-func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, reverseNameMap map[string]string, yield func(*model.LLMResponse, error) bool) {
+func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, outputConfig *types.OutputConfig, additionalFields document.Interface, reverseNameMap map[string]string, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.ConverseStream(ctx, &bedrockruntime.ConverseStreamInput{
 		ModelId:                      aws.String(modelId),
 		Messages:                     messages,
 		System:                       systemPrompt,
 		InferenceConfig:              inferenceConfig,
 		ToolConfig:                   toolConfig,
+		OutputConfig:                 outputConfig,
 		AdditionalModelRequestFields: additionalFields,
 		GuardrailConfig:              bedrockGuardrailStreamConfig(m.Config),
 	})
@@ -467,13 +497,14 @@ func (tc *streamingToolCall) parseArgs() map[string]any {
 
 // generateNonStreaming handles non-streaming responses from Bedrock Converse.
 // reverseNameMap maps sanitized Bedrock tool names back to their original names.
-func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, reverseNameMap map[string]string, yield func(*model.LLMResponse, error) bool) {
+func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, outputConfig *types.OutputConfig, additionalFields document.Interface, reverseNameMap map[string]string, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.Converse(ctx, &bedrockruntime.ConverseInput{
 		ModelId:                      aws.String(modelId),
 		Messages:                     messages,
 		System:                       systemPrompt,
 		InferenceConfig:              inferenceConfig,
 		ToolConfig:                   toolConfig,
+		OutputConfig:                 outputConfig,
 		AdditionalModelRequestFields: additionalFields,
 		GuardrailConfig:              bedrockGuardrailConfig(m.Config),
 	})

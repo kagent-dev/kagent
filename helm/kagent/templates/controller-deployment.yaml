@@ -29,10 +29,7 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.controller.podLabels | default dict) (include "kagent.controller.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- with .Values.controller.imagePullSecrets | default .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" . "local" .Values.controller.imagePullSecrets) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.controller.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -80,8 +77,8 @@ spec:
       {{- end }}
       containers:
         - name: controller
-          image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
+          image: {{ include "kagent.controllerImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.controller.image.pullPolicy) }}
           env:
             - name: KAGENT_NAMESPACE
               valueFrom:
@@ -91,10 +88,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: K8S_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
             - name: AUTH_MODE
               value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
             {{- if .Values.controller.auth.userIdClaim }}

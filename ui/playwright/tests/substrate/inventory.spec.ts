@@ -108,9 +108,8 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(templates).toContainText("kagent/coder-template");
     await expect(templates).toContainText("platform/external-template");
 
-    // The golden actor, beneath the name: it is the snapshot every new actor of this
-    // template is cut from, and the one identifier worth carrying beside the name.
-    await expect(templates).toContainText("golden: actor-golden-001");
+    // The golden Tag identifies the snapshot used to create actors from this template.
+    await expect(templates).toContainText("golden: ate-golden/snap-2026-07-28");
 
     // The rest of what decides where and how a template runs.
     await expect(templates).toContainText("gvisor");

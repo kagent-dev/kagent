@@ -47,7 +47,7 @@ type Config struct {
 	TLSCertFile           string
 	TLSKeyFile            string
 	Authenticator         auth.AuthProvider
-	ShareStore            ShareStore
+	ShareStore            agentinstance.ShareStore
 	Registerer            prometheus.Registerer
 	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
@@ -173,10 +173,6 @@ func New(config Config) (*Server, error) {
 		healthServer: healthServer,
 		tlsConfig:    tlsConfig,
 	}, nil
-}
-
-type ShareStore interface {
-	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {

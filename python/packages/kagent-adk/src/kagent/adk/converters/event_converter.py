@@ -21,10 +21,7 @@ from google.adk.events.event import Event
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
-    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    get_kagent_metadata_key,
+    A2A_USAGE_METADATA_KEY,
     now_timestamp,
 )
 
@@ -68,50 +65,15 @@ def serialize_metadata_value(value: Any) -> Any:
 
 
 def _get_context_metadata(event: Event, invocation_context: InvocationContext) -> Dict[str, Any]:
-    """Gets the context metadata for the event.
-
-    Args:
-      event: The ADK event to extract metadata from.
-      invocation_context: The invocation context containing session information.
-
-    Returns:
-      A dictionary containing the context metadata.
-
-    Raises:
-      ValueError: If required fields are missing from event or context.
-    """
+    """Return the public event metadata understood outside the ADK adapter."""
     if not event:
         raise ValueError("Event cannot be None")
     if not invocation_context:
         raise ValueError("Invocation context cannot be None")
 
-    try:
-        metadata: Dict[str, Any] = {
-            get_kagent_metadata_key("app_name"): invocation_context.app_name,
-            get_kagent_metadata_key("user_id"): invocation_context.user_id,
-            get_kagent_metadata_key("session_id"): invocation_context.session.id,
-            get_kagent_metadata_key("invocation_id"): event.invocation_id,
-            get_kagent_metadata_key("author"): event.author,
-        }
-
-        # Add optional metadata fields if present
-        optional_fields = [
-            ("branch", event.branch),
-            ("grounding_metadata", event.grounding_metadata),
-            ("custom_metadata", event.custom_metadata),
-            ("usage_metadata", event.usage_metadata),
-            ("error_code", event.error_code),
-        ]
-
-        for field_name, field_value in optional_fields:
-            if field_value is not None:
-                metadata[get_kagent_metadata_key(field_name)] = serialize_metadata_value(field_value)
-
-        return metadata
-
-    except Exception as e:
-        logger.error("Failed to create context metadata: %s", e)
-        raise
+    if event.usage_metadata is None:
+        return {}
+    return {A2A_USAGE_METADATA_KEY: serialize_metadata_value(event.usage_metadata)}
 
 
 def _create_artifact_id(app_name: str, user_id: str, session_id: str, filename: str, version: int) -> str:
@@ -129,30 +91,6 @@ def _create_artifact_id(app_name: str, user_id: str, session_id: str, filename: 
     """
     components = [app_name, user_id, session_id, filename, str(version)]
     return ARTIFACT_ID_SEPARATOR.join(components)
-
-
-def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
-    """Processes long-running tool metadata for an A2A part.
-
-    Args:
-      a2a_part: The A2A part to potentially mark as long-running.
-      event: The ADK event containing long-running tool information.
-    """
-    if not event.long_running_tool_ids:
-        return
-    if not a2a_part.HasField("data"):
-        return
-
-    metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
-    if (
-        metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-    ):
-        return
-
-    part_data = MessageToDict(a2a_part.data)
-    if isinstance(part_data, dict) and part_data.get("id") in event.long_running_tool_ids:
-        a2a_part.metadata.update({get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True})
 
 
 def convert_event_to_a2a_message(
@@ -195,7 +133,6 @@ def convert_event_to_a2a_message(
             a2a_part = convert_genai_part_to_a2a_part(part)
             if a2a_part:
                 a2a_parts.append(a2a_part)
-                _process_long_running_tool(a2a_part, event)
 
         if a2a_parts:
             message_metadata = _get_context_metadata(event, invocation_context)
@@ -234,11 +171,8 @@ def _create_error_status_event(
     """
     error_message = getattr(event, "error_message", None)
 
-    # Get context metadata and add error code
     event_metadata = _get_context_metadata(event, invocation_context)
     if event.error_code:
-        event_metadata[get_kagent_metadata_key("error_code")] = str(event.error_code)
-
         if not error_message:
             error_message = _get_error_message(event.error_code)
 
@@ -252,7 +186,6 @@ def _create_error_status_event(
                 message_id=str(uuid.uuid4()),
                 role=Role.ROLE_AGENT,
                 parts=[A2APart(text=error_message)],
-                metadata={get_kagent_metadata_key("error_code"): str(event.error_code)} if event.error_code else {},
             ),
             timestamp=now_timestamp(),
         ),

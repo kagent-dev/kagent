@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -92,7 +93,7 @@ func TestStartInvocationSpan_InheritsContextAttributes(t *testing.T) {
 }
 
 func TestSetLLMAttributes_OnActiveSpan(t *testing.T) {
-	t.Setenv(captureMessageContentEnvVar, "true")
+	t.Setenv(tracing.CaptureContentEnvironmentVariable, "true")
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
@@ -144,7 +145,7 @@ func TestSetLLMAttributes_OnActiveSpan(t *testing.T) {
 }
 
 func TestSetLLMAttributes_EmitsEmptyPayloadWhenContentCaptureDisabled(t *testing.T) {
-	t.Setenv(captureMessageContentEnvVar, "false")
+	t.Setenv(tracing.CaptureContentEnvironmentVariable, "false")
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))

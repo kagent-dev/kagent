@@ -9,6 +9,24 @@ var (
 		ComponentController,
 	)
 
+	MetricsBindAddress = RegisterStringVar(
+		"METRICS_BIND_ADDRESS",
+		"0",
+		"Address the controller-runtime metrics server binds to, e.g. :8080. "+
+			"\"0\" (the default) serves no metrics, so an installation that does not "+
+			"set this is unchanged. The Helm chart renders this variable, and its "+
+			"ServiceMonitor, from controller.metrics.",
+		ComponentController,
+	)
+
+	MetricsSecure = RegisterBoolVar(
+		"METRICS_SECURE",
+		false,
+		"Serve the metrics endpoint over HTTPS with authentication and authorization. "+
+			"A scraper then needs a token bound to the metrics-reader ClusterRole.",
+		ComponentController,
+	)
+
 	KagentNamespace = RegisterStringVar(
 		"KAGENT_NAMESPACE",
 		"kagent",
@@ -82,6 +100,20 @@ var (
 		"KAGENT_PROPAGATE_TOKEN",
 		"",
 		"When set, propagates the authentication token to downstream services.",
+		ComponentAgentRuntime,
+	)
+
+	// Registered here for `kagent env` CLI discoverability only -- the
+	// actual gate is read independently (raw os.Getenv, not via this var)
+	// in go/adk/pkg/tools/skills.go's enableFileSearchToolsEnv. The two
+	// literals are pinned together by that package's
+	// TestEnableFileSearchToolsEnvMatchesRegistry.
+	KagentEnableFileSearchTools = RegisterBoolVar(
+		"KAGENT_ENABLE_FILE_SEARCH_TOOLS",
+		false,
+		"When true, enables the list_files and grep_file skills tools, which let an agent "+
+			"enumerate and search the filesystem under its session/skills roots without a "+
+			"shell. Disabled by default; set on the Agent's env to opt in.",
 		ComponentAgentRuntime,
 	)
 

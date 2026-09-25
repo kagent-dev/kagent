@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -36,6 +37,14 @@ type ServerConfig struct {
 	Host            string
 	Port            string
 	ShutdownTimeout time.Duration
+	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
+	HealthPaths   []string
+	HealthHandler http.Handler
+
+	// Telemetry is the compiler-owned identity every invocation span reports.
+	// Request identity is added by whichever component resolves it, never here.
+	Telemetry tracing.RuntimeTelemetry
+	Flush     func(context.Context) error
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
@@ -51,18 +60,30 @@ type A2AServer struct {
 
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
-	flushBeforeResponse := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
-	if flushBeforeResponse {
-		handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(&traceFlushInterceptor{logger: logger}))
-	}
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
+		newInvocationInterceptor(logger, config.Telemetry, config.Flush)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
 		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, *maxContentLength)
 	}
 
+	healthPaths := defaultHealthPaths()
+	if config.HealthPaths != nil {
+		for _, path := range config.HealthPaths {
+			// Mux patterns (subtrees, wildcards) would route what the exact-match tracing filter misses.
+			if !strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") || strings.ContainsAny(path, "{} \t") {
+				return nil, fmt.Errorf("health path %q must be a literal path", path)
+			}
+		}
+		healthPaths = slices.Clone(config.HealthPaths)
+	}
+	healthHandler := config.HealthHandler
+	if healthHandler == nil {
+		healthHandler = defaultHealthHandler
+	}
 	mux := http.NewServeMux()
-	RegisterHealthEndpoints(mux)
+	registerHealthEndpoints(mux, healthPaths, healthHandler)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 
@@ -84,7 +105,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
 			return false
-		case r.URL.Path == "/health", r.URL.Path == "/healthz", r.URL.Path == a2asrv.WellKnownAgentCardPath:
+		case r.URL.Path == a2asrv.WellKnownAgentCardPath, slices.Contains(healthPaths, r.URL.Path):
 			return false
 		default:
 			return true
@@ -104,11 +125,11 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	// Quiescent events must flush earlier: the gateway may suspend or pause
 	// the actor immediately upon receiving the event, before HTTP body close.
 	handler := http.Handler(instrumentedHandler)
-	if flushBeforeResponse {
+	if config.Flush != nil {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			instrumentedHandler.ServeHTTP(w, r)
 			if isA2ARequest(r) {
-				if err := tracing.ForceFlush(r.Context()); err != nil {
+				if err := config.Flush(r.Context()); err != nil {
 					logger.ErrorContext(r.Context(), "failed to flush traces after A2A handler", "error", err)
 				}
 			}

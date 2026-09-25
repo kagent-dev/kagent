@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelConfig } from "@/api";
 import {
+  authTypeForProvider,
   buildModelPayload,
   emptyModelDraft,
   modelDraftFrom,
@@ -96,11 +97,71 @@ describe("buildModelPayload — authentication modes", () => {
     expect(req.spec.apiKeyPassthrough).toBeUndefined();
   });
 
-  it("Ollama never sends a credential whatever the mode says", () => {
+  it("Ollama sends no inline key even when the mode says apiKey", () => {
+    // The Ollama auth group no longer offers "apiKey"; a draft loaded from an
+    // older config might still carry it, and it must not leak into the request.
     const req = buildModelPayload(
       draft({ provider: "Ollama", model: "llama3.2", authType: "apiKey", apiKey: "sk" }),
     );
     expect(req.apiKey).toBeUndefined();
+    expect(req.spec.apiKeySecret).toBeUndefined();
+    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+  });
+
+  it("Ollama names a Secret, which is what authenticates an Ollama Cloud model", () => {
+    const req = buildModelPayload(
+      draft({
+        provider: "Ollama",
+        model: "deepseek-v4-flash:0731-cloud",
+        authType: "secret",
+        apiKeySecret: "ollama-cloud-key",
+        apiKeySecretKey: "OLLAMA_API_KEY",
+      }),
+    );
+    expect(req.spec.apiKeySecret).toBe("ollama-cloud-key");
+    expect(req.spec.apiKeySecretKey).toBe("OLLAMA_API_KEY");
+    // The key is mounted for the runtime, never serialized into the request.
+    expect(req.apiKey).toBeUndefined();
+    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+  });
+
+  it("Ollama defaults the Secret key when only the Secret is named", () => {
+    // The chart's OLLAMA_API_KEY already lives in a Secret, so naming only the
+    // Secret is the intended workflow. The key has to be filled in rather than
+    // omitted: the CRD requires apiKeySecretKey whenever apiKeySecret is set
+    // (Bedrock and SAPAICore are the only exemptions), so the previous payload
+    // here was rejected at admission.
+    const req = buildModelPayload(
+      draft({
+        provider: "Ollama",
+        model: "deepseek-v4-flash:0731-cloud",
+        authType: "secret",
+        apiKeySecret: "ollama-key",
+      }),
+    );
+    expect(req.spec.apiKeySecret).toBe("ollama-key");
+    expect(req.spec.apiKeySecretKey).toBe("OLLAMA_API_KEY");
+  });
+
+  it("Ollama keeps an explicit Secret key name when one is given", () => {
+    const req = buildModelPayload(
+      draft({
+        provider: "Ollama",
+        model: "deepseek-v4-flash:0731-cloud",
+        authType: "secret",
+        apiKeySecret: "ollama-key",
+        apiKeySecretKey: "MY_OLLAMA_KEY",
+      }),
+    );
+    expect(req.spec.apiKeySecretKey).toBe("MY_OLLAMA_KEY");
+  });
+
+  it("Ollama with no credential stays credential-free", () => {
+    const req = buildModelPayload(
+      draft({ provider: "Ollama", model: "llama3.2", authType: "none" }),
+    );
+    expect(req.apiKey).toBeUndefined();
+    expect(req.spec.apiKeySecret).toBeUndefined();
     expect(req.spec.apiKeyPassthrough).toBeUndefined();
   });
 });
@@ -187,6 +248,23 @@ describe("modelDraftFrom — round trip", () => {
     expect(ollama.modelTag).toBe("8b");
     expect(ollama.authType).toBe("none");
   });
+
+  it("surfaces an Ollama Secret rather than collapsing it to none", () => {
+    // The Secret is a real choice for Ollama — it is what authenticates a cloud
+    // model — so reopening the form must not silently drop it.
+    const d = modelDraftFrom({
+      ref: "kagent/ollama-cloud",
+      spec: {
+        provider: "Ollama",
+        model: "deepseek-v4-flash:0731-cloud",
+        apiKeySecret: "ollama-cloud-key",
+        apiKeySecretKey: "OLLAMA_API_KEY",
+      },
+    });
+    expect(d.authType).toBe("secret");
+    expect(d.apiKeySecret).toBe("ollama-cloud-key");
+    expect(d.apiKeySecretKey).toBe("OLLAMA_API_KEY");
+  });
 });
 
 describe("modelDraftIssues", () => {
@@ -214,5 +292,33 @@ describe("modelDraftIssues", () => {
     expect(
       issuesFor(draft({ authType: "none", params: { maxTokens: "lots" } })),
     ).toContain("maxTokens must be a number.");
+  });
+});
+
+// A new draft starts on "apiKey", but Ollama offers only "secret" and "none".
+// Leaving the mode alone on a provider switch rendered a radio group with
+// nothing selected and no way back to no credential.
+describe("authTypeForProvider", () => {
+  it("moves off a mode Ollama does not offer", () => {
+    expect(authTypeForProvider("Ollama", "apiKey")).toBe("none");
+    expect(authTypeForProvider("Ollama", "passthrough")).toBe("none");
+  });
+
+  it("keeps the modes Ollama does offer", () => {
+    expect(authTypeForProvider("Ollama", "secret")).toBe("secret");
+    expect(authTypeForProvider("Ollama", "none")).toBe("none");
+  });
+
+  it("keeps a passthrough selection where the provider allows it", () => {
+    expect(authTypeForProvider("OpenAI", "passthrough")).toBe("passthrough");
+  });
+
+  it("moves off passthrough where the provider forbids it", () => {
+    expect(authTypeForProvider("Gemini", "passthrough")).toBe("apiKey");
+  });
+
+  it("keeps the other modes unchanged", () => {
+    expect(authTypeForProvider("OpenAI", "secret")).toBe("secret");
+    expect(authTypeForProvider("Anthropic", "apiKey")).toBe("apiKey");
   });
 });

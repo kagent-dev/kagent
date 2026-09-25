@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -22,20 +23,21 @@ import (
 
 const credentialValue = "credential-must-not-be-serialized"
 
-func TestCompileSupportedProviders(t *testing.T) {
+func TestCompileProviderCredentials(t *testing.T) {
 	tests := []struct {
 		name       string
 		model      v1alpha3.ModelConfigSpec
 		secretData map[string][]byte
 		wantEnv    map[string]string
 		wantEgress []string
+		wantErr    string
 	}{
 		{
 			name: "Anthropic",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue},
+			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder},
 			wantEgress: []string{"api.anthropic.com"},
 		},
 		{
@@ -44,7 +46,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic"}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue,
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
 			wantEgress: []string{"host.docker.internal"},
 		},
@@ -53,16 +55,14 @@ func TestCompileSupportedProviders(t *testing.T) {
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
 			secretData: map[string][]byte{claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte(credentialValue), claudeconfig.AWSSessionTokenEnvName: []byte("session")},
-			wantEnv: map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-east-1", claudeconfig.AWSAccessKeyEnvName: "access",
-				claudeconfig.AWSSecretKeyEnvName: credentialValue, claudeconfig.AWSSessionTokenEnvName: "session"},
-			wantEgress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
+			wantErr:    "cannot use gateway header injection",
 		},
 		{
 			name: "Bedrock API key",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
 			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
-			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: credentialValue},
+			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: v2translator.CredentialPlaceholder},
 			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
 		},
 		{
@@ -71,9 +71,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
 				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
 			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
-			wantEnv: map[string]string{claudeconfig.UseVertexEnvName: "1", claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5",
-				claudeconfig.GoogleCredentialsJSONEnvName: `{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`},
-			wantEgress: []string{"oauth2.googleapis.com", "us-east5-aiplatform.googleapis.com"},
+			wantErr:    "cannot use gateway header injection",
 		},
 	}
 
@@ -81,6 +79,12 @@ func TestCompileSupportedProviders(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
 			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected unsupported credential error, got %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,8 +116,8 @@ func TestCompileSupportedProviders(t *testing.T) {
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("compiled config or provenance contains credential material")
 			}
-			if !bytes.Contains(revision.Provenance, []byte(`"kind":"Secret"`)) {
-				t.Fatalf("provenance omits credential Secret: %s", revision.Provenance)
+			if bytes.Contains(revision.Provenance, []byte(`"kind":"Secret"`)) {
+				t.Fatalf("provenance contains gateway-managed Secret: %s", revision.Provenance)
 			}
 
 			again, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
@@ -125,8 +129,8 @@ func TestCompileSupportedProviders(t *testing.T) {
 }
 
 func TestCompileTracing(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
 	model := v1alpha3.ModelConfigSpec{
@@ -146,18 +150,23 @@ func TestCompileTracing(t *testing.T) {
 		environment[variable.Name] = variable.Value
 	}
 	for name, value := range map[string]string{
-		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
-		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "otlp",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":        "grpc", "OTEL_TRACES_EXPORTER": "otlp",
 		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
-		"KAGENT_NAME":      "assistant-claude",
-		"KAGENT_NAMESPACE": "test", claudeconfig.PreResponseTraceFlushEnvName: "true",
+		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
+		"OTEL_SERVICE_NAME":        "assistant-claude",
+		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/assistant-claude,gen_ai.agent.name=assistant-claude,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
+		"KAGENT_NAME":              "assistant-claude",
+		"KAGENT_NAMESPACE":         "test",
 	} {
 		if environment[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
 		}
 	}
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	if _, redundant := environment["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"]; redundant {
+		t.Error("trace protocol rendered although it matches the shared protocol")
+	}
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
 	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -166,17 +175,18 @@ func TestCompileTracing(t *testing.T) {
 	for _, variable := range revision.Environment {
 		environment[variable.Name] = variable.Value
 	}
-	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"} {
-		if environment[name] != "1" {
-			t.Errorf("sensitive trace environment[%s] = %q, want 1", name, environment[name])
-		}
+	if config, err := claudeconfig.Parse(revision.ConfigJSON); err != nil || !config.RuntimeTelemetry.CaptureContent {
+		t.Errorf("compiled capture = %v, %v; the adapter derives Claude's content flags from it", config.RuntimeTelemetry.CaptureContent, err)
+	}
+	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != tracing.CaptureContentSpanOnly {
+		t.Errorf("capture environment = %q, want %q", got, tracing.CaptureContentSpanOnly)
 	}
 }
 
 func TestCompileLogging(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
 	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "false")
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://logs:4318")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 	model := v1alpha3.ModelConfigSpec{
@@ -196,9 +206,8 @@ func TestCompileLogging(t *testing.T) {
 		environment[variable.Name] = variable.Value
 	}
 	for name, value := range map[string]string{
-		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "none",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://logs:4318",
+		"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf", "OTEL_TRACES_EXPORTER": "none",
 		"OTEL_LOGS_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none",
 	} {
 		if environment[name] != value {
@@ -211,7 +220,7 @@ func TestCompileLogging(t *testing.T) {
 		}
 	}
 
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
 	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "true")
 	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -221,13 +230,8 @@ func TestCompileLogging(t *testing.T) {
 	for _, variable := range revision.Environment {
 		environment[variable.Name] = variable.Value
 	}
-	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES"} {
-		if environment[name] != "1" {
-			t.Errorf("sensitive log environment[%s] = %q, want 1", name, environment[name])
-		}
-	}
-	if _, exists := environment["OTEL_LOG_TOOL_CONTENT"]; exists {
-		t.Fatal("logging-only revision enables trace-based tool content")
+	if environment["OTEL_LOG_RAW_API_BODIES"] != "1" {
+		t.Errorf("raw API body environment = %q, want 1", environment["OTEL_LOG_RAW_API_BODIES"])
 	}
 }
 
@@ -301,8 +305,14 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(revision.Environment, corev1.EnvVar{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}) {
-		t.Fatalf("unmanaged OTEL environment missing from revision: %#v", revision.Environment)
+	var attributes []string
+	for _, variable := range revision.Environment {
+		if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+			attributes = append(attributes, variable.Value)
+		}
+	}
+	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.agent.name=assistant-claude") {
+		t.Fatalf("harness resource attributes = %q, want one value keeping them beside the identity", attributes)
 	}
 }
 
@@ -395,7 +405,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 	foundSecret := false
 	for _, variable := range revision.Environment {
-		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == credentialValue {
+		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == v2translator.CredentialPlaceholder {
 			foundSecret = true
 		}
 	}
@@ -616,4 +626,122 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
 	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
+}
+
+func TestCompileRuntimeTelemetry(t *testing.T) {
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Name = "fast"
+
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := claudeconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The compiled identity follows the Harness name, not the harness kind.
+	want := tracing.RuntimeTelemetry{
+		Runtime: tracing.RuntimeClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Provider: "anthropic", Model: "claude-sonnet-4-5",
+	}
+	if config.RuntimeTelemetry != want {
+		t.Fatalf("runtime telemetry = %#v, want %#v", config.RuntimeTelemetry, want)
+	}
+	if config.RuntimeTelemetry.CaptureLimit() != 0 {
+		t.Fatal("content capture is not disabled by default")
+	}
+
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
+	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "4096")
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedConfig, err := claudeconfig.Parse(captured.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capturedConfig.RuntimeTelemetry.CaptureContent || capturedConfig.RuntimeTelemetry.CaptureLimit() != 4096 {
+		t.Fatalf("captured runtime telemetry = %#v", capturedConfig.RuntimeTelemetry)
+	}
+	// A telemetry change lives only in the compiled configuration, which the
+	// revision digest covers. Provenance records Kubernetes inputs, none of
+	// which changed.
+	if !bytes.Equal(revision.Provenance, captured.Provenance) {
+		t.Fatal("changing the capture policy changed revision provenance")
+	}
+	before, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := captured.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("changing the capture policy did not change the revision digest")
+	}
+}
+
+func TestCompileRejectsAnUnusableCaptureBudget(t *testing.T) {
+	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "-1")
+	config, warnings := v2translator.TelemetryConfigFromProcess()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", warnings)
+	}
+	if config.MaxCaptureBytes != 0 {
+		t.Fatalf("MaxCaptureBytes = %d, want the shared default", config.MaxCaptureBytes)
+	}
+}
+
+func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
+	for name, value := range map[string]string{
+		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "otlp",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_TIMEOUT": "10000",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://traces:4317", "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
+		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "SPAN_ONLY", "KAGENT_OTEL_CAPTURE_RAW_API_BODIES": "true",
+		"KAGENT_OTEL_RESOURCE_ATTRIBUTES": "deployment.environment.name=prod",
+	} {
+		t.Setenv(name, value)
+	}
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), "mcp-token": []byte(credentialValue)})
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "math-server", Namespace: "test", UID: "mcp-uid", Generation: 1},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp",
+			HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
+		},
+		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 1, DiscoveredTools: []*v1alpha3.MCPTool{{Name: "echo"}}},
+	}
+	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+		Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"echo"},
+	}}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
+
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisionID, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := substrate.ActorTemplateForRevision(&revision.Revision, revisionID)
+	if err != nil {
+		t.Fatalf("worst-case Claude actor does not fit Substrate: %v", err)
+	}
+	t.Logf("worst-case Claude actor uses %d of 32 environment variables", len(template.GetContainers()[0].GetEnv()))
 }
