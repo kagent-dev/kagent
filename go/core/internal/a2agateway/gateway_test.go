@@ -181,11 +181,18 @@ func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceP
 			return nil, err
 		}
 	}
+	if r.task != nil {
+		return r.task, nil
+	}
 	return &a2atype.Task{ID: "runtime-task", ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}, nil
 }
 
 func (r *gatewayTestRuntime) SendStreamingMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
+		if r.task != nil {
+			yield(r.task, nil)
+			return
+		}
 		if r.streamState != a2atype.TaskStateUnspecified {
 			task := &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID}
 			yield(a2atype.NewStatusUpdateEvent(task, r.streamState, a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("approve?"))), nil)

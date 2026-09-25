@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"iter"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
 	"github.com/google/uuid"
@@ -226,12 +228,15 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	// Independent public gateways share only PostgreSQL and the runtime. Each
 	// observer owns a separate upstream connection; neither gateway ingests events.
 	gateways := make([]*grpc.ClientConn, 2)
+	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
+		gateway := a2agateway.New(store, &auth.NoopAuthorizer{}, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, Registerer: prometheus.NewRegistry(), SystemService: testSystemService(),
 			Authenticator: &authimpl.UnsecureAuthenticator{},
-			A2AHandler:    a2agateway.New(store, &auth.NoopAuthorizer{}, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test"),
+			A2AHandler:    gateway,
+			HTTPHandler:   a2agateway.NewHTTPHandler(gateway, &authimpl.UnsecureAuthenticator{}, store),
 		})
 		require.NoError(t, err)
 		publicCtx, stop := context.WithCancel(t.Context())
@@ -242,6 +247,14 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return publicListener.Dial() }))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = gateways[i].Close() })
+		if i == 1 {
+			httpClient := &http.Client{Transport: &http.Transport{
+				DialContext: func(context.Context, string, string) (net.Conn, error) { return publicListener.Dial() },
+			}}
+			t.Cleanup(httpClient.CloseIdleConnections)
+			httpTransport = a2aclient.NewJSONRPCTransport("http://gateway.test"+a2agateway.HTTPPathPrefix+id, httpClient)
+			t.Cleanup(func() { require.NoError(t, httpTransport.Destroy()) })
+		}
 	}
 	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.AgentInstanceIDHeader, id, "x-user-id", "alice"))
 	observer, stopObserver := context.WithTimeout(publicCtx, 10*time.Second)
@@ -402,6 +415,34 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	_, err = second.SendMessage(publicCtx, failed)
 	require.Error(t, err)
 	require.Equal(t, beforeFailed, executions.Load(), "a failed Create must not start native work")
+	t.Run("HTTP and gRPC share durable tasks", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+		result, err := httpTransport.SendMessage(ctx, params, &a2a.SendMessageRequest{
+			Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("work")),
+		})
+		require.NoError(t, err)
+		task, ok := result.(*a2a.Task)
+		require.True(t, ok)
+		require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
+		stored, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: string(task.ID)})
+		require.NoError(t, err)
+		expected, err := pbconv.ToProtoTask(task)
+		require.NoError(t, err)
+		require.True(t, proto.Equal(expected, stored))
+
+		request := proto.CloneOf(input)
+		request.Message.MessageId = "input-grpc-to-http"
+		response, err := second.SendMessage(publicCtx, request)
+		require.NoError(t, err)
+		require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, response.GetTask().GetStatus().GetState())
+		read, err := httpTransport.GetTask(ctx, params, &a2a.GetTaskRequest{ID: a2a.TaskID(response.GetTask().GetId())})
+		require.NoError(t, err)
+		actual, err := pbconv.ToProtoTask(read)
+		require.NoError(t, err)
+		require.True(t, proto.Equal(response.GetTask(), actual))
+	})
 	runtimeServer.Stop()
 	_, err = second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
 	require.NoError(t, err)
