@@ -42,6 +42,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -1122,6 +1123,17 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 			t.Errorf("delete interaction ModelConfig: %v", err)
 		}
 	})
+	// The template compiler reads the collection that writes this status, so a template created
+	// before Accepted can fail to resolve the ModelConfig.
+	if err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(model), model); err != nil {
+			return false, err
+		}
+		accepted := meta.FindStatusCondition(model.Status.Conditions, v1alpha3.ModelConfigConditionTypeAccepted)
+		return accepted != nil && accepted.Status == metav1.ConditionTrue && accepted.ObservedGeneration == model.Generation, nil
+	}); err != nil {
+		t.Fatalf("wait for interaction ModelConfig %s/%s to be accepted: %v", model.Namespace, model.Name, err)
+	}
 	return model
 }
 
@@ -1156,7 +1168,7 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 		}
 	})
 
-	var lastReady, lastPending *metav1.Condition
+	var lastReady *metav1.Condition
 	err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), template); err != nil {
 			return false, err
@@ -1167,14 +1179,8 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 			}
 			for index := range harness.Conditions {
 				condition := &harness.Conditions[index]
-				// A just-created ModelConfig may not have reached the controller's cache yet. Later stages
-				// read "Blocked" behind it; any real root failure comes first and still fails fast.
-				pending := (condition.Type == v1alpha3.AgentTemplateConditionReady && condition.Reason == "ActorTemplatePending") ||
-					(condition.Type == v1alpha3.AgentTemplateConditionResolvedRefs && condition.Reason == "ReferenceResolutionFailed") ||
-					condition.Reason == "Blocked"
-				if condition.Status == metav1.ConditionFalse && pending {
-					lastPending = condition.DeepCopy()
-				} else if condition.Status == metav1.ConditionFalse {
+				if condition.Status == metav1.ConditionFalse &&
+					(condition.Type != v1alpha3.AgentTemplateConditionReady || condition.Reason != "ActorTemplatePending") {
 					return false, fmt.Errorf("AgentTemplate %s/%s harness %q condition %s failed: %s: %s",
 						template.Namespace, template.Name, harnessName, condition.Type, condition.Reason, condition.Message)
 				}
@@ -1192,10 +1198,6 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 		if lastReady != nil {
 			t.Fatalf("wait for interaction AgentTemplate %s/%s on harness %q: %v; last Ready condition: status=%s reason=%s message=%q",
 				template.Namespace, template.Name, harnessName, err, lastReady.Status, lastReady.Reason, lastReady.Message)
-		}
-		if lastPending != nil {
-			t.Fatalf("wait for interaction AgentTemplate %s/%s on harness %q: %v; last pending condition: %s %s: %q",
-				template.Namespace, template.Name, harnessName, err, lastPending.Type, lastPending.Reason, lastPending.Message)
 		}
 		t.Fatalf("wait for interaction AgentTemplate: %v", err)
 	}
