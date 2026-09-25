@@ -3,10 +3,13 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
+	"unicode/utf8"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -26,6 +29,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -257,6 +261,7 @@ type fakeActorTemplates struct {
 	ensureErr          error
 	getErr             error
 	createErr          error
+	creates            int
 	deleteErr          error
 	deletedBeforeError bool
 }
@@ -274,6 +279,7 @@ func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (
 }
 
 func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
+	f.creates++
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -426,5 +432,134 @@ func TestReconciliationQueueRetriesWithBackoff(t *testing.T) {
 		require.EqualValues(t, 11, attempts.Load(), "new graph events must still enqueue work")
 		cancel()
 		require.NoError(t, queue.WaitForClose(time.Second))
+	})
+}
+
+func pendingPairFixture(t *testing.T, stop chan struct{}, templates actorTemplateClient) (*Reconciler, krt.StaticCollection[PairReconciliation], PairReconciliation) {
+	t.Helper()
+	opts := krt.NewOptionsBuilder(stop, "test", nil)
+	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
+	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
+	revision := &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
+	revisionID, err := revision.Digest()
+	require.NoError(t, err)
+	state := PairReconciliation{
+		Pair:     AgentTemplateHarnessPair{AgentTemplate: template, Harness: harness},
+		Revision: revision, RevisionID: revisionID,
+		DesiredActorTemplate: &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}},
+	}
+	reconciliations := krt.NewStaticCollection(nil, []PairReconciliation{state}, opts.WithName("Reconciliations")...)
+	reconciler := &Reconciler{
+		collections: Collections{
+			PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
+			Reconciliations:         reconciliations,
+		},
+		templates: templates, store: &fakeRuntimeRevisionStore{},
+	}
+	return reconciler, reconciliations, state
+}
+
+func TestReconcilerStopsOnActorTemplateRejection(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	rejection := "actor_template.containers[0].env[26].value: Too long: may not be more than 32768 characters"
+	templates := &fakeActorTemplates{createErr: status.Error(codes.InvalidArgument, rejection)}
+	reconciler, reconciliations, state := pendingPairFixture(t, stop, templates)
+
+	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), "a rejected template must not be requeued")
+	require.Equal(t, 1, templates.creates)
+	observed := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
+	require.NotNil(t, observed)
+	require.Equal(t, &ReconciliationFailure{
+		Condition: kagentv1alpha3.AgentTemplateConditionCompatible,
+		Reason:    "ActorTemplateRejected",
+		Message:   "Substrate rejected the ActorTemplate: " + rejection,
+	}, observed.Failure)
+
+	// The graph copies the observed failure into the pair.
+	state.Failure = observed.Failure
+	reconciliations.UpdateObject(state)
+	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
+	require.Equal(t, 1, templates.creates, "a rejected revision must not be sent to Substrate again")
+
+	pairStatus := statusForPair(state, 1, "")
+	compatible := apimeta.FindStatusCondition(pairStatus.Conditions, kagentv1alpha3.AgentTemplateConditionCompatible)
+	require.NotNil(t, compatible)
+	require.Equal(t, metav1.ConditionFalse, compatible.Status)
+	require.Equal(t, "ActorTemplateRejected", compatible.Reason)
+	require.Contains(t, compatible.Message, rejection)
+}
+
+func TestActorTemplateRejectionMessageIsBounded(t *testing.T) {
+	failure := actorTemplateRejected(status.Error(codes.InvalidArgument, strings.Repeat("é", 2*maxRejectionMessageRunes)))
+	require.Equal(t, len("Substrate rejected the ActorTemplate: ")+maxRejectionMessageRunes+1, utf8.RuneCountInString(failure.Message))
+}
+
+// lockedActorTemplates serialises a fake a running queue calls into.
+type lockedActorTemplates struct {
+	mu   sync.Mutex
+	fake *fakeActorTemplates
+}
+
+func (l *lockedActorTemplates) EnsureAtespace(ctx context.Context, atespace string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.fake.EnsureAtespace(ctx, atespace)
+}
+
+func (l *lockedActorTemplates) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.fake.GetActorTemplate(ctx, atespace, name)
+}
+
+func (l *lockedActorTemplates) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.fake.CreateActorTemplate(ctx, template)
+}
+
+func (l *lockedActorTemplates) DeleteActorTemplate(ctx context.Context, atespace, name string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.fake.DeleteActorTemplate(ctx, atespace, name)
+}
+
+func (l *lockedActorTemplates) inspect(f func(*fakeActorTemplates)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f(l.fake)
+}
+
+func TestPendingPollBacksOffFailingPairs(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		stop := make(chan struct{})
+		defer close(stop)
+		templates := &lockedActorTemplates{fake: &fakeActorTemplates{createErr: status.Error(codes.Unavailable, "substrate unavailable")}}
+		reconciler, _, _ := pendingPairFixture(t, stop, templates)
+		reconciler.pairs = newReconciliationQueue("test-pending-poll", reconciler.reconcilePairItem)
+		go reconciler.pairs.Run(stop)
+		go reconciler.pollPendingTemplates(stop)
+		creates := func() (count int) {
+			templates.inspect(func(f *fakeActorTemplates) { count = f.creates })
+			return count
+		}
+
+		// The queue's attempts take about two minutes. From then on the
+		// poll retries once per backoff cap.
+		time.Sleep(3 * time.Minute)
+		synctest.Wait()
+		attempts := creates()
+		require.LessOrEqual(t, attempts, reconciliationMaxAttempts+2, "a failing pair must back off instead of being retried every poll")
+		time.Sleep(10 * reconciliationRetryCap)
+		synctest.Wait()
+		require.InDelta(t, 10, creates()-attempts, 1, "a pair whose retry budget is spent must be retried at the backoff cap")
+
+		templates.inspect(func(f *fakeActorTemplates) { f.createErr = nil })
+		time.Sleep(reconciliationRetryCap + time.Second)
+		synctest.Wait()
+		templates.inspect(func(f *fakeActorTemplates) {
+			require.NotNil(t, f.template, "a recovered backend must create the template")
+		})
 	})
 }
