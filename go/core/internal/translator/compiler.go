@@ -59,6 +59,8 @@ type ResolvedAgentBinding struct {
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
+	// AgentName is the runnable identity, independent of inline or referenced inputs.
+	AgentName    string
 	Harness      *v1alpha3.Harness
 	Root         *AgentInput
 	OutputSchema *ResolvedOutputSchema
@@ -122,11 +124,11 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		}
 		harness = *found
 	}
-	result, err := c.CompileAgentTemplate(ctx, harness, template)
+	result, err := c.CompileAgentTemplate(ctx, agent.Name, harness, template)
 	if err != nil {
 		return nil, err
 	}
-	result.AgentName, result.AgentUID = agent.Name, string(agent.UID)
+	result.AgentUID = string(agent.UID)
 	result.Provenance, err = json.Marshal(struct {
 		AgentName string             `json:"agentName"`
 		AgentUID  string             `json:"agentUID"`
@@ -139,10 +141,9 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 	return result, nil
 }
 
-// CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
-// revision and user-facing diagnostics. Nothing below this boundary needs to
-// read the public API objects.
-func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*CompileResult, error) {
+// CompileAgentTemplate compiles resolved configuration for the named Agent.
+// The Agent name owns runtime identity; template and Harness names are provenance.
+func (c *Compiler) CompileAgentTemplate(ctx context.Context, agentName string, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -155,6 +156,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if err != nil {
 		return nil, err
 	}
+	input.AgentName = agentName
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
@@ -164,6 +166,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
+	result.AgentName = agentName
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
 	return result, nil
 }

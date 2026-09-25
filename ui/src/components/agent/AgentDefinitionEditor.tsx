@@ -19,7 +19,7 @@ export function AgentDefinitionEditor({
 }: {
   agent?: Agent;
   onClose: () => void;
-  onSaved: (agent: Agent) => void;
+  onSaved: (agent: Agent) => void | Promise<void>;
 }) {
   const namespaces = useNamespaces();
   const [namespace, setNamespace] = useState(agent?.namespace ?? "");
@@ -53,7 +53,7 @@ export function AgentDefinitionEditor({
       const saved = agent
         ? await apiClient.agentBuildingBlocks.updateAgent(input)
         : await apiClient.agentBuildingBlocks.createAgent(input);
-      onSaved(saved);
+      await onSaved(saved);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

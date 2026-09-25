@@ -136,8 +136,8 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_PROTOCOL":      "http/protobuf",
 		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4317",
 		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "grpc",
-		"OTEL_SERVICE_NAME":                "assistant-codex",
-		"KAGENT_NAME":                      "assistant-codex",
+		"OTEL_SERVICE_NAME":                "runnable-agent",
+		"KAGENT_NAME":                      "runnable-agent",
 		"KAGENT_NAMESPACE":                 "test",
 	} {
 		if environment[name] != value {
@@ -314,7 +314,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{
+	return &v2translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &v2translator.AgentInput{
 		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
 	}}, collections
 }
@@ -340,9 +340,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compiled identity follows the Harness name, not the harness kind.
+	// Changing the Harness name must not change the Agent runtime identity.
 	want := tracing.RuntimeTelemetry{
-		Runtime: tracing.RuntimeCodex, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeCodex, AgentName: "runnable-agent", AgentNamespace: "test",
 		Provider: "openai", Model: "gpt-5.2-codex",
 	}
 	if config.RuntimeTelemetry != want {

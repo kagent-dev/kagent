@@ -1,5 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { loadPage, routes } from "../../helpers/app";
+import { optionNamed } from "../../helpers/resource";
 
 for (const template of ["reference", "inline"]) {
   for (const harness of ["reference", "inline"]) {
@@ -8,7 +9,7 @@ for (const template of ["reference", "inline"]) {
       await page.getByRole("button", {name:"New Agent", exact:true}).click();
       const modal = page.getByRole("dialog");
       await modal.locator("#agent-namespace").click();
-      await page.getByTitle("kagent", {exact:true}).last().click();
+      await optionNamed(page, "kagent").click();
       const name = `agent-${template}-${harness}`;
       await modal.getByLabel("Name", {exact:true}).fill(name);
       if (template === "inline") {
@@ -28,6 +29,15 @@ for (const template of ["reference", "inline"]) {
       await expect(page.getByTestId("agent-cannot-start")).toBeVisible();
       await page.getByRole("button", {name:"Edit Agent", exact:true}).click();
       await expect(modal.locator("#agent-template")).toHaveValue(template === "reference" ? "shared-brain" : /Inline instructions/);
+      await expect(modal.locator("#agent-harness")).toHaveValue(harness === "reference" ? "k8s-agent" : /workload/);
+      const updatedTemplate = template === "reference"
+        ? "k8s-agent-7f3a91c"
+        : JSON.stringify({systemPrompt:"Updated instructions", modelConfig:{name:"default-model-config"}});
+      await modal.locator("#agent-template").fill(updatedTemplate);
+      await modal.getByRole("button", {name:"Save Agent", exact:true}).click();
+      await expect(modal).not.toBeVisible();
+      await page.getByRole("button", {name:"Edit Agent", exact:true}).click();
+      await expect(modal.locator("#agent-template")).toHaveValue(template === "reference" ? updatedTemplate : /Updated instructions/);
       await expect(modal.locator("#agent-harness")).toHaveValue(harness === "reference" ? "k8s-agent" : /workload/);
       await modal.getByRole("button", {name:"Cancel", exact:true}).click();
     });

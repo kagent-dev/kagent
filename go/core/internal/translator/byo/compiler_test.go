@@ -28,7 +28,8 @@ func TestCompileOpaqueImage(t *testing.T) {
 	}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
-		Harness: harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
+		AgentName: "runnable-agent",
+		Harness:   harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
 	require.NoError(t, err)
 	require.Equal(t, harness.Spec.Workload.Command, revision.Command)
@@ -63,7 +64,8 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
-		Harness: harness, Root: &v2translator.AgentInput{Template: template},
+		AgentName: "runnable-agent",
+		Harness:   harness, Root: &v2translator.AgentInput{Template: template},
 	})
 	require.NoError(t, err)
 	environment := map[string]string{}
@@ -73,5 +75,5 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	require.Equal(t, "my-langgraph", environment["OTEL_SERVICE_NAME"])
 	require.Equal(t, "https://otlp.example.com", environment["OTEL_EXPORTER_OTLP_ENDPOINT"])
 	require.Equal(t, "otlp", environment["OTEL_TRACES_EXPORTER"])
-	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.agent.name=custom-agent-byo")
+	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.agent.name=runnable-agent")
 }

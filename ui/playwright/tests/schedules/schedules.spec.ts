@@ -257,7 +257,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
   await test.step("11. a filled-in schedule is created and lands on its own page", async () => {
     await page.getByTestId("schedule-agent").click();
-    await optionNamed(page, "kagent/k8s-agent-7f3a91c on k8s-agent").click();
+    await optionNamed(page, "kagent/k8s-agent-7f3a91c").click();
     await page.getByTestId("schedule-name").fill(CREATED);
 
     // The picker, not the raw expression: a weekly cadence is stated back in words, so a

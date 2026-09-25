@@ -111,15 +111,14 @@ export interface ExtensionAgentRef {
 }
 
 /**
- * An agent named by its template and harness rather than by a conversation.
+ * A runnable Agent named independently of its template and Harness.
  *
  * The rail's own pages address an agent both ways, and only this one is available on a
  * page with no conversation open.
  */
 export interface ExtensionAgentPair {
   namespace: string;
-  agentTemplate?: string;
-  harness?: string;
+  name?: string;
 }
 
 /** What the agent rail tells a contributed entry about where it is being drawn. */

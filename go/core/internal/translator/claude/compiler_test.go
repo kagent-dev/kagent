@@ -154,9 +154,9 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_PROTOCOL":        "grpc", "OTEL_TRACES_EXPORTER": "otlp",
 		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
 		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
-		"OTEL_SERVICE_NAME":        "assistant-claude",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/assistant-claude,gen_ai.agent.name=assistant-claude,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
-		"KAGENT_NAME":              "assistant-claude",
+		"OTEL_SERVICE_NAME":        "runnable-agent",
+		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
+		"KAGENT_NAME":              "runnable-agent",
 		"KAGENT_NAMESPACE":         "test",
 	} {
 		if environment[name] != value {
@@ -311,7 +311,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 			attributes = append(attributes, variable.Value)
 		}
 	}
-	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.agent.name=assistant-claude") {
+	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.agent.name=runnable-agent") {
 		t.Fatalf("harness resource attributes = %q, want one value keeping them beside the identity", attributes)
 	}
 }
@@ -625,7 +625,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
+	return &v2translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
 }
 
 func TestCompileRuntimeTelemetry(t *testing.T) {
@@ -647,9 +647,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compiled identity follows the Harness name, not the harness kind.
+	// Changing the Harness name must not change the Agent runtime identity.
 	want := tracing.RuntimeTelemetry{
-		Runtime: tracing.RuntimeClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeClaude, AgentName: "runnable-agent", AgentNamespace: "test",
 		Provider: "anthropic", Model: "claude-sonnet-4-5",
 	}
 	if config.RuntimeTelemetry != want {
