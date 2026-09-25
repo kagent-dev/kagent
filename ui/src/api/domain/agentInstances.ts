@@ -81,8 +81,7 @@ export interface AgentInstanceFailure {
  *
  * An instance owns one A2A context and an isolated history, so it holds exactly one
  * thread of turns and a second conversation with the same agent is a second
- * instance. The durable, runnable agent is the `(AgentTemplate, Harness)` pair it
- * was cut from — see `domain/agentPairs`.
+ * instance. The durable, runnable agent is the `Agent` it was started from.
  */
 export interface AgentInstance {
   /** A UUID. The controller rejects anything else — `validateIdentity` parses it. */

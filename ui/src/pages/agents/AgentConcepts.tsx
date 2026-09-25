@@ -26,21 +26,17 @@ export function AgentConcepts() {
       data-testid="agent-concepts"
       css={{ marginBottom: theme.space(4) }}
     >
-      {/* The prose comes first and the diagram after it: the sentences say what the
-          thing is, and the boxes are what a reader checks that against.
-
-          One sentence per line, because each is a separate fact — what an agent is made
-          of, what starting a conversation does, and where the runtime words come from.
-          Run together they read as a paragraph to be got through rather than three
-          things to be taken one at a time. */}
-      <Line theme={theme}>
-        An agent consists of a template for what it can do, and a harness for how it
-        should run.
+      {/* One sentence per line: each is a separate fact. */}
+      <Line theme={theme} testId="concepts-pairing">
+        An agent is one template plus one harness.
       </Line>
       <Line theme={theme}>
-        Opening an agent and starting a conversation creates an AgentInstance, which is
-        scheduled onto a harness worker as an actor.
+        The template is what it does; the harness is where and how it runs.
       </Line>
+      <Line theme={theme} testId="concepts-sources">
+        Point to a shared template or harness, or write one inline.
+      </Line>
+      <Line theme={theme}>Each chat you start belongs to that agent.</Line>
 
       {/*
         Where these names come from, for a reader who has met the other half.
@@ -93,7 +89,7 @@ export function AgentConcepts() {
           />
           <Box
             kind="Harness"
-            detail="The runtime, and the workers its Substrate Actors are scheduled onto."
+            detail="The runtime, image and worker pool."
             onOpen={() => open("harnesses")}
           />
         </div>
@@ -101,11 +97,11 @@ export function AgentConcepts() {
         <MergeArrow theme={theme} />
         <Box
           kind="Agent"
-          detail="Pairs a template and Harness, each referenced or inline."
+          detail="One template and one harness, each shared or inline."
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />
-        <Box kind="AgentInstance" detail="One chat, run as a Substrate Actor." />
+        <Box kind="AgentInstance" detail="One chat with an agent, run as a Substrate Actor." />
       </div>
 
     </Card>

@@ -18,25 +18,18 @@ function fill(template: string, ref: Partial<AgentRef>): string {
   return template.replace(":id", encodeURIComponent(ref.id));
 }
 
-/**
- * The two surfaces one agent has.
- *
- * There is no `edit`: an instance has no spec to change. What the agent *is* lives
- * on its `AgentTemplate` and how it *runs* on its `Harness`, so editing an agent
- * means editing one of those. And no `conversation`, because the instance is the
- * conversation — there is no session beneath it to link to.
- */
+/** A conversation's two surfaces. It has no spec to edit; its Agent does, at `paths.agentEdit`. */
 export const agentUrl = {
   details: (ref: Partial<AgentRef>) => fill(paths.agentDetail, ref),
   chat: (ref: Partial<AgentRef>) => fill(paths.agentChat, ref),
 };
 
-export interface AgentPairRef { namespace: string; name: string; }
-export function agentPageUrl(ref: Partial<AgentPairRef>): string | undefined {
+export interface AgentResourceRef { namespace: string; name: string; }
+export function agentPageUrl(ref: Partial<AgentResourceRef>): string | undefined {
  if (!ref.namespace || !ref.name) return undefined;
  return paths.agent.replace(":namespace", encodeURIComponent(ref.namespace)).replace(":name", encodeURIComponent(ref.name));
 }
-export function agentNewChatUrl(ref: Partial<AgentPairRef>): string | undefined {
+export function agentNewChatUrl(ref: Partial<AgentResourceRef>): string | undefined {
  const base = agentPageUrl(ref);
  return base ? `${base}/new` : undefined;
 }

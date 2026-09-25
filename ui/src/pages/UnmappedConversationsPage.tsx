@@ -14,12 +14,9 @@ import { agentUrl } from "@/components/agent/agentUrl";
 import { paths } from "@/router/routes";
 import {
   apiClient,
-  agentPairsFrom,
-  pairIdOfInstance,
   useAgentInstances,
   useAgentsAcrossNamespaces,
   useNamespaces,
-  UNMAPPED_AGENT_NAME,
   type AgentInstance,
 } from "@/api";
 
@@ -46,14 +43,11 @@ export function UnmappedConversationsPage() {
    */
   const orphans = useMemo(() => {
     if (!agents.data || !conversations.data) return [];
-    const known = new Set(
-      agentPairsFrom(agents.data.agents).map((agent) => agent.id),
-    );
+    const known = new Set(agents.data.agents.map((agent) => agent.ref));
     const unreadable = new Set(agents.data.refused.map((entry) => entry.namespace));
     return (conversations.data ?? []).filter((instance) => {
       if (unreadable.has(instance.agent?.split("/")[0] ?? "")) return false;
-      const pairId = pairIdOfInstance(instance);
-      return pairId === undefined || !known.has(pairId);
+      return !instance.agent || !known.has(instance.agent);
     });
   }, [agents.data, conversations.data]);
 
@@ -124,7 +118,7 @@ export function UnmappedConversationsPage() {
 
   return (
     <PageFrame
-      title={UNMAPPED_AGENT_NAME}
+      title="Unmapped conversations"
       description="Conversations whose Agent definition no longer exists. They retain their prepared revisions."
       actions={
         <Space size={8}>

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
-import { agentPairsFrom, newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
+import { newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
 import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
@@ -41,7 +41,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
   const templates = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
-  const agents = agentPairsFrom(templates.data?.agents ?? []);
+  const agents = templates.data?.agents ?? [];
   const config = schedule?.config;
   const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
   const watched = Form.useWatch([], form) as FormValues | undefined;
@@ -72,7 +72,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
           scheduledRunId: schedule.id, etag: schedule.etag, config: nextConfig,
         })).scheduledRun;
       } else {
-        const agent = agents.find((entry) => entry.id === values.agent);
+        const agent = agents.find((entry) => entry.ref === values.agent);
         if (!agent) throw new Error("Choose an available agent.");
         saved = (await invoke("scheduledRuns.create", {
           requestId,
@@ -106,7 +106,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
           <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || templates.isLoading}
             placeholder="Choose an agent" options={agents.map((agent) => {
               const blocked = newConversationBlockedReason(agent);
-              return { value: agent.id, disabled: !!blocked,
+              return { value: agent.ref, disabled: !!blocked,
                 label: `${agent.namespace}/${agent.name}${blocked ? ` — ${blocked}` : ""}` };
             })} />
         </Form.Item>

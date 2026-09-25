@@ -6,8 +6,8 @@ import { Search } from "lucide-react";
 import {
   useNamespaces,
   useAgentsAcrossNamespaces,
-  agentPairsFrom,
-  type AgentPair,
+  harnessRefName,
+  type Agent,
 } from "@/api";
 import { agentNewChatUrl } from "./agentUrl";
 import { rowStyles, searchInputStyles } from "./controlStyles";
@@ -50,10 +50,7 @@ export function AgentSwitcher({
   );
 
   const templates = useAgentsAcrossNamespaces(namespaceNames);
-  const agents = useMemo(
-    () => agentPairsFrom(templates.data?.agents ?? []),
-    [templates.data],
-  );
+  const agents = useMemo(() => templates.data?.agents ?? [], [templates.data]);
   const [query, setQuery] = useState("");
 
   /**
@@ -116,11 +113,11 @@ export function AgentSwitcher({
     if (!needle) return others;
 
     return others.filter((row) =>
-      `${row.namespace}/${row.name}/${row.harness}`.toLowerCase().includes(needle),
+      `${row.namespace}/${row.name}/${harnessRefName(row) ?? ""}`.toLowerCase().includes(needle),
     );
   }, [agents, query, current.namespace, current.name]);
 
-  function pick(row: AgentPair) {
+  function pick(row: Agent) {
     onPicked();
     // To the call to action for that agent — a conversation that does not exist yet.
     // Picking an agent is the start of talking to it, and nothing is created until a
@@ -197,12 +194,12 @@ export function AgentSwitcher({
 
           return (
             <button
-              key={row.id}
+              key={row.ref}
               ref={isCurrent ? currentRef : undefined}
               type="button"
               onClick={() => pick(row)}
               aria-current={isCurrent}
-              data-testid={`agent-switcher-option-${row.name}-${row.harness}`}
+              data-testid={`agent-switcher-option-${row.name}`}
               css={{
                 /*
                  * The same row idiom as the rail's conversation list, which sits
@@ -262,7 +259,7 @@ export function AgentSwitcher({
                 ellipsis
                 css={{ fontSize: 11, lineHeight: 1.35, color: theme.color.textMuted }}
               >
-                on {row.harness} · {namespace}
+                on {harnessRefName(row) ?? "an inline harness"} · {namespace}
               </Text>
             </button>
           );

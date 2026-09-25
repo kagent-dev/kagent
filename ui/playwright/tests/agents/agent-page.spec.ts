@@ -53,7 +53,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
     // Through the agent's name and then the rail. The name opens a new conversation,
     // which is what a reader clicking an agent wants; the agent's own page — what it
     // already has — is one step further, reached from the rail that page carries.
-    await page.getByTestId("agent-link-kagent-shared-brain-k8s-agent").click();
+    await page.getByTestId("agent-link-kagent-shared-brain").click();
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expect(page).toHaveURL(new RegExp(`${agentPage(agents.sharedOnK8s)}$`));
     await expectSettled(page);

@@ -1685,7 +1685,7 @@ function agentFor(namespace: string, name: string): Agent {
 }
 on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
 on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
-function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined): Agent {
+function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined, previous?: Agent): Agent {
   const namespace = requireNamespace(ref?.namespace ?? "");
   const name = requireOptionalName("agent", ref?.name);
   const resource = value as unknown as Agent["resource"];
@@ -1693,7 +1693,43 @@ function writeAgent(ref: {namespace: string; name: string} | undefined, value: J
   if (!name || !spec || Number(spec.template !== undefined) + Number(spec.templateRef !== undefined) !== 1 || Number(spec.harness !== undefined) + Number(spec.harnessRef !== undefined) !== 1 || (spec.templateRef && !spec.templateRef.name) || (spec.harnessRef && !spec.harnessRef.name)) {
     throw new ConnectError("Choose exactly one template or templateRef and one harness or harnessRef", Code.InvalidArgument);
   }
-  return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name}, spec}};
+  const status = reconciledStatus(namespace, spec, previous);
+  return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name, generation: status?.observedGeneration}, spec, status}};
+}
+/**
+ * What the controller reports once it has reconciled a written Agent (`controller/status.go`):
+ * a missing ref fails ResolvedRefs and blocks later stages, and the last good revision survives.
+ */
+function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], previous?: Agent): Agent["resource"]["status"] {
+  const generation = (previous?.resource.status?.observedGeneration ?? 0) + 1;
+  const desiredRevision = `rev-${stableHash(JSON.stringify(spec))}`;
+  const latest = previous?.resource.status?.latestSuccessfulRevision;
+  const condition = (type: string, ok: boolean, reason: string, message: string) =>
+    ({type, status: ok ? "True" : "False", reason, message});
+  const accepted = condition("Accepted", true, "Accepted", "Agent explicitly selects its template and harness");
+  const missing = spec.templateRef && !allAgentTemplates().some(row => row.namespace === namespace && row.name === spec.templateRef?.name)
+    ? `AgentTemplate ${spec.templateRef.name} not found`
+    : spec.harnessRef && !allHarnesses().some(row => row.namespace === namespace && row.name === spec.harnessRef?.name)
+      ? `Harness ${spec.harnessRef.name} not found` : undefined;
+  if (missing) {
+    return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: latest, conditions: [
+      accepted,
+      condition("ResolvedRefs", false, "ReferenceResolutionFailed", missing),
+      condition("Compatible", false, "Blocked", "blocked by ResolvedRefs"),
+      condition("Ready", false, "Blocked", "blocked by ResolvedRefs"),
+    ]};
+  }
+  return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: desiredRevision, conditions: [
+    accepted,
+    condition("ResolvedRefs", true, "Resolved", "All runtime references resolved"),
+    condition("Compatible", true, "Compatible", "Resolved configuration is compatible with the Harness"),
+    condition("Ready", true, "Ready", "ActorTemplate golden snapshot is ready"),
+  ]};
+}
+function stableHash(text: string): string {
+  let hash = 0;
+  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash.toString(16).padStart(8, "0");
 }
 on(AgentService.method.createAgent, input => {
   const agent = writeAgent(input.ref, input.resource?.value);
@@ -1701,8 +1737,8 @@ on(AgentService.method.createAgent, input => {
   return {agent: agentMessage(saveAgent(agent))};
 });
 on(AgentService.method.updateAgent, input => {
-  const agent = writeAgent(input.ref, input.resource?.value);
-  agentFor(agent.namespace, agent.name);
+  const previous = agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
+  const agent = writeAgent(input.ref, input.resource?.value, previous);
   return {agent: agentMessage(saveAgent(agent))};
 });
 on(AgentService.method.deleteAgent, input => {

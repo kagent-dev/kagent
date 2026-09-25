@@ -1,11 +1,11 @@
-import { AgentDefinitionEditor } from "@/components/agent/AgentDefinitionEditor";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Card, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { AgentRail } from "@/components/agent/AgentRail";
+import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { AgentSchedules } from "@/components/agent/AgentSchedules";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -17,14 +17,14 @@ import {
   withExtensionColumns,
 } from "@/appExtensions";
 import {
-  agentPairsOf,
   apiClient,
   isNotFound,
   newConversationBlockedReason,
   useAgentConversations,
   useAgent,
+  useInvalidateAgents,
+  type Agent,
   type AgentInstance,
-  type AgentPair,
 } from "@/api";
 import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
@@ -55,13 +55,13 @@ const PAGE_SIZE = 25;
 /** An Agent definition and the conversations pinned to its revisions. */
 export function AgentPage() {
   const theme = useTheme();
-  const [editing, setEditing] = useState(false);
   const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const view = useListView(FILTER_IDS);
   const definition = useAgent(namespace, name);
+  const invalidateAgents = useInvalidateAgents();
   const conversations = useAgentConversations(namespace, name);
-  const agent = useMemo(() => definition.data ? agentPairsOf(definition.data)[0] : undefined, [definition.data]);
+  const agent = definition.data;
   const agentMissing = definition.error !== undefined && isNotFound(definition.error);
 
   /*
@@ -225,7 +225,7 @@ export function AgentPage() {
         width: 110,
         render: (_, row) => (
           <Tooltip title={row.id}>
-            <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
+            <Text css={{ fontFamily: theme.font.mono, fontSize: 12, whiteSpace: "nowrap" }}>
               {shortInstanceId(row.id)}
             </Text>
           </Tooltip>
@@ -312,7 +312,6 @@ export function AgentPage() {
     // now: a reason attached to a control the reader may never hover is a reason they
     // never read.
     <PageFrame>
-      {editing && definition.data && <AgentDefinitionEditor agent={definition.data} onClose={() => setEditing(false)} onSaved={() => {setEditing(false); void definition.refresh();}} />}
       {/*
         The same rail as the conversation surfaces.
 
@@ -514,6 +513,7 @@ export function AgentPage() {
 
         <Table<AgentInstance>
           data-testid="conversations-table"
+          scroll={{ x: "max-content" }}
           /* A bigger target than antd's default 16px box.
 
              The row is selected by hitting a square barely larger than the tick drawn
@@ -590,14 +590,20 @@ export function AgentPage() {
         <AgentContextPanel pair={{ namespace: namespace ?? "", name }} />
 
         {agent ? (
-          <div css={{ marginTop: theme.space(5) }}>
-            <Button onClick={() => setEditing(true)} icon={<Pencil size={14} />}>Edit Agent</Button>
+          <Space size={8} wrap css={{ marginTop: theme.space(5) }}>
+            <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
+              <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
+            </Link>
             <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
               onDelete={removeAgent}
-              onDeleted={() => navigate(paths.agents)}
+              // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
+              onDeleted={() => {
+                navigate(paths.agents);
+                void invalidateAgents().catch(() => {});
+              }}
               description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
             />
-          </div>
+          </Space>
         ) : null}
       </div>
       </div>
@@ -633,34 +639,14 @@ function IdentityField({ label, children }: { label: string; children: ReactNode
   );
 }
 
-/**
- * What this agent is made of, and where to change it.
- *
- * Item 3's link, and the whole of it: from an agent to its template, because a
- * template is a real object a reader may want to edit. There is no filter in the
- * other direction any more — "the agents using this template" was circular once an
- * agent lists its own conversations, since that was only ever a way of saying "the
- * other conversations with this same agent".
- */
-function AgentIdentityCard({ agent }: { agent: AgentPair }) {
+/** What this agent is made of: each half is a shared resource or inline in the Agent. */
+function AgentIdentityCard({ agent }: { agent: Agent }) {
   const theme = useTheme();
+  const { spec, status } = agent.resource;
+  const mono = { fontFamily: theme.font.mono, fontSize: 12 };
 
   return (
     <Card data-testid="agent-identity" size="small">
-      {/*
-        Three blocks that reflow, not three columns of a table.
-
-        This was an antd `Descriptions`, which lays its items out as a table — so the
-        three sections could not wrap independently and, at a narrow window, three
-        monospace values were squeezed into thirds of the width until they overran.
-        Making the item content break `anywhere` stopped the overrun and replaced it
-        with a worse problem: names broken mid-word, a few letters per line.
-
-        As an auto-fitting grid each field is its own section with a floor on how narrow
-        it may get, so they drop to two and then to one as the window narrows rather
-        than being compressed past readability. The values then need no character-level
-        breaking at all — see `IdentityField`.
-      */}
       <div
         css={{
           display: "grid",
@@ -669,61 +655,63 @@ function AgentIdentityCard({ agent }: { agent: AgentPair }) {
         }}
       >
         <IdentityField label="Agent template">
-          {agent.definition?.resource.spec.templateRef ? (
-          <Link
-            to={buildPath(paths.agentTemplateDetail, {
-              namespace: agent.namespace,
-              name: agent.agentTemplate,
-            })}
-            data-testid="agent-template-link"
-            css={{
-              fontFamily: theme.font.mono,
-              color: theme.color.primaryText,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: theme.space(2),
-              minWidth: 0,
-            }}
-          >
-            <Text
-              ellipsis={{ tooltip: agent.agentTemplate }}
-              css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
+          {spec.templateRef ? (
+            <Link
+              to={buildPath(paths.agentTemplateDetail, {
+                namespace: agent.namespace,
+                name: spec.templateRef.name,
+              })}
+              data-testid="agent-template-link"
+              css={{
+                fontFamily: theme.font.mono,
+                color: theme.color.primaryText,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: theme.space(2),
+                minWidth: 0,
+              }}
             >
-              {agent.agentTemplate}
-            </Text>
-            <Pencil size={12} aria-hidden color={theme.color.textMuted} />
-          </Link>
-          ) : <Text>Inline template</Text>}
+              <Text
+                ellipsis={{ tooltip: spec.templateRef.name }}
+                css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
+              >
+                {spec.templateRef.name}
+              </Text>
+              <Pencil size={12} aria-hidden color={theme.color.textMuted} />
+            </Link>
+          ) : (
+            <Text data-testid="agent-template-inline">Inline</Text>
+          )}
         </IdentityField>
 
         <IdentityField label="Runs on">
-          <Text
-            ellipsis={{ tooltip: agent.harness }}
-            css={{ fontFamily: theme.font.mono, fontSize: 12 }}
-          >
-            {agent.harness}
-          </Text>
+          {spec.harnessRef ? (
+            <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+              {spec.harnessRef.name}
+            </Text>
+          ) : (
+            <Text data-testid="agent-harness-inline">Inline</Text>
+          )}
         </IdentityField>
 
         <IdentityField label="Revision">
-          {agent.latestSuccessfulRevision ? (
-            /* Truncated with the whole value a click away, rather than wrapped.
-               A revision is a 64-character hash with nowhere to break: wrapping it
-               costs four lines to show something nobody reads in full, and nobody
-               reads it by eye anyway — they copy it. */
+          {status?.latestSuccessfulRevision ? (
+            // Truncated with a copy button: a revision is a long hash people copy, not read.
             <Text
-              ellipsis={{ tooltip: agent.latestSuccessfulRevision }}
-              copyable={{ text: agent.latestSuccessfulRevision }}
-              css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+              ellipsis={{ tooltip: status.latestSuccessfulRevision }}
+              copyable={{ text: status.latestSuccessfulRevision }}
+              css={mono}
               data-testid="agent-revision"
             >
-              {agent.latestSuccessfulRevision}
+              {status.latestSuccessfulRevision}
             </Text>
           ) : (
-            <Tag data-testid="agent-revision-state" color="default">
-              {agent.revisionState === "preparing" ? "Preparing" : "Not reported"}
-            </Tag>
+            <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None yet</Text>
           )}
+        </IdentityField>
+
+        <IdentityField label="Status">
+          <AgentStatusTag agent={agent} testId="agent-revision-state" />
         </IdentityField>
       </div>
       <Paragraph
