@@ -34,6 +34,27 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
 by the compiler. Arbitrary Harness `credentialRef` environment values are also unsupported.
 
+## Telemetry
+
+The driver passes each prompt to Claude Code on stdin as stream-JSON. When
+Claude Code telemetry is on, it holds the prompt until that telemetry has
+initialized. Claude Code starts a turn without waiting for its telemetry, and
+with first-party Anthropic credentials that initialization first waits on a
+managed settings fetch. A turn that starts earlier drops its spans, events and
+metrics, and ignores `TRACEPARENT`. The driver therefore adds a loopback
+Prometheus metrics reader and sends the prompt once `claude_code.session.count`
+appears there, which Claude Code increments only after its providers are
+registered. That ordering is a Claude Code implementation detail, verified on
+2.1.260 and 2.1.282.
+
+The wait is bounded at 10 seconds, so a stalled settings fetch delays a turn by
+at most that much. The driver then sends the prompt and records a
+`kagent.claude.telemetry_not_ready` event on the turn's `invoke_agent` span, as
+it also does when it cannot reserve the loopback port. Claude Code stops waiting
+for the fetch after 30 seconds, so in a turn that runs past then, spans started
+after its telemetry initializes become roots of new traces rather than being
+absent.
+
 ## Human-in-the-loop approval flow
 
 Claude runs in print mode with `permissions.ask` rules for MCP servers
