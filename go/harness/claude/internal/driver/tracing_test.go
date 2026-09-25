@@ -17,6 +17,9 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestTracingGateEnvironment(t *testing.T) {
@@ -98,9 +101,22 @@ func TestTracingGateReadyReportsUnreadableScrape(t *testing.T) {
 	}
 }
 
+func TestWarnTelemetryNotReadyMarksTheInvocation(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	ctx, span := provider.Tracer("test").Start(t.Context(), "invoke_agent")
+	warnTelemetryNotReady(ctx, "timeout", errNotReady)
+	span.End()
+	events := recorder.Ended()[0].Events()
+	if len(events) != 1 || events[0].Name != telemetryNotReadyEvent ||
+		!slices.Contains(events[0].Attributes, attribute.String("error.type", "timeout")) {
+		t.Fatalf("events = %v", events)
+	}
+}
+
 // TestProcessDriverAwaitsTracing runs this test binary as a Claude Code that
 // registers its tracer provider 200 ms after starting, and records whether the
-// prompt arrived before that.
+// prompt arrived before that and whether its input ended before the result.
 func TestProcessDriverAwaitsTracing(t *testing.T) {
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "capture")
@@ -110,7 +126,7 @@ func TestProcessDriverAwaitsTracing(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir, AwaitTracing: true,
+		Executable: executable, Workspace: dir, AwaitTelemetry: true,
 		Environment:   []string{"KAGENT_CLAUDE_HELPER=1", "CAPTURE=" + capture, "OTEL_METRICS_EXPORTER=none"},
 		MaxEventBytes: 4096, MaxStderrBytes: 4096, InterruptGrace: time.Second,
 	})
@@ -125,7 +141,7 @@ func TestProcessDriverAwaitsTracing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(result); got != "prompt after tracing ready\nmetrics=prometheus\n" {
+	if got := string(result); got != "prompt after tracing ready\ninput ended\nmetrics=prometheus\n" {
 		t.Fatalf("helper observed %q", got)
 	}
 }
@@ -147,11 +163,16 @@ func TestHelperClaudeProcess(t *testing.T) {
 		}))
 	}()
 	arrived := make(chan time.Time, 1)
-	input := bufio.NewReader(os.Stdin)
+	ended := make(chan struct{})
 	go func() {
+		input := bufio.NewReader(os.Stdin)
+		var at time.Time
 		if _, err := input.ReadString('\n'); err == nil {
-			arrived <- time.Now()
+			at = time.Now()
 		}
+		arrived <- at
+		_, _ = io.Copy(io.Discard, input)
+		close(ended)
 	}()
 	time.Sleep(200 * time.Millisecond)
 	readyAt := time.Now()
@@ -160,13 +181,17 @@ func TestHelperClaudeProcess(t *testing.T) {
 	if (<-arrived).Before(readyAt) {
 		order = "prompt before tracing ready"
 	}
-	report := fmt.Sprintf("%s\nmetrics=%s\n", order, os.Getenv("OTEL_METRICS_EXPORTER"))
+	input := "input ended"
+	select {
+	case <-ended:
+	case <-time.After(time.Second):
+		input = "input open at the result"
+	}
+	report := fmt.Sprintf("%s\n%s\nmetrics=%s\n", order, input, os.Getenv("OTEL_METRICS_EXPORTER"))
 	if err := os.WriteFile(os.Getenv("CAPTURE"), []byte(report), 0o600); err != nil {
 		os.Exit(2)
 	}
 	fmt.Println(`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}`)
 	fmt.Println(`{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}`)
-	// Claude Code exits when its stream-JSON input ends.
-	_, _ = io.Copy(io.Discard, input)
 	os.Exit(0)
 }

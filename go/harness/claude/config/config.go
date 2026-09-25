@@ -17,7 +17,9 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version                             = 5
+	Version = 5
+	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
+	// must recheck the telemetry gate in the driver.
 	PinnedClaudeVersion                 = "2.1.260"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"

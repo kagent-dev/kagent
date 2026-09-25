@@ -15,7 +15,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -39,8 +38,9 @@ type ProcessConfig struct {
 	MaxStderrBytes       int
 	InterruptGrace       time.Duration
 	ApprovalBroker       *ApprovalBroker
-	// AwaitTracing holds each prompt until Claude Code can trace it.
-	AwaitTracing bool
+	// AwaitTelemetry holds each prompt until Claude Code telemetry has
+	// initialized.
+	AwaitTelemetry bool
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -56,22 +56,13 @@ type parseItem struct {
 
 type processSession struct {
 	command   *exec.Cmd
-	stdin     io.WriteCloser
 	items     <-chan parseItem
 	stopEmit  chan struct{}
-	parsed    <-chan struct{}
 	wait      <-chan error
 	stderr    *utils.BoundedBuffer
 	terminal  *runtime.Outcome
 	sessionID string
-	inputOnce sync.Once
 	stopOnce  sync.Once
-}
-
-// closeInput ends Claude's stream-JSON input, which lets it exit after the
-// terminal result.
-func (s *processSession) closeInput() {
-	s.inputOnce.Do(func() { _ = s.stdin.Close() })
 }
 
 // pendingTurn owns a Claude process blocked in the permission MCP hook. Resume
@@ -183,9 +174,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	environment := traceEnvironment(ctx, d.config.Environment)
 	var gate *tracingGate
-	if d.config.AwaitTracing {
+	if d.config.AwaitTelemetry {
 		if gate, err = newTracingGate(); err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "running the turn without waiting for tracing", "error", err)
+			warnTelemetryNotReady(ctx, "port_unavailable", err)
 		} else {
 			environment = gate.environment(environment)
 		}
@@ -235,9 +226,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		close(waitDone)
 	}()
 	session := &processSession{
-		command: cmd, stdin: stdin, items: items, stopEmit: stopEmit, parsed: parseDone, wait: waitDone, stderr: stderr,
+		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr,
 	}
-	go session.sendPrompt(ctx, gate, message)
+	go sendPrompt(ctx, stdin, message, gate, parseDone)
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
@@ -291,21 +282,23 @@ func userMessage(prompt string) ([]byte, error) {
 	return append(message, '\n'), nil
 }
 
-// sendPrompt writes the prompt once the gate opens. A gate that times out
-// still sends it, trading the turn's native spans for the turn.
-func (s *processSession) sendPrompt(ctx context.Context, gate *tracingGate, message []byte) {
+// sendPrompt writes the prompt once the gate opens, then ends the input as a
+// prompt argument would, since Claude holds its result for background agents
+// only once its input has ended. A gate that times out still sends the
+// prompt, trading the turn's native telemetry for the turn.
+func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate *tracingGate, exited <-chan struct{}) {
+	defer stdin.Close()
 	if gate != nil {
-		err := gate.wait(ctx, s.parsed)
+		err := gate.wait(ctx, exited)
 		if errors.Is(err, errProcessExited) || ctx.Err() != nil {
 			return
 		}
 		if err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "tracing was not ready before the prompt, so this turn's Claude spans may be missing",
-				"error", err)
+			warnTelemetryNotReady(ctx, "timeout", err)
 		}
 	}
 	// A failed write means Claude has exited, which consume reports.
-	_, _ = s.stdin.Write(message)
+	_, _ = stdin.Write(message)
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
@@ -345,7 +338,6 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 					}
 					if outcome != nil {
 						session.terminal = outcome
-						session.closeInput()
 					}
 					continue
 				}
@@ -447,7 +439,6 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 func (d *ProcessDriver) stopSession(session *processSession) {
 	session.stopOnce.Do(func() {
 		close(session.stopEmit)
-		session.closeInput()
 		_ = utils.InterruptProcessGroup(session.command.Process)
 		timer := time.NewTimer(d.config.InterruptGrace)
 		defer timer.Stop()

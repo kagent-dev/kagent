@@ -12,13 +12,24 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
-	// sessionCountMetric is the Prometheus name of claude_code.session.count.
+	// sessionCountMetric is the Prometheus name of claude_code.session.count,
+	// which Claude Code increments only after its telemetry initializes. That
+	// ordering is an implementation detail, verified on 2.1.260 and 2.1.282, and
+	// can change without notice. Once a release waits for telemetry
+	// initialization in print mode, the gate can likely be removed.
 	sessionCountMetric = "claude_code_session_count"
 	// tracingReadyTimeout caps the delay a stalled managed settings fetch adds
-	// to a turn, which then runs without its Claude spans.
+	// to a turn. Claude Code stops waiting for the fetch after 30 seconds, so in
+	// a turn that runs past then, spans started after its telemetry initializes
+	// become roots of new traces.
 	tracingReadyTimeout = 10 * time.Second
 	tracingReadyPoll    = 10 * time.Millisecond
 	maxMetricsBytes     = 4 << 20
@@ -28,10 +39,11 @@ const (
 //
 // Claude Code starts a print-mode turn without waiting for its OpenTelemetry
 // initialization, which with first-party credentials first waits on a managed
-// settings fetch. Spans started earlier are never recorded, and TRACEPARENT is
-// ignored. Claude increments claude_code.session.count only after the tracer
-// provider and propagator are registered, so the counter appearing on a
-// loopback Prometheus endpoint means the turn will be traced.
+// settings fetch. Spans, events and metrics recorded earlier are dropped, and
+// TRACEPARENT is ignored. Claude increments claude_code.session.count only after
+// its propagator and its tracer, logger and meter providers are registered, so
+// the counter appearing on a loopback Prometheus endpoint means the turn's
+// telemetry will be recorded.
 type tracingGate struct {
 	port    int
 	url     string
@@ -134,6 +146,19 @@ func (g *tracingGate) ready(ctx context.Context, client *http.Client) error {
 		return fmt.Errorf("read Claude metrics: %w", err)
 	}
 	return errNotReady
+}
+
+// telemetryNotReadyEvent marks an invocation whose prompt reached Claude Code
+// before its telemetry initialized.
+const telemetryNotReadyEvent = "kagent.claude.telemetry_not_ready"
+
+// warnTelemetryNotReady logs, and records on the invocation span, that the
+// prompt is sent without waiting for Claude Code telemetry, and why.
+func warnTelemetryNotReady(ctx context.Context, reason string, err error) {
+	logging.FromContext(ctx).WarnContext(ctx, "sending the prompt before Claude Code telemetry is ready, so this turn's native telemetry may be incomplete",
+		"reason", reason, "error", err)
+	trace.SpanFromContext(ctx).AddEvent(telemetryNotReadyEvent,
+		trace.WithAttributes(attribute.String(tracing.AttributeErrorType, reason)))
 }
 
 // replaceEnvironment returns environment with name set to value.
