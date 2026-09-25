@@ -1,5 +1,5 @@
-// Package agentinstance implements AgentInstance CLI commands.
-package agentinstance
+// Package session implements Session CLI commands.
+package session
 
 import (
 	"context"
@@ -21,19 +21,19 @@ import (
 const maxPageSize = 100
 
 type getClient interface {
-	GetAgentInstance(context.Context, *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error)
-	ListAgentInstances(context.Context, *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error)
+	GetSession(context.Context, *apiv1alpha1.GetSessionRequest) (*apiv1alpha1.GetSessionResponse, error)
+	ListSessions(context.Context, *apiv1alpha1.ListSessionsRequest) (*apiv1alpha1.ListSessionsResponse, error)
 }
 
-// GetCfg configures AgentInstance get and list operations.
+// GetCfg configures Session get and list operations.
 type GetCfg struct {
 	OutputFormat string
-	InstanceID   string
+	SessionID    string
 	PageSize     int32
 	PageToken    string
 }
 
-// runGet gets one AgentInstance or lists the caller's AgentInstances.
+// runGet gets one Session or lists the caller's Sessions.
 func runGet(
 	ctx context.Context,
 	options connection.Options,
@@ -55,23 +55,23 @@ func runGet(
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return get(ctx, session.API.AgentInstance, cfg, format, out)
+	return get(ctx, session.API.Session, cfg, format, out)
 }
 
 func validateGetCfg(cfg *GetCfg) error {
 	if cfg.PageSize < 0 || cfg.PageSize > maxPageSize {
 		return fmt.Errorf("page size must be between 1 and %d, or 0 for the server default", maxPageSize)
 	}
-	if cfg.InstanceID == "" {
+	if cfg.SessionID == "" {
 		return nil
 	}
-	instanceID, err := uuid.Parse(cfg.InstanceID)
+	sessionID, err := uuid.Parse(cfg.SessionID)
 	if err != nil {
-		return fmt.Errorf("invalid AgentInstance ID %q: %w", cfg.InstanceID, err)
+		return fmt.Errorf("invalid Session ID %q: %w", cfg.SessionID, err)
 	}
-	cfg.InstanceID = instanceID.String()
+	cfg.SessionID = sessionID.String()
 	if cfg.PageSize != 0 || cfg.PageToken != "" {
-		return errors.New("pagination flags cannot be used when getting one AgentInstance")
+		return errors.New("pagination flags cannot be used when getting one Session")
 	}
 	return nil
 }
@@ -83,50 +83,50 @@ func get(
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	if cfg.InstanceID != "" {
-		response, err := client.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{
-			AgentInstanceId: cfg.InstanceID,
+	if cfg.SessionID != "" {
+		response, err := client.GetSession(ctx, &apiv1alpha1.GetSessionRequest{
+			SessionId: cfg.SessionID,
 		})
 		if err != nil {
-			return fmt.Errorf("get AgentInstance: %w", err)
+			return fmt.Errorf("get Session: %w", err)
 		}
-		if response.GetAgentInstance() == nil {
-			return errors.New("get AgentInstance returned no AgentInstance")
+		if response.GetSession() == nil {
+			return errors.New("get Session returned no Session")
 		}
 		if format == clioutput.FormatJSON {
 			return clioutput.WriteProto(out, response)
 		}
-		return writeInstancesTable(out, []*apiv1alpha1.AgentInstance{response.GetAgentInstance()}, "")
+		return writeSessionsTable(out, []*apiv1alpha1.Session{response.GetSession()}, "")
 	}
 
-	response, err := client.ListAgentInstances(ctx, &apiv1alpha1.ListAgentInstancesRequest{
+	response, err := client.ListSessions(ctx, &apiv1alpha1.ListSessionsRequest{
 
 		Page: &apiv1alpha1.PageRequest{Limit: cfg.PageSize, PageToken: cfg.PageToken},
 	})
 	if err != nil {
-		return fmt.Errorf("list AgentInstances: %w", err)
+		return fmt.Errorf("list Sessions: %w", err)
 	}
 	if response == nil {
-		return errors.New("list AgentInstances returned no response")
+		return errors.New("list Sessions returned no response")
 	}
 	if format == clioutput.FormatJSON {
 		return clioutput.WriteProto(out, response)
 	}
-	return writeInstancesTable(out, response.GetAgentInstances(), response.GetPage().GetNextPageToken())
+	return writeSessionsTable(out, response.GetSessions(), response.GetPage().GetNextPageToken())
 }
 
-func writeInstancesTable(w io.Writer, instances []*apiv1alpha1.AgentInstance, nextPageToken string) error {
+func writeSessionsTable(w io.Writer, sessions []*apiv1alpha1.Session, nextPageToken string) error {
 	tw := table.NewWriter()
 	tw.AppendHeader(table.Row{"ID", "AGENT", "STATE", "CREATED"})
-	for _, instance := range instances {
-		if instance == nil {
+	for _, session := range sessions {
+		if session == nil {
 			continue
 		}
 		tw.AppendRow(table.Row{
-			instance.GetId(),
-			resourceName(instance.GetAgent()),
-			strings.TrimPrefix(instance.GetState().String(), "AGENT_INSTANCE_STATE_"),
-			formatTimestamp(instance.GetCreatedAt()),
+			session.GetId(),
+			resourceName(session.GetAgent()),
+			strings.TrimPrefix(session.GetState().String(), "SESSION_STATE_"),
+			formatTimestamp(session.GetCreatedAt()),
 		})
 	}
 	output := tw.Render()
@@ -134,7 +134,7 @@ func writeInstancesTable(w io.Writer, instances []*apiv1alpha1.AgentInstance, ne
 		output += "\nNext page token: " + nextPageToken
 	}
 	if _, err := fmt.Fprintln(w, output); err != nil {
-		return fmt.Errorf("write AgentInstance output: %w", err)
+		return fmt.Errorf("write Session output: %w", err)
 	}
 	return nil
 }
@@ -153,12 +153,12 @@ func formatTimestamp(timestamp *timestamppb.Timestamp) string {
 	return timestamp.AsTime().UTC().Format(time.RFC3339)
 }
 
-// NewGetCmd constructs the AgentInstance get/list command.
+// NewGetCmd constructs the Session get/list command.
 func NewGetCmd() *cobra.Command {
 	cfg := &GetCfg{}
 	cmd := &cobra.Command{
-		Use:   "agent-instance [ID]",
-		Short: "Get an AgentInstance or list your AgentInstances",
+		Use:   "session [ID]",
+		Short: "Get a Session or list your Sessions",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
@@ -169,16 +169,16 @@ func NewGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var instanceID string
+			var sessionID string
 			if len(args) == 1 {
-				instanceID = args[0]
+				sessionID = args[0]
 			}
 			cfg.OutputFormat = format
-			cfg.InstanceID = instanceID
+			cfg.SessionID = sessionID
 			return runGet(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
+	cmd.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Number of Sessions to return (default 50, maximum 100)")
 	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
 	return cmd
 }

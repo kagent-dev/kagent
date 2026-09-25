@@ -49,7 +49,7 @@ func (e *settledExecutor) Before(ctx context.Context, call *a2asrv.CallContext, 
 		busy := len(e.pending) != 0
 		e.mu.Unlock()
 		if busy {
-			return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "instance already has active work")
+			return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "session already has active work")
 		}
 		if send.Message == nil {
 			return ctx, nil, a2a.ErrInvalidParams
@@ -234,9 +234,9 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 			}
 		}()
 	}
-	id, settleErr := e.store.instanceID()
+	id, settleErr := e.store.sessionID()
 	if settleErr == nil {
-		request := &apiv1alpha1.TaskStoreServiceSettleTaskRequest{AgentInstanceId: id, TaskId: string(input.TaskID), Version: version}
+		request := &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: id, TaskId: string(input.TaskID), Version: version}
 		settleErr = e.store.retry(finish, func(ctx context.Context) error {
 			_, err := e.store.client.TaskStoreService().SettleTask(ctx, request)
 			return err

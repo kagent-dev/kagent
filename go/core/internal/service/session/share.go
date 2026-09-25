@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
-// ShareStore resolves the digest of an AgentInstance share token.
+// ShareStore resolves the digest of a Session share token.
 type ShareStore interface {
-	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
+	GetSessionShareByTokenHash(context.Context, []byte) (*apiv1alpha1.SessionShare, string, error)
 }
 
 // ResolveShare validates an optional share token after the caller authenticates.
@@ -26,7 +26,7 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 		return nil, serviceerrors.NewInternal("share-token validation is unavailable", nil)
 	}
 	digest := sha256.Sum256([]byte(token))
-	share, owner, err := store.GetAgentInstanceShareByTokenHash(ctx, digest[:])
+	share, owner, err := store.GetSessionShareByTokenHash(ctx, digest[:])
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewPermissionDenied("invalid or expired share token", nil)
 	}
@@ -34,7 +34,7 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 		return nil, serviceerrors.NewInternal("failed to validate share token", err)
 	}
 	return &auth.ShareContext{
-		Token: token, UserID: owner, AgentInstanceID: share.GetAgentInstanceId(),
-		ReadOnly: share.GetPermission() != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE,
+		Token: token, UserID: owner, SessionID: share.GetSessionId(),
+		ReadOnly: share.GetPermission() != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE,
 	}, nil
 }

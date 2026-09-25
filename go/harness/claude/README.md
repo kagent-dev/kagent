@@ -108,7 +108,7 @@ the unresolved requests are denied, not approved.
 - [ ] Ask User tool (removed upstream, see https://github.com/anthropics/claude-code/issues/77994, would require Agents SDK)
 - [ ] Checkpoint and fork continuity for Claude sessions
 - [ ] Enforced selection of individual tools from an MCP server
-- [ ] Dedicated subagents running in separate AgentInstances
+- [ ] Dedicated subagents running in separate Sessions
 - [ ] Skills, MCP tools, and nested subagents on local subagents
 - [ ] Configuring Claude Code permission mode and trust boundary in Harness CRD
 

@@ -37,9 +37,9 @@ const (
 	gatewayTestURL       = "https://gateway.example"
 )
 
-type gatewayTestSession struct{}
+type gatewayTestAuthSession struct{}
 
-func (gatewayTestSession) Principal() auth.Principal {
+func (gatewayTestAuthSession) Principal() auth.Principal {
 	return auth.Principal{User: auth.User{ID: "alice"}}
 }
 
@@ -48,7 +48,7 @@ type gatewayTestStore struct {
 	initialID     string
 	listedIDs     []string
 	revoked       bool
-	instance      *apiv1alpha1.AgentInstance
+	session       *apiv1alpha1.Session
 	revision      *database.RuntimeRevision
 	err           error
 	task          *a2atype.Task
@@ -63,34 +63,34 @@ type gatewayTestStore struct {
 	settledRead   func() error
 }
 
-func (s *gatewayTestStore) ReserveAgentInstanceDispatch(_ context.Context, _ string, _ uuid.UUID, initialID string) error {
+func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialID string) error {
 	s.initialID = initialID
 	return s.reserveErr
 }
 
-func (s *gatewayTestStore) RevokeAgentInstanceDispatch(context.Context, string, uuid.UUID, string) (bool, error) {
+func (s *gatewayTestStore) RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error) {
 	return s.revoked, nil
 }
 
-func (s *gatewayTestStore) GetAgentInstanceByID(_ context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+func (s *gatewayTestStore) GetSessionByID(_ context.Context, id string) (*apiv1alpha1.Session, error) {
 	s.id, s.userID = id, ""
 	s.unscoped = true
-	return s.instance, s.err
+	return s.session, s.err
 }
 
-func (s *gatewayTestStore) GetAgentInstance(_ context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+func (s *gatewayTestStore) GetSession(_ context.Context, id, userID string) (*apiv1alpha1.Session, error) {
 	s.id, s.userID = id, userID
-	if s.err == nil && (s.instance == nil || id != s.instance.Id) {
+	if s.err == nil && (s.session == nil || id != s.session.Id) {
 		return nil, database.ErrNotFound
 	}
-	return s.instance, s.err
+	return s.session, s.err
 }
 
 func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
 	return s.revision, nil
 }
 
-func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string, historyLength *int) (*a2atype.Task, error) {
+func (s *gatewayTestStore) GetSessionTask(_ context.Context, _ string, taskID string, historyLength *int) (*a2atype.Task, error) {
 	s.historyLength = historyLength
 	if s.taskErr != nil {
 		return nil, s.taskErr
@@ -107,13 +107,13 @@ func (s *gatewayTestStore) ListAgentTasks(_ context.Context, ids []string, _ str
 	return s.tasks, s.total, s.taskErr
 }
 
-func (s *gatewayTestStore) GetSettledAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2atype.Task, error) {
+func (s *gatewayTestStore) GetSettledSessionTask(ctx context.Context, sessionID, taskID string, historyLength *int) (*a2atype.Task, error) {
 	if s.settledRead != nil {
 		if err := s.settledRead(); err != nil {
 			return nil, err
 		}
 	}
-	return s.GetAgentInstanceTask(ctx, instanceID, taskID, historyLength)
+	return s.GetSessionTask(ctx, sessionID, taskID, historyLength)
 }
 
 type gatewayTestAuthorizer struct {
@@ -129,13 +129,13 @@ func (a *gatewayTestAuthorizer) Check(_ context.Context, principal auth.Principa
 }
 
 type gatewayTestDialer struct {
-	client   *a2aclient.Client
-	instance *apiv1alpha1.AgentInstance
-	err      error
+	client  *a2aclient.Client
+	session *apiv1alpha1.Session
+	err     error
 }
 
-func (d *gatewayTestDialer) Dial(_ context.Context, instance *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
-	d.instance = instance
+func (d *gatewayTestDialer) Dial(_ context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
+	d.session = session
 	return d.client, d.err
 }
 
@@ -240,17 +240,17 @@ func gatewayTestContext() context.Context {
 }
 
 func gatewayTestContextWithRoute(namespace, id string) context.Context {
-	ctx := auth.AuthSessionTo(context.Background(), gatewayTestSession{})
+	ctx := auth.AuthSessionTo(context.Background(), gatewayTestAuthSession{})
 	return a2atype.AttachTenant(ctx, namespace+"/assistant")
 }
 
-func gatewayTestInstance() *apiv1alpha1.AgentInstance {
-	return &apiv1alpha1.AgentInstance{
+func gatewayTestSession() *apiv1alpha1.Session {
+	return &apiv1alpha1.Session{
 		Id: gatewayTestID, ContextId: gatewayTestContextID, Creator: "alice",
 		PreparedRevision: "revision-1",
 		Agent:            &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 		A2AAuthority:     "private-runtime-authority",
-		State:            apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		State:            apiv1alpha1.SessionState_SESSION_STATE_READY,
 	}
 }
 
@@ -310,9 +310,9 @@ func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			instance := gatewayTestInstance()
+			session := gatewayTestSession()
 			runtime := &endingRuntime{hold: tt.hold, closed: make(chan struct{})}
-			gateway := newTestGateway(&gatewayTestStore{instance: instance, task: &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			gateway := newTestGateway(&gatewayTestStore{session: session, task: &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 			for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
 				if err != nil {
 					t.Fatal(err)
@@ -328,9 +328,9 @@ func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
 }
 
 func TestGatewayRequiresValidAgentTenant(t *testing.T) {
-	gateway := newTestGateway(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
+	gateway := newTestGateway(&gatewayTestStore{session: gatewayTestSession()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
 	for _, ctx := range []context.Context{
-		auth.AuthSessionTo(context.Background(), gatewayTestSession{}),
+		auth.AuthSessionTo(context.Background(), gatewayTestAuthSession{}),
 		gatewayTestContextWithRoute("INVALID", gatewayTestID),
 		gatewayTestContextWithRoute("team-a", "not-a-uuid"),
 	} {
@@ -341,15 +341,15 @@ func TestGatewayRequiresValidAgentTenant(t *testing.T) {
 }
 
 func TestGatewayHidesInternalErrors(t *testing.T) {
-	instance := gatewayTestInstance()
+	session := gatewayTestSession()
 	for _, test := range []struct {
 		name    string
 		store   *gatewayTestStore
 		dialer  *gatewayTestDialer
 		message string
 	}{
-		{name: "store", store: &gatewayTestStore{err: errors.New("password=secret")}, dialer: &gatewayTestDialer{}, message: "failed to load AgentInstance"},
-		{name: "dialer", store: &gatewayTestStore{instance: instance}, dialer: &gatewayTestDialer{err: errors.New("internal.host:1234")}, message: "failed to connect to AgentInstance runtime"},
+		{name: "store", store: &gatewayTestStore{err: errors.New("password=secret")}, dialer: &gatewayTestDialer{}, message: "failed to load Session"},
+		{name: "dialer", store: &gatewayTestStore{session: session}, dialer: &gatewayTestDialer{err: errors.New("internal.host:1234")}, message: "failed to connect to Session runtime"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			gateway := newTestGateway(test.store, &gatewayTestAuthorizer{}, test.dialer, gatewayTestURL)
@@ -365,12 +365,12 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 }
 
 func TestGatewayRoutesByGRPCTenant(t *testing.T) {
-	instance := gatewayTestInstance()
+	session := gatewayTestSession()
 	runtime := &gatewayTestRuntime{}
-	gateway := newTestGateway(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+	gateway := newTestGateway(&gatewayTestStore{session: session}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		return handler(auth.AuthSessionTo(ctx, gatewayTestSession{}), req)
+		return handler(auth.AuthSessionTo(ctx, gatewayTestAuthSession{}), req)
 	}))
 	a2agrpc.NewHandler(gateway).RegisterWith(server)
 	go func() { _ = server.Serve(listener) }()
@@ -393,12 +393,12 @@ func TestGatewayRoutesByGRPCTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !runtime.sent {
-		t.Fatal("gRPC request did not reach the AgentInstance runtime")
+		t.Fatal("gRPC request did not reach the Session runtime")
 	}
 }
 
 func TestRuntimeDialerRequiresAuthority(t *testing.T) {
-	if _, err := (&RuntimeDialer{}).Dial(t.Context(), &apiv1alpha1.AgentInstance{}); err == nil {
+	if _, err := (&RuntimeDialer{}).Dial(t.Context(), &apiv1alpha1.Session{}); err == nil {
 		t.Fatal("Dial() accepted an empty runtime authority")
 	}
 }
@@ -417,7 +417,7 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 				History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
 				Artifacts: []*a2atype.Artifact{{Name: "result"}},
 			}
-			store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
+			store := &gatewayTestStore{session: gatewayTestSession(), task: task, tasks: []*a2atype.Task{task}, total: 1}
 			dialer := &gatewayTestDialer{}
 			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
 			historyLength := 1
@@ -437,7 +437,7 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 			if store.historyLength == nil || *store.historyLength != historyLength {
 				t.Fatal("ListTasks did not pass the history limit to persistence")
 			}
-			if dialer.instance != nil {
+			if dialer.session != nil {
 				t.Fatal("task reads dialed the private runtime")
 			}
 			if len(store.stored) != 0 {
@@ -450,35 +450,35 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 /*
  * A suspended conversation is still readable, and sending to it is still refused.
  *
- * Both halves matter and they used to be one rule. Every RPC resolved the instance
+ * Both halves matter and they used to be one rule. Every RPC resolved the session
  * through a helper that insisted on READY, which is right for anything needing the
  * worker and wrong for a task list — that comes out of the store, which does not care
  * whether a worker is attached.
  *
  * It became a real fault once conversations started giving their workers back at the
- * end of every turn: opening one to re-read what was said reported "AgentInstance is
- * AGENT_INSTANCE_STATE_SUSPENDED" as though the transcript had been lost. Resuming on
+ * end of every turn: opening one to re-read what was said reported "Session is
+ * SESSION_STATE_SUSPENDED" as though the transcript had been lost. Resuming on
  * open would have claimed a worker every time somebody glanced at one, which is the
  * thing suspending them exists to avoid.
  */
 func TestGatewayReadsTasksWhileSuspended(t *testing.T) {
-	instance := gatewayTestInstance()
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
+	session := gatewayTestSession()
+	session.State = apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED
 	task := &a2atype.Task{ID: gatewayTestID, ContextID: gatewayTestContextID}
-	store := &gatewayTestStore{instance: instance, task: task, tasks: []*a2atype.Task{task}, total: 1}
+	store := &gatewayTestStore{session: session, task: task, tasks: []*a2atype.Task{task}, total: 1}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
 
 	if _, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{Tenant: gatewayTestAgent, ContextID: gatewayTestID}); err != nil {
-		t.Fatalf("ListTasks() on a suspended instance = %v, want the stored transcript", err)
+		t.Fatalf("ListTasks() on a suspended session = %v, want the stored transcript", err)
 	}
 	if _, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID}); err != nil {
-		t.Fatalf("GetTask() on a suspended instance = %v, want the stored task", err)
+		t.Fatalf("GetTask() on a suspended session = %v, want the stored task", err)
 	}
 
 	// The other half: what needs the worker is still refused, naming the state. Without
 	// this the change would read as "suspended no longer means anything".
 	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
-		t.Fatal("SendMessage() to a suspended instance succeeded, want a refusal naming the state")
+		t.Fatal("SendMessage() to a suspended session succeeded, want a refusal naming the state")
 	}
 }
 
@@ -522,8 +522,8 @@ func TestGatewayBuildsAgentCardFromAgentRevision(t *testing.T) {
 	if len(card.Capabilities.Extensions) != 1 || card.Capabilities.Extensions[0].URI != "https://kagent.dev/extensions/hitl/v1" {
 		t.Fatalf("runtime extensions = %#v, want the runtime's own preserved", card.Capabilities.Extensions)
 	}
-	if authorizer.verb != auth.VerbGet || dialer.instance != nil {
-		t.Fatalf("authorization verb = %q, runtime dialed = %v", authorizer.verb, dialer.instance != nil)
+	if authorizer.verb != auth.VerbGet || dialer.session != nil {
+		t.Fatalf("authorization verb = %q, runtime dialed = %v", authorizer.verb, dialer.session != nil)
 	}
 }
 
@@ -555,94 +555,71 @@ func (a *gatewayDenyAuthorizer) Check(context.Context, auth.Principal, auth.Verb
 }
 
 /*
- * Share links over an AgentInstance.
+ * Share links over a Session.
  *
- * The instance *is* the conversation, so sharing one is sharing what was said. Two
+ * The session *is* the conversation, so sharing one is sharing what was said. Two
  * things have to hold, and neither is implied by the other:
  *
- *   - the share is authority over its own instance, and the record is read as the
- *     *owner* — an instance is scoped to its creator, so reading it as the visitor
+ *   - the share is authority over its own session, and the record is read as the
+ *     *owner* — a session is scoped to its creator, so reading it as the visitor
  *     finds nothing and the link would 404;
- *   - the share is authority over nothing else, so a token for one instance cannot
+ *   - the share is authority over nothing else, so a token for one session cannot
  *     open another.
  */
-func TestGatewayHonoursAgentInstanceShare(t *testing.T) {
-	instance := gatewayTestInstance()
-	store := &gatewayTestStore{instance: instance}
+func TestGatewayHonoursSessionShare(t *testing.T) {
+	session := gatewayTestSession()
+	store := &gatewayTestStore{session: session}
 	authorizer := &gatewayDenyAuthorizer{}
 	runtime := &gatewayTestRuntime{}
 	gateway := newTestGateway(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 
-	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestAuthSession{})
 	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
-		Token:           "share",
-		UserID:          "the-owner",
-		AgentInstanceID: instance.GetId(),
-		ReadOnly:        true,
+		Token:     "share",
+		UserID:    "the-owner",
+		SessionID: session.GetId(),
+		ReadOnly:  true,
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs())
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{Tenant: gatewayTestAgent, ContextID: gatewayTestID}); err != nil {
-		t.Fatalf("ListTasks() with a share for this instance = %v", err)
+		t.Fatalf("ListTasks() with a share for this session = %v", err)
 	}
-	// Read as the owner: the visitor is somebody else, and an instance is scoped to
+	// Read as the owner: the visitor is somebody else, and a session is scoped to
 	// its creator.
 	if store.userID != "the-owner" {
-		t.Fatalf("instance read as %q, want the share's owner", store.userID)
+		t.Fatalf("session read as %q, want the share's owner", store.userID)
 	}
 	if authorizer.called {
 		t.Fatal("the ordinary authorization check should be skipped for a matching share")
 	}
 }
 
-func TestGatewayRefusesAShareForADifferentInstance(t *testing.T) {
-	instance := gatewayTestInstance()
-	store := &gatewayTestStore{instance: instance}
+func TestGatewayRefusesAShareForADifferentSession(t *testing.T) {
+	session := gatewayTestSession()
+	store := &gatewayTestStore{session: session}
 	authorizer := &gatewayDenyAuthorizer{}
 	gateway := newTestGateway(store, authorizer, &gatewayTestDialer{}, gatewayTestURL)
 
-	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestAuthSession{})
 	// A perfectly valid share — for something else.
 	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
-		Token:           "share",
-		UserID:          "the-owner",
-		AgentInstanceID: "00000000-0000-0000-0000-000000000000",
+		Token:     "share",
+		UserID:    "the-owner",
+		SessionID: "00000000-0000-0000-0000-000000000000",
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs())
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{Tenant: gatewayTestAgent, ContextID: gatewayTestID}); err == nil {
-		t.Fatal("a share for another instance opened this one")
+		t.Fatal("a share for another session opened this one")
 	}
 	if !authorizer.called {
 		t.Fatal("a non-matching share must fall through to the ordinary check")
 	}
 }
 
-// A *session* share must not read as authority over an instance, however its id
-// happens to be spelled. The two are separate fields for exactly this reason.
-func TestGatewayIgnoresASessionShare(t *testing.T) {
-	instance := gatewayTestInstance()
-	authorizer := &gatewayDenyAuthorizer{}
-	gateway := newTestGateway(&gatewayTestStore{instance: instance}, authorizer, &gatewayTestDialer{}, gatewayTestURL)
-
-	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
-	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
-		Token:     "share",
-		UserID:    "the-owner",
-		SessionID: instance.GetId(),
-	})
-	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs())
-
-	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{Tenant: gatewayTestAgent, ContextID: gatewayTestID}); err == nil {
-		t.Fatal("a session share opened an AgentInstance")
-	}
-	if !authorizer.called {
-		t.Fatal("a session share must fall through to the ordinary check")
-	}
-}
-
 // TestGatewayRefusesButPreservesAParkedTurn is the reproduced defect and the
-// decision about it. A turn that ends INPUT_REQUIRED holds the instance's single
+// decision about it. A turn that ends INPUT_REQUIRED holds the session's single
 // active-task slot, so every later send was refused as "already has an active
 // task" — which reads as a broken agent. But that turn is a *valid pending
 // question* (`ask_user` is a long-running call), so the send must be refused with
@@ -689,11 +666,11 @@ func TestRuntimeAgentCardAfterBinaryRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGatewayContextMatchesInstanceAndTask(t *testing.T) {
-	instance := gatewayTestInstance()
-	store := &gatewayTestStore{instance: instance, tasks: []*a2atype.Task{{ID: "task", ContextID: instance.Id}}}
-	gateway := &Gateway{store: store, authorizer: &gatewayTestAuthorizer{}, instances: gatewayTestInstances{store}, agents: gatewayTestAgents{store, &gatewayTestAuthorizer{}}}
-	for _, contextID := range []string{"", instance.Id} {
+func TestGatewayContextMatchesSessionAndTask(t *testing.T) {
+	session := gatewayTestSession()
+	store := &gatewayTestStore{session: session, tasks: []*a2atype.Task{{ID: "task", ContextID: session.Id}}}
+	gateway := &Gateway{store: store, authorizer: &gatewayTestAuthorizer{}, sessions: gatewayTestSessions{store}, agents: gatewayTestAgents{store, &gatewayTestAuthorizer{}}}
+	for _, contextID := range []string{"", session.Id} {
 		listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{ContextID: contextID})
 		require.NoError(t, err)
 		require.Len(t, listed.Tasks, 1)
@@ -706,16 +683,16 @@ func TestGatewayContextMatchesInstanceAndTask(t *testing.T) {
 	request.Message.ContextID = ""
 	prepared, err := gateway.prepareSend(gatewayTestContext(), request)
 	require.NoError(t, err)
-	require.Equal(t, instance.Id, prepared.Id)
-	require.Equal(t, instance.Id, request.Message.ContextID)
+	require.Equal(t, session.Id, prepared.Id)
+	require.Equal(t, session.Id, request.Message.ContextID)
 }
 
 func TestGatewayObservesPublicationAfterAnotherContinuation(t *testing.T) {
-	instance := gatewayTestInstance()
-	current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	session := gatewayTestSession()
+	current := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
 	runtime := &gatewayTestRuntime{streamState: a2atype.TaskStateInputRequired}
 	reads := 0
-	store := &gatewayTestStore{instance: instance, task: current, settledRead: func() error {
+	store := &gatewayTestStore{session: session, task: current, settledRead: func() error {
 		if !runtime.destroyed {
 			t.Fatal("publication polling retained the runtime observer connection")
 		}
@@ -760,10 +737,10 @@ func TestGatewayRecoversUnaryResponseLostDuringFinalization(t *testing.T) {
 		t.Run(failure.name, func(t *testing.T) {
 			for _, state := range []a2atype.TaskState{a2atype.TaskStateCompleted, a2atype.TaskStateInputRequired, a2atype.TaskStateWorking} {
 				t.Run(string(state), func(t *testing.T) {
-					instance := gatewayTestInstance()
-					current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: state}}
+					session := gatewayTestSession()
+					current := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: state}}
 					lost := failure.err
-					store := &gatewayTestStore{instance: instance, task: current}
+					store := &gatewayTestStore{session: session, task: current}
 					runtime := &gatewayTestRuntime{onSend: func() error {
 						store.replay = current
 						return lost
@@ -796,7 +773,7 @@ func TestGatewayRecoversUnaryResponseLostDuringFinalization(t *testing.T) {
 
 func TestGatewayReportsOnlyRevokedAttemptsAsNotAccepted(t *testing.T) {
 	for _, revoked := range []bool{false, true} {
-		store := &gatewayTestStore{instance: gatewayTestInstance(), revoked: revoked, taskErr: database.ErrNotFound}
+		store := &gatewayTestStore{session: gatewayTestSession(), revoked: revoked, taskErr: database.ErrNotFound}
 		failure := a2atype.NewError(a2atype.ErrInternalError, "connection lost before response")
 		runtime := &gatewayTestRuntime{onSend: func() error { return failure }}
 		gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
@@ -820,11 +797,11 @@ func TestGatewayReportsOnlyRevokedAttemptsAsNotAccepted(t *testing.T) {
 }
 
 func TestGatewayDoesNotRecoverAnUnacceptedInput(t *testing.T) {
-	instance := gatewayTestInstance()
+	session := gatewayTestSession()
 	// An earlier completed task cannot stand in for an input the runtime never saved.
-	current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	current := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
 	lost := a2atype.NewError(a2atype.ErrInternalError, "upstream call failed: broken pipe")
-	store := &gatewayTestStore{instance: instance, task: current}
+	store := &gatewayTestStore{session: session, task: current}
 	runtime := &gatewayTestRuntime{onSend: func() error { return lost }}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
@@ -834,10 +811,10 @@ func TestGatewayDoesNotRecoverAnUnacceptedInput(t *testing.T) {
 }
 
 func TestGatewayRecoversCompletionDuringSubscriptionAttach(t *testing.T) {
-	instance := gatewayTestInstance()
-	current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	session := gatewayTestSession()
+	current := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
 	runtime := &gatewayTestRuntime{subscribeErr: a2atype.ErrTaskNotFound}
-	store := &gatewayTestStore{instance: instance, task: current, settledRead: func() error {
+	store := &gatewayTestStore{session: session, task: current, settledRead: func() error {
 		current.Status.State = a2atype.TaskStateCompleted
 		return nil
 	}}
@@ -857,11 +834,11 @@ func TestGatewayRecoversCompletionDuringSubscriptionAttach(t *testing.T) {
 func TestGatewayRecoversLostCancelOnlyAfterTerminalState(t *testing.T) {
 	for _, state := range []a2atype.TaskState{a2atype.TaskStateCanceled, a2atype.TaskStateInputRequired} {
 		t.Run(string(state), func(t *testing.T) {
-			instance := gatewayTestInstance()
-			current := &a2atype.Task{ID: "task", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+			session := gatewayTestSession()
+			current := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
 			lost := errors.New("runtime connection closed during snapshot")
 			runtime := &gatewayTestRuntime{cancelErr: lost}
-			store := &gatewayTestStore{instance: instance, task: current, settledRead: func() error {
+			store := &gatewayTestStore{session: session, task: current, settledRead: func() error {
 				current.Status.State = state
 				return nil
 			}}
@@ -878,7 +855,7 @@ func TestGatewayRecoversLostCancelOnlyAfterTerminalState(t *testing.T) {
 	}
 }
 
-func (s *gatewayTestStore) GetAgentInstanceTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error) {
+func (s *gatewayTestStore) GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error) {
 	if s.replay != nil {
 		return s.replay, nil
 	}

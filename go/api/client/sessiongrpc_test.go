@@ -20,23 +20,23 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-const agentInstanceClientTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
+const sessionClientTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 
-type recordingAgentInstanceService struct {
-	apiv1alpha1.UnimplementedAgentInstanceServiceServer
+type recordingSessionService struct {
+	apiv1alpha1.UnimplementedSessionServiceServer
 	observation callObservation
 }
 
-func (s *recordingAgentInstanceService) CreateAgentInstance(ctx context.Context, _ *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error) {
+func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
 	s.observation = callObservation{userID: first(values.Get(userIDHeader)), hasDeadline: hasDeadline}
-	return &apiv1alpha1.CreateAgentInstanceResponse{}, nil
+	return &apiv1alpha1.CreateSessionResponse{}, nil
 }
 
-func (s *recordingAgentInstanceService) GetAgentInstance(_ context.Context, request *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error) {
-	return &apiv1alpha1.GetAgentInstanceResponse{AgentInstance: &apiv1alpha1.AgentInstance{
-		Id: request.AgentInstanceId, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1alpha1.GetSessionRequest) (*apiv1alpha1.GetSessionResponse, error) {
+	return &apiv1alpha1.GetSessionResponse{Session: &apiv1alpha1.Session{
+		Id: request.SessionId, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}}, nil
 }
 
@@ -91,12 +91,12 @@ func (s *recordingA2AService) observe(ctx context.Context, tenant, contextID str
 	})
 }
 
-func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
+func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
-	agentInstanceService := &recordingAgentInstanceService{}
+	sessionService := &recordingSessionService{}
 	a2aService := &recordingA2AService{}
 	server := grpc.NewServer()
-	apiv1alpha1.RegisterAgentInstanceServiceServer(server, agentInstanceService)
+	apiv1alpha1.RegisterSessionServiceServer(server, sessionService)
 	a2apb.RegisterA2AServiceServer(server, a2aService)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
@@ -123,9 +123,9 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, gatewayClient.Close()) })
 
-	_, err = apiClient.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
+	_, err = apiClient.Session.CreateSession(context.Background(), &apiv1alpha1.CreateSessionRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
+	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, sessionService.observation)
 
 	a2aClient, err := gatewayClient.A2A.ForAgent(context.Background(), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"})
 	require.NoError(t, err)
@@ -149,12 +149,12 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 		{id: "team-a/assistant", userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
 	a2aService.mu.Unlock()
-	instanceClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), agentInstanceClientTestID)
+	sessionClient, err := gatewayClient.A2A.ForSession(context.Background(), sessionClientTestID)
 	require.NoError(t, err)
-	_, err = instanceClient.SendMessage(context.Background(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser)})
+	_, err = sessionClient.SendMessage(context.Background(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser)})
 	require.NoError(t, err)
 	a2aService.mu.Lock()
-	require.Equal(t, agentInstanceClientTestID, a2aService.observations[3].contextID)
+	require.Equal(t, sessionClientTestID, a2aService.observations[3].contextID)
 	require.Equal(t, "team-a/assistant", a2aService.observations[3].id)
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(2), dialCount.Load())

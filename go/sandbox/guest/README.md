@@ -8,7 +8,7 @@ Upstream provides the gRPC process and filesystem services. No AX code is used.
 The image is the first runtime component of the
 [sandbox design](https://gist.github.com/EItanya/8867e70fbde9618e5d7c5432491d2e92). Sandbox
 creation, authorization, expiration, shared runtime persistence, and MCP tools
-still need control-plane implementation. AgentInstances do not run this guest.
+still need control-plane implementation. Sessions do not run this guest.
 
 ## Runtime contract
 

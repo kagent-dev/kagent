@@ -1,7 +1,7 @@
 # Public A2A transports
 
 The core gateway serves A2A over gRPC and HTTP/JSON-RPC on the controller's API
-listener (port 8083 by default). Both transports use the same AgentInstance
+listener (port 8083 by default). Both transports use the same Session
 authorization, durable tasks, history, and runtime lifecycle.
 
 Each Agent has a discoverable HTTP endpoint:
@@ -13,7 +13,7 @@ Each Agent has a discoverable HTTP endpoint:
 
 The URL selects the Agent. gRPC requests use the standard A2A `tenant` field
 (`namespace/name`), also advertised on the card's interfaces. A nonempty HTTP
-request tenant must match its URL. The message `contextId` is the AgentInstance ID;
+request tenant must match its URL. The message `contextId` is the Session ID;
 omitting both context and task IDs creates a new conversation. Retrying that first
 message with the same message ID reuses the conversation. Task-only requests resolve
 the conversation from the globally unique task ID.
@@ -21,11 +21,11 @@ There is no deployment-wide Agent Card because the gateway serves multiple agent
 
 Cards and JSON-RPC calls require the same authentication as the core API. A
 validated `X-Share-Token` supplements the authenticated user's access to its
-instance: read-only shares permit card/task reads and subscriptions; read-write
+session: read-only shares permit card/task reads and subscriptions; read-write
 shares also permit messages and cancellation. Cards are not publicly cached.
 
 The card comes from the Agent's latest successful revision (or the shared
-instance's pinned revision) and advertises
+session's pinned revision) and advertises
 JSON-RPC first, followed by gRPC. It retains runtime extensions while reporting
 the gateway's streaming capabilities. JSON-RPC uses the pinned upstream A2A v1
 SDK and supports `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`,
@@ -70,4 +70,4 @@ For example, the initial JSON-RPC send body is:
 
 Send it to `/agents/kagent/assistant`. Save the returned task's `contextId` for
 subsequent messages. The Go client exposes `A2A().ForAgent(ctx, agentRef)`;
-`ForAgentInstance(ctx, id)` resolves the Agent and supplies that instance's context.
+`ForSession(ctx, id)` resolves the Agent and supplies that session's context.

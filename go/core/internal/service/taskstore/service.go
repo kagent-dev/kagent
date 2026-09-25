@@ -22,12 +22,12 @@ import (
 )
 
 type Store interface {
-	SettleAgentInstanceTask(context.Context, string, string, int64) error
-	GetAgentInstanceForRuntime(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+	SettleSessionTask(context.Context, string, string, int64) error
+	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task, string) (int64, error)
-	GetVersionedAgentInstanceTask(context.Context, string, string) (*a2a.Task, int64, error)
-	UpdateAgentInstanceTask(context.Context, string, int64, []byte, *a2a.Task, a2a.Event, string) (int64, error)
-	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int, *int) ([]*a2a.Task, int, error)
+	GetVersionedSessionTask(context.Context, string, string) (*a2a.Task, int64, error)
+	UpdateSessionTask(context.Context, string, int64, []byte, *a2a.Task, a2a.Event, string) (int64, error)
+	ListSessionTasks(context.Context, string, string, a2a.TaskState, *time.Time, int, *int) ([]*a2a.Task, int, error)
 }
 
 var _ Store = (*database.Client)(nil)
@@ -40,26 +40,26 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
-func (s *Service) instance(ctx context.Context, instanceID string) (*apiv1alpha1.AgentInstance, error) {
-	session, _ := auth.AuthSessionFrom(ctx)
-	identity, ok := session.(runtimeSession)
-	if !ok || identity.instanceID != instanceID {
-		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this instance")
+func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.Session, error) {
+	authSession, _ := auth.AuthSessionFrom(ctx)
+	identity, ok := authSession.(runtimeSession)
+	if !ok || identity.sessionID != sessionID {
+		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this session")
 	}
-	instance, err := s.store.GetAgentInstanceForRuntime(ctx, instanceID, identity.actorUID)
+	session, err := s.store.GetSessionForRuntime(ctx, sessionID, identity.actorUID)
 	if err != nil {
 		return nil, storageError(err)
 	}
-	if instance.A2AAuthority != substrate.ActorHost(identity.atespace, substrate.ActorName(instanceID), "") {
-		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this instance")
+	if session.A2AAuthority != substrate.ActorHost(identity.atespace, substrate.ActorName(sessionID), "") {
+		return nil, status.Error(codes.PermissionDenied, "actor does not belong to this session")
 	}
-	return instance, nil
+	return session, nil
 }
 
 // CreateTask persists the SDK's first task snapshot. Runtime execution and
 // request serialization remain owned by the agent's SDK.
 func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
-	if _, err := s.instance(ctx, input.AgentInstanceId); err != nil {
+	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
 	task, err := pbconv.FromProtoTask(input.Task)
@@ -71,20 +71,20 @@ func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 		return nil, err
 	}
 	hash := sha256.Sum256(data)
-	version, err := s.store.CreateRuntimeTask(ctx, input.AgentInstanceId, hash[:], task, input.GetDispatchId())
+	version, err := s.store.CreateRuntimeTask(ctx, input.SessionId, hash[:], task, input.GetDispatchId())
 	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: version}, storageError(err)
 }
 
 func (s *Service) GetTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
-	if _, err := s.instance(ctx, input.AgentInstanceId); err != nil {
+	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
-	stored, err := s.getTask(ctx, input.AgentInstanceId, input.TaskId)
+	stored, err := s.getTask(ctx, input.SessionId, input.TaskId)
 	return &apiv1alpha1.TaskStoreServiceGetTaskResponse{Stored: stored}, err
 }
 
-func (s *Service) getTask(ctx context.Context, instanceID, taskID string) (*apiv1alpha1.StoredTask, error) {
-	task, version, err := s.store.GetVersionedAgentInstanceTask(ctx, instanceID, taskID)
+func (s *Service) getTask(ctx context.Context, sessionID, taskID string) (*apiv1alpha1.StoredTask, error) {
+	task, version, err := s.store.GetVersionedSessionTask(ctx, sessionID, taskID)
 	if err != nil {
 		return nil, storageError(err)
 	}
@@ -93,7 +93,7 @@ func (s *Service) getTask(ctx context.Context, instanceID, taskID string) (*apiv
 }
 
 func (s *Service) UpdateTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
-	if _, err := s.instance(ctx, input.AgentInstanceId); err != nil {
+	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
 	task, err := pbconv.FromProtoTask(input.Task)
@@ -112,12 +112,12 @@ func (s *Service) UpdateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 		return nil, err
 	}
 	hash := sha256.Sum256(data)
-	version, err := s.store.UpdateAgentInstanceTask(ctx, input.AgentInstanceId, input.ExpectedVersion, hash[:], task, event, input.GetDispatchId())
+	version, err := s.store.UpdateSessionTask(ctx, input.SessionId, input.ExpectedVersion, hash[:], task, event, input.GetDispatchId())
 	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: version}, storageError(err)
 }
 
 func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreServiceListTasksRequest) (*apiv1alpha1.TaskStoreServiceListTasksResponse, error) {
-	instance, err := s.instance(ctx, input.AgentInstanceId)
+	session, err := s.session(ctx, input.SessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +125,8 @@ func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreSer
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if request.ContextID != "" && request.ContextID != instance.ContextId {
-		return nil, status.Error(codes.InvalidArgument, "context does not match AgentInstance")
+	if request.ContextID != "" && request.ContextID != session.ContextId {
+		return nil, status.Error(codes.InvalidArgument, "context does not match Session")
 	}
 	after, err := base64.RawURLEncoding.DecodeString(request.PageToken)
 	if err != nil {
@@ -139,7 +139,7 @@ func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreSer
 	if limit < 1 || limit > 100 {
 		return nil, status.Error(codes.InvalidArgument, "page size must be between 1 and 100")
 	}
-	tasks, total, err := s.store.ListAgentInstanceTasks(ctx, instance.Id, string(after), request.Status, request.StatusTimestampAfter, limit+1, request.HistoryLength)
+	tasks, total, err := s.store.ListSessionTasks(ctx, session.Id, string(after), request.Status, request.StatusTimestampAfter, limit+1, request.HistoryLength)
 	if err != nil {
 		return nil, storageError(err)
 	}
@@ -161,10 +161,10 @@ func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreSer
 }
 
 func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
-	if _, err := s.instance(ctx, input.AgentInstanceId); err != nil {
+	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
-	if err := s.store.SettleAgentInstanceTask(ctx, input.AgentInstanceId, input.TaskId, input.Version); err != nil {
+	if err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version); err != nil {
 		return nil, storageError(err)
 	}
 	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
@@ -173,11 +173,11 @@ func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 func storageError(err error) error {
 	switch {
 	case errors.Is(err, database.ErrNotFound):
-		return status.Error(codes.NotFound, "instance or task does not exist")
+		return status.Error(codes.NotFound, "session or task does not exist")
 	case errors.Is(err, database.ErrIdempotencyConflict):
 		return status.Error(codes.AlreadyExists, "task ID already exists with another creation")
 	case errors.Is(err, database.ErrConflict):
-		return status.Error(codes.Aborted, "task changed or the instance cannot accept this update")
+		return status.Error(codes.Aborted, "task changed or the session cannot accept this update")
 	case errors.Is(err, database.ErrFailedPrecondition):
 		return status.Error(codes.FailedPrecondition, "task state does not allow this operation")
 	default:

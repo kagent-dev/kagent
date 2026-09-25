@@ -12,7 +12,7 @@ import (
 type APIClientSet struct {
 	client        *baseClient
 	Version       Version
-	AgentInstance *AgentInstanceClient
+	Session       *SessionClient
 	AgentTemplate *AgentTemplateClient
 	Agent         *AgentClient
 }
@@ -26,7 +26,7 @@ func NewAPI(apiURL string, options ...ClientOption) (*APIClientSet, error) {
 	return &APIClientSet{
 		client:        client,
 		Version:       newVersionClient(client),
-		AgentInstance: newAgentInstanceClient(client),
+		Session:       newSessionClient(client),
 		AgentTemplate: newAgentTemplateClient(client),
 		Agent:         newAgentClient(client),
 	}, nil

@@ -20,8 +20,8 @@ import (
 const tasksExtension = "io.modelcontextprotocol/tasks"
 
 type taskReference struct {
-	InstanceID string `json:"instanceId"`
-	TaskID     string `json:"taskId"`
+	SessionID string `json:"sessionId"`
+	TaskID    string `json:"taskId"`
 }
 
 type taskFields struct {
@@ -91,7 +91,7 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 		if !ok || req.Params == nil || req.Params.Name != invokeToolName || !supportsTasks(req.ClientCapabilities()) {
 			return next(ctx, method, request)
 		}
-		var input InvokeAgentInstanceInput
+		var input InvokeSessionInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
 			return toolError(fmt.Errorf("invalid invocation input: %w", err)), nil
 		}
@@ -100,8 +100,8 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 			return toolError(err), nil
 		}
 		taskRef := taskReference{
-			InstanceID: input.AgentInstanceID,
-			TaskID:     string(task.ID),
+			SessionID: input.SessionID,
+			TaskID:    string(task.ID),
 		}
 		ref, err := encodeTaskReference(taskRef)
 		if err != nil {
@@ -182,7 +182,7 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	events := h.gateway.SendStreamingMessage(
-		routeContext(ctx, ref.InstanceID),
+		routeContext(ctx, ref.SessionID),
 		&a2atype.SendMessageRequest{Message: message},
 	)
 	// Wait for admission to reach the runtime, then release this observer.
@@ -207,7 +207,7 @@ func (h *Handler) cancelTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	if _, err := h.gateway.CancelTask(
-		routeContext(ctx, ref.InstanceID),
+		routeContext(ctx, ref.SessionID),
 		&a2atype.CancelTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
 	); err != nil {
 		if errors.Is(err, a2atype.ErrTaskNotFound) {
@@ -224,7 +224,7 @@ func (h *Handler) resolveTask(ctx context.Context, id string) (taskReference, *a
 		return taskReference{}, nil, invalidParams(err)
 	}
 	task, err := h.gateway.GetTask(
-		routeContext(ctx, ref.InstanceID),
+		routeContext(ctx, ref.SessionID),
 		&a2atype.GetTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
 	)
 	if errors.Is(err, a2atype.ErrTaskNotFound) {
@@ -268,8 +268,8 @@ func decodeTaskReference(value string) (taskReference, error) {
 }
 
 func validateTaskReference(ref taskReference) error {
-	if _, err := uuid.Parse(ref.InstanceID); err != nil {
-		return fmt.Errorf("invalid AgentInstance ID: %w", err)
+	if _, err := uuid.Parse(ref.SessionID); err != nil {
+		return fmt.Errorf("invalid Session ID: %w", err)
 	}
 	if _, err := uuid.Parse(ref.TaskID); err != nil {
 		return fmt.Errorf("invalid A2A task ID: %w", err)
@@ -296,7 +296,7 @@ func detailedTask(id string, ref taskReference, task *a2atype.Task) *getTaskResu
 	case a2atype.TaskStateInputRequired:
 		result.InputRequests = inputRequests(task)
 	case a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateAuthRequired:
-		callResult, output := invocationResult(InvokeAgentInstanceInput{AgentInstanceID: ref.InstanceID}, task)
+		callResult, output := invocationResult(InvokeSessionInput{SessionID: ref.SessionID}, task)
 		callResult.StructuredContent = output
 		result.Result = callResult
 	}

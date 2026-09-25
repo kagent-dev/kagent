@@ -18,21 +18,21 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
-	testInstanceID = "11111111-1111-4111-8111-111111111111"
-	testTaskID     = "22222222-2222-4222-8222-222222222222"
+	testSessionID = "11111111-1111-4111-8111-111111111111"
+	testTaskID    = "22222222-2222-4222-8222-222222222222"
 )
 
 func TestTaskReferenceRoundTrip(t *testing.T) {
 	want := taskReference{
-		InstanceID: testInstanceID, TaskID: testTaskID,
+		SessionID: testSessionID, TaskID: testTaskID,
 	}
 	encoded, err := encodeTaskReference(want)
 	if err != nil {
@@ -66,7 +66,7 @@ func TestTaskStateTranslation(t *testing.T) {
 		{a2atype.TaskStateCanceled, "cancelled"},
 	} {
 		t.Run(test.state.String(), func(t *testing.T) {
-			task := &a2atype.Task{ID: testTaskID, ContextID: testInstanceID, Status: a2atype.TaskStatus{State: test.state, Timestamp: &now}}
+			task := &a2atype.Task{ID: testTaskID, ContextID: testSessionID, Status: a2atype.TaskStatus{State: test.state, Timestamp: &now}}
 			if got := taskStatus(task); got != test.want {
 				t.Fatalf("taskStatus() = %q, want %q", got, test.want)
 			}
@@ -78,7 +78,7 @@ func TestTaskTimestampsUseDurableCreationTime(t *testing.T) {
 	created := time.Date(2026, time.August, 26, 10, 0, 0, 0, time.UTC)
 	updated := created.Add(time.Hour)
 	task := &a2atype.Task{
-		ID: testTaskID, ContextID: testInstanceID,
+		ID: testTaskID, ContextID: testSessionID,
 		Status:   a2atype.TaskStatus{State: a2atype.TaskStateWorking, Timestamp: &updated},
 		Metadata: map[string]any{apia2a.TaskCreatedAtMetadataKey: created.Format(time.RFC3339Nano)},
 	}
@@ -91,12 +91,12 @@ func TestTaskTimestampsUseDurableCreationTime(t *testing.T) {
 func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 	now := time.Now().UTC()
 	task := &a2atype.Task{
-		ID: testTaskID, ContextID: testInstanceID,
+		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now},
 	}
-	result := detailedTask("task-ref", taskReference{InstanceID: testInstanceID}, task)
-	output, ok := result.Result.StructuredContent.(InvokeAgentInstanceOutput)
-	if !ok || output.TaskID != testTaskID || output.ContextID != testInstanceID {
+	result := detailedTask("task-ref", taskReference{SessionID: testSessionID}, task)
+	output, ok := result.Result.StructuredContent.(InvokeSessionOutput)
+	if !ok || output.TaskID != testTaskID || output.ContextID != testSessionID {
 		t.Fatalf("structured invocation output = %#v", result.Result.StructuredContent)
 	}
 }
@@ -104,12 +104,12 @@ func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 	message := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?"))
 	gateway := &fakeGateway{task: &a2atype.Task{
-		ID: testTaskID, ContextID: testInstanceID,
+		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: message},
 	}}
 	h := &Handler{gateway: gateway}
 	ref, err := encodeTaskReference(taskReference{
-		InstanceID: testInstanceID, TaskID: testTaskID,
+		SessionID: testSessionID, TaskID: testTaskID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 }
 
 func TestTaskUpdateRejectsMissingInputResponse(t *testing.T) {
-	ref, err := encodeTaskReference(taskReference{InstanceID: testInstanceID, TaskID: testTaskID})
+	ref, err := encodeTaskReference(taskReference{SessionID: testSessionID, TaskID: testTaskID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestTaskUpdateRejectsMissingInputResponse(t *testing.T) {
 			} {
 				t.Run(tt.name, func(t *testing.T) {
 					gateway := &fakeGateway{task: &a2atype.Task{
-						ID: testTaskID, ContextID: testInstanceID,
+						ID: testTaskID, ContextID: testSessionID,
 						Status: a2atype.TaskStatus{
 							State: a2atype.TaskStateInputRequired, Message: &a2atype.Message{ID: messageID},
 						},
@@ -202,12 +202,12 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 		},
 	)
 	gateway := &fakeGateway{task: &a2atype.Task{
-		ID: testTaskID, ContextID: testInstanceID,
+		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: status},
 	}}
 	h := &Handler{gateway: gateway}
 	ref, err := encodeTaskReference(taskReference{
-		InstanceID: testInstanceID, TaskID: testTaskID,
+		SessionID: testSessionID, TaskID: testTaskID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 
 func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	gateway := &fakeGateway{}
-	h, err := New(testAgentInstanceService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
+	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	call := rawMCPCall(t, server.URL, "tools/call", map[string]any{
 		"name": invokeToolName,
 		"arguments": map[string]any{
-			"agent_instance_id": testInstanceID, "message": "hello",
+			"session_id": testSessionID, "message": "hello",
 		},
 	}, true)
 	result := call["result"].(map[string]any)
@@ -271,7 +271,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 
 func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	gateway := &fakeGateway{completeOnDrain: true}
-	h, err := New(testAgentInstanceService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
+	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	call := rawMCPCall(t, server.URL, "tools/call", map[string]any{
 		"name": invokeToolName,
 		"arguments": map[string]any{
-			"agent_instance_id": testInstanceID, "message": "hello",
+			"session_id": testSessionID, "message": "hello",
 		},
 	}, false)
 	result := call["result"].(map[string]any)
@@ -298,12 +298,12 @@ func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 
 func TestCancelTaskUsesA2AGateway(t *testing.T) {
 	gateway := &fakeGateway{task: &a2atype.Task{
-		ID: testTaskID, ContextID: testInstanceID,
+		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 	}}
 	h := &Handler{gateway: gateway}
 	ref, err := encodeTaskReference(taskReference{
-		InstanceID: testInstanceID, TaskID: testTaskID,
+		SessionID: testSessionID, TaskID: testTaskID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -444,9 +444,9 @@ func (g *fakeGateway) SendStreamingMessage(_ context.Context, request *a2atype.S
 		return func(func(a2atype.Event, error) bool) {}
 	}
 	request.Message.TaskID = testTaskID
-	request.Message.ContextID = testInstanceID
+	request.Message.ContextID = testSessionID
 	g.task = &a2atype.Task{
-		ID: testTaskID, ContextID: testInstanceID,
+		ID: testTaskID, ContextID: testSessionID,
 		Status:  a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 		History: []*a2atype.Message{request.Message},
 	}
@@ -485,62 +485,62 @@ func (*fakeGateway) GetExtendedAgentCard(context.Context, *a2atype.GetExtendedAg
 	return nil, a2atype.ErrUnsupportedOperation
 }
 
-type fakeInstanceStore struct{}
+type fakeSessionStore struct{}
 
-func (*fakeInstanceStore) CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error) {
+func (*fakeSessionStore) CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error) {
 	return nil, false, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) GetAgentInstance(_ context.Context, id, _ string) (*apiv1alpha1.AgentInstance, error) {
-	if id != testInstanceID {
+func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1alpha1.Session, error) {
+	if id != testSessionID {
 		return nil, database.ErrNotFound
 	}
-	return &apiv1alpha1.AgentInstance{Id: id, ContextId: id, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
+	return &apiv1alpha1.Session{Id: id, ContextId: id, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
 }
 
-func (*fakeInstanceStore) ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
-	return []*apiv1alpha1.AgentInstance{{
-		Id: testInstanceID, State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error) {
+	return []*apiv1alpha1.Session{{
+		Id: testSessionID, State: apiv1alpha1.SessionState_SESSION_STATE_READY,
 		Agent: &apiv1alpha1.ResourceReference{Name: "assistant"},
 	}}, nil
 }
 
-func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
+func (*fakeSessionStore) UpdateSessionName(context.Context, string, string, string) (*apiv1alpha1.Session, error) {
 	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte, string) (*apiv1alpha1.AgentInstanceShare, error) {
+func (*fakeSessionStore) CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error) {
 	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error) {
+func (*fakeSessionStore) ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error) {
 	return nil, nil
 }
 
-func (*fakeInstanceStore) DeleteAgentInstanceShare(context.Context, string, string) error {
+func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) error {
 	return nil
 }
 
-type fakeInstanceWorkflow struct{}
+type fakeSessionWorkflow struct{}
 
-func (*fakeInstanceWorkflow) Create(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, nil
+func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, nil
 }
 
-func (*fakeInstanceWorkflow) Suspend(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, nil
+func (*fakeSessionWorkflow) Suspend(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, nil
 }
 
-func (*fakeInstanceWorkflow) Resume(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, nil
+func (*fakeSessionWorkflow) Resume(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, nil
 }
 
-func (*fakeInstanceWorkflow) Delete(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, nil
+func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, nil
 }
 
-func testAgentInstanceService() *agentinstance.Service {
-	return agentinstance.NewService(&fakeInstanceStore{}, &auth.NoopAuthorizer{}, &fakeInstanceWorkflow{})
+func testSessionService() *sessionsvc.Service {
+	return sessionsvc.NewService(&fakeSessionStore{}, &auth.NoopAuthorizer{}, &fakeSessionWorkflow{})
 }
 
 func testCheckpointService() *checkpoint.Service {

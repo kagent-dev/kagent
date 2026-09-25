@@ -56,7 +56,7 @@ func TestE2EClaudeMockLocalSubagentRouting(t *testing.T) {
 	assertToolEvents(t, streamed.toolEvents, toolName)
 	persisted := getTask(t, fixture, streamed.taskID)
 	assertToolEvents(t, taskToolEvents(persisted), toolName)
-	assertNoClaudeChildInstance(t, fixture, childTemplate)
+	assertNoClaudeChildSession(t, fixture, childTemplate)
 	assertTaskHistory(t, fixture, streamed.taskID)
 }
 
@@ -150,15 +150,15 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 	return root.Name, child.Name
 }
 
-func assertNoClaudeChildInstance(t *testing.T, fixture *interactionFixture, childTemplate string) {
+func assertNoClaudeChildSession(t *testing.T, fixture *interactionFixture, childTemplate string) {
 	t.Helper()
-	instances, err := fixture.instances.ListAgentInstances(fixture.ctx, &apiv1alpha1.ListAgentInstancesRequest{})
+	sessions, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1alpha1.ListSessionsRequest{})
 	if err != nil {
-		t.Fatalf("list Claude AgentInstances: %v", err)
+		t.Fatalf("list Claude Sessions: %v", err)
 	}
-	for _, instance := range instances.GetAgentInstances() {
-		if instance.GetAgent().GetName() == childTemplate {
-			t.Fatalf("Claude local child created AgentInstance %q", instance.GetId())
+	for _, session := range sessions.GetSessions() {
+		if session.GetAgent().GetName() == childTemplate {
+			t.Fatalf("Claude local child created Session %q", session.GetId())
 		}
 	}
 }

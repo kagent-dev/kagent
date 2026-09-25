@@ -10,17 +10,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// SettleAgentInstanceTask publishes a saved terminal/waiting task and its history
+// SettleSessionTask publishes a saved terminal/waiting task and its history
 // atomically after native cleanup. It does not wait for runtime pause or snapshots.
 // Retries cannot republish an old state over a later turn. Callers authenticate
-// runtime authority; a missing or deleted instance returns ErrNotFound.
-func (c *Client) SettleAgentInstanceTask(ctx context.Context, instanceID, taskID string, version int64) error {
+// runtime authority; a missing or deleted session returns ErrNotFound.
+func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string, version int64) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+		if session.State == "SESSION_STATE_DELETED" {
 			return ErrNotFound
 		}
 		type boundary struct {
@@ -29,10 +29,10 @@ func (c *Client) SettleAgentInstanceTask(ctx context.Context, instanceID, taskID
 			Published       bool
 		}
 		row, err := queryOne(ctx, tx, `
-			SELECT data, expected_version, published FROM agent_instance_task_event
+			SELECT data, expected_version, published FROM session_task_event
 			WHERE history_id = $1 AND task_id = $2 AND sequence = $3
 			  AND expected_version IS NOT NULL AND quiescence_pending IS NOT NULL
-		`, pgx.RowToStructByName[boundary], instance.HistoryID, taskID, version)
+		`, pgx.RowToStructByName[boundary], session.HistoryID, taskID, version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrConflict
 		}
@@ -42,7 +42,7 @@ func (c *Client) SettleAgentInstanceTask(ctx context.Context, instanceID, taskID
 		if row.Published {
 			return nil
 		}
-		stored, err := readAgentInstanceTask(ctx, tx, instance.HistoryID, taskID)
+		stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
 		if err != nil {
 			return err
 		}
@@ -58,13 +58,13 @@ func (c *Client) SettleAgentInstanceTask(ctx context.Context, instanceID, taskID
 		if err != nil {
 			return err
 		}
-		if _, err := saveTaskProjection(ctx, tx, instance.HistoryID, taskID, string(task.Status.State), task.Status.Timestamp, data); err != nil {
+		if _, err := saveTaskProjection(ctx, tx, session.HistoryID, taskID, string(task.Status.State), task.Status.Timestamp, data); err != nil {
 			return err
 		}
 		return execSQL(ctx, tx, `
-			UPDATE agent_instance_task_event SET published = TRUE
+			UPDATE session_task_event SET published = TRUE
 			WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
-		`, instance.HistoryID, taskID, row.ExpectedVersion, version)
+		`, session.HistoryID, taskID, row.ExpectedVersion, version)
 	})
 }
 

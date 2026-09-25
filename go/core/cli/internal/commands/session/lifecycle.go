@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"context"
@@ -17,24 +17,24 @@ import (
 )
 
 type lifecycleClient interface {
-	CreateAgentInstance(context.Context, *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error)
-	DeleteAgentInstance(context.Context, *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error)
+	CreateSession(context.Context, *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error)
+	DeleteSession(context.Context, *apiv1alpha1.DeleteSessionRequest) (*apiv1alpha1.DeleteSessionResponse, error)
 }
 
-// CreateCfg configures AgentInstance creation.
+// CreateCfg configures Session creation.
 type CreateCfg struct {
 	OutputFormat string
 	Agent        string
 	RequestID    string
 }
 
-// DeleteCfg configures AgentInstance deletion.
+// DeleteCfg configures Session deletion.
 type DeleteCfg struct {
 	OutputFormat string
-	InstanceID   string
+	SessionID    string
 }
 
-// runCreate creates an AgentInstance.
+// runCreate creates a Session.
 func runCreate(
 	ctx context.Context,
 	options connection.Options,
@@ -54,7 +54,7 @@ func runCreate(
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return create(ctx, session.API.AgentInstance, session.Namespace, cfg, format, out)
+	return create(ctx, session.API.Session, session.Namespace, cfg, format, out)
 }
 
 func ensureRequestID(cfg *CreateCfg) {
@@ -63,7 +63,7 @@ func ensureRequestID(cfg *CreateCfg) {
 	}
 }
 
-// runDelete deletes an AgentInstance.
+// runDelete deletes a Session.
 func runDelete(
 	ctx context.Context,
 	options connection.Options,
@@ -81,7 +81,7 @@ func runDelete(
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return deleteAgentInstance(ctx, session.API.AgentInstance, cfg, format, out)
+	return deleteSession(ctx, session.API.Session, cfg, format, out)
 }
 
 func create(
@@ -92,58 +92,58 @@ func create(
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	response, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
+	response, err := client.CreateSession(ctx, &apiv1alpha1.CreateSessionRequest{
 		Agent: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Agent}, RequestId: cfg.RequestID,
 	})
 	if err != nil {
-		return fmt.Errorf("create AgentInstance: %w", err)
+		return fmt.Errorf("create Session: %w", err)
 	}
-	if response.GetAgentInstance() == nil {
-		return errors.New("create AgentInstance returned no AgentInstance")
+	if response.GetSession() == nil {
+		return errors.New("create Session returned no Session")
 	}
-	return writeLifecycleResult(out, format, response, response.GetAgentInstance())
+	return writeLifecycleResult(out, format, response, response.GetSession())
 }
 
-func deleteAgentInstance(
+func deleteSession(
 	ctx context.Context,
 	client lifecycleClient,
 	cfg *DeleteCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	response, err := client.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-		AgentInstanceId: cfg.InstanceID,
+	response, err := client.DeleteSession(ctx, &apiv1alpha1.DeleteSessionRequest{
+		SessionId: cfg.SessionID,
 	})
 	if status.Code(err) == codes.Aborted {
-		return fmt.Errorf("delete AgentInstance: another lifecycle operation is in progress; retry after it completes: %w", err)
+		return fmt.Errorf("delete Session: another lifecycle operation is in progress; retry after it completes: %w", err)
 	}
 	if err != nil {
-		return fmt.Errorf("delete AgentInstance: %w", err)
+		return fmt.Errorf("delete Session: %w", err)
 	}
-	if response.GetAgentInstance() == nil {
-		return errors.New("delete AgentInstance returned no AgentInstance")
+	if response.GetSession() == nil {
+		return errors.New("delete Session returned no Session")
 	}
-	return writeLifecycleResult(out, format, response, response.GetAgentInstance())
+	return writeLifecycleResult(out, format, response, response.GetSession())
 }
 
 func writeLifecycleResult(
 	w io.Writer,
 	format clioutput.Format,
 	response proto.Message,
-	instance *apiv1alpha1.AgentInstance,
+	session *apiv1alpha1.Session,
 ) error {
 	if format == clioutput.FormatJSON {
 		return clioutput.WriteProto(w, response)
 	}
-	return writeInstancesTable(w, []*apiv1alpha1.AgentInstance{instance}, "")
+	return writeSessionsTable(w, []*apiv1alpha1.Session{session}, "")
 }
 
-// NewCreateCmd constructs the AgentInstance create command.
+// NewCreateCmd constructs the Session create command.
 func NewCreateCmd() *cobra.Command {
 	cfg := &CreateCfg{}
 	cmd := &cobra.Command{
-		Use:   "agent-instance",
-		Short: "Create an AgentInstance",
+		Use:   "session",
+		Short: "Create a Session",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
@@ -164,12 +164,12 @@ func NewCreateCmd() *cobra.Command {
 	return cmd
 }
 
-// NewDeleteCmd constructs the AgentInstance delete command.
+// NewDeleteCmd constructs the Session delete command.
 func NewDeleteCmd() *cobra.Command {
 	cfg := &DeleteCfg{}
 	cmd := &cobra.Command{
-		Use:   "agent-instance ID",
-		Short: "Delete an AgentInstance",
+		Use:   "session ID",
+		Short: "Delete a Session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
@@ -181,7 +181,7 @@ func NewDeleteCmd() *cobra.Command {
 				return err
 			}
 			cfg.OutputFormat = format
-			cfg.InstanceID = args[0]
+			cfg.SessionID = args[0]
 			return runDelete(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}

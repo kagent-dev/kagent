@@ -1,5 +1,5 @@
-// Package instance renders AgentInstance control-plane fields for the terminal.
-package instance
+// Package session renders Session control-plane fields for the terminal.
+package session
 
 import (
 	"fmt"
@@ -10,12 +10,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const statePrefix = "AGENT_INSTANCE_STATE_"
+const statePrefix = "SESSION_STATE_"
 
-// shortIDLength tells instances apart in a narrow column; the full ID stays copyable elsewhere.
+// shortIDLength tells sessions apart in a narrow column; the full ID stays copyable elsewhere.
 const shortIDLength = 8
 
-// ShortID abbreviates an AgentInstance ID for space-constrained display.
+// ShortID abbreviates a Session ID for space-constrained display.
 func ShortID(id string) string {
 	if len(id) <= shortIDLength {
 		return id
@@ -24,13 +24,13 @@ func ShortID(id string) string {
 }
 
 // StateLabel renders a lifecycle state without its protobuf enum prefix.
-func StateLabel(state apiv1alpha1.AgentInstanceState) string {
+func StateLabel(state apiv1alpha1.SessionState) string {
 	return strings.TrimPrefix(state.String(), statePrefix)
 }
 
-// Ready reports whether an AgentInstance can serve A2A calls; the gateway rejects every other state.
-func Ready(agentInstance *apiv1alpha1.AgentInstance) bool {
-	return agentInstance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+// Ready reports whether a Session can serve A2A calls; the gateway rejects every other state.
+func Ready(session *apiv1alpha1.Session) bool {
+	return session.GetState() == apiv1alpha1.SessionState_SESSION_STATE_READY
 }
 
 // Age renders elapsed time; an absent timestamp renders empty rather than as the Unix epoch.

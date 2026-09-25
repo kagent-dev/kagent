@@ -31,13 +31,13 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	v2mcp "github.com/kagent-dev/kagent/go/core/internal/mcp"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
@@ -302,13 +302,13 @@ func Run(ctx context.Context, opts Options) error {
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
-	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors)
 	runtimeTasks := taskstore.NewService(store)
-	if err := manager.Add(instanceWorkflow); err != nil {
-		return fmt.Errorf("register idle instance worker: %w", err)
+	if err := manager.Add(sessionWorkflow); err != nil {
+		return fmt.Errorf("register idle session worker: %w", err)
 	}
-	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
-	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)
+	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow)
+	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		env("SUBSTRATE_ATENET_ROUTER_URL", substrate.DefaultAtenetRouterURL),
 		authenticator,
@@ -318,16 +318,16 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	gateway := a2agateway.New(a2agateway.Config{Store: store, Authorizer: authorizer, Dialer: gatewayDialer,
-		Agents: agents, Instances: instances, GatewayURL: env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083")})
+		Agents: agents, Sessions: sessions, GatewayURL: env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083")})
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
-	if err := manager.Add(scheduledruncontroller.NewController(store, instanceWorkflow,
+	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
 		gateway)); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
-	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)
+	mcpHandler, err := v2mcp.New(sessions, checkpoints, gateway)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func Run(ctx context.Context, opts Options) error {
 		SystemService:         system,
 		MemoryService:         memory,
 		TaskStoreService:      runtimeTasks,
-		AgentInstanceService:  instances,
+		SessionService:        sessions,
 		ScheduledRunService:   schedules,
 		// Author Agents and their reusable configuration through the API.
 		AgentService:         agents,

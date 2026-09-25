@@ -29,7 +29,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // HarnessService manages reusable runtime and execution configuration.
-// An Agent selects a Harness by reference or embeds its complete spec. Instance
+// An Agent selects a Harness by reference or embeds its complete spec. Session
 // creation names that Agent and pins its latest successful revision.
 type HarnessServiceClient interface {
 	ListHarnesses(ctx context.Context, in *ListHarnessesRequest, opts ...grpc.CallOption) (*ListHarnessesResponse, error)
@@ -80,7 +80,7 @@ func (c *harnessServiceClient) DeleteHarness(ctx context.Context, in *DeleteHarn
 // for forward compatibility.
 //
 // HarnessService manages reusable runtime and execution configuration.
-// An Agent selects a Harness by reference or embeds its complete spec. Instance
+// An Agent selects a Harness by reference or embeds its complete spec. Session
 // creation names that Agent and pins its latest successful revision.
 type HarnessServiceServer interface {
 	ListHarnesses(context.Context, *ListHarnessesRequest) (*ListHarnessesResponse, error)

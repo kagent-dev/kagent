@@ -15,15 +15,15 @@ import (
 
 // saveRuntimeTask runs the runtime persistence protocol for fixtures. Tests of
 // versions, retries, or settlement call the individual store operations directly.
-func saveRuntimeTask(t *testing.T, client *Client, instanceID string, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
+func saveRuntimeTask(t *testing.T, client *Client, sessionID string, task *a2a.Task, event a2a.Event, snapshot *SessionTaskSnapshot) error {
 	t.Helper()
 	ctx := t.Context()
-	stored, version, err := client.GetVersionedAgentInstanceTask(ctx, instanceID, string(task.ID))
+	stored, version, err := client.GetVersionedSessionTask(ctx, sessionID, string(task.ID))
 	digest := taskMutationHash(uuid.NewString())
 	if errors.Is(err, ErrNotFound) {
-		version, err = client.CreateRuntimeTask(ctx, instanceID, digest, task, "")
+		version, err = client.CreateRuntimeTask(ctx, sessionID, digest, task, "")
 	} else if err == nil {
-		version, err = client.UpdateAgentInstanceTask(ctx, instanceID, version, digest, task, event, "")
+		version, err = client.UpdateSessionTask(ctx, sessionID, version, digest, task, event, "")
 	}
 	if err != nil {
 		return err
@@ -32,30 +32,30 @@ func saveRuntimeTask(t *testing.T, client *Client, instanceID string, task *a2a.
 	if !boundary {
 		return nil
 	}
-	if err := client.SettleAgentInstanceTask(ctx, instanceID, string(task.ID), version); err != nil {
+	if err := client.SettleSessionTask(ctx, sessionID, string(task.ID), version); err != nil {
 		return err
 	}
-	work, err := client.ClaimInstanceQuiescence(ctx)
+	work, err := client.ClaimSessionQuiescence(ctx)
 	if err != nil {
 		return err
 	}
-	require.Equal(t, instanceID, work.Instance.Id)
+	require.Equal(t, sessionID, work.Session.Id)
 	require.Equal(t, string(task.ID), work.TaskID)
-	return client.FinishInstanceQuiescence(ctx, work, snapshot)
+	return client.FinishSessionQuiescence(ctx, work, snapshot)
 }
 
-// finishInstanceOperation simulates successful runtime work through the same
+// finishSessionOperation simulates successful runtime work through the same
 // lifecycle operations used by the service, preserving their checks and fencing.
-func finishInstanceOperation(ctx context.Context, client *Client, id string, kind apiv1alpha1.AgentInstanceOperation, authority string) (*apiv1alpha1.AgentInstance, error) {
-	work, err := client.BeginAgentInstanceOperation(ctx, id, kind)
+func finishSessionOperation(ctx context.Context, client *Client, id string, kind apiv1alpha1.SessionOperation, authority string) (*apiv1alpha1.Session, error) {
+	work, err := client.BeginSessionOperation(ctx, id, kind)
 	if err != nil {
 		return nil, err
 	}
-	if work.Instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
-		return work.Instance, nil
+	if work.Session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+		return work.Session, nil
 	}
 	executor := uuid.New()
-	claimed, err := client.ClaimAgentInstanceOperation(ctx, id, work.ID, executor)
+	claimed, err := client.ClaimSessionOperation(ctx, id, work.ID, executor)
 	if err != nil {
 		return nil, err
 	}
@@ -63,14 +63,14 @@ func finishInstanceOperation(ctx context.Context, client *Client, id string, kin
 		return nil, fmt.Errorf("fixture lifecycle operation already claimed: %w", ErrConflict)
 	}
 	actorUID := ""
-	if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
+	if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
 		actorUID = "actor-" + id
 	}
-	return client.FinishAgentInstanceOperation(ctx, id, work.ID, executor, authority, actorUID, "")
+	return client.FinishSessionOperation(ctx, id, work.ID, executor, authority, actorUID, "")
 }
 
-func deleteInstance(ctx context.Context, client *Client, id string) error {
-	_, err := finishInstanceOperation(ctx, client, id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE, "")
+func deleteSession(ctx context.Context, client *Client, id string) error {
+	_, err := finishSessionOperation(ctx, client, id, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE, "")
 	return err
 }
 
@@ -80,17 +80,17 @@ func taskMutationHash(value string) []byte {
 	return hash[:]
 }
 
-func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.AgentInstance, *a2a.Task) {
+func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.Session, *a2a.Task) {
 	t.Helper()
-	instance, _, err := client.CreateAgentInstance(t.Context(), newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	instance, err = markAgentInstanceReady(t.Context(), client, instance.Id, "agent.example")
+	session, err = markSessionReady(t.Context(), client, session.Id, "agent.example")
 	require.NoError(t, err)
-	task := newAgentInstanceTask(uuid.NewString(), "initial")
-	task.ContextID = instance.ContextId
-	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, taskMutationHash("initial request"), task, "")
+	task := newSessionTask(uuid.NewString(), "initial")
+	task.ContextID = session.ContextId
+	_, err = client.CreateRuntimeTask(t.Context(), session.Id, taskMutationHash("initial request"), task, "")
 	require.NoError(t, err)
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which database?"))}
-	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, nil))
-	return instance, task
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
+	return session, task
 }

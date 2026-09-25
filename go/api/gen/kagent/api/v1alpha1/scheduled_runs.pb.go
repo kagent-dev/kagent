@@ -24,7 +24,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Summary of the initial scheduled invocation, independent of instance lifecycle.
+// Summary of the initial scheduled invocation, independent of session lifecycle.
 // A2A remains authoritative for task state, interaction, and transcripts.
 type ScheduledRunExecutionState int32
 
@@ -858,7 +858,7 @@ func (x *TriggerScheduledRunResponse) GetExecution() *ScheduledRunExecution {
 	return nil
 }
 
-// One accepted firing. Its identity and immutable inputs survive instance deletion.
+// One accepted firing. Its identity and immutable inputs survive session deletion.
 type ScheduledRunExecution struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -873,10 +873,10 @@ type ScheduledRunExecution struct {
 	Prompt    string                          `protobuf:"bytes,6,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	CreatedAt *timestamppb.Timestamp          `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Deadline  *timestamppb.Timestamp          `protobuf:"bytes,8,opt,name=deadline,proto3" json:"deadline,omitempty"`
-	// Empty until an instance is reserved. Retained after that instance is deleted;
-	// it is a historical reference and does not imply that the instance still exists.
-	AgentInstanceId string                     `protobuf:"bytes,9,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	State           ScheduledRunExecutionState `protobuf:"varint,10,opt,name=state,proto3,enum=kagent.api.v1alpha1.ScheduledRunExecutionState" json:"state,omitempty"`
+	// Empty until a session is reserved. Retained after that session is deleted;
+	// it is a historical reference and does not imply that the session still exists.
+	SessionId string                     `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	State     ScheduledRunExecutionState `protobuf:"varint,10,opt,name=state,proto3,enum=kagent.api.v1alpha1.ScheduledRunExecutionState" json:"state,omitempty"`
 	// Original A2A task; never changes when a user continues the conversation.
 	TaskId      string                 `protobuf:"bytes,11,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	CompletedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
@@ -983,9 +983,9 @@ func (x *ScheduledRunExecution) GetDeadline() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *ScheduledRunExecution) GetAgentInstanceId() string {
+func (x *ScheduledRunExecution) GetSessionId() string {
 	if x != nil {
-		return x.AgentInstanceId
+		return x.SessionId
 	}
 	return ""
 }
@@ -1287,7 +1287,7 @@ const file_kagent_api_v1alpha1_scheduled_runs_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"g\n" +
 	"\x1bTriggerScheduledRunResponse\x12H\n" +
-	"\texecution\x18\x01 \x01(\v2*.kagent.api.v1alpha1.ScheduledRunExecutionR\texecution\"\xe6\x04\n" +
+	"\texecution\x18\x01 \x01(\v2*.kagent.api.v1alpha1.ScheduledRunExecutionR\texecution\"\xd9\x04\n" +
 	"\x15ScheduledRunExecution\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x12(\n" +
@@ -1297,8 +1297,9 @@ const file_kagent_api_v1alpha1_scheduled_runs_proto_rawDesc = "" +
 	"\x06prompt\x18\x06 \x01(\tR\x06prompt\x129\n" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
-	"\bdeadline\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12*\n" +
-	"\x11agent_instance_id\x18\t \x01(\tR\x0fagentInstanceId\x12E\n" +
+	"\bdeadline\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\t \x01(\tR\tsessionId\x12E\n" +
 	"\x05state\x18\n" +
 	" \x01(\x0e2/.kagent.api.v1alpha1.ScheduledRunExecutionStateR\x05state\x12\x17\n" +
 	"\atask_id\x18\v \x01(\tR\x06taskId\x12=\n" +

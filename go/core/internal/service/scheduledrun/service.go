@@ -195,9 +195,9 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 	if !ok || session.Principal().User.ID == "" {
 		return "", serviceerrors.NewUnauthenticated("Authentication is required", nil)
 	}
-	// An instance capability never grants schedule access, even for in-process callers.
+	// A session capability never grants schedule access, even for in-process callers.
 	if _, shared := auth.ShareContextFrom(ctx); shared {
-		return "", serviceerrors.NewPermissionDenied("Instance shares do not grant schedule access", nil)
+		return "", serviceerrors.NewPermissionDenied("Session shares do not grant schedule access", nil)
 	}
 	principal := session.Principal()
 	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "ScheduledRun", Name: name}); err != nil {
@@ -214,8 +214,8 @@ func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1alpha1.Sch
 	}); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized to run Agent", err)
 	}
-	if err := s.authorizer.Check(ctx, principal, auth.VerbCreate, auth.Resource{Type: "AgentInstance"}); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized to create AgentInstance", err)
+	if err := s.authorizer.Check(ctx, principal, auth.VerbCreate, auth.Resource{Type: "Session"}); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized to create Session", err)
 	}
 	return nil
 }

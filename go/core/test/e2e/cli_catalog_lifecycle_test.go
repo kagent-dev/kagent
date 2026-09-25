@@ -15,7 +15,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func TestE2ECLIAgentCatalogAndInstanceLifecycle(t *testing.T) {
+func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
@@ -43,56 +43,56 @@ func TestE2ECLIAgentCatalogAndInstanceLifecycle(t *testing.T) {
 
 		requestID := uuid.NewString()
 		createArgs := []string{
-			"--output-format", "json", "create", "agent-instance",
+			"--output-format", "json", "create", "session",
 			"--agent", templateName, "--request-id", requestID,
 		}
 		createdJSON := run(t.Context(), createArgs...)
-		var created apiv1alpha1.CreateAgentInstanceResponse
+		var created apiv1alpha1.CreateSessionResponse
 		if err := protojson.Unmarshal([]byte(createdJSON), &created); err != nil {
-			t.Fatalf("decode create AgentInstance stdout %q: %v", createdJSON, err)
+			t.Fatalf("decode create Session stdout %q: %v", createdJSON, err)
 		}
-		instance := created.GetAgentInstance()
-		if instance.GetId() == "" || instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
-			t.Fatalf("created AgentInstance = %#v, want ID and READY state", instance)
+		session := created.GetSession()
+		if session.GetId() == "" || session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+			t.Fatalf("created Session = %#v, want ID and READY state", session)
 		}
 		deleted := false
 		t.Cleanup(func() {
 			if !deleted {
-				run(context.Background(), "delete", "agent-instance", instance.GetId())
+				run(context.Background(), "delete", "session", session.GetId())
 			}
 		})
 
 		replayedJSON := run(t.Context(), createArgs...)
-		var replayed apiv1alpha1.CreateAgentInstanceResponse
+		var replayed apiv1alpha1.CreateSessionResponse
 		if err := protojson.Unmarshal([]byte(replayedJSON), &replayed); err != nil {
 			t.Fatalf("decode replayed create stdout %q: %v", replayedJSON, err)
 		}
-		if replayed.GetAgentInstance().GetId() != instance.GetId() {
-			t.Fatalf("replayed create ID = %q, want %q", replayed.GetAgentInstance().GetId(), instance.GetId())
+		if replayed.GetSession().GetId() != session.GetId() {
+			t.Fatalf("replayed create ID = %q, want %q", replayed.GetSession().GetId(), session.GetId())
 		}
 
-		listedInstances := run(t.Context(), "get", "agent-instance")
-		if !strings.Contains(listedInstances, instance.GetId()) {
-			t.Fatalf("list AgentInstances stdout = %q, want instance %s", listedInstances, instance.GetId())
+		listedSessions := run(t.Context(), "get", "session")
+		if !strings.Contains(listedSessions, session.GetId()) {
+			t.Fatalf("list Sessions stdout = %q, want session %s", listedSessions, session.GetId())
 		}
-		gotInstance := run(t.Context(), "--output-format", "json", "get", "agent-instance", instance.GetId())
-		if !json.Valid([]byte(gotInstance)) || !strings.Contains(gotInstance, instance.GetId()) {
-			t.Fatalf("get AgentInstance stdout = %q, want instance %s as JSON", gotInstance, instance.GetId())
+		gotSession := run(t.Context(), "--output-format", "json", "get", "session", session.GetId())
+		if !json.Valid([]byte(gotSession)) || !strings.Contains(gotSession, session.GetId()) {
+			t.Fatalf("get Session stdout = %q, want session %s as JSON", gotSession, session.GetId())
 		}
 
-		deletedJSON := run(t.Context(), "--output-format", "json", "delete", "agent-instance", instance.GetId())
+		deletedJSON := run(t.Context(), "--output-format", "json", "delete", "session", session.GetId())
 		deleted = true
-		var deletedResponse apiv1alpha1.DeleteAgentInstanceResponse
+		var deletedResponse apiv1alpha1.DeleteSessionResponse
 		if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
-			t.Fatalf("decode delete AgentInstance stdout %q: %v", deletedJSON, err)
+			t.Fatalf("decode delete Session stdout %q: %v", deletedJSON, err)
 		}
-		if deletedResponse.GetAgentInstance().GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-			t.Fatalf("deleted AgentInstance state = %s, want DELETED", deletedResponse.GetAgentInstance().GetState())
+		if deletedResponse.GetSession().GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED {
+			t.Fatalf("deleted Session state = %s, want DELETED", deletedResponse.GetSession().GetState())
 		}
 	})
 }
 
-func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
+func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
@@ -105,15 +105,15 @@ func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
 			"--user-id", "e2e",
 		}
 
-		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "agent-instance")...)
-		if !strings.Contains(listOutput, fixture.instanceID) {
-			t.Fatalf("list AgentInstances stdout = %q, want instance %s", listOutput, fixture.instanceID)
+		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "session")...)
+		if !strings.Contains(listOutput, fixture.sessionID) {
+			t.Fatalf("list Sessions stdout = %q, want session %s", listOutput, fixture.sessionID)
 		}
 
-		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "agent-instance", fixture.instanceID)
+		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "session", fixture.sessionID)
 		getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
-		if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.instanceID) {
-			t.Fatalf("get AgentInstance stdout = %q, want JSON for instance %s", getOutput, fixture.instanceID)
+		if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.sessionID) {
+			t.Fatalf("get Session stdout = %q, want JSON for session %s", getOutput, fixture.sessionID)
 		}
 
 		tests := []struct {
@@ -131,7 +131,7 @@ func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
 				args := append(append([]string{}, baseArgs...),
 					"--output-format", tt.format,
 					"invoke",
-					"--agent-instance", fixture.instanceID,
+					"--session", fixture.sessionID,
 					"--task", "What is 2+2?",
 				)
 				if tt.stream {

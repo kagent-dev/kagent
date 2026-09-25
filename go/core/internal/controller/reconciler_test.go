@@ -186,20 +186,20 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
-			request := &apiv1alpha1.AgentInstance{
+			request := &apiv1alpha1.Session{
 				Id: uuid.NewString(), Creator: "alice",
 				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}
-			instance, _, err := store.CreateAgentInstance(ctx, request, "instance")
+			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
-			require.Equal(t, id.String(), instance.GetPreparedRevision())
-			operation, err := store.BeginAgentInstanceOperation(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
+			require.Equal(t, id.String(), session.GetPreparedRevision())
+			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()
-			claimed, err := store.ClaimAgentInstanceOperation(ctx, instance.Id, operation.ID, executor)
+			claimed, err := store.ClaimSessionOperation(ctx, session.Id, operation.ID, executor)
 			require.NoError(t, err)
 			require.True(t, claimed)
-			_, err = store.FinishAgentInstanceOperation(ctx, instance.Id, operation.ID, executor, "", "", "")
+			_, err = store.FinishSessionOperation(ctx, session.Id, operation.ID, executor, "", "", "")
 			require.NoError(t, err)
 			require.NotNil(t, templates.template)
 
@@ -226,7 +226,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.Len(t, pending, 1, "failed cleanup must remain discoverable after restart")
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.NoError(t, err)
-			_, _, err = store.CreateAgentInstance(ctx, request, "replacement-instance")
+			_, _, err = store.CreateSession(ctx, request, "replacement-session")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			templates.deleteErr = nil
 			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)

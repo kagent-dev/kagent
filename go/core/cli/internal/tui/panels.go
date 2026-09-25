@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
+	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 )
 
@@ -21,8 +21,8 @@ const (
 	panelChat       panelID = 0
 	panelNamespaces panelID = 1
 	panelAgents     panelID = 2
-	panelInstances  panelID = 3
-	lastListPanel           = panelInstances
+	panelSessions   panelID = 3
+	lastListPanel           = panelSessions
 )
 
 func (p panelID) title() string {
@@ -31,8 +31,8 @@ func (p panelID) title() string {
 		return "Namespaces"
 	case panelAgents:
 		return "Agents"
-	case panelInstances:
-		return "AgentInstances"
+	case panelSessions:
+		return "Sessions"
 	default:
 		return "Chat"
 	}
@@ -87,7 +87,7 @@ func newPanelList(delegate list.ItemDelegate) list.Model {
 	return panelList
 }
 
-// nameItem is a harness or template row, with how many AgentInstances it holds.
+// nameItem is a harness or template row, with how many Sessions it holds.
 type nameItem struct {
 	name  string
 	count int
@@ -95,30 +95,30 @@ type nameItem struct {
 
 func (i nameItem) FilterValue() string { return i.name }
 
-// instanceItem adapts an AgentInstance to a panel row.
-type instanceItem struct {
-	*apiv1alpha1.AgentInstance
+// sessionItem adapts a Session to a panel row.
+type sessionItem struct {
+	*apiv1alpha1.Session
 }
 
 // FilterValue lets `/` match on template, ID prefix, or state.
-func (i instanceItem) FilterValue() string {
+func (i sessionItem) FilterValue() string {
 	return strings.Join([]string{
 		i.GetAgent().GetName(),
 		i.GetId(),
-		instance.StateLabel(i.GetState()),
+		sessionview.StateLabel(i.GetState()),
 	}, " ")
 }
 
 // stateGlyph uses shape, not colour alone, so it survives a monochrome terminal.
-func stateGlyph(state apiv1alpha1.AgentInstanceState) (string, lipgloss.AdaptiveColor) {
+func stateGlyph(state apiv1alpha1.SessionState) (string, lipgloss.AdaptiveColor) {
 	switch state {
-	case apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY:
+	case apiv1alpha1.SessionState_SESSION_STATE_READY:
 		return "●", theme.ColorReady
-	case apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED:
+	case apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED:
 		return "○", theme.ColorMuted
-	case apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_FAILED:
+	case apiv1alpha1.SessionState_SESSION_STATE_FAILED:
 		return "✗", theme.ColorError
-	case apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING:
+	case apiv1alpha1.SessionState_SESSION_STATE_CREATING:
 		return "◐", theme.ColorMuted
 	default:
 		return "·", theme.ColorMuted
@@ -126,9 +126,9 @@ func stateGlyph(state apiv1alpha1.AgentInstanceState) (string, lipgloss.Adaptive
 }
 
 // stateBadge renders a lifecycle state as a coloured glyph and label.
-func stateBadge(state apiv1alpha1.AgentInstanceState) string {
+func stateBadge(state apiv1alpha1.SessionState) string {
 	glyph, colour := stateGlyph(state)
-	return lipgloss.NewStyle().Foreground(colour).Render(glyph + " " + instance.StateLabel(state))
+	return lipgloss.NewStyle().Foreground(colour).Render(glyph + " " + sessionview.StateLabel(state))
 }
 
 // rowDelegate renders one compact line per item, with a cursor on the selection.
@@ -174,14 +174,14 @@ func trimBlankLines(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// instanceRow renders an AgentInstance row: state glyph, template, short ID.
-func instanceRow(item list.Item, width int) string {
-	row, ok := item.(instanceItem)
+// sessionRow renders a Session row: state glyph, template, short ID.
+func sessionRow(item list.Item, width int) string {
+	row, ok := item.(sessionItem)
 	if !ok {
 		return ""
 	}
 	glyph, colour := stateGlyph(row.GetState())
-	shortID := instance.ShortID(row.GetId())
+	shortID := sessionview.ShortID(row.GetId())
 	name := truncate(row.GetAgent().GetName(), max(width-len(shortID)-4, 1))
 	return fmt.Sprintf("%s %s %s",
 		lipgloss.NewStyle().Foreground(colour).Render(glyph),

@@ -79,7 +79,7 @@ type SubAgentToolBinding struct {
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
 	// +optional
 	TemplateRef *corev1.LocalObjectReference `json:"templateRef,omitempty"`
-	// AgentRef selects a Dedicated subagent with its own Harness and AgentInstance, invoked over A2A.
+	// AgentRef selects a Dedicated subagent with its own Harness and Session, invoked over A2A.
 	// Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="agentRef.name must not be empty"
 	// +optional

@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service SessionService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc UpdateSessionName(UpdateSessionNameRequest) returns (UpdateSessionNameResponse);
+  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
+  rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  rpc CreateSessionShare(CreateSessionShareRequest) returns (CreateSessionShareResponse);
+  rpc ListSessionShares(ListSessionSharesRequest) returns (ListSessionSharesResponse);
+  rpc RevokeSessionShare(RevokeSessionShareRequest) returns (RevokeSessionShareResponse);
+}
+
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_CREATING = 1;
+  SESSION_STATE_READY = 2;
+  SESSION_STATE_SUSPENDED = 3;
+  SESSION_STATE_FAILED = 4;
+  SESSION_STATE_DELETING = 5;
+  SESSION_STATE_DELETED = 6;
+}
+
+enum SessionOperation {
+  SESSION_OPERATION_UNSPECIFIED = 0;
+  SESSION_OPERATION_CREATE = 1;
+  SESSION_OPERATION_SUSPEND = 2;
+  SESSION_OPERATION_RESUME = 3;
+  SESSION_OPERATION_DELETE = 4;
+}
+
+enum SessionSharePermission {
+  SESSION_SHARE_PERMISSION_UNSPECIFIED = 0;
+  // Allows A2A get, list, and subscribe operations.
+  SESSION_SHARE_PERMISSION_READ_ONLY = 1;
+  // Also allows A2A send and cancel operations.
+  SESSION_SHARE_PERMISSION_READ_WRITE = 2;
+}
+
+message Failure {
+  string reason = 1;
+  string message = 2;
+}
+
+message Session {
+  string id = 1;
+  string creator = 2;
+  reserved 3, 4;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 15;
+  string prepared_revision = 5;
+  string a2a_authority = 6;
+  SessionState state = 7;
+  SessionOperation operation = 8;
+  Failure failure = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  reserved 12;
+  reserved "labels";
+  // Reader-supplied display name for the conversation. Empty means unnamed,
+  // which is the state every session created before this field existed is in.
+  string name = 13;
+  // Output only. A2A conversation ID, equal to this session's ID.
+  // Forks receive a new conversation ID and new task IDs.
+  string context_id = 14;
+}
+
+message CreateSessionRequest {
+  reserved 1, 2;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 5 [(buf.validate.field).required = true];
+  string request_id = 3 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
+  // Optional display name. Empty means unnamed.
+  string name = 4 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message GetSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {
+  reserved 1;
+  reserved "match_labels";
+  // Includes sessions created by other users when authorized.
+  bool all_creators = 2;
+  PageRequest page = 3;
+  reserved 4, 5;
+  reserved "agent_template", "harness";
+  // Filters by the Agent that produced each session's pinned revision.
+  ResourceReference agent = 6;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  PageResponse page = 2;
+}
+
+message UpdateSessionNameRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  // The new display name. Empty clears the name, returning the conversation to
+  // being identified by its id.
+  string name = 2 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+}
+
+message UpdateSessionNameResponse {
+  Session session = 1;
+}
+
+message SuspendSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message SuspendSessionResponse {
+  Session session = 1;
+}
+
+message ResumeSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message ResumeSessionResponse {
+  Session session = 1;
+}
+
+message DeleteSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeleteSessionResponse {
+  Session session = 1;
+}
+
+message SessionShare {
+  string id = 1;
+  string session_id = 2;
+  SessionSharePermission permission = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message CreateSessionShareRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  SessionSharePermission permission = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: 0
+  }];
+}
+
+message CreateSessionShareResponse {
+  SessionShare share = 1;
+  // Returned only when the share is created.
+  string token = 2;
+}
+
+message ListSessionSharesRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  PageRequest page = 2;
+}
+
+message ListSessionSharesResponse {
+  repeated SessionShare shares = 1;
+  PageResponse page = 2;
+}
+
+message RevokeSessionShareRequest {
+  string share_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message RevokeSessionShareResponse {}

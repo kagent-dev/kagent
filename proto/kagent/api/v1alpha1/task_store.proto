@@ -8,7 +8,7 @@ import "buf/validate/validate.proto";
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
 // TaskStoreService is the private persistence API for agent runtimes. Every call
-// requires workload authority for the requested instance. Public user and share
+// requires workload authority for the requested session. Public user and share
 // credentials do not grant access to this service.
 service TaskStoreService {
   // CreateTask persists a new SDK task. Retrying the same task and payload
@@ -25,13 +25,13 @@ service TaskStoreService {
 
 message StoredTask {
   lf.a2a.v1.Task task = 1;
-  // Opaque, increasing within an instance. Reload after restoring a fork; A2A
-  // task IDs are inherited by forks, but storage versions are instance-scoped.
+  // Opaque task storage version, scoped to its session. Reload after restoring
+  // a fork, which receives new public context and task IDs.
   int64 version = 2;
 }
 
 message TaskStoreServiceCreateTaskRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   lf.a2a.v1.Task task = 2 [(buf.validate.field).required = true];
   // Gateway attempt fence, consumed by the first active save before native work.
   optional string dispatch_id = 3 [(buf.validate.field).string.uuid = true];
@@ -47,7 +47,7 @@ message TaskStoreServiceCreateTaskResponse {
 }
 
 message TaskStoreServiceGetTaskRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   string task_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
@@ -56,7 +56,7 @@ message TaskStoreServiceGetTaskResponse {
 }
 
 message TaskStoreServiceUpdateTaskRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   lf.a2a.v1.Task task = 2 [(buf.validate.field).required = true];
   int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
   // Go's SDK supplies the triggering event. Snapshot-only SDKs omit it; the
@@ -77,7 +77,7 @@ message TaskStoreServiceUpdateTaskResponse {
 }
 
 message TaskStoreServiceListTasksRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   lf.a2a.v1.ListTasksRequest request = 2 [(buf.validate.field).required = true];
 }
 
@@ -86,7 +86,7 @@ message TaskStoreServiceListTasksResponse {
 }
 
 message TaskStoreServiceSettleTaskRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   string task_id = 2 [(buf.validate.field).string.min_len = 1];
   int64 version = 3 [(buf.validate.field).int64.gt = 0];
 }
