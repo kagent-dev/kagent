@@ -11,6 +11,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -20,14 +21,16 @@ import (
 // WrapExecutor emits a terminal/waiting event only after the native executor
 // returns. Cleanup acknowledges the saved version so the API can publish it.
 // The independent lifecycle worker may then pause or suspend an idle actor.
-func (s *Store) WrapExecutor(executor a2asrv.AgentExecutor) *settledExecutor {
-	return &settledExecutor{AgentExecutor: executor, store: s, pending: make(map[a2a.TaskID][]*execution)}
+func (s *Store) WrapExecutor(executor a2asrv.AgentExecutor, runtime tracing.Runtime, flush func(context.Context) error) *settledExecutor {
+	return &settledExecutor{AgentExecutor: executor, store: s, runtime: runtime, flush: flush, pending: make(map[a2a.TaskID][]*execution)}
 }
 
 type settledExecutor struct {
 	a2asrv.PassthroughCallInterceptor
 	a2asrv.AgentExecutor
 	store   *Store
+	runtime tracing.Runtime
+	flush   func(context.Context) error
 	mu      sync.Mutex
 	pending map[a2a.TaskID][]*execution
 }
@@ -99,9 +102,43 @@ func recordSave(ctx context.Context, task *a2a.Task, version int64) {
 func (e *settledExecutor) Execute(ctx context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 	e.track(ctx, input.TaskID)
 	return func(yield func(a2a.Event, error) bool) {
+		state, ok := ctx.Value(executionKey{}).(*execution)
+		var invocation *tracing.Invocation
+		if e.runtime.NativeHarness() {
+			invocation = tracing.InvocationFromContext(ctx)
+			if !invocation.Adopt() {
+				invocation = nil
+			}
+			resuming := input.StoredTask != nil && (input.StoredTask.Status.State == a2a.TaskStateInputRequired || input.StoredTask.Status.State == a2a.TaskStateAuthRequired)
+			invocation.SetAttributes(tracing.RequestIdentity(input.ContextID, string(input.TaskID), resuming)...)
+		}
+		// The caller may disconnect while the SDK saves the initial event. Own
+		// the native invocation now, and finish it if native execution never starts.
+		// ADK request spans stay transport-owned; ADK traces execution separately.
+		nativeStarted := false
+		defer func() {
+			if nativeStarted || invocation == nil {
+				return
+			}
+			result := tracing.Result{}
+			switch {
+			case !ok:
+				result.Error = "runtime_failure"
+			case state.failed.Load():
+				result.Error = "persistence_failure"
+			case state.canceled.Load():
+				result = tracing.Result{TaskState: string(a2a.TaskStateCanceled), Disposition: tracing.DispositionCanceled}
+			case ctx.Err() != nil:
+				result.Disposition = tracing.DispositionInterrupted
+			default:
+				result.Disposition = tracing.DispositionAbandoned
+			}
+			if _, err := invocation.End(ctx, result); err != nil {
+				logging.FromContext(ctx).ErrorContext(ctx, "export runtime invocation traces", "task_id", input.TaskID, "error", err)
+			}
+		}()
 		// The SDK persists events asynchronously. Establish an active task before
 		// native side effects, so lifecycle operations cannot race an invisible run.
-		state, ok := ctx.Value(executionKey{}).(*execution)
 		if !ok {
 			yield(nil, fmt.Errorf("runtime execution interceptor is required"))
 			return
@@ -126,6 +163,10 @@ func (e *settledExecutor) Execute(ctx context.Context, input *a2asrv.ExecutorCon
 			yield(nil, sdktaskstore.ErrConcurrentModification)
 			return
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		nativeStarted = true
 		for event, err := range settledEvents(e.AgentExecutor.Execute(ctx, input)) {
 			if !yield(event, err) {
 				return
@@ -181,6 +222,18 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	}
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
+	// Export the final save before settlement permits suspension. The settlement
+	// RPC's own span is flushed afterwards, but suspension can race that flush.
+	if e.flush != nil {
+		if err := e.flush(finish); err != nil {
+			logging.FromContext(finish).ErrorContext(finish, "flush telemetry before task settlement", "task_id", input.TaskID, "error", err)
+		}
+		defer func() {
+			if err := e.flush(finish); err != nil {
+				logging.FromContext(finish).ErrorContext(finish, "flush telemetry after task settlement", "task_id", input.TaskID, "error", err)
+			}
+		}()
+	}
 	id, settleErr := e.store.instanceID()
 	if settleErr == nil {
 		request := &apiv1alpha1.TaskStoreServiceSettleTaskRequest{AgentInstanceId: id, TaskId: string(input.TaskID), Version: version}

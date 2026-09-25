@@ -216,7 +216,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		}
 	})
 	native := &runtimeCancelableExecutor{AgentExecutor: executor, cleanupStarted: make(chan struct{}), cleanupRelease: make(chan struct{}), cancelStarted: make(chan a2a.TaskID, 2)}
-	wrapped := runtimeStore.WrapExecutor(native)
+	wrapped := runtimeStore.WrapExecutor(native, "", nil)
 	handler := a2asrv.NewHandler(wrapped, a2asrv.WithTaskStore(runtimeStore), a2asrv.WithCallInterceptors(wrapped),
 		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}))
 	runtimeListener := bufconn.Listen(DefaultMaxMessageSize)

@@ -114,7 +114,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		app.ownedController = controller
 	}
 	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
-	runtimeExecutor := tasks.WrapExecutor(executor)
+	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
 	executor = runtimeExecutor
 	handlerOpts := []a2asrv.RequestHandlerOption{
 		a2asrv.WithTaskStore(tasks),
