@@ -1,37 +1,13 @@
-// Package fileextract turns uploaded file blobs into text the model can read:
-// rich documents via tabula, text-like files as-is.
+// Package fileextract turns uploaded text-like file blobs into text the model can read.
 package fileextract
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/tsawler/tabula"
 	"google.golang.org/genai"
 )
-
-// docMIMEToExt maps rich document MIME types to tabula's format extension.
-var docMIMEToExt = map[string]string{
-	"application/pdf": ".pdf",
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   ".docx",
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         ".xlsx",
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
-	"application/epub+zip": ".epub",
-	"text/html":            ".html",
-}
-
-// docExtractExts is the set of filename extensions that can be extracted.
-var docExtractExts = map[string]bool{
-	".pdf":  true,
-	".docx": true,
-	".xlsx": true,
-	".pptx": true,
-	".epub": true,
-	".html": true,
-	".htm":  true,
-}
 
 // textExts are treated as text when the browser sends no useful MIME type.
 var textExts = map[string]bool{
@@ -50,12 +26,8 @@ func normalizeMIME(mimeType string) string {
 }
 
 // isTextLikeMIME reports whether a MIME type can be inlined as raw text.
-// text/html is excluded so tabula extracts it instead.
 func isTextLikeMIME(mimeType string) bool {
 	mimeType = normalizeMIME(mimeType)
-	if mimeType == "text/html" {
-		return false
-	}
 	if strings.HasPrefix(mimeType, "text/") {
 		return true
 	}
@@ -67,27 +39,9 @@ func isTextLikeMIME(mimeType string) bool {
 	return false
 }
 
-// docExtractExt returns the tabula extension for a rich document, by filename then
-// MIME type. Empty if tabula cannot extract it.
-func docExtractExt(mimeType, name string) string {
-	if ext := strings.ToLower(filepath.Ext(name)); docExtractExts[ext] {
-		if ext == ".htm" {
-			return ".html"
-		}
-		return ext
-	}
-	if ext, ok := docMIMEToExt[normalizeMIME(mimeType)]; ok {
-		return ext
-	}
-	return ""
-}
-
 // extractFileText turns a file's bytes into text, or errors for formats that
 // have none (e.g. arbitrary binary).
 func extractFileText(data []byte, mimeType, name string) (string, error) {
-	if ext := docExtractExt(mimeType, name); ext != "" {
-		return extractDocText(data, ext)
-	}
 	if isTextLikeMIME(mimeType) {
 		return string(data), nil
 	}
@@ -97,44 +51,12 @@ func extractFileText(data []byte, mimeType, name string) (string, error) {
 	return "", fmt.Errorf("unsupported file type for text extraction: mime=%q name=%q", mimeType, name)
 }
 
-// extractDocText extracts markdown via a temp file, since tabula detects format by
-// extension. PDFs go through extractPDF for Type3 fonts and malformed streams.
-func extractDocText(data []byte, ext string) (string, error) {
-	tmp, err := os.CreateTemp("", "kagent-artifact-*"+ext)
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp file for extraction: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return "", fmt.Errorf("failed to write temp file for extraction: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("failed to close temp file for extraction: %w", err)
-	}
-
-	if ext == ".pdf" {
-		return extractPDF(tmpName)
-	}
-
-	text, _, err := tabula.Open(tmpName).ToMarkdown()
-	if err != nil {
-		return "", fmt.Errorf("failed to extract text from %s document: %w", ext, err)
-	}
-	return text, nil
-}
-
 // maxTextChars caps the text taken from one file.
 const maxTextChars = 200_000
 
-// extract is a seam so tests can make a parser panic.
-var extract = extractFileText
-
-// InlineFileToText converts a non-image file blob into chat text. Failures and
-// parser panics become a short note so the model can say the file was unreadable.
-func InlineFileToText(blob *genai.Blob) (out string) {
+// InlineFileToText converts a non-image file blob into chat text. Unsupported
+// types become a short note so the model can say the file was unreadable.
+func InlineFileToText(blob *genai.Blob) string {
 	if blob == nil {
 		return ""
 	}
@@ -142,15 +64,9 @@ func InlineFileToText(blob *genai.Blob) (out string) {
 	if name == "" {
 		name = "file"
 	}
-	unreadable := fmt.Sprintf("[Uploaded file %q (%s) could not be read as text.]", name, blob.MIMEType)
-	defer func() {
-		if recover() != nil {
-			out = unreadable
-		}
-	}()
-	text, err := extract(blob.Data, blob.MIMEType, name)
+	text, err := extractFileText(blob.Data, blob.MIMEType, name)
 	if err != nil {
-		return unreadable
+		return fmt.Sprintf("[Uploaded file %q (%s) could not be read as text.]", name, blob.MIMEType)
 	}
 	if strings.TrimSpace(text) == "" {
 		return fmt.Sprintf("[Uploaded file %q (%s) contained no extractable text.]", name, blob.MIMEType)

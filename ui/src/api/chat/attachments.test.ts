@@ -8,7 +8,7 @@ describe("mediaTypeOf", () => {
   it.each([
     ["notes.md", "", "text/markdown"],
     ["plan.YAML", "", "application/yaml"],
-    ["report.pdf", "application/pdf", "application/pdf"],
+    ["page.htm", "", "text/html"],
     ["data.csv", "text/csv; charset=utf-8", "text/csv"],
     ["blob", "", "application/octet-stream"],
     ["data.csv", "application/vnd.ms-excel", "text/csv"],
@@ -25,9 +25,9 @@ describe("isAllowedFile", () => {
     ["photo.heic", "image/heic", false],
     ["scan.tiff", "image/tiff", false],
     ["logo.svg", "image/svg+xml", false],
-    ["deck.pptx", "", true],
     ["page.htm", "", true],
-    ["book.epub", "application/epub+zip", true],
+    ["report.pdf", "application/pdf", false],
+    ["deck.pptx", "", false],
     ["setup.exe", "application/x-msdownload", false],
     ["archive.zip", "", false],
   ])("%s (%j) → %s", (name, type, expected) => {
@@ -40,13 +40,13 @@ describe("stageFiles", () => {
     const staged = [sized("a.txt", "text/plain", 6 * 1024 * 1024)];
     const result = stageFiles(staged, [
       sized("b.txt", "text/plain", 5 * 1024 * 1024),
-      sized("big.pdf", "application/pdf", MAX_TOTAL_BYTES + 1),
+      sized("big.csv", "text/csv", MAX_TOTAL_BYTES + 1),
       sized("x.exe", "", 1),
       sized("c.txt", "text/plain", 1024),
     ]);
     expect(result.files.map((file) => file.name)).toEqual(["a.txt", "c.txt"]);
     expect(result.error).toBe(
-      "b.txt would put this message over 10 MB. big.pdf would put this message over 10 MB. x.exe is not a supported file type.",
+      "b.txt would put this message over 10 MB. big.csv would put this message over 10 MB. x.exe is not a supported file type.",
     );
   });
 
