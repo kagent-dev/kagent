@@ -22,8 +22,12 @@ func TestBootstrapCreatesManagedIdentity(t *testing.T) {
 	dsn, err := url.Parse(sharedConnStr)
 	require.NoError(t, err)
 	dsn.User = url.UserPassword(UserName, UserPassword)
+	bootstrapDSN := *dsn
+	query := bootstrapDSN.Query()
+	query.Set("pool_max_conns", "4")
+	bootstrapDSN.RawQuery = query.Encode()
 	cfg := BootstrapConfig{
-		EndpointSource: dsn.String(),
+		EndpointSource: bootstrapDSN.String(),
 		AdminUsername:  adminConfig.User,
 		AdminPassword:  adminConfig.Password,
 		Schema:         schema,
@@ -50,7 +54,7 @@ func TestBootstrapCreatesManagedIdentity(t *testing.T) {
 	_, err = sharedDB.Exec(t.Context(), `ALTER ROLE kagent_user PASSWORD 'replacement-password'`)
 	require.NoError(t, err)
 	require.NoError(t, Bootstrap(t.Context(), BootstrapConfig{
-		EndpointSource: dsn.String(),
+		EndpointSource: bootstrapDSN.String(),
 		AdminUsername:  adminConfig.User,
 		AdminPassword:  adminConfig.Password,
 		Schema:         schema,

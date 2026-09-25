@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/pressly/goose/v3"
@@ -474,14 +475,15 @@ func checkResolvedSchemaCollisions(ctx context.Context, url, role string, source
 }
 
 func openDB(url, role string) (*sql.DB, error) {
-	if role == "" {
-		return sql.Open("pgx", url)
-	}
-	config, err := pgx.ParseConfig(url)
+	// Migrations share the application's DSN, including any pool-only options.
+	poolConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, errors.New("invalid PostgreSQL connection string")
 	}
-	return stdlib.OpenDB(*config, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
+	if role == "" {
+		return stdlib.OpenDB(*poolConfig.ConnConfig), nil
+	}
+	return stdlib.OpenDB(*poolConfig.ConnConfig, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
 		if _, err := conn.Exec(ctx, "SELECT set_config('role', $1, false)", role); err != nil {
 			return fmt.Errorf("assuming PostgreSQL role %q: %w", role, err)
 		}
@@ -491,7 +493,7 @@ func openDB(url, role string) (*sql.DB, error) {
 
 func pgvectorPreCheck(expectedSchema string) func(string) error {
 	return func(url string) error {
-		db, err := sql.Open("pgx", url)
+		db, err := openDB(url, "")
 		if err != nil {
 			return fmt.Errorf("open database: %w", err)
 		}

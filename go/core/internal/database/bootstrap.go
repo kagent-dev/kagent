@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
@@ -48,10 +49,12 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 	if err != nil {
 		return err
 	}
-	connConfig, err := pgx.ParseConfig(dsn)
+	// The application DSN may contain pool-only options that PostgreSQL cannot accept.
+	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return errors.New("parse PostgreSQL bootstrap connection string: invalid value")
 	}
+	connConfig := poolConfig.ConnConfig
 	if connConfig.User != UserName {
 		return fmt.Errorf("PostgreSQL bootstrap connection string must contain the %q user", UserName)
 	}

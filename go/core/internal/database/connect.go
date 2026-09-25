@@ -141,9 +141,6 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 	var searchPath string
 	if cfg.Schema != "" {
 		searchPath = pgx.Identifier{cfg.Schema}.Sanitize()
-		if cfg.Schema != "public" && !cfg.VectorEnabled {
-			searchPath += ", public"
-		}
 		config.ConnConfig.RuntimeParams["search_path"] = searchPath
 	}
 

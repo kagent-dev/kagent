@@ -132,7 +132,7 @@ func TestPoolConfigSetsSchema(t *testing.T) {
 		Schema: "kagent",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, `"kagent", public`, config.ConnConfig.RuntimeParams["search_path"])
+	assert.Equal(t, `"kagent"`, config.ConnConfig.RuntimeParams["search_path"])
 }
 
 func TestPoolConfigRejectsMissingRuntimeSchema(t *testing.T) {

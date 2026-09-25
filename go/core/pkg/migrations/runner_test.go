@@ -214,6 +214,9 @@ func TestRunUpAsStableRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	loginURL.User = url.UserPassword("kagent_login", "rotating-password")
+	query := loginURL.Query()
+	query.Set("pool_max_conns", "4")
+	loginURL.RawQuery = query.Encode()
 	if err := RunUpAsRole(t.Context(), loginURL.String(), "kagent_app", []Source{testSource(twoMigrationFS)}); err != nil {
 		t.Fatal(err)
 	}
@@ -239,10 +242,17 @@ func TestCustomSchemaUsesConfiguredVectorSchema(t *testing.T) {
 	dsn := startTestDB(t)
 	execSQL(t, dsn, `DROP EXTENSION vector; CREATE SCHEMA extensions; CREATE EXTENSION vector WITH SCHEMA extensions`)
 	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
-	if err := RunUp(t.Context(), dsn, sources); err != nil {
+	migrationURL, err := url.Parse(dsn)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyMigrated(t.Context(), dsn, sources); err != nil {
+	query := migrationURL.Query()
+	query.Set("pool_max_conns", "4")
+	migrationURL.RawQuery = query.Encode()
+	if err := RunUp(t.Context(), migrationURL.String(), sources); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigrated(t.Context(), migrationURL.String(), sources); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"memory", coreTrackingTable, vectorTrackingTable} {
