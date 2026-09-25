@@ -60,7 +60,9 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
 		"model": {
 			"type": "anthropic",
 			"model": "claude-sonnet-4-20250514",
-			"base_url": "https://api.anthropic.com"
+			"base_url": "https://api.anthropic.com",
+			"prompt_caching": true,
+			"cache_ttl": "1h"
 		},
 		"description": "test agent",
 		"instruction": "you are helpful"
@@ -78,6 +80,38 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
 
 	if anthropic.Model != "claude-sonnet-4-20250514" {
 		t.Errorf("model name = %q, want %q", anthropic.Model, "claude-sonnet-4-20250514")
+	}
+	if !anthropic.PromptCaching {
+		t.Error("PromptCaching = false, want true")
+	}
+	if anthropic.CacheTTL != "1h" {
+		t.Errorf("CacheTTL = %q, want %q", anthropic.CacheTTL, "1h")
+	}
+}
+
+// TestCreateLLM_AnthropicPromptCaching verifies the prompt caching knobs reach
+// the Anthropic model, which is where the cache_control markers are set.
+func TestCreateLLM_AnthropicPromptCaching(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	m := &adk.Anthropic{
+		BaseModel:     adk.BaseModel{Type: "anthropic", Model: "claude-sonnet-4-6"},
+		PromptCaching: true,
+		CacheTTL:      "1h",
+	}
+
+	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	if err != nil {
+		t.Fatalf("CreateLLM: %v", err)
+	}
+	am, ok := llm.(*models.AnthropicModel)
+	if !ok {
+		t.Fatalf("model is %T, want *models.AnthropicModel", llm)
+	}
+	if !am.Config.PromptCaching {
+		t.Error("Config.PromptCaching = false, want true")
+	}
+	if am.Config.CacheTTL != "1h" {
+		t.Errorf("Config.CacheTTL = %q, want %q", am.Config.CacheTTL, "1h")
 	}
 }
 

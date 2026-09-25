@@ -288,6 +288,8 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Temperature:     m.Temperature,
 			TopP:            m.TopP,
 			TopK:            m.TopK,
+			PromptCaching:   m.PromptCaching,
+			CacheTTL:        m.CacheTTL,
 		}
 		return models.NewAnthropicModelWithLogger(cfg, log)
 

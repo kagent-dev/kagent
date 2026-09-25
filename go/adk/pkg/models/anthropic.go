@@ -33,6 +33,15 @@ type AnthropicConfig struct {
 	Temperature *float64
 	TopP        *float64
 	TopK        *int
+	// PromptCaching, when true, marks the last tool definition, the last system
+	// prompt block and the last block of the latest conversation turn with a
+	// cache_control breakpoint so Anthropic bills the stable prefix of an agent
+	// loop as a cache read instead of fresh input. See markAnthropicCacheBreakpoints.
+	PromptCaching bool
+	// CacheTTL selects the cache retention window when PromptCaching is on.
+	// "" or "5m" uses the API's default 5-minute cache; "1h" opts into the
+	// 1-hour cache, which is billed at a higher cache-write rate. See anthropicCacheControl.
+	CacheTTL string
 }
 
 // AnthropicModel implements model.LLM for Anthropic Claude models.
