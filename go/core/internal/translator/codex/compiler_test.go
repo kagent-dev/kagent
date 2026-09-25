@@ -136,8 +136,8 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_PROTOCOL":      "http/protobuf",
 		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4317",
 		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "grpc",
-		"OTEL_SERVICE_NAME":                "assistant-codex",
-		"KAGENT_NAME":                      "assistant-codex",
+		"OTEL_SERVICE_NAME":                "runnable-agent",
+		"KAGENT_NAME":                      "runnable-agent",
 		"KAGENT_NAMESPACE":                 "test",
 	} {
 		if environment[name] != value {
@@ -225,7 +225,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	childModel := model
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []v2translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
+		Template: &v2translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
 		ResolvedModelConfig: &v2translator.ResolvedModelConfig{
 			Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childModel},
 		},
@@ -302,11 +302,11 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 
 func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
 	t.Helper()
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test", UID: "harness"}, Spec: v1alpha3.HarnessSpec{
+	harness := &v2translator.HarnessConfiguration{Name: "codex", Namespace: "test", Source: &metav1.ObjectMeta{Name: "codex", Namespace: "test", UID: "harness"}, Spec: v1alpha3.HarnessSpec{
 		Codex: &v1alpha3.CodexHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/codex@sha256:" + strings.Repeat("a", 64)},
 		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
+	template := &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret"}, Data: secretData}
 	mock := krttest.NewMock(t, []any{secret})
@@ -314,7 +314,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{
+	return &v2translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &v2translator.AgentInput{
 		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
 	}}, collections
 }
@@ -340,9 +340,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compiled identity follows the Harness name, not the harness kind.
+	// Changing the Harness name must not change the Agent runtime identity.
 	want := tracing.RuntimeTelemetry{
-		Runtime: tracing.RuntimeCodex, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeCodex, AgentName: "runnable-agent", AgentNamespace: "test",
 		Provider: "openai", Model: "gpt-5.2-codex",
 	}
 	if config.RuntimeTelemetry != want {

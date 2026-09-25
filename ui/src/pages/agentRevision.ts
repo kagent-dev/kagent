@@ -2,8 +2,8 @@ import type { AgentCondition } from "@/api";
 
 const STAGES = ["Accepted", "ResolvedRefs", "Compatible", "Ready"] as const;
 
-/** The condition that best explains whether a template/harness pair can run. */
-export function pairRevisionCondition(
+/** The condition that best explains whether an Agent can run. */
+export function agentRevisionCondition(
   conditions: readonly AgentCondition[],
 ): AgentCondition | undefined {
   for (const type of STAGES) {

@@ -27,7 +27,7 @@ const (
 	// AttributeRuntime names the runtime behind an invocation. A Harness
 	// object's configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
-	// AttributeAgentName is the compiled agent identity, <template>-<harness>.
+	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.

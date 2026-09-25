@@ -706,16 +706,8 @@ const agentInstances: Pick<
         serviceClient(AgentInstanceService).listAgentInstances(
           {
             allCreators: input.allCreators ?? false,
-            /*
-             * One agent's conversations, narrowed by the server.
-             *
-             * Both fields are optional and either may be given alone. The controller
-             * resolves them through `prepared_revision` to the pair the instance was
-             * built from, so they also select instances stored before the fields
-             * existed — and, more importantly, so the narrowing happens before the
-             * page is cut. Filtering a page after fetching it searches only what
-             * was fetched: a match on page nine reads as "no conversations".
-             */
+            // Filter by Agent on the server before pagination, so conversations
+            // on later pages are included in the results.
             agent: input.agent,
             // No `limit`: the controller's own default (50) is a better answer than
             // a number invented here, and it rejects anything over 100 outright.

@@ -480,20 +480,20 @@ export function AgentTemplateForm({
           extra="Exposes another template in this namespace as a tool this one can route work to. The description is what tells the parent when to use it, so the CRD requires it."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            {readOnly && draft.agentTools.length === 0
+            {readOnly && draft.subAgentTools.length === 0
               ? none("No sub-agents.")
               : null}
 
-            {draft.agentTools.map((tool, index) => (
+            {draft.subAgentTools.map((tool, index) => (
               <Space key={index} size={8} align="start" data-testid={`template-form-agent-${index}`}>
                 <Input
                   css={{ width: 160 }}
                   value={tool.name}
                   placeholder={placeholder("Tool name")}
                   onChange={(event) => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], name: event.target.value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   {...readOnlyInput}
                 />
@@ -502,9 +502,9 @@ export function AgentTemplateForm({
                   value={tool.description}
                   placeholder={placeholder("When to use it")}
                   onChange={(event) => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], description: event.target.value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   {...readOnlyInput}
                 />
@@ -513,9 +513,9 @@ export function AgentTemplateForm({
                   value={tool.templateName}
                   placeholder={placeholder("Template name")}
                   onChange={(event) => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], templateName: event.target.value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   {...readOnlyInput}
                 />
@@ -523,9 +523,9 @@ export function AgentTemplateForm({
                   css={{ width: 130 }}
                   value={tool.isolation}
                   onChange={(value: "Shared" | "Dedicated") => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], isolation: value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   options={[
                     { value: "Shared", title: "Shared", label: "Shared" },
@@ -540,8 +540,8 @@ export function AgentTemplateForm({
                     icon={<Trash size={14} />}
                     onClick={() =>
                       set(
-                        "agentTools",
-                        draft.agentTools.filter((_, at) => at !== index),
+                        "subAgentTools",
+                        draft.subAgentTools.filter((_, at) => at !== index),
                       )
                     }
                   />
@@ -554,8 +554,8 @@ export function AgentTemplateForm({
                 icon={<Plus size={13} />}
                 data-testid="template-form-add-agent-tool"
                 onClick={() =>
-                  set("agentTools", [
-                    ...draft.agentTools,
+                  set("subAgentTools", [
+                    ...draft.subAgentTools,
                     { name: "", description: "", templateName: "", isolation: "Shared" },
                   ])
                 }

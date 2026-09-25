@@ -154,9 +154,9 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_PROTOCOL":        "grpc", "OTEL_TRACES_EXPORTER": "otlp",
 		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
 		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
-		"OTEL_SERVICE_NAME":        "assistant-claude",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/assistant-claude,gen_ai.agent.name=assistant-claude,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
-		"KAGENT_NAME":              "assistant-claude",
+		"OTEL_SERVICE_NAME":        "runnable-agent",
+		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
+		"KAGENT_NAME":              "runnable-agent",
 		"KAGENT_NAMESPACE":         "test",
 	} {
 		if environment[name] != value {
@@ -311,7 +311,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 			attributes = append(attributes, variable.Value)
 		}
 	}
-	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.agent.name=assistant-claude") {
+	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.agent.name=runnable-agent") {
 		t.Fatalf("harness resource attributes = %q, want one value keeping them beside the identity", attributes)
 	}
 }
@@ -517,8 +517,8 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 	childModelSpec := modelSpec
 	childModelSpec.Model = "claude-specialist"
 	child := &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{
-			ObjectMeta: metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
+		Template: &v2translator.TemplateConfiguration{
+			Name: "specialist-template", Namespace: "test", Source: &metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
 			Spec: v1alpha3.AgentTemplateSpec{
 				ModelConfig: &corev1.LocalObjectReference{Name: "child-model"},
 				Description: "template description", SystemPrompt: "specialize",
@@ -530,10 +530,10 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		}},
 		Instruction: "Return the specialist marker.",
 	}
-	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 		Name: "specialist", Description: "Handles specialist requests",
 		TemplateRef: corev1.LocalObjectReference{Name: child.Template.Name},
-		Isolation:   v1alpha3.AgentToolIsolationShared,
+		Isolation:   v1alpha3.SubAgentToolIsolationShared,
 	}}}
 	input.Root.Shared = []v2translator.AgentInputBinding{{
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,
@@ -591,9 +591,9 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			binding := v2translator.AgentInputBinding{
 				Name: "specialist", Description: "Handles specialist requests",
 				Agent: &v2translator.AgentInput{
-					Template: &v1alpha3.AgentTemplate{
-						ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"},
-						Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
+					Template: &v2translator.TemplateConfiguration{
+						Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"},
+						Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
 					},
 					ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec}},
 					Instruction:         "specialize",
@@ -611,11 +611,11 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 
 func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
 	t.Helper()
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
+	harness := &v2translator.HarnessConfiguration{Name: "claude", Namespace: "test", Source: &metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
+	template := &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
 	}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model-uid"}, Spec: modelSpec}
@@ -625,7 +625,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
+	return &v2translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
 }
 
 func TestCompileRuntimeTelemetry(t *testing.T) {
@@ -647,9 +647,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compiled identity follows the Harness name, not the harness kind.
+	// Changing the Harness name must not change the Agent runtime identity.
 	want := tracing.RuntimeTelemetry{
-		Runtime: tracing.RuntimeClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeClaude, AgentName: "runnable-agent", AgentNamespace: "test",
 		Provider: "anthropic", Model: "claude-sonnet-4-5",
 	}
 	if config.RuntimeTelemetry != want {

@@ -31,7 +31,7 @@ export interface AgentConversations {
 }
 
 /**
- * The conversations with one agent — a `(AgentTemplate, Harness)` pair.
+ * The conversations with one agent — a Agent definition.
  *
  * Narrowed by the server: `ListAgentInstances` takes `agent`
  * and resolves them through the prepared revision, so the filtering happens before

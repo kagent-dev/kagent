@@ -71,6 +71,13 @@ test("agents: the list is Agent resources, with each half shared or inline", asy
   await test.step("7. a conversation whose Agent is gone is reported", async () => {
     await expect(page.getByTestId("agents-orphaned-conversations")).toBeVisible();
   });
+
+  await test.step("8. a shared template's description shows on its Agents and is searchable", async () => {
+    await expect(page.getByText("One configuration, run on two different runtimes.", { exact: true })).toHaveCount(3);
+    await page.getByPlaceholder("Search agents").fill("One configuration");
+    await expect(dataRows(page)).toHaveCount(3);
+    await expect(rowNamed(page, "support-triage-2b91d0e")).toHaveCount(0);
+  });
 });
 
 /**

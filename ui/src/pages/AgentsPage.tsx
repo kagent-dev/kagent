@@ -8,11 +8,13 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { buildPath, paths } from "@/router/routes";
 import {
+  agentDescription,
   agentRevisionState,
   apiClient,
   harnessRefName,
   templateRefName,
   useAgentInstances,
+  useAgentTemplatesAcrossNamespaces,
   useAgentsAcrossNamespaces,
   useInvalidateAgents,
   useNamespaces,
@@ -57,6 +59,18 @@ export function AgentsTab() {
 
   const definitions = useAgentsAcrossNamespaces(readNamespaces);
   const invalidateAgents = useInvalidateAgents();
+  // Referenced templates carry the description a shared-template Agent shows.
+  const templateNamespaces = useMemo(
+    () => [...new Set((definitions.data?.agents ?? [])
+      .filter((agent) => agent.resource.spec.templateRef)
+      .map((agent) => agent.namespace))],
+    [definitions.data],
+  );
+  const templates = useAgentTemplatesAcrossNamespaces(templateNamespaces);
+  const descriptions = useMemo(
+    () => new Map((definitions.data?.agents ?? []).map((agent) => [agent.ref, agentDescription(agent, templates.data?.templates)])),
+    [definitions.data, templates.data],
+  );
   const loadFailure = namespaces.error ?? definitions.error;
   // Everyone's conversations, so a count means what the agent is doing, not what this reader did.
   const conversations = useAgentInstances(true);
@@ -72,7 +86,7 @@ export function AgentsTab() {
   const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);
 
   const refreshThisTab = async () => {
-    await Promise.all([definitions.refresh(), conversations.refresh()]);
+    await Promise.all([definitions.refresh(), templates.refresh(), conversations.refresh()]);
   };
 
   // A namespace we could not read says nothing about its conversations, so those are not counted.
@@ -99,12 +113,12 @@ export function AgentsTab() {
         agent.namespace,
         templateRefName(agent),
         harnessRefName(agent),
-        agent.resource.spec.template?.description,
+        descriptions.get(agent.ref),
       ]),
     );
     if (!view.sort) matching.sort((left, right) => left.name.localeCompare(right.name));
     return matching;
-  }, [agents, view]);
+  }, [agents, descriptions, view]);
 
   const columns = useMemo<ColumnsType<Agent>>(
     () => [
@@ -122,9 +136,9 @@ export function AgentsTab() {
             >
               {row.name}
             </Link>
-            {row.resource.spec.template?.description ? (
+            {descriptions.get(row.ref) ? (
               <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                {row.resource.spec.template.description}
+                {descriptions.get(row.ref)}
               </Text>
             ) : null}
           </Space>
@@ -212,7 +226,7 @@ export function AgentsTab() {
         ),
       },
     ],
-    [conversationCounts, conversations.data, conversations.error, invalidateAgents, theme, view],
+    [conversationCounts, conversations.data, conversations.error, descriptions, invalidateAgents, theme, view],
   );
 
   return (
@@ -236,6 +250,16 @@ export function AgentsTab() {
               Try again
             </Button>
           }
+        />
+      ) : null}
+
+      {templates.error || templates.data?.refused.length ? (
+        <Alert
+          type="warning"
+          showIcon
+          title="Some agent descriptions could not be loaded"
+          description={templates.error?.message ?? templates.data?.refused.map((entry) => `${entry.namespace}: ${entry.reason}`).join("; ")}
+          data-testid="agent-descriptions-error"
         />
       ) : null}
 

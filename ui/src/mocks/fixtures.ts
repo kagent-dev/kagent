@@ -535,11 +535,8 @@ export const mockAgentInstances: AgentInstance[] = [
   /*
    * One conversation with each of the two agents `shared-brain` is.
    *
-   * Same template, different harness — so the two rows are indistinguishable on
-   * everything except the pair, and a page that narrowed on the template alone would
-   * show each of them under both agents. That is precisely what
-   * `ListAgentInstances`'s two filters exist to prevent, and these are what prove
-   * the narrowing uses both.
+   * Two distinct Agents reuse a template. Grouping instances by template would
+   * incorrectly merge their conversations.
    */
   {
     id: "1d4f7a92-0c38-4e61-b25a-7f930e6c8b14",
@@ -561,7 +558,7 @@ export const mockAgentInstances: AgentInstance[] = [
      * It exists because every other instance here is load-bearing for some
      * assertion, and because deleting is now scoped to the creator exactly as
      * reading is — so a sweep cannot simply pick the least interesting row if that
-     * row belongs to nobody. Cut from a real pair rather than left orphaned, so its
+     * row belongs to nobody. Created from an Agent rather than left orphaned, so its
      * presence changes a conversation count rather than the "not listed under any
      * agent" note, which is a quieter thing to disturb.
      */
@@ -595,7 +592,7 @@ export const mockAgentInstances: AgentInstance[] = [
 /**
  * The harnesses an agent can be built on.
  *
- * A `Harness` is the runtime half of a pair: which adapter, which worker pool,
+ * A `Harness` is reusable execution configuration: which adapter, which worker pool,
  * which digest-pinned image. `k8s-agent` and `support-triage` are the two the
  * instances above are cut from, so the create form and the instance list agree with
  * each other.
@@ -780,16 +777,7 @@ export const mockAgentTemplates: AgentTemplate[] = [
     },
   },
   {
-    /*
-     * One template, two harnesses — and therefore two agents.
-     *
-     * The case that decides whether this build models an agent as a pair or as a
-     * template. Its label is selected by both `k8s-agent` and `fast-lane`, so the
-     * controller materialises two pairs with two revisions, and a reader has two
-     * agents with the same name that are told apart only by what runs them. A page
-     * that keyed on the template would show one row and quietly merge two agents'
-     * conversations.
-     */
+    // Two explicit Agents reference this reusable template with different Harnesses.
     ref: "kagent/shared-brain",
     namespace: "kagent",
     name: "shared-brain",

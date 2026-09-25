@@ -204,12 +204,12 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	for _, source := range sources {
 		want := []int64{0, 1}
-		if source.Name == "core" {
-			want = append(want, 2)
-		}
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, want) {
 			t.Fatalf("%s versions = %v, want current migrations", source.Name, versions)
 		}
+	}
+	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
+		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
 	}
 	// Routing, wire context, and durable history are independent identities.
 	contextID := "00000000-0000-0000-0000-000000000001"

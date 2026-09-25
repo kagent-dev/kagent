@@ -38,7 +38,7 @@ import {
   type Agent,
   useAgentsAcrossNamespaces,
 } from "@/api";
-import { pairRevisionCondition } from "./agentTemplateRevision";
+import { agentRevisionCondition } from "./agentRevision";
 
 const { Text, Paragraph } = Typography;
 
@@ -112,7 +112,7 @@ export function AgentTemplateDetailsPage() {
   const missing = template.error !== undefined && isNotFound(template.error);
 
   const agents = useAgentsAcrossNamespaces(namespace ? [namespace] : undefined);
-  const pairs = useMemo(() => (agents.data?.agents ?? []).filter(agent =>
+  const templateAgents = useMemo(() => (agents.data?.agents ?? []).filter(agent =>
     agent.resource.spec.templateRef?.name === name), [agents.data, name]);
 
   /** Leaves edit mode, discarding the draft. Asks first when there is one to lose. */
@@ -187,23 +187,12 @@ export function AgentTemplateDetailsPage() {
 
   const problems = draft ? draftProblems(draft, { isCreate: false }) : [];
 
-  const pairColumns = useMemo<ColumnsType<Agent>>(
+  const agentColumns = useMemo<ColumnsType<Agent>>(
     () => [
       {
-        /*
-         * A link, because the row *is* an agent.
-         *
-         * This tab answers "what is built from this template", and each answer is a
-         * (template, harness) pair — which is exactly what an agent is here, and which
-         * already has an address. Leaving it as text made the tab a dead end: it names
-         * the thing a reader wants and gives them no way to reach it, so they go back to
-         * the agents list and find it again by hand.
-         *
-         * The harness may arrive qualified as `namespace/name`; the route wants the bare
-         * name, and the template's own namespace is the pair's.
-         */
+        // Each row links to an explicit Agent referencing this template.
         title: "Agent",
-        key: "harness",
+        key: "agent",
         render: (_, row) => {
           const href = agentPageUrl({
             namespace: row.namespace, name: row.name,
@@ -222,7 +211,7 @@ export function AgentTemplateDetailsPage() {
       },
       {
         /*
-         * The earliest failed controller stage for this pair, or Ready when none failed.
+         * The earliest failed controller stage for this Agent, or Ready when none failed.
          * Looking only for Ready hides compiler failures: structured output on a Codex
          * or Claude harness, for example, stops at Compatible=False and has no Ready
          * condition to display. The controller's reason and message are carried verbatim
@@ -232,10 +221,10 @@ export function AgentTemplateDetailsPage() {
         key: "state",
         render: (_, row) => {
           const conditions = row.resource.status?.conditions ?? [];
-          const condition = pairRevisionCondition(conditions);
+          const condition = agentRevisionCondition(conditions);
           if (!condition) {
             return (
-              <Tooltip title="The controller has recorded no Ready condition for this pair yet. That is not a failure — a pair it has not observed looks exactly like this.">
+              <Tooltip title="The controller has recorded no Ready condition for this Agent yet. That is not a failure — an Agent it has not observed looks exactly like this.">
                 <Tag>Not reported</Tag>
               </Tooltip>
             );
@@ -269,7 +258,7 @@ export function AgentTemplateDetailsPage() {
         key: "revision",
         render: (_, row) => {
           // The revision an agent would be cut from *now*. `desiredRevision` without a
-          // successful one means the pair is still being prepared, which is a different
+          // successful one means the Agent is still being prepared, which is a different
           // state from having none — so they are shown as different things.
           const successful = row.resource.status?.latestSuccessfulRevision;
           const desired = row.resource.status?.desiredRevision;
@@ -288,28 +277,19 @@ export function AgentTemplateDetailsPage() {
         },
       },
       {
-        /*
-         * Counted, and only because the server can narrow it.
-         *
-         * The agent_template / harness filters resolve through the prepared revision
-         * to count conversations for this exact pair.
-         *
-         * One read per row is affordable *here* and nowhere else: a template has a
-         * handful of pairs. The same per-row read on the agents list would be one
-         * request per row.
-         */
+        // The Agent filter selects conversations through their pinned revisions.
         title: "Conversations",
         key: "conversations",
         width: 160,
-        render: (_: unknown, pair: Agent) => (
-          <PairConversationCount
+        render: (_: unknown, agent: Agent) => (
+          <AgentConversationCount
             namespace={template.data?.namespace}
-            name={pair.name}
+            name={agent.name}
           />
         ),
       },
     ],
-    [theme, template.data?.namespace, template.data?.name],
+    [theme, template.data?.namespace],
   );
 
   return (
@@ -458,7 +438,7 @@ export function AgentTemplateDetailsPage() {
                 },
                 {
                   key: "agents",
-                  label: `Agents (${pairs.length})`,
+                  label: `Agents (${templateAgents.length})`,
                   children: (
                     <Space
                       orientation="vertical"
@@ -474,8 +454,8 @@ export function AgentTemplateDetailsPage() {
                       <Table<Agent>
                         data-testid="template-agents-table"
                         rowKey={(row) => row.name}
-                        columns={pairColumns}
-                        dataSource={pairs}
+                        columns={agentColumns}
+                        dataSource={templateAgents}
                         pagination={false}
                         locale={{
                           emptyText:
@@ -515,7 +495,7 @@ export function AgentTemplateDetailsPage() {
 }
 
 
-function PairConversationCount({
+function AgentConversationCount({
   namespace,
   name,
 }: {
@@ -533,7 +513,7 @@ function PairConversationCount({
       <Tooltip title={conversations.error.message}>
         <Text
           css={{ color: theme.color.warning, fontSize: 12 }}
-          data-testid="template-pair-conversations"
+          data-testid="template-agent-conversations"
         >
           could not read
         </Text>
@@ -553,7 +533,7 @@ function PairConversationCount({
     <Tooltip title={`Yours only — the wider read was refused: ${refused}`}>
       <Text
         css={{ color: theme.color.textMuted, fontSize: 12 }}
-        data-testid="template-pair-conversations"
+        data-testid="template-agent-conversations"
       >
         {label} (yours)
       </Text>
@@ -561,7 +541,7 @@ function PairConversationCount({
   ) : (
     <Text
       css={{ color: theme.color.textMuted, fontSize: 12 }}
-      data-testid="template-pair-conversations"
+      data-testid="template-agent-conversations"
     >
       {label}
     </Text>

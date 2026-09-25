@@ -25,7 +25,7 @@ export interface McpToolBinding {
 }
 
 /** Another AgentTemplate exposed to this one as a tool it can route work to. */
-export interface AgentToolBinding {
+export interface SubAgentToolBinding {
   name: string;
   description: string;
   templateRef: AgentTemplateLocalRef;
@@ -38,10 +38,10 @@ export interface AgentToolBinding {
   isolation?: "Shared" | "Dedicated";
 }
 
-/** Exactly one of `mcp` or `agent` — the CRD rejects both and neither. */
+/** Exactly one of `mcp` or `subAgent` — the CRD rejects both and neither. */
 export interface ToolBinding {
   mcp?: McpToolBinding;
-  agent?: AgentToolBinding;
+  subAgent?: SubAgentToolBinding;
 }
 
 /**

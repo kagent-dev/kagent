@@ -31,7 +31,7 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := &translator.Revision{
-				Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+				Namespace: "agents", AgentName: "helper",
 				WorkerPoolName: "pool",
 				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
 					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
@@ -58,7 +58,7 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 
 func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
-		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+		Namespace: "agents", AgentName: "helper",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Command:        []string{"/agent"},
 		Args:           []string{"serve"},
@@ -75,7 +75,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-kagent-"+revisionID.Short() {
+	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-"+revisionID.Short() {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.GetContainers()[0]
@@ -122,7 +122,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 
 func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
 	spec := &translator.Revision{
-		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", WorkerPoolName: "default",
+		Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
 		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
 			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},

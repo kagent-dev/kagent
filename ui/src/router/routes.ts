@@ -6,14 +6,11 @@ export const paths = {
   dashboard: "/",
   login: "/login",
 
-  /*
-   * Agents: explicit resources that pair a template with a harness. An
-   * `AgentInstance` is one conversation, so instances are listed inside an agent.
-   */
+  // Named Agent definitions own configuration and group their conversations.
   agents: "/agents",
   /** A static segment, so it outranks `agentDetail`'s `/agents/:id`. */
   agentNew: "/agents/new",
-  /** One Agent, listing its conversations. */
+  /** One Kubernetes Agent, listing its conversations. */
   agent: "/agents/:namespace/:name",
   agentEdit: "/agents/:namespace/:name/edit",
   /*

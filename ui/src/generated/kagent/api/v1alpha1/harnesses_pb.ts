@@ -32,7 +32,7 @@ export type Harness = Message<"kagent.api.v1alpha1.Harness"> & {
   resource?: StructuredObject | undefined;
 
   /**
-   * Runtime is the adapter the spec selects: "kagent", "codex" or "claude".
+   * Runtime is the adapter the spec selects: "kagent", "codex", "claude" or "byo".
    * Denormalised because callers listing harnesses group and filter by it, and
    * would otherwise each reimplement the exactly-one-of check the CRD enforces.
    *
@@ -167,13 +167,9 @@ export const DeleteHarnessResponseSchema: GenMessage<DeleteHarnessResponse> = /*
   messageDesc(file_kagent_api_v1alpha1_harnesses, 6);
 
 /**
- * HarnessService is CRUD over the kagent.dev/v1alpha3 Harness CRD: the runtime
- * and infrastructure policy half of the (Harness, AgentTemplate) pair that
- * CreateAgentInstance names.
- *
- * A Harness is a reusable runtime adapter paired with an AgentTemplate when an
- * AgentInstance is created. Creating either Kubernetes resource does not run an
- * agent.
+ * HarnessService manages reusable runtime and execution configuration.
+ * An Agent selects a Harness by reference or embeds its complete spec. Instance
+ * creation names that Agent and pins its latest successful revision.
  *
  * @generated from service kagent.api.v1alpha1.HarnessService
  */

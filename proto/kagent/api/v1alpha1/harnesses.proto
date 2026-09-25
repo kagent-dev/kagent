@@ -6,13 +6,9 @@ import "kagent/api/v1alpha1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
-// HarnessService is CRUD over the kagent.dev/v1alpha3 Harness CRD: the runtime
-// and infrastructure policy half of the (Harness, AgentTemplate) pair that
-// CreateAgentInstance names.
-//
-// A Harness is a reusable runtime adapter paired with an AgentTemplate when an
-// AgentInstance is created. Creating either Kubernetes resource does not run an
-// agent.
+// HarnessService manages reusable runtime and execution configuration.
+// An Agent selects a Harness by reference or embeds its complete spec. Instance
+// creation names that Agent and pins its latest successful revision.
 service HarnessService {
   rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);
   rpc CreateHarness(CreateHarnessRequest) returns (CreateHarnessResponse);
@@ -26,7 +22,7 @@ message Harness {
   // re-modelled here so that a CRD change cannot silently drift from the API.
   StructuredObject resource = 2;
 
-  // Runtime is the adapter the spec selects: "kagent", "codex" or "claude".
+  // Runtime is the adapter the spec selects: "kagent", "codex", "claude" or "byo".
   // Denormalised because callers listing harnesses group and filter by it, and
   // would otherwise each reimplement the exactly-one-of check the CRD enforces.
   string runtime = 3;

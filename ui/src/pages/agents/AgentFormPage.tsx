@@ -184,7 +184,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
                 setNamespace(value);
                 setTemplateRef(undefined);
                 setHarnessRef(undefined);
-                setTemplateDraft({ ...templateDraft, modelConfig: "", agentTools: [] });
+                setTemplateDraft({ ...templateDraft, modelConfig: "", subAgentTools: [] });
               }}
               options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
             />

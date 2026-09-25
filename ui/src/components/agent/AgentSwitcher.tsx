@@ -49,8 +49,8 @@ export function AgentSwitcher({
     [namespaces.data],
   );
 
-  const templates = useAgentsAcrossNamespaces(namespaceNames);
-  const agents = useMemo(() => templates.data?.agents ?? [], [templates.data]);
+  const definitions = useAgentsAcrossNamespaces(namespaceNames);
+  const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);
   const [query, setQuery] = useState("");
 
   /**
@@ -149,9 +149,9 @@ export function AgentSwitcher({
         css={searchInputStyles(theme)}
       />
 
-      {templates.error ? (
+      {definitions.error ? (
         <Text data-testid="agent-switcher-error" css={{ fontSize: 12, color: theme.color.danger }}>
-          Could not list agents. {templates.error.message}
+          Could not list agents. {definitions.error.message}
         </Text>
       ) : null}
 
@@ -186,8 +186,7 @@ export function AgentSwitcher({
       >
         {matches.map((row) => {
           const namespace = row.namespace;
-          // The agent this rail is scoped to, which is the pair — not the conversation
-          // that happens to be open within it.
+          // The agent this rail is scoped to, not the conversation open within it.
           const isCurrent =
             namespace === current.namespace &&
             row.name === current.name;
@@ -274,7 +273,7 @@ export function AgentSwitcher({
           to be. Standing in for three rows is enough to hold the shape: the panel
           scrolls beyond that anyway, so being wrong about the count costs nothing.
         */}
-        {templates.isLoading
+        {definitions.isLoading
           ? [0, 1, 2].map((row) => (
               <div
                 key={row}
@@ -290,7 +289,7 @@ export function AgentSwitcher({
             ))
           : null}
 
-        {!templates.isLoading && matches.length === 0 ? (
+        {!definitions.isLoading && matches.length === 0 ? (
           <Text
             data-testid="agent-switcher-empty"
             css={{ fontSize: 12, color: theme.color.textMuted, padding: theme.space(2) }}

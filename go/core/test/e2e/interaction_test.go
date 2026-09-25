@@ -1081,10 +1081,10 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			ModelConfig:  &corev1.LocalObjectReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
-			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 				Name: "specialist", Description: "Handles specialist requests",
 				TemplateRef: corev1.LocalObjectReference{Name: child.Name},
-				Isolation:   v1alpha3.AgentToolIsolationShared,
+				Isolation:   v1alpha3.SubAgentToolIsolationShared,
 			}}},
 		},
 	}

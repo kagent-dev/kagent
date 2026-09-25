@@ -30,10 +30,8 @@ CREATE INDEX idx_toolserver_deleted_at ON toolserver(deleted_at);
 CREATE TABLE runtime_revision (
     revision                 TEXT        PRIMARY KEY,
     namespace                TEXT        NOT NULL,
-    agent_template_name      TEXT        NOT NULL,
-    agent_template_uid       TEXT        NOT NULL,
-    harness_name             TEXT        NOT NULL,
-    harness_uid              TEXT        NOT NULL,
+    agent_name               TEXT        NOT NULL DEFAULT '',
+    agent_uid                TEXT        NOT NULL DEFAULT '',
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
     credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
@@ -49,21 +47,19 @@ CREATE TABLE runtime_revision (
         UNIQUE (actor_template_atespace, actor_template_name)
 );
 
-CREATE TABLE agent_template_harness_pair (
+CREATE TABLE agent_definition (
     namespace                    TEXT        NOT NULL,
-    agent_template_name          TEXT        NOT NULL,
-    agent_template_uid           TEXT        NOT NULL,
-    harness_name                 TEXT        NOT NULL,
-    harness_uid                  TEXT        NOT NULL,
+    agent_name                   TEXT        NOT NULL,
+    agent_uid                    TEXT        NOT NULL,
     desired_revision             TEXT        NOT NULL,
     latest_successful_revision   TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     retired_at                   TIMESTAMPTZ,
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (namespace, agent_template_uid, harness_uid)
+    PRIMARY KEY (namespace, agent_uid)
 );
-CREATE INDEX agent_template_harness_pair_name_idx
-    ON agent_template_harness_pair (namespace, agent_template_name, harness_name);
+CREATE UNIQUE INDEX agent_definition_active_name_idx
+    ON agent_definition (namespace, agent_name) WHERE retired_at IS NULL;
 
 CREATE TABLE a2a_context (
     id         UUID        PRIMARY KEY,
@@ -275,7 +271,7 @@ CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (nex
 CREATE VIEW unreferenced_runtime_revision AS
 SELECT r.revision FROM runtime_revision r
 WHERE NOT EXISTS (
-    SELECT 1 FROM agent_template_harness_pair p
+    SELECT 1 FROM agent_definition p
     WHERE p.retired_at IS NULL
       AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
 )
@@ -298,7 +294,7 @@ DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
 DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
-DROP TABLE agent_template_harness_pair;
+DROP TABLE agent_definition;
 DROP TABLE runtime_revision;
 DROP TABLE toolserver;
 DROP TABLE tool;

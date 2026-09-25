@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { agentRevisionState, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
+import type { AgentTemplate } from "./agentTemplates";
+import { agentDescription, agentRevisionState, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
 
 function agent(status?: AgentStatus): Agent {
   return { name: "a", namespace: "team", ref: "team/a", resource: { metadata: { name: "a", namespace: "team" }, spec: { templateRef: { name: "shared" }, harnessRef: { name: "runner" } }, status } };
@@ -34,5 +35,14 @@ describe("Agent readiness", () => {
   it("blocks an Agent the controller has not reported on", () => {
     expect(agentRevisionState(agent())).toBe("notReported");
     expect(newConversationBlockedReason(agent())).toMatch(/not reported/);
+  });
+  it("resolves descriptions only from the referenced template in the Agent namespace", () => {
+    const template = (namespace: string, description: string): AgentTemplate => ({
+      ref: `${namespace}/shared`, name: "shared", namespace, description, modelConfigRef: "",
+      resource: { metadata: { name: "shared", namespace }, spec: { description } },
+    });
+    const templates = [template("other", "Wrong namespace"), template("team", "Reusable behavior")];
+    expect(agentDescription(agent(), templates)).toBe("Reusable behavior");
+    expect(agentDescription(agent(), templates.slice(0, 1))).toBeUndefined();
   });
 });

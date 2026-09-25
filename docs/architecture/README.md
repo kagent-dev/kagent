@@ -25,7 +25,7 @@ semantics; kagent does not maintain a parallel session or task API.
 
 | Surface         | Role                                                                        |
 | --------------- | --------------------------------------------------------------------------- |
-| Kubernetes API  | Author Harnesses, AgentTemplates, models, prompts, and remote MCP servers   |
+| Kubernetes API  | Author Agents, Harnesses, AgentTemplates, models, prompts, and remote MCP servers   |
 | gRPC / gRPC-Web | Manage AgentInstances, sharing, checkpoints, and control-plane reads        |
 | A2A             | Invoke agents and manage durable tasks and streams                          |
 | MCP             | Discover, invoke, checkpoint, and fork AgentInstances through A2A semantics |
@@ -34,8 +34,10 @@ semantics; kagent does not maintain a parallel session or task API.
 
 ```mermaid
 flowchart LR
-    AT[AgentTemplate] --> R[resolve tree]
-    H[Harness] --> R
+    AGENT[Agent] --> AT[template or templateRef]
+    AGENT --> H[harness or harnessRef]
+    AT --> R[resolve tree]
+    H --> R
     R --> B[build harness inputs]
     B --> C[registered harness compiler]
     C --> REV[immutable revision]

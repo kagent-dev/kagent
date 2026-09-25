@@ -67,6 +67,7 @@ export type {
 export type {
   AppExtensionConfig,
   ExtensionAgentLinks,
+  ExtensionAgentInstanceRef,
   ExtensionAgentRef,
   ExtensionAgentRailItemContribution,
   ExtensionAgentRailItemProps,

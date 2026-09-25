@@ -10,7 +10,7 @@ import (
 
 // CompileSkillResources translates portable AgentTemplate skill selections
 // into the runtime-neutral resource contract shared by Harness adapters.
-func CompileSkillResources(template *v1alpha3.AgentTemplate) (agentplugin.Resources, []string, error) {
+func CompileSkillResources(template *TemplateConfiguration) (agentplugin.Resources, []string, error) {
 	resources := agentplugin.Resources{
 		Skills:  make([]agentplugin.Skill, 0, len(template.Spec.Skills)),
 		Plugins: make([]agentplugin.Bundle, 0, len(template.Spec.Plugins)),

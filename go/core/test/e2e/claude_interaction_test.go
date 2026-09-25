@@ -140,10 +140,10 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
 			Description:  "Claude local-subagent E2E fixture",
 			SystemPrompt: "Always delegate the request to the specialist subagent, then return its answer.",
-			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 				Name: "specialist", Description: "Handles every delegated specialist request",
 				TemplateRef: corev1.LocalObjectReference{Name: child.Name},
-				Isolation:   v1alpha3.AgentToolIsolationShared,
+				Isolation:   v1alpha3.SubAgentToolIsolationShared,
 			}}},
 		},
 	}

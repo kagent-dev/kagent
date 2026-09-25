@@ -66,7 +66,7 @@ sampling belongs in the collector. An invalid value is reported as a warning and
 turns its signal off, so an observability setting cannot invalidate an
 AgentTemplate.
 
-Each runtime receives `OTEL_SERVICE_NAME=<template>-<harness>` and an
+Each runtime receives `OTEL_SERVICE_NAME=<agent>` and an
 `OTEL_RESOURCE_ATTRIBUTES` that carries `service.namespace`, `gen_ai.agent.name`,
 `gen_ai.agent.id`, the provider and model for a harness, the operator's
 attributes, and `service.version`, the short revision id added when the

@@ -49,7 +49,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				child := template.DeepCopy()
 				child.Name = "child"
 				template.Spec.ModelConfig.Name = "default-model"
-				template.Spec.Tools = []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+				template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 					Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
 				}}}
 				objects = append(objects, child, modelConfig())
@@ -69,7 +69,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
 					Data:       map[string]string{"endpoint": endpoint},
 				}
-				revision, err := compiler(t, append(objects, configMap)...).CompileAgentTemplate(t.Context(), harness, template)
+				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
 				var config adk.AgentConfig
 				require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))

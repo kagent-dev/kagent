@@ -1,5 +1,5 @@
 import type { ResourceMetadata } from "./common";
-import type { AgentTemplateSpec } from "./agentTemplates";
+import type { AgentTemplate, AgentTemplateSpec } from "./agentTemplates";
 import type { HarnessSpec } from "./harnesses";
 
 /** Exactly one of each pair; refs resolve in the Agent's namespace. */
@@ -92,4 +92,12 @@ export function templateRefName(agent: Agent): string | undefined {
 /** The shared harness's name, or undefined when the harness is inline. */
 export function harnessRefName(agent: Agent): string | undefined {
   return agent.resource.spec.harnessRef?.name;
+}
+
+/** The inline template's description, or the referenced one's from the Agent's namespace. */
+export function agentDescription(agent: Agent, templates: readonly AgentTemplate[] = []): string | undefined {
+  const { spec } = agent.resource;
+  if (spec.template) return spec.template.description || undefined;
+  return templates.find((entry) => entry.namespace === agent.namespace && entry.name === spec.templateRef.name)
+    ?.description || undefined;
 }

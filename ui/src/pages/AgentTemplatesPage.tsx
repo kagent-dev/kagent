@@ -30,7 +30,7 @@ const PAGE_SIZE = 25;
  *
  * It was a page of its own with its own entry in the sidebar, which put the three
  * halves of one idea in three places: a template, the harness that runs it, and the
- * agent that is the pair. They are tabs of one surface now, and this is the part of it
+ * Agent that references them. They are tabs of one surface now, and this is the part of it
  * that lists templates.
  *
  * It keeps its own refresh and its own "new" button rather than handing them to the

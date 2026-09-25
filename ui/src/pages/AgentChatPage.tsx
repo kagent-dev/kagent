@@ -52,7 +52,7 @@ const LIFECYCLE_POLL_MS = 1_000;
  *
  * That is also why "New chat" in the rail *creates* rather than navigates: another
  * conversation with the same agent is another instance of the same
- * `(Harness, AgentTemplate)` pair, and the siblings of this instance are the other
+ * Agent definition, and the siblings of this instance are the other
  * conversations you have had with it.
  *
  * ## Sharing
@@ -315,8 +315,8 @@ export function AgentChatPage() {
   /**
    * Starts another conversation with this agent.
    *
-   * A new instance of the same pair — which is what a second conversation *is* — so
-   * this needs the current instance loaded to copy the pair from. The rail's button
+   * A new instance of the same Agent — which is what a second conversation *is* — so
+   * this needs the current instance loaded to copy the Agent reference from. The rail's button
    * is disabled until then rather than creating something from a half-read record.
    */
 
@@ -564,7 +564,7 @@ export function AgentChatPage() {
         }}>
         {id ? (
           <AgentRail
-            agentRef={{ id }}
+            instanceRef={{ id }}
             instance={instance.data}
             instances={instances}
             autoTitle={autoTitle}
@@ -836,7 +836,7 @@ export function AgentChatPage() {
               data-testid="chat-context-aside"
               css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
             >
-              <AgentContextPanel agent={instance.data} />
+              <AgentContextPanel instance={instance.data} />
             </div>
           ) : null}
         </div>

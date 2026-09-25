@@ -34,7 +34,7 @@ export interface McpToolDraft {
 }
 
 /** One sub-agent binding, flattened for a form to hold. */
-export interface AgentToolDraft {
+export interface SubAgentToolDraft {
   /** What the parent calls this tool. */
   name: string;
   /** When the parent should route work to it — the CRD requires this. */
@@ -66,7 +66,7 @@ export interface AgentTemplateDraft {
   outputSchemaConfigMap: string;
   outputSchemaKey: string;
   mcpTools: McpToolDraft[];
-  agentTools: AgentToolDraft[];
+  subAgentTools: SubAgentToolDraft[];
 
   labels: { key: string; value: string }[];
 }
@@ -86,7 +86,7 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
     outputSchemaConfigMap: "",
     outputSchemaKey: "",
     mcpTools: [],
-    agentTools: [],
+    subAgentTools: [],
     labels: [],
   };
 }
@@ -135,13 +135,13 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
         tools: [...(binding.mcp?.tools ?? [])],
         requireApproval: binding.mcp?.requireApproval,
       })),
-    agentTools: tools
-      .filter((binding) => binding.agent)
+    subAgentTools: tools
+      .filter((binding) => binding.subAgent)
       .map((binding) => ({
-        name: binding.agent?.name ?? "",
-        description: binding.agent?.description ?? "",
-        templateName: binding.agent?.templateRef.name ?? "",
-        isolation: binding.agent?.isolation ?? "Shared",
+        name: binding.subAgent?.name ?? "",
+        description: binding.subAgent?.description ?? "",
+        templateName: binding.subAgent?.templateRef.name ?? "",
+        isolation: binding.subAgent?.isolation ?? "Shared",
       })),
     labels: [],
   };
@@ -172,12 +172,12 @@ export function specFromDraft(
           ...(tool.requireApproval ? { requireApproval: true } : {}),
         },
       })),
-    ...draft.agentTools
+    ...draft.subAgentTools
       .filter(
         (tool) => tool.name.trim() !== "" && tool.templateName.trim() !== "",
       )
       .map((tool) => ({
-        agent: {
+        subAgent: {
           name: tool.name.trim(),
           description: tool.description.trim(),
           templateRef: { name: tool.templateName.trim() },
@@ -300,7 +300,7 @@ export function draftProblems(
       }
     }
   }
-  for (const tool of draft.agentTools) {
+  for (const tool of draft.subAgentTools) {
     if (tool.name.trim() !== "" && tool.description.trim() === "") {
       problems.push(
         `The sub-agent tool "${tool.name.trim()}" needs a description — it is what tells the parent when to use it.`,
