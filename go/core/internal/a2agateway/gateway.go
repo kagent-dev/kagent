@@ -53,6 +53,10 @@ type Gateway struct {
 
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
+// runtimeDrainTimeout bounds the wait for a terminal stream to finish exporting
+// its request telemetry before the observer closes the runtime connection.
+var runtimeDrainTimeout = 2 * time.Second
+
 func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
 		Handler:      &Gateway{store: store, authorizer: authorizer, dialer: dialer, gatewayURL: gatewayURL},
@@ -409,9 +413,15 @@ func (g *Gateway) finishDispatch(ctx context.Context, instanceID string, id uuid
 func (g *Gateway) observe(ctx context.Context, instance *apiv1alpha1.AgentInstance, taskID a2atype.TaskID, messageID string, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		closeRuntime := sync.OnceValue(client.Destroy)
+		next, stop := iter.Pull2(events)
+		defer stop()
 		defer closeRuntime()
 		var streamErr error
-		for event, err := range events {
+		for {
+			event, err, ok := next()
+			if !ok {
+				break
+			}
 			if err != nil {
 				streamErr = err
 				break
@@ -429,6 +439,17 @@ func (g *Gateway) observe(ctx context.Context, instance *apiv1alpha1.AgentInstan
 				state = value.Status.State
 			}
 			if isQuiescent(state) {
+				if state.Terminal() {
+					// Let the runtime finish its response naturally. A stuck stream
+					// must not prevent delivery of the persisted task result.
+					timer := time.AfterFunc(runtimeDrainTimeout, func() { _ = closeRuntime() })
+					for {
+						if _, _, ok := next(); !ok {
+							break
+						}
+					}
+					timer.Stop()
+				}
 				if err := closeRuntime(); err != nil {
 					yield(nil, err)
 					return

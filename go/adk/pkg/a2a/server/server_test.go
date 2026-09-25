@@ -6,15 +6,13 @@ import (
 	"encoding/json"
 	"io"
 	"iter"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"log/slog"
-	"net"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"

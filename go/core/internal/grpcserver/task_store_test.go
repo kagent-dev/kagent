@@ -36,7 +36,6 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -123,7 +122,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	tasks := taskstore.NewService(store)
 	server, err := New(Config{
-		Listener: listener, Registerer: prometheus.NewRegistry(), SystemService: testSystemService(),
+		Listener: listener, SystemService: testSystemService(),
 		Authenticator: &authimpl.UnsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
 		TaskStoreService: tasks,
 	})
@@ -233,7 +232,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
 		gateway := a2agateway.New(store, &auth.NoopAuthorizer{}, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
-			Listener: publicListener, Registerer: prometheus.NewRegistry(), SystemService: testSystemService(),
+			Listener: publicListener, SystemService: testSystemService(),
 			Authenticator: &authimpl.UnsecureAuthenticator{},
 			A2AHandler:    gateway,
 			HTTPHandler:   a2agateway.NewHTTPHandler(gateway, &authimpl.UnsecureAuthenticator{}, store),

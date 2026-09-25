@@ -7,6 +7,7 @@ import (
 	"iter"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -247,6 +248,73 @@ func gatewayTestInstance() *apiv1alpha1.AgentInstance {
 
 func gatewayTestRequest() *a2atype.SendMessageRequest {
 	return &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))}
+}
+
+// endingRuntime reports whether its stream ran to its end before the gateway
+// destroyed the client. With hold set it keeps the stream open until destroyed.
+type endingRuntime struct {
+	gatewayTestRuntime
+	hold   bool
+	closed chan struct{}
+
+	mu             sync.Mutex
+	endedBeforeEnd bool
+}
+
+func (r *endingRuntime) SendStreamingMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		if !yield(&a2atype.Task{ID: "runtime-task", ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil) {
+			return
+		}
+		if r.hold {
+			<-r.closed
+			return
+		}
+		r.mu.Lock()
+		r.endedBeforeEnd = !r.destroyed
+		r.mu.Unlock()
+	}
+}
+
+func (r *endingRuntime) Destroy() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.destroyed {
+		r.destroyed = true
+		close(r.closed)
+	}
+	return nil
+}
+
+func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
+	previous := runtimeDrainTimeout
+	runtimeDrainTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { runtimeDrainTimeout = previous })
+	tests := []struct {
+		name      string
+		hold      bool
+		wantEnded bool
+	}{
+		{name: "runtime ends its stream", wantEnded: true},
+		{name: "runtime keeps its stream open", hold: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := gatewayTestInstance()
+			runtime := &endingRuntime{hold: tt.hold, closed: make(chan struct{})}
+			gateway := New(&gatewayTestStore{instance: instance, task: &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			runtime.mu.Lock()
+			defer runtime.mu.Unlock()
+			if runtime.endedBeforeEnd != tt.wantEnded || !runtime.destroyed {
+				t.Fatalf("stream ended before destroy = %v, destroyed = %v", runtime.endedBeforeEnd, runtime.destroyed)
+			}
+		})
+	}
 }
 
 func TestGatewayRequiresValidRoutingHeaders(t *testing.T) {

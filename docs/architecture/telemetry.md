@@ -182,10 +182,11 @@ request span is a transport span, completed when the response it describes is
 delivered, and the ADK's own `invoke_agent` describes the turn. Completion runs
 exactly once.
 
-An Actor may be suspended as soon as a quiescent event leaves the process, so
-completion exports spans and metrics before that event is yielded. On a
-terminal event the gateway drains the runtime stream, for up to two seconds,
-before it suspends the Actor. The export
+An Actor becomes eligible for automatic suspension after native cleanup and
+task settlement, so completion exports spans and metrics before yielding the
+quiescent event. On a terminal event the gateway drains the runtime stream,
+for up to two seconds, before closing its observation connection. Suspension
+runs independently in the lifecycle workflow. The export
 waits at most three seconds, so an unreachable collector costs at most that
 once per segment: after a failed flush, later flushes in the same request are
 skipped. It does nothing when traces are off.
@@ -206,7 +207,8 @@ process. A panic in a harness runner is recorded as `error.type=runtime_panic`
 without the panic value and then propagates.
 
 Cancellation completes and exports the segment before the canceled event is
-published, since that event is what releases the gateway to suspend the Actor.
+published. Native cleanup and task settlement must still finish before the
+lifecycle workflow can suspend the Actor.
 
 ## Approvals and resumed turns
 
