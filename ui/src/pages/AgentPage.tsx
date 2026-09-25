@@ -17,14 +17,14 @@ import {
   withExtensionColumns,
 } from "@/appExtensions";
 import {
-  agentPairsOf,
+  agentSummaryOf,
   apiClient,
   isNotFound,
   newConversationBlockedReason,
   useAgentConversations,
   useAgent,
   type AgentInstance,
-  type AgentPair,
+  type AgentSummary,
 } from "@/api";
 import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
@@ -61,7 +61,7 @@ export function AgentPage() {
   const view = useListView(FILTER_IDS);
   const definition = useAgent(namespace, name);
   const conversations = useAgentConversations(namespace, name);
-  const agent = useMemo(() => definition.data ? agentPairsOf(definition.data)[0] : undefined, [definition.data]);
+  const agent = useMemo(() => definition.data ? agentSummaryOf(definition.data) : undefined, [definition.data]);
   const agentMissing = definition.error !== undefined && isNotFound(definition.error);
 
   /*
@@ -103,16 +103,16 @@ export function AgentPage() {
    * Where a conversation row leads.
    *
    * A distribution serving its own chat redirects it through
-   * `agentLinks.fromAgentsList` — which is where instance rows are listed now — and
+   * `agentLinks.fromInstancesList` — which is where instance rows are listed now — and
    * a contribution that throws or answers with nothing falls back to this
    * application's own route rather than to a dead link.
    */
-  const { fromAgentsList } = useExtensionAgentLinks();
+  const { fromInstancesList } = useExtensionAgentLinks();
   const chatPath = (row: AgentInstance) => {
     const own = agentUrl.chat({ id: row.id });
-    if (!fromAgentsList) return own;
+    if (!fromInstancesList) return own;
     try {
-      const destination = fromAgentsList(row);
+      const destination = fromInstancesList(row);
       return destination.trim() === "" ? own : destination;
     } catch {
       return own;
@@ -358,7 +358,7 @@ export function AgentPage() {
       >
         {namespace ? (
           <AgentRail
-            agentRef={{}}
+            instanceRef={{}}
             agentTitle={{
               primary: name ?? namespace,
               secondary: namespace,
@@ -366,7 +366,7 @@ export function AgentPage() {
             agentHref={agentPageUrl({ namespace, name })}
             // Known from the URL here, so the switcher can leave this agent out of its
             // own list without waiting for a conversation that does not exist.
-            agentPair={{ namespace: namespace ?? "", name }}
+            agentRef={{ namespace: namespace ?? "", name }}
             instances={{ ...conversations, data: rows }}
             onNewChat={startConversation}
           />
@@ -412,7 +412,7 @@ export function AgentPage() {
             data-testid="agent-cannot-start"
             data-blocked-reason={blockedReason}
             title="No new conversation can be started with this agent"
-            // The controller's own words: a pair with no successful revision answers
+            // The controller's own words: an Agent with no successful revision answers
             // FailedPrecondition, and naming the reason is what tells a reader whether
             // to wait or to go and look at the template.
             description={blockedReason}
@@ -574,14 +574,14 @@ export function AgentPage() {
         {/* Below the conversations, because a conversation is what a reader came here
             for and a schedule is how some of them got started. */}
         {namespace && name ? (
-          <AgentSchedules pair={{ namespace, name }} />
+          <AgentSchedules agent={{ namespace, name }} />
         ) : null}
       </Space>
 
       {/*
         What this agent is, beside the conversations it has had.
 
-        The same panel the chat carries, given the pair rather than a conversation: the
+        The same panel the chat carries, given the Agent reference rather than a conversation: the
         model, the instructions and the tools all live on the template, so this page can
         show them without an instance to read them through. Only the prepared revision
         needs a conversation, and it is left out here rather than guessed at.
@@ -596,7 +596,7 @@ export function AgentPage() {
         }}
         data-testid="agent-context-aside"
       >
-        <AgentContextPanel pair={{ namespace: namespace ?? "", name }} />
+        <AgentContextPanel agentRef={{ namespace: namespace ?? "", name }} />
 
         {agent ? (
           <div css={{ marginTop: theme.space(5) }}>
@@ -651,7 +651,7 @@ function IdentityField({ label, children }: { label: string; children: ReactNode
  * agent lists its own conversations, since that was only ever a way of saying "the
  * other conversations with this same agent".
  */
-function AgentIdentityCard({ agent }: { agent: AgentPair }) {
+function AgentIdentityCard({ agent }: { agent: AgentSummary }) {
   const theme = useTheme();
 
   return (

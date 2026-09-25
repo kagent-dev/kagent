@@ -588,50 +588,6 @@ spec:
                       description: ToolBinding selects exactly one MCP or AgentTemplate-backed
                         tool source.
                       properties:
-                        agent:
-                          description: AgentToolBinding exposes another same-namespace
-                            AgentTemplate as a logical tool.
-                          properties:
-                            description:
-                              description: Description tells the parent when to route
-                                work to this binding.
-                              minLength: 1
-                              type: string
-                            isolation:
-                              default: Shared
-                              description: AgentToolIsolation controls whether a referenced
-                                template shares its parent's runtime boundary.
-                              enum:
-                              - Shared
-                              - Dedicated
-                              type: string
-                            name:
-                              minLength: 1
-                              type: string
-                            templateRef:
-                              description: |-
-                                LocalObjectReference contains enough information to let you locate the
-                                referenced object inside the same namespace.
-                              properties:
-                                name:
-                                  default: ""
-                                  description: |-
-                                    Name of the referent.
-                                    This field is effectively required, but due to backwards compatibility is
-                                    allowed to be empty. Instances of this type with an empty value here are
-                                    almost certainly wrong.
-                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  type: string
-                              type: object
-                              x-kubernetes-map-type: atomic
-                              x-kubernetes-validations:
-                              - message: name must not be empty
-                                rule: has(self.name) && self.name != ''
-                          required:
-                          - description
-                          - name
-                          - templateRef
-                          type: object
                         mcp:
                           description: MCPToolBinding binds tools from a same-namespace
                             MCP server.
@@ -685,10 +641,55 @@ spec:
                           required:
                           - server
                           type: object
+                        subAgent:
+                          description: SubAgentToolBinding exposes another same-namespace
+                            AgentTemplate as a logical tool.
+                          properties:
+                            description:
+                              description: Description tells the parent when to route
+                                work to this binding.
+                              minLength: 1
+                              type: string
+                            isolation:
+                              default: Shared
+                              description: SubAgentToolIsolation controls whether
+                                a referenced template shares its parent's runtime
+                                boundary.
+                              enum:
+                              - Shared
+                              - Dedicated
+                              type: string
+                            name:
+                              minLength: 1
+                              type: string
+                            templateRef:
+                              description: |-
+                                LocalObjectReference contains enough information to let you locate the
+                                referenced object inside the same namespace.
+                              properties:
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                              type: object
+                              x-kubernetes-map-type: atomic
+                              x-kubernetes-validations:
+                              - message: name must not be empty
+                                rule: has(self.name) && self.name != ''
+                          required:
+                          - description
+                          - name
+                          - templateRef
+                          type: object
                       type: object
                       x-kubernetes-validations:
-                      - message: exactly one of mcp or agent must be specified
-                        rule: has(self.mcp) != has(self.agent)
+                      - message: exactly one of mcp or subAgent must be specified
+                        rule: has(self.mcp) != has(self.subAgent)
                     maxItems: 50
                     type: array
                 type: object

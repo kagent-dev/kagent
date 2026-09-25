@@ -14,8 +14,8 @@ import { agentUrl } from "@/components/agent/agentUrl";
 import { paths } from "@/router/routes";
 import {
   apiClient,
-  agentPairsFrom,
-  pairIdOfInstance,
+  agentSummariesFrom,
+  agentRefOfInstance,
   useAgentInstances,
   useAgentsAcrossNamespaces,
   useNamespaces,
@@ -47,13 +47,13 @@ export function UnmappedConversationsPage() {
   const orphans = useMemo(() => {
     if (!agents.data || !conversations.data) return [];
     const known = new Set(
-      agentPairsFrom(agents.data.agents).map((agent) => agent.id),
+      agentSummariesFrom(agents.data.agents).map((agent) => agent.id),
     );
     const unreadable = new Set(agents.data.refused.map((entry) => entry.namespace));
     return (conversations.data ?? []).filter((instance) => {
       if (unreadable.has(instance.agent?.split("/")[0] ?? "")) return false;
-      const pairId = pairIdOfInstance(instance);
-      return pairId === undefined || !known.has(pairId);
+      const agentRef = agentRefOfInstance(instance);
+      return agentRef === undefined || !known.has(agentRef);
     });
   }, [agents.data, conversations.data]);
 

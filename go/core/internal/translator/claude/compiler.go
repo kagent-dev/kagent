@@ -139,8 +139,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
-			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-			Image: harness.Spec.Workload.Image, Environment: environment,
+			Namespace: template.Namespace,
+			Image:     harness.Spec.Workload.Image, Environment: environment,
 			ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
@@ -374,8 +374,8 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	harness := input.Harness
 	var entries []provenanceEntry
 	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Kind != "Agent" {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec))
+	if harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	}
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
@@ -390,8 +390,8 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
 		template, model := agent.Template, agent.ResolvedModelConfig.Config
-		if template.Kind != "Agent" {
-			addObject("AgentTemplate", template.Name, template.UID, template.Generation, template.Spec)
+		if template.Source != nil {
+			addObject("AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec)
 		}
 		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {

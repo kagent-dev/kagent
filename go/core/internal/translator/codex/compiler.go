@@ -153,8 +153,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
-			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+			Namespace: template.Namespace,
+			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
@@ -308,32 +308,25 @@ type provenanceEntry struct {
 func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	var entries []provenanceEntry
 	// Inline configuration is recorded by the enclosing Agent provenance.
-	if input.Harness.Kind != "Agent" {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec))
+	if input.Harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
 	}
 	seenObjects := map[string]struct{}{}
+	addObject := func(kind, name string, uid types.UID, generation int64, value any) {
+		identity := kind + "\x00" + name
+		if _, ok := seenObjects[identity]; !ok {
+			seenObjects[identity] = struct{}{}
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), kind, name, uid, generation, value))
+		}
+	}
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
 		model := agent.ResolvedModelConfig.Config
-		for _, object := range []struct {
-			kind, name string
-			uid        types.UID
-			generation int64
-			value      any
-		}{
-			{"AgentTemplate", agent.Template.Name, agent.Template.UID, agent.Template.Generation, agent.Template.Spec},
-			{"ModelConfig", model.Name, model.UID, model.Generation, model.Spec},
-		} {
-			if object.kind == "AgentTemplate" && agent.Template.Kind == "Agent" {
-				continue
-			}
-			identity := object.kind + "\x00" + object.name
-			if _, ok := seenObjects[identity]; !ok {
-				seenObjects[identity] = struct{}{}
-				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), object.kind, object.name, object.uid, object.generation, object.value))
-			}
+		if source := agent.Template.Source; source != nil {
+			addObject("AgentTemplate", source.Name, source.UID, source.Generation, agent.Template.Spec)
 		}
+		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if agent.Template.Spec.SystemPromptFrom != nil {
 			configMaps[agent.Template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}

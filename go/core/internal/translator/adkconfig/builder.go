@@ -43,7 +43,7 @@ func NewBuilder(ctx krt.HandlerContext, collections v2translator.Collections) *B
 type Result struct {
 	Config      *adk.AgentConfig
 	Models      []*v2translator.ResolvedModelConfig
-	Templates   []*v1alpha3.AgentTemplate
+	Templates   []*v2translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
 }
@@ -82,7 +82,7 @@ func (c *Builder) BuildModel(namespace, name string) (*ModelResult, error) {
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
-func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
+func HarnessEnvironment(harness *v2translator.HarnessConfiguration) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
 	for _, value := range harness.Spec.Env {
 		variable := corev1.EnvVar{Name: value.Name}
@@ -110,7 +110,7 @@ func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*R
 // and egress join the revision, and it joins the provenance so a change to it
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
-func (c *Builder) ApplyCompaction(result *Result, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
+func (c *Builder) ApplyCompaction(result *Result, harness *v2translator.HarnessConfiguration, template *v2translator.TemplateConfiguration) error {
 	spec := harness.Spec.Kagent.Compaction
 	if spec == nil {
 		return nil
@@ -138,7 +138,7 @@ func (c *Builder) ApplyCompaction(result *Result, harness *v1alpha3.Harness, tem
 	return nil
 }
 
-func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
+func isAgentModel(template *v2translator.TemplateConfiguration, name string) bool {
 	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
 }
 
@@ -181,7 +181,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		return nil, v2translator.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	result := &Result{
-		Config: cfg, Templates: []*v1alpha3.AgentTemplate{input.Template},
+		Config: cfg, Templates: []*v2translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
 		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
@@ -205,16 +205,16 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *v2translator.HarnessConfiguration, templates []*v2translator.TemplateConfiguration, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
 	var entries []provenanceEntry
 	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Kind != "Agent" {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec))
+	if harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	}
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
-		if template.Kind != "Agent" {
-			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec))
+		if template.Source != nil {
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec))
 		}
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}

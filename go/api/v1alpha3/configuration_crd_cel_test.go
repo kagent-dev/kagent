@@ -136,7 +136,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "AgentTemplate tool requires one source",
 			object:     validAgentTemplate(namespace, "template-empty-tool", []ToolBinding{{}}),
-			wantReject: "exactly one of mcp or agent must be specified",
+			wantReject: "exactly one of mcp or subAgent must be specified",
 		},
 		{
 			name: "AgentTemplate tool rejects two sources",
@@ -145,11 +145,17 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "tools"},
 					Tools:  []string{"search"},
 				},
-				Agent: &AgentToolBinding{
+				SubAgent: &SubAgentToolBinding{
 					Name: "helper", Description: "delegate work", TemplateRef: corev1.LocalObjectReference{Name: "helper"},
 				},
 			}}),
-			wantReject: "exactly one of mcp or agent must be specified",
+			wantReject: "exactly one of mcp or subAgent must be specified",
+		},
+		{
+			name: "AgentTemplate accepts a subagent template reference",
+			object: validAgentTemplate(namespace, "valid-subagent", []ToolBinding{{SubAgent: &SubAgentToolBinding{
+				Name: "review", Description: "Review code", TemplateRef: corev1.LocalObjectReference{Name: "review-context"},
+			}}}),
 		},
 		{
 			name:   "valid AgentTemplate",

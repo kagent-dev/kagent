@@ -13,7 +13,7 @@ an Actor merely to probe `/readyz`.
 
 Create (including forks), explicit Suspend, Resume, and Delete keep their current
 operation UUID and executor claim on the instance row. Fork creation loads its
-pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the template
+pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the Agent
 controller; instance creation uses the pinned ActorTemplate's existing namespace.
 Read-only preparation may run concurrently, but an atomic execution claim permits
 exactly one caller to issue runtime mutations. Network work holds no database

@@ -23,7 +23,7 @@ const { Text } = Typography;
 export function instanceFields(
   data: AgentInstance,
   theme: Theme,
-  /** Where the agent's own page is, when this record names a pair. */
+  /** Where the agent's own page is, when this record names an Agent. */
   agentHref?: string,
   /**
    * Offered where the reader can act on it, and omitted where they cannot.
@@ -100,7 +100,7 @@ export function instanceFields(
       </Link>
     ) : (
       // Not a link and not a blank cell: an instance with no prepared revision
-      // belongs to no pair, which is a fact about the record rather than a
+      // belongs to no Agent, which is a fact about the record rather than a
       // link this page forgot to render.
       <ValueOrNotReported value={undefined} />
     ),

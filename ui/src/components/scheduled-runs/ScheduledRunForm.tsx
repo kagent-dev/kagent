@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
-import { agentPairsFrom, newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
+import { agentSummariesFrom, newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
 import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
@@ -40,15 +40,15 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   // Retain the key after a failed response: retrying must not create another schedule.
   const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
-  const templates = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
-  const agents = agentPairsFrom(templates.data?.agents ?? []);
+  const definitions = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
+  const agents = agentSummariesFrom(definitions.data?.agents ?? []);
   const config = schedule?.config;
   const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
   const watched = Form.useWatch([], form) as FormValues | undefined;
   const timing = { ...initialTiming, ...watched };
   const initialTimeout = config?.executionTimeout
     ? Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9 : 900;
-  const loadError = namespaces.error ?? templates.error;
+  const loadError = namespaces.error ?? definitions.error;
 
   async function save(values: FormValues) {
     setSaving(true);
@@ -100,10 +100,10 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
     }}>
       {!schedule && <>
         {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
-        {templates.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
+        {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
           title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
         <Form.Item name="agent" label="Agent" rules={[{ required: true, message: "Choose an agent." }]}>
-          <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || templates.isLoading}
+          <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || definitions.isLoading}
             placeholder="Choose an agent" options={agents.map((agent) => {
               const blocked = newConversationBlockedReason(agent);
               return { value: agent.id, disabled: !!blocked,

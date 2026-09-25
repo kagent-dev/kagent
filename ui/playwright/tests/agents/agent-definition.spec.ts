@@ -43,3 +43,12 @@ for (const template of ["reference", "inline"]) {
     });
   }
 }
+
+test("Agent descriptions resolve from shared templates and remain searchable", async ({ page }) => {
+  await loadPage(page, routes.agents);
+  await expect(page.getByText("One configuration, run on two different runtimes.", {exact: true})).toHaveCount(2);
+  await page.getByPlaceholder("Search agents").fill("One configuration");
+  await expect(page.getByRole("link", {name: "shared-brain", exact: true})).toBeVisible();
+  await expect(page.getByRole("link", {name: "shared-brain-fast", exact: true})).toBeVisible();
+  await expect(page.getByRole("link", {name: "support-triage-2b91d0e", exact: true})).toHaveCount(0);
+});

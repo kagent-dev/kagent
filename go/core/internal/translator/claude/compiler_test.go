@@ -517,8 +517,8 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 	childModelSpec := modelSpec
 	childModelSpec.Model = "claude-specialist"
 	child := &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{
-			ObjectMeta: metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
+		Template: &v2translator.TemplateConfiguration{
+			Name: "specialist-template", Namespace: "test", Source: &metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
 			Spec: v1alpha3.AgentTemplateSpec{
 				ModelConfig: &corev1.LocalObjectReference{Name: "child-model"},
 				Description: "template description", SystemPrompt: "specialize",
@@ -530,10 +530,10 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		}},
 		Instruction: "Return the specialist marker.",
 	}
-	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 		Name: "specialist", Description: "Handles specialist requests",
 		TemplateRef: corev1.LocalObjectReference{Name: child.Template.Name},
-		Isolation:   v1alpha3.AgentToolIsolationShared,
+		Isolation:   v1alpha3.SubAgentToolIsolationShared,
 	}}}
 	input.Root.Shared = []v2translator.AgentInputBinding{{
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,
@@ -591,9 +591,9 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			binding := v2translator.AgentInputBinding{
 				Name: "specialist", Description: "Handles specialist requests",
 				Agent: &v2translator.AgentInput{
-					Template: &v1alpha3.AgentTemplate{
-						ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"},
-						Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
+					Template: &v2translator.TemplateConfiguration{
+						Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"},
+						Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
 					},
 					ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec}},
 					Instruction:         "specialize",
@@ -611,11 +611,11 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 
 func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
 	t.Helper()
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
+	harness := &v2translator.HarnessConfiguration{Name: "claude", Namespace: "test", Source: &metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
+	template := &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
 	}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model-uid"}, Spec: modelSpec}

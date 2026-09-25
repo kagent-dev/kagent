@@ -44,7 +44,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
-	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
+	name := revisionActorTemplateName(spec.AgentName, revisionID)
 	// Config and SDK placeholders contain no Secret values. Render the typed
 	// card only at this boundary.
 	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
@@ -164,10 +164,10 @@ func withServiceVersion(environment []corev1.EnvVar, version string) []corev1.En
 	return environment
 }
 
-func revisionActorTemplateName(agentTemplate, harness string, revision translator.RevisionID) string {
+func revisionActorTemplateName(agentName string, revision translator.RevisionID) string {
 	// Twelve digest characters keep names readable while the full digest remains
 	// the database identity and immutable-content check.
-	base := truncateDNS1123(agentTemplate + "-" + harness)
+	base := truncateDNS1123(agentName)
 	base = truncateDNS1123To(base, 50)
 	return base + "-" + revision.Short()
 }
