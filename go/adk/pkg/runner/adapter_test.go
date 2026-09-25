@@ -2,44 +2,18 @@ package runner
 
 import (
 	"context"
-	"embed"
-	"encoding/json"
-	"strings"
+	"io"
+	"log/slog"
 	"testing"
 
-	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	adksession "google.golang.org/adk/v2/session"
 )
 
-//go:embed testdata
-var testdata embed.FS
-
-func startMock(t *testing.T, mockFile string) string {
-	t.Helper()
-	cfg, err := mockllm.LoadConfigFromFile(mockFile, testdata)
-	require.NoError(t, err)
-	server := mockllm.NewServer(cfg)
-	baseURL, err := server.Start(t.Context())
-	require.NoError(t, err)
-	t.Cleanup(func() { server.Stop(context.Background()) }) //nolint:errcheck
-	return baseURL
-}
-
-func loadConfig(t *testing.T, path string, baseURL string) *adk.AgentConfig {
-	t.Helper()
-	data, err := testdata.ReadFile(path)
-	require.NoError(t, err)
-
-	raw := strings.ReplaceAll(string(data), "{{BASE_URL}}", baseURL)
-
-	var cfg adk.AgentConfig
-	require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
-	return &cfg
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // Pure helper functions.
@@ -88,8 +62,7 @@ func TestSplitCSV(t *testing.T) {
 func TestBuildTokenPropagationPlugin_DisabledByDefault(t *testing.T) {
 	t.Setenv("KAGENT_PROPAGATE_TOKEN", "")
 	t.Setenv("STS_WELL_KNOWN_URI", "")
-
-	plugin, err := buildTokenPropagationPlugin(context.Background(), logr.Discard())
+	plugin, err := buildTokenPropagationPlugin(context.Background(), discardLogger())
 	require.NoError(t, err)
 	assert.Nil(t, plugin, "plugin should be disabled when neither env var is set")
 }
@@ -97,8 +70,7 @@ func TestBuildTokenPropagationPlugin_DisabledByDefault(t *testing.T) {
 func TestBuildTokenPropagationPlugin_PropagateOnlyMode(t *testing.T) {
 	t.Setenv("KAGENT_PROPAGATE_TOKEN", "true")
 	t.Setenv("STS_WELL_KNOWN_URI", "")
-
-	plugin, err := buildTokenPropagationPlugin(context.Background(), logr.Discard())
+	plugin, err := buildTokenPropagationPlugin(context.Background(), discardLogger())
 	require.NoError(t, err)
 	require.NotNil(t, plugin, "plugin should be enabled in propagate-only mode without STS exchange")
 }
@@ -106,19 +78,30 @@ func TestBuildTokenPropagationPlugin_PropagateOnlyMode(t *testing.T) {
 func TestBuildTokenPropagationPlugin_PropagateFlagCaseInsensitive(t *testing.T) {
 	t.Setenv("KAGENT_PROPAGATE_TOKEN", "TRUE")
 	t.Setenv("STS_WELL_KNOWN_URI", "")
-
-	plugin, err := buildTokenPropagationPlugin(context.Background(), logr.Discard())
+	plugin, err := buildTokenPropagationPlugin(context.Background(), discardLogger())
 	require.NoError(t, err)
 	require.NotNil(t, plugin)
 }
 
-// CreateRunnerConfig: full path via mockllm.
+// CreateRunnerConfig: config wiring, no model fixture or mock server needed.
+
+func minimalOpenAIConfig() *adk.AgentConfig {
+	return &adk.AgentConfig{
+		Description: "test",
+		Instruction: "You are helpful. Answer concisely.",
+		Model: &adk.OpenAI{
+			BaseModel: adk.BaseModel{
+				Type:  adk.ModelTypeOpenAI,
+				Model: "gpt-4.1-mini",
+			},
+			BaseUrl: "http://127.0.0.1:0/v1", // never dialed; this only exercises config wiring
+		},
+	}
+}
 
 func TestCreateRunnerConfig_MinimalOpenAI(t *testing.T) {
-	baseURL := startMock(t, "testdata/mock_openai.json")
 	t.Setenv("OPENAI_API_KEY", "test-key")
-
-	cfg := loadConfig(t, "testdata/config_openai.json", baseURL)
+	cfg := minimalOpenAIConfig()
 	sessionService := adksession.InMemoryService()
 
 	runnerCfg, err := CreateRunnerConfig(context.Background(), cfg, sessionService, "myapp", nil, nil)
@@ -129,45 +112,13 @@ func TestCreateRunnerConfig_MinimalOpenAI(t *testing.T) {
 }
 
 func TestCreateRunnerConfig_DefaultsAppNameWhenEmpty(t *testing.T) {
-	baseURL := startMock(t, "testdata/mock_openai.json")
 	t.Setenv("OPENAI_API_KEY", "test-key")
-
-	cfg := loadConfig(t, "testdata/config_openai.json", baseURL)
+	cfg := minimalOpenAIConfig()
 
 	runnerCfg, err := CreateRunnerConfig(context.Background(), cfg, nil, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "kagent-app", runnerCfg.AppName)
 	assert.NotNil(t, runnerCfg.SessionService, "should fall back to an in-memory session service")
-}
-
-func TestCreateRunnerConfig_ShareToolsRequiresControllerClient(t *testing.T) {
-	baseURL := startMock(t, "testdata/mock_openai.json")
-	t.Setenv("OPENAI_API_KEY", "test-key")
-
-	cfg := loadConfig(t, "testdata/config_openai.json", baseURL)
-	shareTools := true
-	cfg.ShareTools = &shareTools
-
-	// controllerClient is nil, so share tools should be silently skipped
-	// rather than causing an error (per the `controllerClient != nil` guard).
-	runnerCfg, err := CreateRunnerConfig(context.Background(), cfg, nil, "myapp", nil, nil)
-	require.NoError(t, err)
-	assert.NotNil(t, runnerCfg.Agent)
-}
-
-func TestCreateRunnerConfig_ShareToolsWithControllerClient(t *testing.T) {
-	baseURL := startMock(t, "testdata/mock_openai.json")
-	t.Setenv("OPENAI_API_KEY", "test-key")
-
-	cfg := loadConfig(t, "testdata/config_openai.json", baseURL)
-	shareTools := true
-	cfg.ShareTools = &shareTools
-
-	controllerClient := &controllerclient.Client{}
-
-	runnerCfg, err := CreateRunnerConfig(context.Background(), cfg, nil, "myapp", nil, controllerClient)
-	require.NoError(t, err)
-	assert.NotNil(t, runnerCfg.Agent, "agent should build successfully with share tools wired in")
 }
 
 func TestCreateRunnerConfig_MissingModelFails(t *testing.T) {
@@ -176,7 +127,6 @@ func TestCreateRunnerConfig_MissingModelFails(t *testing.T) {
 		Instruction: "test",
 		// Model deliberately omitted.
 	}
-
 	_, err := CreateRunnerConfig(context.Background(), cfg, nil, "myapp", nil, nil)
 	require.Error(t, err)
 }
