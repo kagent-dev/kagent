@@ -67,23 +67,26 @@ func TestInlineFileToText(t *testing.T) {
 	tests := []struct {
 		name     string
 		blob     *genai.Blob
+		file     string
 		contains string
 	}{
 		{name: "nil blob", blob: nil, contains: ""},
 		{
 			name:     "text file labeled with name",
-			blob:     &genai.Blob{Data: []byte("line1\nline2"), MIMEType: "text/plain", DisplayName: "notes.txt"},
+			blob:     &genai.Blob{Data: []byte("line1\nline2"), MIMEType: "text/plain"},
+			file:     "notes.txt",
 			contains: `Contents of uploaded file "notes.txt"`,
 		},
 		{
 			name:     "unsupported binary returns note",
-			blob:     &genai.Blob{Data: []byte{0x00, 0x01}, MIMEType: "application/zip", DisplayName: "a.zip"},
+			blob:     &genai.Blob{Data: []byte{0x00, 0x01}, MIMEType: "application/zip"},
+			file:     "a.zip",
 			contains: "could not be read as text",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := InlineFileToText(tt.blob)
+			got := InlineFileToText(tt.blob, tt.file)
 			if tt.contains == "" {
 				if got != "" {
 					t.Errorf("InlineFileToText() = %q, want empty", got)
@@ -99,7 +102,7 @@ func TestInlineFileToText(t *testing.T) {
 
 func TestInlineFileToText_Truncates(t *testing.T) {
 	data := strings.Repeat("é", maxTextChars+10)
-	got := InlineFileToText(&genai.Blob{Data: []byte(data), MIMEType: "text/plain", DisplayName: "big.txt"})
+	got := InlineFileToText(&genai.Blob{Data: []byte(data), MIMEType: "text/plain"}, "big.txt")
 	if !strings.HasSuffix(got, "\n\n[truncated]") {
 		t.Fatalf("InlineFileToText() did not note truncation: %q", got[len(got)-40:])
 	}

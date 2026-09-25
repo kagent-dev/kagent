@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -32,43 +31,20 @@ type googleFileTextLLM struct {
 }
 
 func (m fileTextLLM) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
-	return m.LLM.GenerateContent(ctx, filesToText(req, sessionUploads(ctx)), stream)
+	return m.LLM.GenerateContent(ctx, filesToText(req), stream)
 }
 
-// sessionUploads returns the named user file blobs in the invocation's session.
-// ADK blanks request DisplayNames for Gemini API models, but not the session's copies.
-func sessionUploads(ctx context.Context) []*genai.Blob {
-	ic, ok := ctx.(agent.InvocationContext)
-	if !ok || ic.Session() == nil {
-		return nil
-	}
-	var uploads []*genai.Blob
-	for ev := range ic.Session().Events().All() {
-		if ev == nil || ev.Content == nil || ev.Content.Role != genai.RoleUser {
-			continue
-		}
-		for _, p := range ev.Content.Parts {
-			if p != nil && p.InlineData != nil && p.InlineData.DisplayName != "" {
-				uploads = append(uploads, p.InlineData)
-			}
-		}
-	}
-	return uploads
-}
+// FilenameMetadataKey is the PartMetadata key the A2A converter stores a file's name under.
+const FilenameMetadataKey = "kagent_filename"
 
-// withUploadName returns b named after the latest identical upload when its name was blanked.
-func withUploadName(b *genai.Blob, uploads []*genai.Blob) *genai.Blob {
-	if b.DisplayName != "" {
-		return b
+// partFileName returns the file's name, from PartMetadata when ADK blanked DisplayName
+// (it does for Gemini API models).
+func partFileName(p *genai.Part) string {
+	if p.InlineData.DisplayName != "" {
+		return p.InlineData.DisplayName
 	}
-	for _, u := range slices.Backward(uploads) {
-		if u.MIMEType == b.MIMEType && bytes.Equal(u.Data, b.Data) {
-			named := *b
-			named.DisplayName = u.DisplayName
-			return &named
-		}
-	}
-	return b
+	name, _ := p.PartMetadata[FilenameMetadataKey].(string)
+	return name
 }
 
 // isDataPart reports an A2A data part ADK passed on as a text blob, not a user file.
@@ -80,7 +56,7 @@ func isDataPart(b *genai.Blob) bool {
 
 // filesToText returns req with user file blobs replaced by text, copying only the
 // contents and parts it changes so the caller's session history is untouched.
-func filesToText(req *model.LLMRequest, uploads []*genai.Blob) *model.LLMRequest {
+func filesToText(req *model.LLMRequest) *model.LLMRequest {
 	if req == nil {
 		return req
 	}
@@ -97,7 +73,7 @@ func filesToText(req *model.LLMRequest, uploads []*genai.Blob) *model.LLMRequest
 			if parts == nil {
 				parts = slices.Clone(c.Parts)
 			}
-			parts[j] = genai.NewPartFromText(InlineFileToText(withUploadName(p.InlineData, uploads)))
+			parts[j] = genai.NewPartFromText(InlineFileToText(p.InlineData, partFileName(p)))
 		}
 		if parts == nil {
 			continue

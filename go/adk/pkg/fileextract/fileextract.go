@@ -54,13 +54,12 @@ func extractFileText(data []byte, mimeType, name string) (string, error) {
 // maxTextChars caps the text taken from one file.
 const maxTextChars = 200_000
 
-// InlineFileToText converts a non-image file blob into chat text. Unsupported
-// types become a short note so the model can say the file was unreadable.
-func InlineFileToText(blob *genai.Blob) string {
+// InlineFileToText converts a non-image file blob named name into chat text.
+// Unsupported types become a short note so the model can say the file was unreadable.
+func InlineFileToText(blob *genai.Blob, name string) string {
 	if blob == nil {
 		return ""
 	}
-	name := blob.DisplayName
 	if name == "" {
 		name = "file"
 	}
