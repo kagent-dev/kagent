@@ -226,7 +226,7 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- Public gRPC URL advertised by AgentInstance Agent Cards.
+  # -- Public gateway base URL advertised by AgentInstance Agent Cards for gRPC and HTTP/JSON-RPC.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
   # -- The image used for declarative agents.
@@ -460,8 +460,11 @@ substrateWorkerPool:
   name: kagent-default
   replicas: 1
   workerImage: ""
-  # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
-  # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
+  # sandboxClass selects the sandbox runtime family (gvisor|microvm) for workers
+  # and kagent-generated ActorTemplates whose Harness references this pool.
+  # Use a matching workerImage (ateom-gvisor or ateom-microvm). Substrate must have
+  # the corresponding SandboxConfig installed (gvisor-default or microvm);
+  # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
   # Extra labels merged onto the WorkerPool metadata (in addition to the
   # kagent.dev/worker-pool label used by generated ActorTemplates to select this pool).
@@ -550,6 +553,9 @@ ui:
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
   publicBackendUrl: "/api"
+  # -- Prefix a reverse proxy strips before forwarding, e.g. `/ui`; root-relative URLs such as `publicBackendUrl` get it too.
+  # With oauth2-proxy, set `OIDC_REDIRECT_URL` under it and restart oauth2-proxy after changing it.
+  basePath: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -712,7 +718,17 @@ providers:
     #   disableSystemCAs: false
   ollama:
     provider: Ollama
+    # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
+    # the UI (see the controller's static catalog) and reached with a ":cloud" tag
+    # or bare cloud tag such as "deepseek-v4.1-flash".
     model: "llama3.2"
+    # apiKeySecretRef/apiKeySecretKey point at the Secret holding OLLAMA_API_KEY.
+    # With no explicit host, a cloud model reaches api.ollama.com via gateway
+    # credential injection; without a Secret it uses the signed-in local daemon.
+    # Remove config.host below for direct cloud routing (the default host pins
+    # requests to the local daemon even when a Secret is configured).
+    # apiKeySecretRef: "kagent-ollama-cloud"
+    # apiKeySecretKey: "OLLAMA_API_KEY"
     config:
       host: host.docker.internal:11434
       options:
@@ -740,6 +756,12 @@ providers:
     model: "gemini-2.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
+    # apiKey: ""
+  mistral:
+    provider: Mistral
+    model: "mistral-large-latest"
+    apiKeySecretRef: kagent-mistral
+    apiKeySecretKey: MISTRAL_API_KEY
     # apiKey: ""
 
 # ==============================================================================
@@ -942,43 +964,51 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
-  # -- Include prompts, tool details, and assistant responses in agent telemetry.
-  # This may expose sensitive user or model content.
-  captureSensitiveContent: false
-  tracing:
+  exporter:
+    otlp:
+      # -- OTLP endpoint for every signal, as an http or https URL.
+      endpoint: ""
+      # -- OTLP protocol, `grpc` or `http/protobuf`.
+      protocol: grpc
+      # -- Export timeout in milliseconds. Empty keeps the SDK default.
+      timeout: ""
+  traces:
     enabled: false
+    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for traces.
+    endpoint: ""
+    protocol: ""
     # Allowlist of caller-supplied context keys copied from W3C baggage onto
     # every agent span. A2A message.metadata values for the same keys are
-    # written into baggage at the executor so they survive sub-agent hops.
-    # Empty (the default) disables promotion.
-    #
-    # Entries may be a key or a {from, to} mapping. Destination names are
-    # used as-is. Prefer an opaque identifier such as an OIDC subject for
-    # user.id; do not put names or email addresses on spans. Renaming and
-    # hashing belong in the collector or gateway.
+    # written into baggage at the executor. Empty (the default) disables
+    # promotion. Entries may be a key or a {from, to} mapping. Destination
+    # names are used as-is. Prefer an opaque identifier such as an OIDC
+    # subject for user.id. Renaming and hashing belong in the collector.
     #
     #   contextKeys:
     #     - {from: sub, to: user.id}
     #     - thread_id
-    #     - gen_ai.conversation.id
     contextKeys: []
-    exporter:
-      otlp:
-        endpoint: ""
-        protocol: "grpc"
-        timeout: 15000 # milliseconds
-        insecure: true
-  logging:
+  metrics:
     enabled: false
+    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for metrics.
+    endpoint: ""
+    protocol: ""
+  logs:
+    enabled: false
+    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for logs.
+    endpoint: ""
+    protocol: ""
+  capture:
+    # -- Record prompts, tool details, and responses on agent telemetry.
+    # This may expose sensitive user or model content.
+    messageContent: false
+    # -- Bytes kept per captured prompt or response. Empty keeps the default.
+    maxBytes: ""
     # -- Include complete provider API request and response bodies in Claude logs.
-    # This is more verbose than captureSensitiveContent.
-    captureRawApiBodies: false
-    exporter:
-      otlp:
-        endpoint: ""
-        protocol: "grpc"
-        timeout: 15000 # milliseconds
-        insecure: true
+    rawApiBodies: false
+  # -- Resource attributes added to the controller and every agent, such as
+  # `deployment.environment.name` or `k8s.cluster.name`.
+  resourceAttributes: {}
 
 # ==============================================================================
 # EXTRA OBJECTS

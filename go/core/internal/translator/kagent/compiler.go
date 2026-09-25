@@ -7,11 +7,13 @@ import (
 	"slices"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -32,9 +34,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
-	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
+		return nil, err
+	}
+	if err := applyOutputSchema(compiled.Config, input.OutputSchema); err != nil {
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
@@ -64,7 +68,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
-	environment := append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...)
+	harnessAttributes, err := v2translator.HarnessResourceAttributes(harness)
+	if err != nil {
+		return nil, err
+	}
+	harnessEnvironment := slices.DeleteFunc(adkconfig.HarnessEnvironment(harness), func(variable corev1.EnvVar) bool {
+		return v2translator.OwnsTelemetryEnvironment(variable.Name)
+	})
+	environment := append(compiled.Environment, harnessEnvironment...)
 	environment = append(environment,
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
@@ -72,15 +83,13 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: env.KagentGatewayURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 		corev1.EnvVar{Name: "PORT", Value: "80"},
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
-		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
 	// Which caller-supplied context reaches traces is cluster-wide operator
-	// policy, so a Harness must be able to neither widen nor enable it. Dropping
-	// any inherited entry before applying the operator's value is what makes that
-	// hold when the operator has configured nothing at all.
+	// policy, so a Harness must be able to neither widen nor enable it.
 	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
-	environment = append(environment, telemetryConfig.TraceEnvironment()...)
-	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
+		AgentName: template.Name + "-" + harness.Name, AgentNamespace: template.Namespace,
+	}, harnessAttributes)...)
 	environment = append(environment, v2translator.OtelEnvFromProcess()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
@@ -91,20 +100,34 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
-	if traceConfig.Enabled {
-		compiled.Egress = append(compiled.Egress, traceConfig.Hostname)
-	}
-	if logConfig.Enabled {
-		compiled.Egress = append(compiled.Egress, logConfig.Hostname)
-	}
+	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &v2translator.CompileResult{Revision: v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+		Image: harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
+}
+
+// applyOutputSchema verifies the portable schema by performing the same
+// genai.Schema conversion used by the Go runtime, then records the canonical
+// schema for both Go and Python ADK runtimes. This keeps compatibility
+// failures at Harness compilation instead of actor startup.
+func applyOutputSchema(config *adk.AgentConfig, output *v2translator.ResolvedOutputSchema) error {
+	if output == nil {
+		return nil
+	}
+	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
+		return v2translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
+	}
+	config.Output = &adk.OutputConfig{
+		JSONSchema: append(json.RawMessage(nil), output.Schema...),
+		SHA256:     output.SHA256,
+	}
+	return nil
 }
 
 func requireModels(input *v2translator.AgentInput) error {

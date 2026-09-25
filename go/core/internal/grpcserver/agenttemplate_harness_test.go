@@ -11,7 +11,6 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,7 +37,6 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:             listener,
-		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
 		AgentTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
@@ -290,4 +288,18 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	}
 	_, err = client.DeleteHarness(ctx, &apiv1alpha1.DeleteHarnessRequest{Ref: ref})
 	assertCode(t, err, codes.NotFound)
+}
+
+func TestHarnessRuntime(t *testing.T) {
+	for want, spec := range map[string]v1alpha3.HarnessSpec{
+		harnessRuntimeKagent: {Kagent: &v1alpha3.KagentHarness{}},
+		harnessRuntimeCodex:  {Codex: &v1alpha3.CodexHarness{}},
+		harnessRuntimeClaude: {Claude: &v1alpha3.ClaudeHarness{}},
+		harnessRuntimeBYO:    {BYO: &v1alpha3.BYOHarness{}},
+		"":                   {},
+	} {
+		if got := harnessRuntime(&v1alpha3.Harness{Spec: spec}); got != want {
+			t.Errorf("harnessRuntime() = %q, want %q", got, want)
+		}
+	}
 }

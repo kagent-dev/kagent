@@ -10,6 +10,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -65,8 +66,11 @@ func New(config Config) (*Client, error) {
 			transportCredentials = insecure.NewCredentials()
 		}
 	}
-	dialOptions := make([]grpc.DialOption, 0, len(config.DialOptions)+2)
-	dialOptions = append(dialOptions, grpc.WithTransportCredentials(transportCredentials))
+	dialOptions := make([]grpc.DialOption, 0, len(config.DialOptions)+3)
+	dialOptions = append(dialOptions,
+		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if config.MaxMessageBytes > 0 {
 		dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(config.MaxMessageBytes),

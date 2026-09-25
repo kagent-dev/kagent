@@ -124,6 +124,54 @@ printf graceful > "$EXIT_CAPTURE"
 	}
 }
 
+func TestProcessDriverSharedAgentNotifications(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	notifications, err := filepath.Abs("../../testdata/app-server-shared-agent.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"parent"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn"}}}'
+cat "$NOTIFICATIONS"
+while read ignored; do :; done
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "NOTIFICATIONS="+notifications), MaxFrameBytes: 4096,
+		MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	sink := &recordingSink{}
+	outcome, err := driver.Run(ctx, runtime.Turn{Prompt: "Translate into French: Good morning, my friend."}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Failure != nil || outcome.Pending != nil || sink.text.String() != "Bonjour, mon ami." {
+		t.Fatalf("outcome = %#v, text = %q", outcome, sink.text.String())
+	}
+	if len(sink.calls) != 1 || len(sink.results) != 1 {
+		t.Fatalf("tool events = %#v, %#v, want only parent delegation", sink.calls, sink.results)
+	}
+	if sink.calls[0].ID != "agent-1" || sink.calls[0].Name != "Agent" || sink.results[0].ID != "agent-1" || sink.results[0].Name != "Agent" || sink.results[0].IsError {
+		t.Fatalf("delegation events = %#v, %#v", sink.calls[0], sink.results[0])
+	}
+	result, ok := sink.results[0].Result.(map[string]any)
+	if !ok || result["status"] != "completed" {
+		t.Fatalf("delegation result = %#v, want completed", sink.results[0].Result)
+	}
+}
+
 func TestProcessDriverRejectsWorkspaceConfiguration(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.Mkdir(filepath.Join(workspace, ".codex"), 0o700); err != nil {

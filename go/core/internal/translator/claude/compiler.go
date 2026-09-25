@@ -17,6 +17,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,7 +44,12 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, v2translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
 	}
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
-	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
+	logConfig := telemetryConfig.Logs
+	template, harness := input.Root.Template, input.Harness
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeClaude, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 
 	providerEnvironment, egress, err := c.provider(ctx, model)
 	if err != nil {
@@ -59,7 +65,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
+	harnessAttributes, err := v2translator.HarnessResourceAttributes(input.Harness)
+	if err != nil {
+		return nil, err
+	}
 	for _, variable := range input.Harness.Spec.Env {
+		if v2translator.IsResourceAttributesVariable(variable.Name) {
+			continue
+		}
 		if claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
@@ -73,46 +86,16 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
-	template, harness := input.Root.Template, input.Harness
 	environment = append(environment,
 		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
-		corev1.EnvVar{Name: claudeconfig.PreResponseTraceFlushEnvName, Value: "true"},
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 	)
-	environment = append(environment, telemetryConfig.TraceEnvironment()...)
-	environment = append(environment, telemetryConfig.LogEnvironment()...)
-	if traceConfig.Enabled || logConfig.Enabled {
-		tracesExporter := "none"
-		if traceConfig.Enabled {
-			tracesExporter = "otlp"
-		}
-		logsExporter := "none"
-		if logConfig.Enabled {
-			logsExporter = "otlp"
-		}
-		environment = append(environment,
-			corev1.EnvVar{Name: "CLAUDE_CODE_ENABLE_TELEMETRY", Value: "1"},
-			corev1.EnvVar{Name: "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", Value: "1"},
-			corev1.EnvVar{Name: "OTEL_TRACES_EXPORTER", Value: tracesExporter},
-			corev1.EnvVar{Name: "OTEL_METRICS_EXPORTER", Value: "none"},
-			corev1.EnvVar{Name: "OTEL_LOGS_EXPORTER", Value: logsExporter},
-		)
-		if telemetryConfig.CaptureSensitiveContent {
-			environment = append(environment,
-				corev1.EnvVar{Name: "OTEL_LOG_USER_PROMPTS", Value: "1"},
-				corev1.EnvVar{Name: "OTEL_LOG_TOOL_DETAILS", Value: "1"},
-			)
-			if traceConfig.Enabled {
-				environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_TOOL_CONTENT", Value: "1"})
-			}
-			if logConfig.Enabled {
-				environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_ASSISTANT_RESPONSES", Value: "1"})
-			}
-		}
-		if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
-			environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
-		}
+	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
+	// The adapter derives Claude Code's own telemetry flags; raw bodies have no
+	// compiled field yet.
+	if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
+		environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
 	}
 
 	localAgents, err := c.compileLocalAgents(input.Root)
@@ -121,6 +104,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
+	config.RuntimeTelemetry = runtimeTelemetry
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
 	}
@@ -147,12 +131,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
-	if traceConfig.Enabled {
-		egress = append(egress, traceConfig.Hostname)
-	}
-	if logConfig.Enabled {
-		egress = append(egress, logConfig.Hostname)
-	}
+	egress = append(egress, telemetryConfig.Destinations()...)
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{

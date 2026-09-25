@@ -59,8 +59,9 @@ type ResolvedAgentBinding struct {
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
-	Harness *v1alpha3.Harness
-	Root    *AgentInput
+	Harness      *v1alpha3.Harness
+	Root         *AgentInput
+	OutputSchema *ResolvedOutputSchema
 }
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
@@ -106,7 +107,17 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if err != nil {
 		return nil, err
 	}
-	return harnessCompiler.Compile(ctx, input)
+	result, err := harnessCompiler.Compile(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
+	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
+	if workerPool == nil {
+		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
+	}
+	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	return result, nil
 }
 
 func harnessType(harness *v1alpha3.Harness) HarnessType {
@@ -196,6 +207,13 @@ func harnessSelector(harness *v1alpha3.Harness) (labels.Selector, error) {
 }
 
 func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*HarnessInput, error) {
+	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
+	if err != nil {
+		return nil, err
+	}
+	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
+		return nil, NewValidationError("Harness %q does not support structured output", tree.Harness.Name)
+	}
 	var build func(*ResolvedAgent) (*AgentInput, error)
 	build = func(agent *ResolvedAgent) (*AgentInput, error) {
 		template := agent.Template
@@ -266,5 +284,5 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 	if err != nil {
 		return nil, err
 	}
-	return &HarnessInput{Harness: tree.Harness, Root: root}, nil
+	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema}, nil
 }

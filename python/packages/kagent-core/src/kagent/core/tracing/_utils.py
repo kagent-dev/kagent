@@ -3,19 +3,33 @@ import logging
 import os
 
 from fastapi import FastAPI
-from opentelemetry import _logs, trace
+from opentelemetry import _logs, metrics, trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
+from opentelemetry.propagate import set_global_textmap
+from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.processor.baggage import BaggageSpanProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import OTELResourceDetector, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.util._importlib_metadata import entry_points
 
+from opentelemetry.processor.baggage import BaggageSpanProcessor
+
+from ..telemetry import _defaults
 from ._context_attributes import allowed_baggage_key_predicate
 from ._span_processor import KagentAttributesSpanProcessor
+
+
+def _add_caller_context_processors(provider: TracerProvider) -> None:
+    """Copy allowlisted baggage onto spans before runtime attributes win."""
+    predicate = allowed_baggage_key_predicate()
+    if predicate is not None:
+        provider.add_span_processor(BaggageSpanProcessor(predicate))
 
 
 def _resolve_otlp_protocol(signal: str) -> str:
@@ -50,17 +64,14 @@ def _create_log_exporter(**kwargs):
     return OTLPLogExporter(**kwargs)
 
 
-def _add_span_processors(provider: TracerProvider, otlp_processor) -> None:
-    """Install baggagecopy (if allowlisted), the OTLP exporter, then kagent attrs.
-
-    Baggagecopy runs before the request-scoped bag so runtime attributes such as
-    gen_ai.conversation.id still win on conflict.
-    """
-    provider.add_span_processor(otlp_processor)
-    predicate = allowed_baggage_key_predicate()
-    if predicate is not None:
-        provider.add_span_processor(BaggageSpanProcessor(predicate))
-    provider.add_span_processor(KagentAttributesSpanProcessor())
+def _create_metric_exporter(**kwargs):
+    """Create an OTLPMetricExporter using the protocol from env vars."""
+    protocol = _resolve_otlp_protocol("METRICS")
+    if protocol == "http/protobuf":
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    return OTLPMetricExporter(**kwargs)
 
 
 def _resolve_otlp_timeout_seconds(signal: str) -> float:
@@ -124,42 +135,45 @@ def _instrument_google_generativeai(logger_provider=None):
         pass
 
 
-def _resolve_flush_timeout_millis() -> int:
-    """Resolve KAGENT_TRACE_FLUSH_TIMEOUT_MS, falling back to 3000ms when unset or invalid."""
-    raw = os.getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")
-    if raw is None:
-        return 3000
-    try:
-        timeout_millis = int(raw)
-    except ValueError:
-        timeout_millis = -1
-    if timeout_millis <= 0:
-        logging.warning("Invalid KAGENT_TRACE_FLUSH_TIMEOUT_MS value %r; falling back to 3000ms", raw)
-        return 3000
-    return timeout_millis
+# OTEL_BSP_EXPORT_TIMEOUT defaults to 30s and must not bound a response tail.
+FLUSH_TIMEOUT_MILLIS = 3000
 
 
-def force_flush(timeout_millis: int | None = None) -> None:
-    """Export any spans still buffered in the tracer provider's batch processor.
+def signal_enabled(signal: str) -> bool:
+    """Report whether a signal exports, reading unset as otlp like the SDK."""
+    if os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true":
+        return False
+    exporters = os.getenv(f"OTEL_{signal}_EXPORTER") or "otlp"
+    return "otlp" in (exporter.strip().lower() for exporter in exporters.split(","))
+
+
+def _environment_propagator() -> CompositePropagator:
+    """Build the propagator OTEL_PROPAGATORS names, even when opentelemetry.propagate was imported first."""
+    names = [name.strip() for name in os.environ.get("OTEL_PROPAGATORS", "").split(",") if name.strip()]
+    if "none" in names:
+        return CompositePropagator([])
+    return CompositePropagator(
+        [next(iter(entry_points(group="opentelemetry_propagator", name=name))).load()() for name in names]
+    )
+
+
+def force_flush(timeout_millis: int = FLUSH_TIMEOUT_MILLIS) -> None:
+    """Export any spans and metrics still buffered in their providers.
 
     Call before a response completes when the process may be suspended right
     afterwards: Agent Substrate checkpoints the actor as soon as the A2A
     response body closes, so unexported spans stay frozen in the snapshot
     until the session's next resume (or forever, for a session's last
-    message). No-op when the provider has no force_flush (tracing disabled).
-    The timeout defaults to 3000ms, configurable via
-    KAGENT_TRACE_FLUSH_TIMEOUT_MS.
+    message). No-op for a provider without force_flush (signal disabled).
     """
-    if timeout_millis is None:
-        timeout_millis = _resolve_flush_timeout_millis()
-    provider = trace.get_tracer_provider()
-    flush = getattr(provider, "force_flush", None)
-    if flush is None:
-        return
-    try:
-        flush(timeout_millis)
-    except Exception:
-        logging.warning("Failed to flush pending spans", exc_info=True)
+    for provider in (trace.get_tracer_provider(), metrics.get_meter_provider()):
+        flush = getattr(provider, "force_flush", None)
+        if flush is None:
+            continue
+        try:
+            flush(timeout_millis)
+        except Exception:
+            logging.warning("Failed to flush pending telemetry", exc_info=True)
 
 
 # High-frequency probe endpoints with nothing worth flushing.
@@ -239,8 +253,8 @@ def configure(
     using environment variables to determine whether each is enabled.
 
     Args:
-        name: service name to report to OpenTelemetry (used as ``service.name``). Default is "kagent".
-        namespace: logical namespace for the service (used as ``service.namespace``). Default is "kagent".
+        name: ``service.name`` when OTEL_SERVICE_NAME does not set one. Default is "kagent".
+        namespace: ``service.namespace`` when OTEL_RESOURCE_ATTRIBUTES does not set one. Default is "kagent".
         fastapi_app: Optional FastAPI application instance to instrument. If
             provided and tracing is enabled, FastAPI routes will be instrumented.
         instrument_openai_client: Install the low-level ``OpenAIInstrumentor``. Set
@@ -248,42 +262,38 @@ def configure(
             Agents SDK's ``OpenAIAgentsInstrumentor``); double-wrapping the OpenAI SDK
             breaks the Agents SDK streaming Responses path.
     """
-    tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-    logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
+    _defaults.apply()
+    set_global_textmap(_environment_propagator())
+    tracing_enabled = signal_enabled("TRACES")
+    metrics_enabled = signal_enabled("METRICS")
+    logging_enabled = signal_enabled("LOGS")
 
-    # Resource.create merges in OTEL_RESOURCE_ATTRIBUTES and the telemetry.sdk.*
-    # attributes; the bare constructor drops both, so deployment.environment.name,
-    # service.version and friends never reach the backend.
-    resource = Resource.create({"service.name": name, "service.namespace": namespace})
+    # Resource.create lets the attributes it is given win, so the environment is
+    # passed over the defaults to keep OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES authoritative.
+    environment = OTELResourceDetector().detect().attributes
+    resource = Resource.create({"service.name": name, "service.namespace": namespace, **environment})
 
     # Configure tracing if enabled
     if tracing_enabled:
         logging.info("Enabling tracing")
-        # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
-        trace_endpoint = (
-            os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
-            or os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
-            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-        )
-        trace_timeout_seconds = _resolve_otlp_timeout_seconds("TRACES")
-        logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
-        if trace_endpoint:
-            processor = BatchSpanProcessor(
-                _create_span_exporter(endpoint=trace_endpoint, timeout=trace_timeout_seconds)
-            )
-        else:
-            processor = BatchSpanProcessor(_create_span_exporter(timeout=trace_timeout_seconds))
+        # The exporter reads its endpoint itself, which adds /v1/traces to a
+        # shared http/protobuf endpoint.
+        processor = BatchSpanProcessor(_create_span_exporter(timeout=_resolve_otlp_timeout_seconds("TRACES")))
 
         # Check if a TracerProvider already exists (e.g., set by CrewAI)
         current_provider = trace.get_tracer_provider()
         if isinstance(current_provider, TracerProvider):
             # TracerProvider already exists, just add our processors to it
-            _add_span_processors(current_provider, processor)
+            current_provider.add_span_processor(processor)
+            _add_caller_context_processors(current_provider)
+            current_provider.add_span_processor(KagentAttributesSpanProcessor())
             logging.info("Added OTLP processors to existing TracerProvider")
         else:
             # No provider set, create new one
             tracer_provider = TracerProvider(resource=resource)
-            _add_span_processors(tracer_provider, processor)
+            tracer_provider.add_span_processor(processor)
+            _add_caller_context_processors(tracer_provider)
+            tracer_provider.add_span_processor(KagentAttributesSpanProcessor())
             trace.set_tracer_provider(tracer_provider)
             logging.info("Created new TracerProvider")
 
@@ -296,34 +306,19 @@ def configure(
         HTTPXClientInstrumentor().instrument()
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
-            # Pre-response flushing is opt-in (the controller sets this on Agent
-            # Substrate actors): a checkpoint/suspend runtime freezes as soon as
-            # the response body closes, making this the only reliable export
-            # window. Everywhere else the batch exporter's timer suffices, and a
-            # per-request flush would only add export churn and, during a
-            # collector outage, response-tail latency.
-            if os.getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "").strip().lower() == "true":
-                _add_post_response_flush(fastapi_app)
+    if metrics_enabled:
+        reader = PeriodicExportingMetricReader(
+            _create_metric_exporter(timeout=_resolve_otlp_timeout_seconds("METRICS"))
+        )
+        metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
+        logging.info("Meter provider configured with OTLP")
+    if fastapi_app and (tracing_enabled or metrics_enabled):
+        _add_post_response_flush(fastapi_app)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")
         logger_provider = LoggerProvider(resource=resource)
-        # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
-        log_endpoint = (
-            os.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
-            or os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
-            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-        )
-        log_timeout_seconds = _resolve_otlp_timeout_seconds("LOGS")
-        logging.info("Log endpoint: %s", log_endpoint or "<default>")
-
-        # Add OTLP exporter
-        if log_endpoint:
-            log_processor = BatchLogRecordProcessor(
-                _create_log_exporter(endpoint=log_endpoint, timeout=log_timeout_seconds)
-            )
-        else:
-            log_processor = BatchLogRecordProcessor(_create_log_exporter(timeout=log_timeout_seconds))
+        log_processor = BatchLogRecordProcessor(_create_log_exporter(timeout=_resolve_otlp_timeout_seconds("LOGS")))
         logger_provider.add_log_record_processor(log_processor)
 
         _logs.set_logger_provider(logger_provider)

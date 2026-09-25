@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import { Button, Popconfirm, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import type { Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
 import { snapshotLabel } from "./snapshotLabel";
@@ -283,6 +283,9 @@ export function CheckpointDivider({
                 "data-testid": `chat-checkpoint-delete-confirm-${checkpointId}`,
               }}
               cancelText="Cancel"
+              cancelButtonProps={{
+                "data-testid": `chat-checkpoint-delete-cancel-${checkpointId}`,
+              }}
               onConfirm={onDelete}
             >
               {/* No tooltip, unlike its neighbours. The pointer that opens the

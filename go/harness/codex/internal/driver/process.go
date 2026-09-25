@@ -247,7 +247,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				return runtime.Outcome{}, err
 			}
 			if done {
-				if err := rejectBufferedPostTerminalActivity(client.frames); err != nil {
+				if err := translator.rejectBufferedPostTerminalActivity(client.frames); err != nil {
 					return runtime.Outcome{}, err
 				}
 				return outcome, nil
@@ -360,6 +360,12 @@ func (p *pendingTurn) Request() runtime.InputRequest { return p.request }
 
 // Resume answers the correlated App Server request and continues consuming the
 // same process until it completes, fails, or returns another PendingTurn.
+//
+// The JSON-RPC response that releases the turn carries no trace context, and
+// the native turn began under the trace of the request that parked it. Work the
+// native runtime does after this point therefore stays under the originating
+// trace. The resumed A2A segment records a link to that origin rather than
+// claiming ownership of it.
 func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
 	sessionOwnedByPendingTurn := false
 	defer func() {

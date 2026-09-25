@@ -1,8 +1,10 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -35,121 +37,127 @@ import (
 
 func TestScheduledRunCronAndManualExecution(t *testing.T) {
 	t.Parallel()
-	target := interactionTarget(t)
-	f := newScheduledFixture(t, target, startInteractionMock(t), false, 2*time.Minute)
-	var first *apiv1alpha1.ScheduledRunExecution
-	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
-		result, err := f.schedules.ListScheduledRunExecutions(ctx, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: f.schedule.GetId()})
-		if err != nil {
-			return false, err
-		}
-		if len(result.GetExecutions()) == 0 {
-			return false, nil
-		}
-		first = result.GetExecutions()[0]
-		return true, nil
-	}), "wait for cron firing")
-	require.NotNil(t, first.GetScheduledTime())
-	require.True(t, first.GetScheduledTime().AsTime().Equal(f.schedule.GetNextExecutionTime().AsTime()))
-	paused := proto.Clone(f.schedule.GetConfig()).(*apiv1alpha1.ScheduledRunConfig)
-	paused.Paused = true
-	updated, err := f.schedules.UpdateScheduledRun(f.ctx, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), Etag: f.schedule.GetEtag(), Config: paused})
-	require.NoError(t, err)
-	require.Nil(t, updated.GetScheduledRun().GetNextExecutionTime())
-	first = f.waitExecution(t, first.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
-	f.assertCompletedTask(t, first)
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		f := newScheduledFixture(t, harness, target, startInteractionMock(t), false, 2*time.Minute)
+		var first *apiv1alpha1.ScheduledRunExecution
+		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
+			result, err := f.schedules.ListScheduledRunExecutions(ctx, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: f.schedule.GetId()})
+			if err != nil {
+				return false, err
+			}
+			if len(result.GetExecutions()) == 0 {
+				return false, nil
+			}
+			first = result.GetExecutions()[0]
+			return true, nil
+		}), "wait for cron firing")
+		require.NotNil(t, first.GetScheduledTime())
+		require.True(t, first.GetScheduledTime().AsTime().Equal(f.schedule.GetNextExecutionTime().AsTime()))
+		paused := proto.Clone(f.schedule.GetConfig()).(*apiv1alpha1.ScheduledRunConfig)
+		paused.Paused = true
+		updated, err := f.schedules.UpdateScheduledRun(f.ctx, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), Etag: f.schedule.GetEtag(), Config: paused})
+		require.NoError(t, err)
+		require.Nil(t, updated.GetScheduledRun().GetNextExecutionTime())
+		first = f.waitExecution(t, first.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		f.assertCompletedTask(t, first)
 
-	// A manual trigger works while paused; retrying its request ID is one firing.
-	request := &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()}
-	manual, err := f.schedules.TriggerScheduledRun(f.ctx, request)
-	require.NoError(t, err)
-	retried, err := f.schedules.TriggerScheduledRun(f.ctx, request)
-	require.NoError(t, err)
-	require.Equal(t, manual.GetExecution().GetId(), retried.GetExecution().GetId())
-	second := f.waitExecution(t, manual.GetExecution().GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
-	require.NotEqual(t, first.GetAgentInstanceId(), second.GetAgentInstanceId())
-	f.assertCompletedTask(t, second)
+		// A manual trigger works while paused; retrying its request ID is one firing.
+		request := &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()}
+		manual, err := f.schedules.TriggerScheduledRun(f.ctx, request)
+		require.NoError(t, err)
+		retried, err := f.schedules.TriggerScheduledRun(f.ctx, request)
+		require.NoError(t, err)
+		require.Equal(t, manual.GetExecution().GetId(), retried.GetExecution().GetId())
+		second := f.waitExecution(t, manual.GetExecution().GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		require.NotEqual(t, first.GetAgentInstanceId(), second.GetAgentInstanceId())
+		f.assertCompletedTask(t, second)
 
-	// Continuing the conversation does not replace the original execution's task.
-	conversation := &interactionFixture{ctx: f.instanceContext(second), client: f.tasks, instances: f.instances, instanceID: second.GetAgentInstanceId()}
-	_, _, continued := conversation.send(t, "What is 2+2?")
-	require.NotEqual(t, second.GetTaskId(), string(continued.ID))
-	retained, err := f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: second.GetId()})
-	require.NoError(t, err)
-	require.Equal(t, second.GetTaskId(), retained.GetExecution().GetTaskId())
+		// Continuing the conversation does not replace the original execution's task.
+		conversation := &interactionFixture{ctx: f.instanceContext(second), client: f.tasks, instances: f.instances, instanceID: second.GetAgentInstanceId()}
+		_, _, continued := conversation.send(t, "What is 2+2?")
+		require.NotEqual(t, second.GetTaskId(), string(continued.ID))
+		retained, err := f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: second.GetId()})
+		require.NoError(t, err)
+		require.Equal(t, second.GetTaskId(), retained.GetExecution().GetTaskId())
 
-	_, err = f.schedules.DeleteScheduledRun(f.ctx, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
-	require.NoError(t, err)
-	_, err = f.instances.DeleteAgentInstance(f.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: first.GetAgentInstanceId()})
-	require.NoError(t, err)
-	retained, err = f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: first.GetId()})
-	require.NoError(t, err)
-	require.Equal(t, first.GetAgentInstanceId(), retained.GetExecution().GetAgentInstanceId())
-	require.Equal(t, first.GetState(), retained.GetExecution().GetState())
+		_, err = f.schedules.DeleteScheduledRun(f.ctx, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
+		require.NoError(t, err)
+		_, err = f.instances.DeleteAgentInstance(f.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: first.GetAgentInstanceId()})
+		require.NoError(t, err)
+		retained, err = f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: first.GetId()})
+		require.NoError(t, err)
+		require.Equal(t, first.GetAgentInstanceId(), retained.GetExecution().GetAgentInstanceId())
+		require.Equal(t, first.GetState(), retained.GetExecution().GetState())
+	})
 }
 
 func TestScheduledRunTimeout(t *testing.T) {
 	t.Parallel()
-	target := interactionTarget(t)
-	modelURL, started := startBlockingInteractionMock(t)
-	// Template preparation finishes before triggering; leave time for the new
-	// instance to reach the blocking model while exercising a real deadline.
-	f := newScheduledFixture(t, target, modelURL, true, 20*time.Second)
-	execution := f.trigger(t)
-	select {
-	case <-started:
-	case <-time.After(45 * time.Second):
-		t.Fatal("scheduled agent did not reach the blocking model")
-	}
-	execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
-	require.NotEmpty(t, execution.GetFailureReason())
-	require.False(t, execution.GetCompletedAt().AsTime().Before(execution.GetDeadline().AsTime()))
-	require.Equal(t, a2atype.TaskStateCanceled, f.task(t, execution).Status.State)
-	f.assertQuiescent(t, execution)
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		modelURL, started := startBlockingInteractionMock(t)
+		// Template preparation finishes before triggering; leave time for the new
+		// instance to reach the blocking model while exercising a real deadline.
+		f := newScheduledFixture(t, harness, target, modelURL, true, 20*time.Second)
+		execution := f.trigger(t)
+		select {
+		case <-started:
+		case <-time.After(45 * time.Second):
+			t.Fatal("scheduled agent did not reach the blocking model")
+		}
+		execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
+		require.NotEmpty(t, execution.GetFailureReason())
+		require.False(t, execution.GetCompletedAt().AsTime().Before(execution.GetDeadline().AsTime()))
+		require.Equal(t, a2atype.TaskStateCanceled, f.task(t, execution).Status.State)
+		f.assertQuiescent(t, execution)
+	})
 }
 
 // Keep this test sequential: restarting the controller disrupts other clients.
 func TestScheduledRunControllerRestart(t *testing.T) {
-	target := interactionTarget(t)
-	modelURL, started, release, calls := startScheduledRecoveryModel(t)
-	f := newScheduledFixture(t, target, modelURL, true, 3*time.Minute)
-	execution := f.trigger(t)
-	select {
-	case <-started:
-	case <-time.After(time.Minute):
-		t.Fatal("scheduled agent did not reach the model before restart")
-	}
-	execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
-	require.NotEmpty(t, execution.GetTaskId())
-	kube := interactionKubeClient(t)
-	pods := &corev1.PodList{}
-	require.NoError(t, kube.List(f.ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
-	require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
-	old := pods.Items[0]
-	require.NoError(t, kube.Delete(f.ctx, &old))
-	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
-		current := &corev1.PodList{}
-		if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
-			return false, err
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		modelURL, started, release, calls := startScheduledRecoveryModel(t)
+		f := newScheduledFixture(t, harness, target, modelURL, true, 3*time.Minute)
+		execution := f.trigger(t)
+		select {
+		case <-started:
+		case <-time.After(time.Minute):
+			t.Fatal("scheduled agent did not reach the model before restart")
 		}
-		for _, pod := range current.Items {
-			if pod.UID == old.UID {
-				continue
+		execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
+		require.NotEmpty(t, execution.GetTaskId())
+		kube := interactionKubeClient(t)
+		pods := &corev1.PodList{}
+		require.NoError(t, kube.List(f.ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
+		require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
+		old := pods.Items[0]
+		require.NoError(t, kube.Delete(f.ctx, &old))
+		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
+			current := &corev1.PodList{}
+			if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
+				return false, err
 			}
-			for _, condition := range pod.Status.Conditions {
-				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-					return true, nil
+			for _, pod := range current.Items {
+				if pod.UID == old.UID {
+					continue
+				}
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+						return true, nil
+					}
 				}
 			}
-		}
-		return false, nil
-	}), "wait for replacement controller")
-	release()
-	recovered := f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
-	require.Equal(t, execution.GetAgentInstanceId(), recovered.GetAgentInstanceId())
-	require.Equal(t, execution.GetTaskId(), recovered.GetTaskId())
-	require.EqualValues(t, 1, calls.Load(), "restart must not resend the original prompt")
-	f.assertCompletedTask(t, recovered)
+			return false, nil
+		}), "wait for replacement controller")
+		release()
+		recovered := f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		require.Equal(t, execution.GetAgentInstanceId(), recovered.GetAgentInstanceId())
+		require.Equal(t, execution.GetTaskId(), recovered.GetTaskId())
+		require.EqualValues(t, 1, calls.Load(), "restart must not resend the original prompt")
+		f.assertCompletedTask(t, recovered)
+	})
 }
 
 type scheduledFixture struct {
@@ -161,9 +169,9 @@ type scheduledFixture struct {
 	schedule  *apiv1alpha1.ScheduledRun
 }
 
-func newScheduledFixture(t *testing.T, target, modelURL string, paused bool, timeout time.Duration) *scheduledFixture {
+func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL string, paused bool, timeout time.Duration) *scheduledFixture {
 	t.Helper()
-	template := createInteractionTemplate(t, modelURL)
+	template := createInteractionTemplate(t, harness, modelURL)
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
@@ -171,7 +179,7 @@ func newScheduledFixture(t *testing.T, target, modelURL string, paused bool, tim
 	t.Cleanup(cancel)
 	f := &scheduledFixture{ctx: ctx, schedules: apiv1alpha1.NewScheduledRunServiceClient(conn), instances: apiv1alpha1.NewAgentInstanceServiceClient(conn), system: apiv1alpha1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
 	created, err := f.schedules.CreateScheduledRun(ctx, &apiv1alpha1.CreateScheduledRunRequest{
-		RequestId: uuid.NewString(), Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"},
+		RequestId: uuid.NewString(), Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: harness.name},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
 		Config:        &apiv1alpha1.ScheduledRunConfig{Name: t.Name(), Schedule: "* * * * *", TimeZone: "UTC", Prompt: "What is 2+2?", Paused: paused, ExecutionTimeout: durationpb.New(timeout)},
 	})
@@ -303,13 +311,26 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.
 func startScheduledRecoveryModel(t *testing.T) (string, <-chan struct{}, func(), *atomic.Int32) {
 	t.Helper()
 	// This proxy runs on the host, so its upstream must use the local mock URL.
-	upstream, err := url.Parse(startMockLLMServer(t, interactionMocks, "mocks/invoke_golang_adk_agent.json"))
+	upstream, err := url.Parse(startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"))
 	require.NoError(t, err)
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	started, release := make(chan struct{}), make(chan struct{})
 	var startedOnce, releaseOnce sync.Once
 	calls := &atomic.Int32{}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		// Match the complete JSON string value. Native clients also send probes
+		// and title requests that embed the prompt in a longer instruction.
+		if !bytes.Contains(body, []byte(`"What is 2+2?"`)) {
+			proxy.ServeHTTP(w, r)
+			return
+		}
 		calls.Add(1)
 		startedOnce.Do(func() { close(started) })
 		select {

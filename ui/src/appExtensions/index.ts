@@ -105,7 +105,7 @@ export { readEnv } from "@/env";
 // The palette currently showing. Re-exported because a contribution that wants to
 // look like the application's own chrome has to pick the same one — antd's Menu
 // and Table both take a light/dark choice that no design token can stand in for.
-export { useThemeMode } from "@/theme/themeMode";
+export { useThemeMode } from "@/theme/useThemeMode";
 export type { ThemeMode } from "@/theme/theme";
 
 export {

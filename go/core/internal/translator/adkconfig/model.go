@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"path"
 	"regexp"
-	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -467,14 +467,35 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 		if model.Spec.Ollama == nil {
 			return nil, nil, fmt.Errorf("ollama model config is required")
 		}
-		host := model.Spec.Ollama.Host
-		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
-			host = "http://" + host
+		// Only set a host when the operator gave one. An empty value keeps
+		// OLLAMA_API_BASE unset so the runtime applies its own cloud/local
+		// routing; writing a default here would look operator-chosen and pin
+		// every cloud model to the local daemon.
+		if model.Spec.Ollama.Host != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.OllamaAPIBase.Name(),
+				Value: withDefaultScheme(model.Spec.Ollama.Host),
+			})
 		}
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  env.OllamaAPIBase.Name(),
-			Value: host,
-		})
+		// Bind the Secret only when the model reaches api.ollama.com; the
+		// gateway injects the key at egress, while the agent sees only a
+		// placeholder. The same predicate decides the credential binding.
+		// Local models and operator-supplied daemon hosts have no cloud
+		// binding, so they must not receive a Secret-backed environment ref.
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
+			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.OllamaAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
 		ollama := &adk.Ollama{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
@@ -721,6 +742,49 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return foundry, modelDeploymentData, nil
+	case v1alpha3.ModelProviderMistral:
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.MistralAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+		mistral := &adk.Mistral{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+		}
+		populateTLSFields(&mistral.BaseModel, model.Spec.TLS)
+		mistral.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		if model.Spec.Mistral != nil {
+			spec := model.Spec.Mistral
+			if spec.BaseURL != nil {
+				mistral.BaseUrl = *spec.BaseURL
+			}
+			if spec.Temperature != nil {
+				mistral.Temperature = utils.ParseStringToFloat64(*spec.Temperature)
+			}
+			if spec.TopP != nil {
+				mistral.TopP = utils.ParseStringToFloat64(*spec.TopP)
+			}
+			if spec.MaxTokens != nil {
+				mistral.MaxTokens = spec.MaxTokens
+			}
+			if spec.Timeout != nil {
+				mistral.Timeout = spec.Timeout
+			}
+		}
+
+		return mistral, modelDeploymentData, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}

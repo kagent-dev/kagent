@@ -1221,6 +1221,7 @@ const ACTOR_STATUS_LABELS: Record<ActorState, string> = {
   [ActorState.PAUSED]: "Paused",
   [ActorState.CRASHED]: "ACTOR_STATE_CRASHED",
   [ActorState.DELETING]: "ACTOR_STATE_DELETING",
+  [ActorState.REVERTING]: "Reverting",
 };
 
 function toActorEntry(actor: PbActor): SubstrateActorEntry {

@@ -152,6 +152,13 @@ var (
 		"Base URL for the Ollama API endpoint.",
 		ComponentAgentRuntime,
 	)
+
+	OllamaAPIKey = RegisterStringVar(
+		"OLLAMA_API_KEY",
+		"",
+		"API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly.",
+		ComponentAgentRuntime,
+	)
 )
 
 // SAP AI Core
@@ -167,6 +174,23 @@ var (
 		"SAP_AI_CORE_CLIENT_SECRET",
 		"",
 		"OAuth2 client secret for SAP AI Core authentication.",
+		ComponentAgentRuntime,
+	)
+)
+
+// Mistral
+var (
+	MistralAPIKey = RegisterStringVar(
+		"MISTRAL_API_KEY",
+		"",
+		"API key for Mistral AI.",
+		ComponentAgentRuntime,
+	)
+
+	MistralAPIBase = RegisterStringVar(
+		"MISTRAL_API_BASE",
+		"",
+		"Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1).",
 		ComponentAgentRuntime,
 	)
 )

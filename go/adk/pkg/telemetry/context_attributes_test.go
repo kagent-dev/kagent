@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/contrib/processors/baggagecopy"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -208,12 +209,12 @@ func TestCallerContextLandsOnEverySpan(t *testing.T) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
 		sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+		sdktrace.WithSpanProcessor(requestAttributesSpanProcessor{}),
 	)
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
 	ctx := ContextWithPromotedMetadata(baggageContext(t, map[string]string{"user.id": "opaque-subject"}), nil)
-	ctx = SetKAgentSpanAttributes(ctx, map[string]string{"kagent.user_id": "runtime-user"})
+	ctx = WithRequestAttributes(ctx, attribute.String("kagent.user_id", "runtime-user"))
 	tracer := tp.Tracer("test")
 	ctx, root := tracer.Start(ctx, "invocation")
 	_, tool := tracer.Start(ctx, "tool")
@@ -240,12 +241,12 @@ func TestMetadataPromotionReachesGenerateContent(t *testing.T) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
 		sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+		sdktrace.WithSpanProcessor(requestAttributesSpanProcessor{}),
 	)
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
 	ctx := ContextWithPromotedMetadata(context.Background(), map[string]any{"sub": "opaque-subject"})
-	ctx = SetKAgentSpanAttributes(ctx, map[string]string{"gen_ai.conversation.id": "sess-runtime"})
+	ctx = WithRequestAttributes(ctx, attribute.String("gen_ai.conversation.id", "sess-runtime"))
 	tracer := tp.Tracer("test")
 	ctx, root := tracer.Start(ctx, "invocation")
 	_, model := tracer.Start(ctx, "generate_content")
@@ -273,12 +274,12 @@ func TestRuntimeAttributesWinOverAllowlistedBaggage(t *testing.T) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
 		sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+		sdktrace.WithSpanProcessor(requestAttributesSpanProcessor{}),
 	)
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
 	ctx := baggageContext(t, map[string]string{"gen_ai.conversation.id": "from-caller"})
-	ctx = SetKAgentSpanAttributes(ctx, map[string]string{"gen_ai.conversation.id": "from-runtime"})
+	ctx = WithRequestAttributes(ctx, attribute.String("gen_ai.conversation.id", "from-runtime"))
 	tracer := tp.Tracer("test")
 	_, span := tracer.Start(ctx, "generate_content")
 	span.End()

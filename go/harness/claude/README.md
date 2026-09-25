@@ -36,7 +36,7 @@ by the compiler. Arbitrary Harness `credentialRef` environment values are also u
 
 ## Human-in-the-loop approval flow
 
-Claude runs in `--bare` print mode with `permissions.ask` rules for MCP servers
+Claude runs in print mode with `permissions.ask` rules for MCP servers
 that require approval. Its native `--permission-prompt-tool` calls a private,
 authenticated loopback MCP tool before executing a protected call.
 

@@ -5,6 +5,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
 import { coreNavItems } from "@/components/Structure/navItems";
+import { env } from "@/env";
 import { paths } from "./routes";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import type { AppExtensionConfig } from "@/appExtensions";
@@ -187,5 +188,5 @@ export function createAppRouter(extensions: readonly AppExtensionConfig[]) {
         },
       ],
     },
-  ]);
+  ], { basename: env("BASE_PATH") || "/" });
 }

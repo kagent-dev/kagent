@@ -5,172 +5,50 @@ import (
 	"strings"
 	"testing"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"google.golang.org/adk/v2/model"
-	"google.golang.org/genai"
 )
 
-func TestSetKAgentSpanAttributes_PropagatesToChildSpans(t *testing.T) {
+func TestRequestAttributesReachSpansStartedBeneath(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+		sdktrace.WithSpanProcessor(requestAttributesSpanProcessor{}),
 	)
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-	})
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
 	tracer := tp.Tracer("test")
-	ctx, root := tracer.Start(context.Background(), "root")
-	ctx = SetKAgentSpanAttributes(ctx, map[string]string{
-		"kagent.user_id":         "user-123",
-		"gen_ai.task.id":         "task-456",
-		"gen_ai.conversation.id": "conversation-789",
-	})
+	ctx, parent := tracer.Start(t.Context(), "parent")
+	ctx = WithRequestAttributes(ctx,
+		attribute.String("gen_ai.conversation.id", "conversation-1"),
+		attribute.String("a2a.task.id", "task-1"),
+	)
 	_, child := tracer.Start(ctx, "child")
 	child.End()
-	root.End()
+	parent.End()
 
-	spans := exporter.GetSpans()
-	if len(spans) != 2 {
-		t.Fatalf("expected 2 spans, got %d", len(spans))
-	}
-
-	rootAttrs := spanAttributesByName(t, spans, "root")
-	childAttrs := spanAttributesByName(t, spans, "child")
-
-	for _, attrs := range []map[string]attribute.Value{rootAttrs, childAttrs} {
-		if got := attrs["kagent.user_id"].AsString(); got != "user-123" {
-			t.Errorf("kagent.user_id = %q, want %q", got, "user-123")
-		}
-		if got := attrs["gen_ai.task.id"].AsString(); got != "task-456" {
-			t.Errorf("gen_ai.task.id = %q, want %q", got, "task-456")
-		}
-		if got := attrs["gen_ai.conversation.id"].AsString(); got != "conversation-789" {
-			t.Errorf("gen_ai.conversation.id = %q, want %q", got, "conversation-789")
+	attributes := map[string]map[string]string{}
+	for _, span := range exporter.GetSpans() {
+		attributes[span.Name] = map[string]string{}
+		for _, attr := range span.Attributes {
+			attributes[span.Name][string(attr.Key)] = attr.Value.String()
 		}
 	}
-}
-
-func TestStartInvocationSpan_InheritsContextAttributes(t *testing.T) {
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(exporter),
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
-	)
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-	})
-
-	prevProvider := otel.GetTracerProvider()
-	otel.SetTracerProvider(tp)
-	t.Cleanup(func() {
-		otel.SetTracerProvider(prevProvider)
-	})
-
-	rootTracer := tp.Tracer("test")
-	ctx, root := rootTracer.Start(context.Background(), "root")
-	ctx = SetKAgentSpanAttributes(ctx, map[string]string{
-		"kagent.user_id":         "user-123",
-		"gen_ai.conversation.id": "conversation-789",
-	})
-
-	_, invocation := StartInvocationSpan(ctx)
-	invocation.End()
-	root.End()
-
-	attrs := spanAttributesByName(t, exporter.GetSpans(), "invocation")
-	if got := attrs["kagent.user_id"].AsString(); got != "user-123" {
-		t.Errorf("kagent.user_id = %q, want %q", got, "user-123")
+	if got := attributes["child"]; got["gen_ai.conversation.id"] != "conversation-1" || got["a2a.task.id"] != "task-1" {
+		t.Fatalf("child attributes = %v", got)
 	}
-	if got := attrs["gen_ai.conversation.id"].AsString(); got != "conversation-789" {
-		t.Errorf("gen_ai.conversation.id = %q, want %q", got, "conversation-789")
+	if got := attributes["parent"]; len(got) != 0 {
+		t.Fatalf("a span started before the attributes were set got %v", got)
 	}
 }
 
-func TestSetLLMAttributes_OnActiveSpan(t *testing.T) {
-	t.Setenv(captureMessageContentEnvVar, "true")
-
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-	})
-
-	tracer := tp.Tracer("test")
-	ctx, span := tracer.Start(context.Background(), "generate_content gpt-4.1-mini")
-
-	req := &model.LLMRequest{
-		Model: "gpt-4.1-mini",
-		Contents: []*genai.Content{{
-			Role: string(genai.RoleUser),
-			Parts: []*genai.Part{
-				{Text: "Hello"},
-			},
-		}},
-	}
-	SetLLMRequestAttributes(ctx, "gpt-4.1-mini", req)
-
-	resp := &model.LLMResponse{
-		Content: &genai.Content{
-			Role: string(genai.RoleModel),
-			Parts: []*genai.Part{
-				{Text: "Hi there"},
-			},
-		},
-	}
-	SetLLMResponseAttributes(ctx, resp)
-	span.End()
-
-	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	attrs := make(map[string]attribute.Value, len(spans[0].Attributes))
-	for _, attr := range spans[0].Attributes {
-		attrs[string(attr.Key)] = attr.Value
-	}
-
-	if got := attrs["gcp.vertex.agent.llm_request"].AsString(); got == "" || got == "{}" {
-		t.Errorf("gcp.vertex.agent.llm_request = %q, want captured payload", got)
-	}
-	if got := attrs["gcp.vertex.agent.llm_response"].AsString(); got == "" || got == "{}" {
-		t.Errorf("gcp.vertex.agent.llm_response = %q, want captured payload", got)
+func TestWithRequestAttributesKeepsContextWhenEmpty(t *testing.T) {
+	ctx := t.Context()
+	if WithRequestAttributes(ctx) != ctx {
+		t.Fatal("no attributes should return the same context")
 	}
 }
-
-func TestSetLLMAttributes_EmitsEmptyPayloadWhenContentCaptureDisabled(t *testing.T) {
-	t.Setenv(captureMessageContentEnvVar, "false")
-
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-	})
-
-	tracer := tp.Tracer("test")
-	ctx, span := tracer.Start(context.Background(), "generate_content")
-	SetLLMRequestAttributes(ctx, "gpt-4.1-mini", &model.LLMRequest{Model: "gpt-4.1-mini"})
-	SetLLMResponseAttributes(ctx, &model.LLMResponse{})
-	span.End()
-
-	attrs := make(map[string]attribute.Value)
-	for _, attr := range exporter.GetSpans()[0].Attributes {
-		attrs[string(attr.Key)] = attr.Value
-	}
-
-	if got := attrs["gcp.vertex.agent.llm_request"].AsString(); got != "{}" {
-		t.Errorf("gcp.vertex.agent.llm_request = %q, want %q", got, "{}")
-	}
-	if got := attrs["gcp.vertex.agent.llm_response"].AsString(); got != "{}" {
-		t.Errorf("gcp.vertex.agent.llm_response = %q, want %q", got, "{}")
-	}
-}
-
 func TestSetMessageMetadataAttributes(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))

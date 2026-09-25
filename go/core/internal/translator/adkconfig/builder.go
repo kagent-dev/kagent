@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -212,6 +213,9 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}
+		if template.Spec.OutputSchemaFrom != nil {
+			configMaps[template.Spec.OutputSchemaFrom.Name] = struct{}{}
+		}
 		if template.Spec.PromptTemplate != nil {
 			for _, source := range template.Spec.PromptTemplate.DataSources {
 				configMaps[source.Name] = struct{}{}
@@ -370,9 +374,53 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		destinations = append(destinations, "api.anthropic.com")
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "generativelanguage.googleapis.com")
+	case v1alpha3.ModelProviderOllama:
+		// Ollama's endpoint is the provider's own field and is not part of the
+		// serialized model, so the walk above never sees it. Unlike the three
+		// providers above there is no default to fall back on: the host is the
+		// operator's, so it has to be read from the spec.
+		if ollama := modelConfig.Spec.Ollama; ollama != nil {
+			if ollama.Host != "" {
+				destinations = appendURLHost(destinations, withDefaultScheme(ollama.Host))
+			}
+			// A cloud model with a key and no explicit host reaches
+			// api.ollama.com, so the agent needs that host allowed or the call
+			// is denied by egress policy. The condition is shared with the key
+			// reference and credential binding (models.OllamaReachesCloud).
+			//
+			// This used to add the host whenever a cloud model had any key,
+			// ignoring the operator's host. That over-allowed egress: with a
+			// host set the request goes to that host, so api.ollama.com never
+			// needs to be reachable.
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
+				destinations = append(destinations, "api.ollama.com")
+			}
+		}
 	}
 	slices.Sort(destinations)
 	return slices.Compact(destinations)
+}
+
+// withDefaultScheme makes a bare host:port an absolute URL. The Ollama host
+// field accepts either form, but net/url reads the bare one as a scheme, so a
+// caller that wants a hostname from it has to normalize first.
+//
+// A bare host defaults to http, which is right for a daemon (host:port on a
+// private address). It is wrong for ollama.com's API, which serves HTTPS only:
+// Cloudflare answers the http form with a redirect, and Go turns a 301 into a
+// GET, so the POST /api/chat that should carry the request comes back 405
+// Method Not Allowed. The cloud endpoint therefore has to be normalized to
+// https here, which is what the runtime's own copy of this does — the two
+// disagreed, and the actor was pinned to http://api.ollama.com.
+func withDefaultScheme(host string) string {
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		return host
+	}
+	if models.IsOllamaCloudEndpoint(host) {
+		return "https://" + host
+	}
+	return "http://" + host
 }
 
 // appendURLValues walks serialized provider config because endpoint fields are

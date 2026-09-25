@@ -186,6 +186,158 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	})
 }
 
+func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
+	for _, harnessType := range []v2translator.HarnessType{
+		v2translator.HarnessTypeKagent, v2translator.HarnessTypeCodex, v2translator.HarnessTypeClaude, v2translator.HarnessTypeBYO,
+	} {
+		t.Run(string(harnessType), func(t *testing.T) {
+			stop := make(chan struct{})
+			t.Cleanup(func() { close(stop) })
+			opts := krt.NewOptionsBuilder(stop, "test-sandbox", nil)
+			template := &kagentv1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"},
+				Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+			}
+			runtimeHarness := harness("team-a", string(harnessType), nil)
+			runtimeHarness.UID = "harness-uid"
+			runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			runtimeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+			}
+			responses := kagentv1alpha3.OpenAIAPIFormatResponses
+			model := &kagentv1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"},
+				Spec: kagentv1alpha3.ModelConfigSpec{
+					Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+					OpenAI: &kagentv1alpha3.OpenAIConfig{APIFormat: &responses},
+				},
+			}
+			switch harnessType {
+			case v2translator.HarnessTypeKagent:
+				runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+			case v2translator.HarnessTypeCodex:
+				runtimeHarness.Spec.Codex = &kagentv1alpha3.CodexHarness{}
+			case v2translator.HarnessTypeClaude:
+				runtimeHarness.Spec.Claude = &kagentv1alpha3.ClaudeHarness{}
+				model.Spec.Provider, model.Spec.Model, model.Spec.OpenAI = kagentv1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5", nil
+			case v2translator.HarnessTypeBYO:
+				runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
+				runtimeHarness.Spec.Workload.Command = []string{"/agent"}
+				template.Spec.ModelConfig = nil
+			}
+			mock := krttest.NewMock(t, []any{
+				template, runtimeHarness, model,
+				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
+			})
+			templates := krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock)
+			pairs := newPairCollection(templates, krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), opts)
+			configMaps := krttest.GetMockCollection[*corev1.ConfigMap](mock)
+			secrets := krttest.GetMockCollection[*corev1.Secret](mock)
+			_, resolvedModels := newModelConfigReconciliations(krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), configMaps, secrets, opts)
+			workerPools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{
+				{ObjectMeta: metav1.ObjectMeta{Namespace: "team-b", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+				{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+			}, opts.WithName("WorkerPools")...)
+			observations := krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...)
+			reconciliations := newPairReconciliations(pairs, v2translator.Collections{
+				AgentTemplates: templates, ResolvedModelConfigs: resolvedModels,
+				RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
+				ConfigMaps:       configMaps, Secrets: secrets, WorkerPools: workerPools,
+			}, observations, opts)
+			key := "team-a/assistant/" + string(harnessType)
+			waitFor(t, func() bool {
+				state := reconciliations.GetKey(key)
+				return state != nil && state.Failure != nil
+			})
+			missingPool := &ReconciliationFailure{
+				Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: `WorkerPool "team-a/selected" not found`,
+			}
+			require.Equal(t, missingPool, reconciliations.GetKey(key).Failure)
+			require.Nil(t, reconciliations.GetKey(key).Revision, "missing capacity must fail compilation")
+
+			workerPools.UpdateObject(&atev1alpha1.WorkerPool{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"},
+			})
+			waitFor(t, func() bool {
+				state := reconciliations.GetKey(key)
+				return state != nil && state.Failure == nil && state.DesiredActorTemplate != nil && state.Revision.SandboxClass == ""
+			})
+			baseline := reconciliations.GetKey(key)
+			gvisorRevision := baseline.RevisionID
+			require.False(t, gvisorRevision.IsZero())
+			gvisorTemplate := proto.CloneOf(baseline.DesiredActorTemplate)
+			observed := proto.CloneOf(gvisorTemplate)
+			observed.Metadata.Uid = "actor-template-uid"
+			observations.UpdateObject(PairRuntimeObservation{
+				Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: runtimeHarness.Name, RevisionID: gvisorRevision, Template: observed,
+			})
+			waitFor(t, func() bool { return reconciliations.GetKey(key).ObservedActorTemplate != nil })
+
+			for _, step := range []struct {
+				name    string
+				class   atev1alpha1.SandboxClass
+				remove  bool
+				failure *ReconciliationFailure
+			}{
+				{name: "default"},
+				{name: "explicit gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "microvm", class: atev1alpha1.SandboxClassMicroVM},
+				{name: "back to gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "unsupported", class: "unsupported", failure: &ReconciliationFailure{
+					Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "RevisionInvalid", Message: `unsupported sandbox class "unsupported"`,
+				}},
+				{name: "deleted", remove: true, failure: missingPool},
+				{name: "recreated"},
+			} {
+				t.Run(step.name, func(t *testing.T) {
+					if step.remove {
+						workerPools.DeleteObject("team-a/selected")
+					} else {
+						workerPools.UpdateObject(&atev1alpha1.WorkerPool{
+							ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"},
+							Spec:       atev1alpha1.WorkerPoolSpec{SandboxClass: step.class},
+						})
+					}
+					waitFor(t, func() bool {
+						state := reconciliations.GetKey(key)
+						if step.failure != nil {
+							return state != nil && state.Failure != nil && *state.Failure == *step.failure
+						}
+						return state != nil && state.Failure == nil && state.DesiredActorTemplate != nil && state.Revision.SandboxClass == step.class
+					})
+					state := reconciliations.GetKey(key)
+					if step.failure != nil {
+						require.True(t, state.RevisionID.IsZero())
+						require.Nil(t, state.DesiredActorTemplate)
+						require.Nil(t, state.ObservedActorTemplate)
+						pairStatus := statusForPair(*state, 1, gvisorRevision.String())
+						require.Equal(t, gvisorRevision.String(), pairStatus.LatestSuccessfulRevision)
+						condition := apimeta.FindStatusCondition(pairStatus.Conditions, step.failure.Condition)
+						require.NotNil(t, condition)
+						require.Equal(t, metav1.ConditionFalse, condition.Status)
+						require.Equal(t, step.failure.Reason, condition.Reason)
+						return
+					}
+					expected := proto.CloneOf(gvisorTemplate)
+					expected.Metadata.Name = state.DesiredActorTemplate.GetMetadata().GetName()
+					if step.class == atev1alpha1.SandboxClassMicroVM {
+						require.NotEqual(t, gvisorRevision, state.RevisionID)
+						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
+						require.Nil(t, state.ObservedActorTemplate, "a gVisor observation must not satisfy a MicroVM revision")
+						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, ConfigName: "microvm"}
+					} else {
+						require.Equal(t, gvisorRevision, state.RevisionID)
+						require.Equal(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
+						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"}
+					}
+					require.True(t, proto.Equal(expected, state.DesiredActorTemplate), "sandbox selection must preserve the rest of the ActorTemplate")
+					require.Equal(t, map[string]string{"kagent.dev/worker-pool": "selected"}, state.DesiredActorTemplate.GetWorkerSelector().GetMatchLabels())
+				})
+			}
+		})
+	}
+}
+
 func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })

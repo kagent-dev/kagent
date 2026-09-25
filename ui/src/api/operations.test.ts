@@ -491,6 +491,7 @@ describe("the cluster", () => {
     [ActorState.PAUSED, "Paused"],
     [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
     [ActorState.DELETING, "ACTOR_STATE_DELETING"],
+    [ActorState.REVERTING, "Reverting"],
     [99 as ActorState, "99"],
   ])("preserves the actor status label for state %s", async (state, label) => {
     serve(({ service }) => {

@@ -7,16 +7,20 @@ import (
 	"slices"
 	"testing"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
+	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
+	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -25,6 +29,74 @@ func modelConfig() *v1alpha3.ModelConfig {
 	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"},
 		Spec:       v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4o"},
+	}
+}
+
+func TestCompileAgentTemplatePreservesWorkloadOverrides(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		command []string
+		args    []string
+	}{
+		{name: "image defaults"},
+		{name: "command", command: []string{"/runtime"}},
+		{name: "args", args: []string{"--verbose"}},
+		{name: "go args", args: []string{"--log-level", "debug"}},
+		{name: "go command and args", command: []string{"/app"}, args: []string{"--log-level", "debug", "--host", "0.0.0.0"}},
+		{name: "python static", command: []string{"kagent-adk"}, args: []string{"static", "--host", "0.0.0.0", "--port", "8080"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+				Spec: v1alpha3.HarnessSpec{
+					Kagent:                &v1alpha3.KagentHarness{},
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload: v1alpha3.HarnessWorkload{
+						Image:   "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
+					},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			original := harness.DeepCopy()
+			result, err := compiler(t, modelConfig()).CompileAgentTemplate(t.Context(), harness, template)
+			require.NoError(t, err)
+			require.Equal(t, tt.command, result.Command)
+			require.Equal(t, tt.args, result.Args)
+
+			revisionID, err := result.Digest()
+			require.NoError(t, err)
+			if len(tt.command) > 0 || len(tt.args) > 0 {
+				withoutOverrides := result.Revision
+				withoutOverrides.Command = nil
+				withoutOverrides.Args = nil
+				defaultID, err := withoutOverrides.Digest()
+				require.NoError(t, err)
+				require.NotEqual(t, defaultID, revisionID, "workload overrides must affect revision identity")
+			}
+			actorTemplate, err := substrate.ActorTemplateForRevision(&result.Revision, revisionID)
+			require.NoError(t, err)
+			require.Len(t, actorTemplate.Containers, 1)
+			container := actorTemplate.Containers[0]
+			require.Equal(t, tt.command, container.Command)
+			require.Equal(t, tt.args, container.Args)
+
+			if len(result.Command) > 0 {
+				result.Command[0] = "changed"
+			}
+			if len(result.Args) > 0 {
+				result.Args[0] = "changed"
+			}
+			require.Equal(t, original, harness, "compiled overrides must not alias the source Harness")
+			require.Equal(t, tt.command, container.Command, "container command must not alias the compiled revision")
+			require.Equal(t, tt.args, container.Args, "container args must not alias the compiled revision")
+		})
 	}
 }
 
@@ -108,12 +180,18 @@ func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
 
 func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
 	t.Helper()
-	collections := mockCollections(t, objects...)
+	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
+		v2translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
+		v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
 		v2translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
 	})
+}
+
+func defaultWorkerPool() *atev1alpha1.WorkerPool {
+	return &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
 }
 
 func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
@@ -124,6 +202,7 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
+		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
 	}
 	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
 	resolved := make([]any, 0, len(models.List()))
@@ -135,6 +214,159 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	resolvedMock := krttest.NewMock(t, resolved)
 	collections.ResolvedModelConfigs = krttest.GetMockCollection[v2translator.ResolvedModelConfig](resolvedMock)
 	return collections
+}
+
+func TestCompileAgentTemplateResolvesWorkerPoolSandboxClass(t *testing.T) {
+	for _, harnessType := range []v2translator.HarnessType{
+		v2translator.HarnessTypeKagent, v2translator.HarnessTypeCodex, v2translator.HarnessTypeClaude, v2translator.HarnessTypeBYO,
+	} {
+		t.Run(string(harnessType), func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: string(harnessType)},
+				Spec: v1alpha3.HarnessSpec{
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			switch harnessType {
+			case v2translator.HarnessTypeKagent:
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+			case v2translator.HarnessTypeCodex:
+				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				responses := v1alpha3.OpenAIAPIFormatResponses
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: &responses}
+			case v2translator.HarnessTypeClaude:
+				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
+			case v2translator.HarnessTypeBYO:
+				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+				harness.Spec.Workload.Command = []string{"/agent"}
+				template.Spec.ModelConfig = nil
+			}
+			originalHarness, originalTemplate := harness.DeepCopy(), template.DeepCopy()
+			var baseline *v2translator.CompileResult
+			var defaultDigest v2translator.RevisionID
+			for _, tt := range []struct {
+				name    string
+				class   atev1alpha1.SandboxClass
+				missing bool
+			}{
+				{name: "default"},
+				{name: "explicit gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "microvm", class: atev1alpha1.SandboxClassMicroVM},
+				{name: "back to gvisor", class: atev1alpha1.SandboxClassGvisor},
+				{name: "unsupported", class: "unsupported"},
+				{name: "missing", missing: true},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					pool := &atev1alpha1.WorkerPool{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"},
+						Spec:       atev1alpha1.WorkerPoolSpec{SandboxClass: tt.class},
+					}
+					originalPool := pool.DeepCopy()
+					objects := []any{
+						model,
+						&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
+						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+					}
+					if !tt.missing {
+						objects = append(objects, pool)
+					}
+					result, err := compiler(t, objects...).CompileAgentTemplate(t.Context(), harness, template)
+					require.Equal(t, originalHarness, harness)
+					require.Equal(t, originalTemplate, template)
+					require.Equal(t, originalPool, pool)
+					if tt.missing {
+						var missing *v2translator.WorkerPoolNotFoundError
+						require.ErrorAs(t, err, &missing)
+						require.Equal(t, types.NamespacedName{Namespace: "test", Name: "selected"}, missing.WorkerPool)
+						require.EqualError(t, err, `WorkerPool "test/selected" not found`)
+						require.Nil(t, result, "unresolved capacity must not return a partial revision")
+						return
+					}
+					require.NoError(t, err)
+					require.Equal(t, tt.class, result.SandboxClass)
+					require.Equal(t, "selected", result.WorkerPoolName)
+					require.Equal(t, "test", result.Namespace)
+					digest, err := result.Digest()
+					if tt.class == "unsupported" {
+						require.EqualError(t, err, `unsupported sandbox class "unsupported"`)
+						require.True(t, digest.IsZero())
+						return
+					}
+					require.NoError(t, err)
+					if baseline == nil {
+						baseline, defaultDigest = result, digest
+					}
+					if tt.class == atev1alpha1.SandboxClassMicroVM {
+						require.NotEqual(t, defaultDigest, digest)
+					} else {
+						require.Equal(t, defaultDigest, digest)
+					}
+					expected := *baseline
+					expected.SandboxClass = tt.class
+					require.Equal(t, expected, *result, "sandbox selection must not change other compiled inputs or warnings")
+				})
+			}
+		})
+	}
+}
+
+func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"runtime": "kagent"},
+			}},
+		},
+	}
+	schema := `{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "schemas", Namespace: "test", UID: "schemas-uid"},
+		Data:       map[string]string{"answer.json": schema},
+	}
+	child := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
+			// A child contract is intentionally not resolved while this template is nested.
+			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(`{"type":"object","oneOf":[]}`)},
+		},
+	}
+	root := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
+			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
+			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+			}}},
+		},
+	}
+
+	revision, err := compiler(t, modelConfig(), configMap, child).CompileAgentTemplate(t.Context(), harness, root)
+	require.NoError(t, err)
+	var config adk.AgentConfig
+	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+	require.JSONEq(t, schema, string(config.Output.JSONSchema))
+	require.Len(t, config.Output.SHA256, 64)
+	require.Len(t, config.SubAgents, 1)
+	require.Nil(t, config.SubAgents[0].Output)
+	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
+	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
 }
 
 func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
@@ -196,11 +428,14 @@ func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.Har
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
-	collections := mockCollections(t, modelConfig())
+	collections := mockCollections(t, modelConfig(), defaultWorkerPool())
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
-		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+		Spec: v1alpha3.HarnessSpec{
+			Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+		},
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
 
@@ -211,6 +446,28 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
 	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
+}
+
+func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
+	collections := mockCollections(t, modelConfig())
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
+			OutputSchema: &apiextensionsv1.JSON{Raw: []byte(`{"type":"object"}`)},
+		},
+	}
+
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.ErrorContains(t, err, `Harness "codex" does not support structured output`)
+	require.Nil(t, adapter.input)
 }
 
 func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
@@ -236,10 +493,11 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO: &v1alpha3.BYOHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
-	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeBYO: adapter,
 	}).CompileAgentTemplate(context.Background(), harness, template)
 	require.NoError(t, err)
@@ -326,7 +584,7 @@ func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 	rotated := secret.DeepCopy()
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
-	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
 	})
 	next, err := rotatedCompiler.CompileAgentTemplate(t.Context(), harness, template)
@@ -340,15 +598,18 @@ func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 }
 
 func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
-	t.Setenv("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", "256")
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_METRICS_EXPORTER", "otlp")
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4318/v1/logs")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", "256")
+	otherCollector := "http://other-collector:4317"
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
+			Env:                   []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &otherCollector}},
 			Kagent:                &v1alpha3.KagentHarness{},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
 			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
@@ -374,14 +635,19 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 		found[variable.Name] = variable.Value
 	}
 	for name, value := range map[string]string{
-		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
-		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
+		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "otlp",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
+		"OTEL_SERVICE_NAME":                      "helper-kagent",
+		"OTEL_RESOURCE_ATTRIBUTES":               "gen_ai.agent.id=test/helper-kagent,gen_ai.agent.name=helper-kagent,service.namespace=test",
 		"OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "256",
 	} {
 		if found[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)
 		}
+	}
+	if _, overridden := found["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"]; overridden {
+		t.Errorf("Harness trace endpoint survived; egress only allows the controller's collector")
 	}
 	for _, hostname := range []string{"collector", "logs"} {
 		if !slices.Contains(spec.EgressDestinations, hostname) {
@@ -434,72 +700,6 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	require.Contains(t, revision.EgressDestinations, "search.example.com")
 	require.Contains(t, revision.EgressDestinations, "ghcr.io")
 	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
-}
-
-// KAGENT_TRACE_CONTEXT_KEYS is not an OTEL_ variable, so OtelEnvFromProcess
-// does not carry it and it needs forwarding of its own. It is also operator
-// policy, so a Harness must not be able to widen or enable it.
-func TestCompileAgentTemplateForwardsTraceContextPolicy(t *testing.T) {
-	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
-		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}},
-	}
-	harnessSupplied := "tenant.supplied"
-
-	tests := []struct {
-		name       string
-		keys       string
-		harnessEnv []v1alpha3.HarnessEnvVar
-		wantKeys   string
-	}{
-		{name: "absent when unconfigured"},
-		{name: "keys forwarded when configured", keys: "user.id,thread_id", wantKeys: "user.id,thread_id"},
-		{
-			name:     "mappings forwarded when configured",
-			keys:     `[{"from":"sub","to":"user.id"}]`,
-			wantKeys: `[{"from":"sub","to":"user.id"}]`,
-		},
-		{
-			name:       "harness cannot widen the allowlist",
-			keys:       "user.id",
-			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
-			wantKeys:   "user.id",
-		},
-		{
-			name:       "harness cannot enable promotion",
-			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(env.KagentTraceContextKeys.Name(), tt.keys)
-			harness := &v1alpha3.Harness{
-				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
-				Spec: v1alpha3.HarnessSpec{
-					Kagent:                &v1alpha3.KagentHarness{},
-					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
-					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-					Substrate: v1alpha3.HarnessSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
-					},
-					Env: tt.harnessEnv,
-				},
-			}
-
-			revision, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
-			require.NoError(t, err)
-
-			gotKeys, seenKeys := "", 0
-			for _, variable := range revision.Environment {
-				if variable.Name == env.KagentTraceContextKeys.Name() {
-					gotKeys, seenKeys = variable.Value, seenKeys+1
-				}
-			}
-			require.LessOrEqual(t, seenKeys, 1, "environment must not contain a duplicate keys entry")
-			require.Equal(t, tt.wantKeys, gotKeys)
-		})
-	}
 }
 
 func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {

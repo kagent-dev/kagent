@@ -9,7 +9,6 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
@@ -36,6 +35,13 @@ func generateContentResponses(
 		params.Instructions = param.NewOpt(instructions)
 	}
 	applyOpenAIResponsesConfig(&params, m.Config)
+	if schema, err := structuredOutputSchema(req.Config); err != nil {
+		yield(nil, err)
+		return
+	} else if schema != nil {
+		format := responses.ResponseFormatTextConfigParamOfJSONSchema(structuredOutputName, schema)
+		params.Text.Format = format
+	}
 
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToResponsesTools(req.Config.Tools)
@@ -134,7 +140,9 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				if fr := functionResponses[fc.ID]; fr != nil {
 					output = extractFunctionResponseContent(fr.Response)
 				}
-				input = append(input, responses.ResponseInputItemParamOfFunctionCallOutput(fc.ID, output))
+				functionOutput := responses.ResponseInputItemParamOfFunctionCallOutput(output)
+				functionOutput.OfFunctionCallOutput.CallID = param.NewOpt(fc.ID)
+				input = append(input, functionOutput)
 			}
 			continue
 		}
@@ -218,7 +226,6 @@ func runResponsesNonStreaming(
 		return
 	}
 	out := responseToLLMResponse(resp)
-	telemetry.SetLLMResponseAttributes(ctx, out)
 	yield(out, nil)
 }
 
@@ -302,7 +309,6 @@ func runResponsesStreaming(
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, out)
 	_ = yield(out, nil)
 }
 

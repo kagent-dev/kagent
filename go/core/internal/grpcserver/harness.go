@@ -20,6 +20,7 @@ const (
 	harnessRuntimeKagent = "kagent"
 	harnessRuntimeCodex  = "codex"
 	harnessRuntimeClaude = "claude"
+	harnessRuntimeBYO    = "byo"
 )
 
 type harnessServer struct {
@@ -101,6 +102,8 @@ func harnessRuntime(object *v1alpha3.Harness) string {
 		return harnessRuntimeCodex
 	case object.Spec.Claude != nil:
 		return harnessRuntimeClaude
+	case object.Spec.BYO != nil:
+		return harnessRuntimeBYO
 	default:
 		return ""
 	}

@@ -1,16 +1,102 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/google/jsonschema-go/jsonschema"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
 
 // testLogger returns a no-op logger for tests.
+
+func TestBedrockModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) {
+	t.Setenv("AWS_BEARER_TOKEN_BEDROCK", "")
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encoded, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(encoded, &body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"output":{"message":{"role":"assistant","content":[{"text":"{\"answer\":4}"}]}},
+			"stopReason":"end_turn",
+			"usage":{"inputTokens":1,"outputTokens":1,"totalTokens":2},
+			"metrics":{"latencyMs":1}
+		}`)
+	}))
+	defer server.Close()
+
+	client := bedrockruntime.New(bedrockruntime.Options{
+		Region:           "us-east-1",
+		BaseEndpoint:     aws.String(server.URL),
+		HTTPClient:       server.Client(),
+		Credentials:      credentials.NewStaticCredentialsProvider("test", "test", ""),
+		RetryMaxAttempts: 1,
+	})
+	llm := &BedrockModel{Config: &BedrockConfig{Model: "anthropic.claude-sonnet-4-5-v1:0"}, Client: client}
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{"answer": map[string]any{"type": "integer"}},
+		"required":             []any{"answer"},
+		"additionalProperties": false,
+	}
+	request := &model.LLMRequest{
+		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "calculate"}}}},
+		Config: &genai.GenerateContentConfig{
+			ResponseJsonSchema: schema,
+			Tools: []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name: "calculator", ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}}}},
+		},
+	}
+	for _, generateErr := range llm.GenerateContent(context.Background(), request, false) {
+		if generateErr != nil {
+			t.Fatalf("GenerateContent error: %v", generateErr)
+		}
+	}
+
+	outputConfig, ok := body["outputConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("outputConfig = %#v", body["outputConfig"])
+	}
+	textFormat, ok := outputConfig["textFormat"].(map[string]any)
+	if !ok || textFormat["type"] != "json_schema" {
+		t.Fatalf("outputConfig.textFormat = %#v", outputConfig["textFormat"])
+	}
+	structure, ok := textFormat["structure"].(map[string]any)
+	if !ok {
+		t.Fatalf("outputConfig.textFormat.structure = %#v", textFormat["structure"])
+	}
+	jsonSchema, ok := structure["jsonSchema"].(map[string]any)
+	if !ok || jsonSchema["name"] != "kagent_output" {
+		t.Fatalf("outputConfig.textFormat.structure.jsonSchema = %#v", structure["jsonSchema"])
+	}
+	encodedSchema, ok := jsonSchema["schema"].(string)
+	if !ok {
+		t.Fatalf("outputConfig JSON schema = %#v, want string", jsonSchema["schema"])
+	}
+	var gotSchema map[string]any
+	if err := json.Unmarshal([]byte(encodedSchema), &gotSchema); err != nil || gotSchema["additionalProperties"] != false {
+		t.Fatalf("Bedrock output schema = %#v, error %v", jsonSchema["schema"], err)
+	}
+	toolConfig, ok := body["toolConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("toolConfig = %#v", body["toolConfig"])
+	}
+	if tools, ok := toolConfig["tools"].([]any); !ok || len(tools) != 1 {
+		t.Fatalf("toolConfig.tools = %#v, want one tool", toolConfig["tools"])
+	}
+}
 
 func TestBedrockStopReasonToGenai(t *testing.T) {
 	tests := []struct {

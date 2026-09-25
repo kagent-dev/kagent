@@ -10,6 +10,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/adapter"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
@@ -48,7 +49,16 @@ func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, io.Closer, erro
 		_ = runner.Close()
 		return nil, nil, err
 	}
-	executor, err := runtimea2a.New(runner, store)
+	// Read here rather than taken as a Config field: the identity travels in the
+	// compiled configuration this function already has, and an embedder that
+	// forgot to pass it would emit spans no consumer could attribute to a
+	// harness, which is a silence rather than an error.
+	parsed, err := config.Parse(cfg.ConfigJSON)
+	if err != nil {
+		_ = runner.Close()
+		return nil, nil, err
+	}
+	executor, err := runtimea2a.New(runner, store, parsed.RuntimeTelemetry)
 	if err != nil {
 		_ = runner.Close()
 		return nil, nil, err

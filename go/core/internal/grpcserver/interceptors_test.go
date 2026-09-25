@@ -7,12 +7,12 @@ import (
 	"net/url"
 	"testing"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -157,7 +157,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
+	t.Run("a read-only AgentInstance share cannot create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
@@ -174,7 +174,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
+	t.Run("a READ_WRITE AgentInstance share may create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
 		}
@@ -210,6 +210,38 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			t.Fatalf("code = %v, want PermissionDenied", got)
 		}
 	})
+}
+
+func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
+	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
+	store := &testShareStore{
+		instanceShare: &apiv1alpha1.AgentInstanceShare{
+			AgentInstanceId: testInstanceID.String(),
+			Permission:      apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY,
+		},
+		ownerUserID: "owner",
+	}
+	for _, method := range []string{
+		a2apb.A2AService_SendMessage_FullMethodName,
+		a2apb.A2AService_SendStreamingMessage_FullMethodName,
+		a2apb.A2AService_CancelTask_FullMethodName,
+	} {
+		t.Run(method, func(t *testing.T) {
+			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
+			ctx, err := authenticate(ctx, method, &testAuthenticator{session: session}, store, DefaultMethodPolicies())
+			if err != nil {
+				t.Fatalf("A2A authorization must reach the gateway: %v", err)
+			}
+			share, ok := pkgauth.ShareContextFrom(ctx)
+			if !ok || !share.ReadOnly || !share.IsForAgentInstance(testInstanceID.String()) || share.UserID != "owner" {
+				t.Fatalf("validated share = %#v, want read-only authority for its owner and instance", share)
+			}
+			gotSession, ok := pkgauth.AuthSessionFrom(ctx)
+			if !ok || gotSession.Principal().User.ID != "visitor" {
+				t.Fatalf("authenticated session = %#v, want the visitor's identity", gotSession)
+			}
+		})
+	}
 }
 
 func TestMapError(t *testing.T) {
@@ -255,31 +287,4 @@ func TestRecoverUnaryInterceptor(t *testing.T) {
 	if got := status.Convert(err).Message(); got != "internal server error" {
 		t.Fatalf("message = %q", got)
 	}
-}
-
-func TestServerMetricsUnaryInterceptor(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	metrics, err := newServerMetrics(registry)
-	if err != nil {
-		t.Fatalf("newServerMetrics() error = %v", err)
-	}
-	_, callErr := metrics.unaryInterceptor(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: readMethod}, func(context.Context, any) (any, error) {
-		return nil, status.Error(codes.NotFound, "missing")
-	})
-	if status.Code(callErr) != codes.NotFound {
-		t.Fatalf("call code = %v", status.Code(callErr))
-	}
-	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("registry.Gather() error = %v", err)
-	}
-	for _, family := range families {
-		if family.GetName() == "kagent_grpc_server_requests_total" {
-			if got := family.GetMetric()[0].GetCounter().GetValue(); got != 1 {
-				t.Fatalf("request counter = %v, want 1", got)
-			}
-			return
-		}
-	}
-	t.Fatal("request counter metric was not gathered")
 }

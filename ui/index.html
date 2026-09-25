@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Rewritten by init.sh when the UI is served under a sub-path. -->
+    <base href="/" />
     <title>kagent</title>
     <!--
       Declared here rather than left to the browser's guess at /favicon.ico, so the
@@ -10,7 +12,7 @@
       link, and a distribution shipping under its own mark has nothing to hook onto
       if the tag is implicit.
     -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" data-app-favicon />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" data-app-favicon />
     <!--
       The first paint, before any stylesheet or script has loaded.
 
@@ -48,7 +50,7 @@
       a module-level constant — there is no point at which an awaited fetch could
       have landed in time. The dev server replaces this tag with an inline copy.
     -->
-    <script src="/env-config.js"></script>
+    <script src="env-config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -118,6 +118,7 @@ const (
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
 	ModelTypeFoundry         = "foundry"
+	ModelTypeMistral         = "mistral"
 )
 
 // Foundry API format values used by a Foundry model.
@@ -190,6 +191,30 @@ func (a *Anthropic) MarshalJSON() ([]byte, error) {
 
 func (a *Anthropic) GetType() string {
 	return ModelTypeAnthropic
+}
+
+type Mistral struct {
+	BaseModel
+	BaseUrl     string   `json:"base_url,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	Timeout     *int     `json:"timeout,omitempty"`
+}
+
+func (m *Mistral) MarshalJSON() ([]byte, error) {
+	type Alias Mistral
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeMistral,
+		Alias: (*Alias)(m),
+	})
+}
+
+func (m *Mistral) GetType() string {
+	return ModelTypeMistral
 }
 
 type GeminiVertexAI struct {
@@ -444,6 +469,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &foundry, nil
+	case ModelTypeMistral:
+		var mistral Mistral
+		if err := json.Unmarshal(bytes, &mistral); err != nil {
+			return nil, err
+		}
+		return &mistral, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -567,6 +598,10 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
 		copyTLS(v.BaseModel)
+	case *Mistral:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	default:
 		e.Model = ""
 	}
@@ -625,6 +660,14 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// OutputConfig is the root agent's structured-output contract. JSONSchema is
+// canonical JSON produced by the controller; SHA256 identifies that exact
+// contract in public A2A results.
+type OutputConfig struct {
+	JSONSchema json.RawMessage `json:"json_schema"`
+	SHA256     string          `json:"sha256"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Name            string                 `json:"name,omitempty"`
@@ -644,6 +687,7 @@ type AgentConfig struct {
 	SessionDBURL    string                 `json:"session_db_url,omitempty"`
 	SkillsDirectory string                 `json:"skills_directory,omitempty"`
 	SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
+	Output          *OutputConfig          `json:"output,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -673,6 +717,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		SessionDBURL    string                 `json:"session_db_url,omitempty"`
 		SkillsDirectory string                 `json:"skills_directory,omitempty"`
 		SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
+		Output          *OutputConfig          `json:"output,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -714,6 +759,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.SessionDBURL = tmp.SessionDBURL
 	a.SkillsDirectory = tmp.SkillsDirectory
 	a.SubAgents = tmp.SubAgents
+	a.Output = tmp.Output
 	return nil
 }
 

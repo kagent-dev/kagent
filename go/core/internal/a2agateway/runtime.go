@@ -15,7 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -98,7 +97,6 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 			return ctx, nil, err
 		}
 	}
-	propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(httpRequest.Header))
 	for key, values := range httpRequest.Header {
 		for _, value := range values {
 			req.ServiceParams.Append(key, value)

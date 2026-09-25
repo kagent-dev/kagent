@@ -71,4 +71,13 @@ describe("LoginPage sign-in destination", () => {
 
     expect(assign).toHaveBeenCalledWith("/oauth2/start?rd=%2Fagents%2Ffoo%3Ftab%3Dlogs");
   });
+
+  it("keeps the destination under the base path", async () => {
+    window.environmentVariables = { SSO_REDIRECT_PATH: "/oauth2/start", BASE_PATH: "/ui" };
+    renderAt("/login?rd=%2Fagents%2Ffoo");
+
+    await userEvent.click(screen.getByTestId("login-submit"));
+
+    expect(assign).toHaveBeenCalledWith("/ui/oauth2/start?rd=%2Fui%2Fagents%2Ffoo");
+  });
 });

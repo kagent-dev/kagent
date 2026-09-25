@@ -119,7 +119,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	agentsJSON := `{"reviewer":{"description":"Reviews changes","prompt":"Review carefully","tools":["Read"]}}`
 	mcpConfigPath := filepath.Join(dir, "mcp.json")
 	skillRoot := filepath.Join(dir, "generated-skills")
-	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, SkillRoot: skillRoot, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, SkillRoot: skillRoot, PluginDirs: []string{filepath.Join(dir, "plugin-a")}, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
 	if err := d.Validate(t.Context()); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -141,10 +141,8 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 		t.Errorf("arguments = %q, want %q", args, want)
 	}
 	for _, required := range []string{
-		"--bare\n",
 		"--dangerously-skip-permissions\n",
 		"--strict-mcp-config\n",
-		"--tools\n" + bareBuiltinTools + "\n",
 	} {
 		if !strings.Contains(string(args), required) {
 			t.Errorf("arguments do not contain required fixed policy flag %q", strings.TrimSpace(required))
@@ -157,7 +155,10 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 		t.Error("arguments do not contain compiler-owned MCP configuration")
 	}
 	if !strings.Contains(string(args), "--add-dir\n"+skillRoot+"\n") {
-		t.Error("arguments do not expose compiler-owned skills to bare mode")
+		t.Error("arguments do not expose compiler-owned skills")
+	}
+	if !strings.Contains(string(args), "--plugin-dir\n"+filepath.Join(dir, "plugin-a")+"\n") {
+		t.Error("arguments do not load the native plugin directory")
 	}
 	if strings.Contains(string(args), "--permission-prompt-tool\n") {
 		t.Error("arguments unexpectedly configure Claude's native permission bridge")

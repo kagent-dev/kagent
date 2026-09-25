@@ -345,6 +345,66 @@ tests:
             name: KAGENT_API_BASE_URL
             value: "/api"
 
+  - it: should pass ui.basePath through to the browser config only when set
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /ui
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_UI_BASE_PATH
+            value: "/ui"
+
+  - it: should omit KAGENT_UI_BASE_PATH by default
+    template: ui-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_UI_BASE_PATH
+          any: true
+
+  - it: should reject a ui.basePath that is not a path
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: ui
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath must be a path like /ui
+
+  - it: should reject a ui.basePath with dot segments
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /ui/..
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath must be a path like /ui
+
+  - it: should reject a ui.basePath that starts with a path nginx serves
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /assets/ui
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
+
+  - it: should accept a ui.basePath that only shares a prefix with a served path
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /apis
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_UI_BASE_PATH
+            value: "/apis"
+
   - it: should reflect overridden auth and stream settings
     template: ui-deployment.yaml
     set:
