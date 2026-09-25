@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
-import { convertToUserFriendlyName } from "@/lib/utils";
+import { convertToUserFriendlyName, copyText } from "@/lib/utils";
 import { McpAppRenderer } from "@/components/mcp-apps/McpAppRenderer";
 import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
 import { buildMcpAppRenderPayload } from "@/lib/mcpAppToolResult";
@@ -50,13 +50,12 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
   const shouldRenderMcpApp = !!mcpApp && !!mcpAppPayload?.toolResult && status === "completed" && !isError;
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(result?.content || "");
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy text:", err);
+    if (!(await copyText(result?.content || ""))) {
+      console.error("Failed to copy text");
+      return;
     }
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   const handleApprove = async () => {

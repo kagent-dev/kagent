@@ -16,7 +16,9 @@ const base: AgentResponse = {
 function toolMcp(names?: string[]): Tool {
   return {
     type: "McpServer",
-    mcpServer: { name: "srv", namespace: "ns", toolNames: names, kind: "ToolServer" },
+    // Cast: the point of the undefined case is a payload the type forbids but the
+    // backend can still send.
+    mcpServer: { name: "srv", namespace: "ns", toolNames: names as string[], kind: "ToolServer" },
   };
 }
 
