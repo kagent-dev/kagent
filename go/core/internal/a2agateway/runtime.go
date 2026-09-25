@@ -11,6 +11,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -19,9 +20,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
-
-// runtimeMaxMessageSize matches the controller and runtime gRPC servers so file uploads fit.
-const runtimeMaxMessageSize = 16 << 20
 
 // RuntimeDialer connects public gateway calls to the single root Actor used by
 // the current v0 AgentInstance implementation. Replacing this component with a
@@ -71,7 +69,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 		a2agrpc.WithGRPCTransport(
 			grpc.WithTransportCredentials(d.transport),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(runtimeMaxMessageSize), grpc.MaxCallSendMsgSize(runtimeMaxMessageSize)),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(client.DefaultGRPCMaxMessageSize), grpc.MaxCallSendMsgSize(client.DefaultGRPCMaxMessageSize)),
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),

@@ -27,6 +27,7 @@ import (
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/stats"
 
+	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -34,8 +35,6 @@ import (
 const (
 	a2aMaxContentLengthEnvVar = "A2A_MAX_CONTENT_LENGTH"
 	defaultMaxContentLength   = int64(10 * 1024 * 1024)
-	// grpcMaxMessageSize matches the controller's gRPC limit so file uploads fit.
-	grpcMaxMessageSize = 16 << 20
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -94,8 +93,8 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux.Handle("/", jsonrpcHandler)
 
 	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(grpcMaxMessageSize),
-		grpc.MaxSendMsgSize(grpcMaxMessageSize),
+		grpc.MaxRecvMsgSize(client.DefaultGRPCMaxMessageSize),
+		grpc.MaxSendMsgSize(client.DefaultGRPCMaxMessageSize),
 		grpc.StatsHandler(rpcEndSignal{otelgrpc.NewServerHandler(
 			otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))}),
 	)

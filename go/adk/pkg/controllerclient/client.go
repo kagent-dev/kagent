@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -18,8 +19,7 @@ import (
 )
 
 const (
-	defaultTimeout        = 30 * time.Second
-	defaultMaxMessageSize = 16 << 20
+	defaultTimeout = 30 * time.Second
 )
 
 type TokenProvider interface {
@@ -56,7 +56,7 @@ func New(config Config) (*Client, error) {
 		config.Timeout = defaultTimeout
 	}
 	if config.MaxMessageBytes == 0 {
-		config.MaxMessageBytes = defaultMaxMessageSize
+		config.MaxMessageBytes = client.DefaultGRPCMaxMessageSize
 	}
 	transportCredentials := config.TransportCredentials
 	if transportCredentials == nil {

@@ -86,15 +86,15 @@ func TestInlineFileToText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := InlineFileToText(tt.blob, tt.file)
+			got := inlineFileToText(tt.blob, tt.file)
 			if tt.contains == "" {
 				if got != "" {
-					t.Errorf("InlineFileToText() = %q, want empty", got)
+					t.Errorf("inlineFileToText() = %q, want empty", got)
 				}
 				return
 			}
 			if !strings.Contains(got, tt.contains) {
-				t.Errorf("InlineFileToText() = %q, want containing %q", got, tt.contains)
+				t.Errorf("inlineFileToText() = %q, want containing %q", got, tt.contains)
 			}
 		})
 	}
@@ -102,9 +102,9 @@ func TestInlineFileToText(t *testing.T) {
 
 func TestInlineFileToText_Truncates(t *testing.T) {
 	data := strings.Repeat("é", maxTextChars+10)
-	got := InlineFileToText(&genai.Blob{Data: []byte(data), MIMEType: "text/plain"}, "big.txt")
+	got := inlineFileToText(&genai.Blob{Data: []byte(data), MIMEType: "text/plain"}, "big.txt")
 	if !strings.HasSuffix(got, "\n\n[truncated]") {
-		t.Fatalf("InlineFileToText() did not note truncation: %q", got[len(got)-40:])
+		t.Fatalf("inlineFileToText() did not note truncation: %q", got[len(got)-40:])
 	}
 	if n := strings.Count(got, "é"); n != maxTextChars {
 		t.Errorf("kept %d characters, want %d", n, maxTextChars)

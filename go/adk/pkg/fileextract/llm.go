@@ -73,7 +73,7 @@ func filesToText(req *model.LLMRequest) *model.LLMRequest {
 			if parts == nil {
 				parts = slices.Clone(c.Parts)
 			}
-			parts[j] = genai.NewPartFromText(InlineFileToText(p.InlineData, partFileName(p)))
+			parts[j] = genai.NewPartFromText(inlineFileToText(p.InlineData, partFileName(p)))
 		}
 		if parts == nil {
 			continue
