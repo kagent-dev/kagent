@@ -148,15 +148,16 @@ def _environment_propagator() -> CompositePropagator:
 
 
 def force_flush(timeout_millis: int = FLUSH_TIMEOUT_MILLIS) -> None:
-    """Export any spans and metrics still buffered in their providers.
+    """Export any logs, spans and metrics still buffered in their providers.
 
     Call before a response completes when the process may be suspended right
     afterwards: Agent Substrate checkpoints the actor as soon as the A2A
-    response body closes, so unexported spans stay frozen in the snapshot
+    response body closes, so unexported telemetry stays frozen in the snapshot
     until the session's next resume (or forever, for a session's last
-    message). No-op for a provider without force_flush (signal disabled).
+    message). Logs go first because GenAI audit events are the telemetry most
+    likely to be lost. No-op for a provider without force_flush (signal disabled).
     """
-    for provider in (trace.get_tracer_provider(), metrics.get_meter_provider()):
+    for provider in (_logs.get_logger_provider(), trace.get_tracer_provider(), metrics.get_meter_provider()):
         flush = getattr(provider, "force_flush", None)
         if flush is None:
             continue
@@ -300,7 +301,7 @@ def configure(
         )
         metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
         logging.info("Meter provider configured with OTLP")
-    if fastapi_app and (tracing_enabled or metrics_enabled):
+    if fastapi_app and (tracing_enabled or metrics_enabled or logging_enabled):
         _add_post_response_flush(fastapi_app)
     # Configure logging if enabled
     if logging_enabled:

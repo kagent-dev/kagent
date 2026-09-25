@@ -153,9 +153,11 @@ func WithFlushRecord(ctx context.Context) context.Context {
 	return context.WithValue(ctx, flushRecordKey{}, new(atomic.Bool))
 }
 
-// ForceFlush exports buffered spans and metrics, even for a canceled request.
+// ForceFlush exports buffered logs, spans and metrics, even for a canceled
+// request. Logs go first because audit events are the telemetry most likely
+// to be lost when the process is suspended right after the response closes.
 func (p *Providers) ForceFlush(ctx context.Context) error {
-	if p == nil || (p.tracer == nil && p.meter == nil) {
+	if p == nil || (p.tracer == nil && p.meter == nil && p.logger == nil) {
 		return nil
 	}
 	failed, _ := ctx.Value(flushRecordKey{}).(*atomic.Bool)
@@ -165,8 +167,11 @@ func (p *Providers) ForceFlush(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), FlushTimeout)
 	defer cancel()
 	var err error
+	if p.logger != nil {
+		err = p.logger.ForceFlush(ctx)
+	}
 	if p.tracer != nil {
-		err = p.tracer.ForceFlush(ctx)
+		err = errors.Join(err, p.tracer.ForceFlush(ctx))
 	}
 	if p.meter != nil {
 		err = errors.Join(err, p.meter.ForceFlush(ctx))
