@@ -554,7 +554,7 @@ func processDirectApproval(req *apia2a.ToolApprovalRequest, message *a2atype.Mes
 		}
 		var payload map[string]any
 		if !approval.Approved && approval.RejectionReason != "" {
-			payload = map[string]any{"rejection_reason": approval.RejectionReason}
+			payload = map[string]any{apia2a.ToolConfirmationRejectionReasonKey: approval.RejectionReason}
 		}
 		parts = append(parts, buildConfirmationResponsePart(tool.ID, approval.Approved, payload))
 		delete(approvals, tool.ID)

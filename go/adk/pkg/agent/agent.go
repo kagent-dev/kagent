@@ -15,6 +15,7 @@ import (
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/agent"
@@ -26,6 +27,7 @@ import (
 	"google.golang.org/adk/v2/tool/preloadmemorytool"
 	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -524,6 +526,11 @@ const (
 	toolResponseIsErrorKey = "isError"
 )
 
+// rejectedToolMessage is what the model is told about a call a person rejected.
+// The Python runtime says the same (kagent/adk/_approval.py), so a rejection
+// reads alike whichever runtime the agent runs on.
+const rejectedToolMessage = "Tool call was rejected by user."
+
 // makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors
 // and marks the function response of a failed call with isError.
 func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
@@ -534,7 +541,7 @@ func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 			"session_id", ctx.SessionID(),
 			"invocation_id", ctx.InvocationID(),
 		)
-		return toolErrorResponse(err), nil
+		return toolErrorResponse(ctx.ToolConfirmation(), err), nil
 	}
 }
 
@@ -543,15 +550,45 @@ func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 // runtimes set beside a failed result (harness/runtime/a2a) and clients read to
 // show a step as failed. adk-go's MCP toolset collapses a CallToolResult with
 // IsError into a Go error before it reaches the flow, so this callback is the
-// one place that still knows the call failed. A confirmation request travels
-// as an error too, but it is a pause, not a failure: it keeps the plain shape,
-// which clients tell apart by its text. A nil map hands the error back to
+// one place that still knows the call failed. A nil map hands the error back to
 // adk-go's default handling.
-func toolErrorResponse(err error) map[string]any {
-	if err == nil || errors.Is(err, tool.ErrConfirmationRequired) {
+func toolErrorResponse(confirmation *toolconfirmation.ToolConfirmation, err error) map[string]any {
+	switch {
+	case err == nil || errors.Is(err, tool.ErrConfirmationRequired):
+		// A confirmation request travels as an error too, but it is a pause,
+		// not a failure: it keeps the plain shape, which clients tell apart by
+		// its text.
 		return nil
+	case errors.Is(err, tool.ErrConfirmationRejected):
+		// The call did not run because a person said no. adk-go reports that as
+		// a bare sentinel naming the tool; the model hears the person instead.
+		return toolFailure(rejectionMessage(confirmation))
+	default:
+		return toolFailure(err.Error())
 	}
-	return map[string]any{toolResponseErrorKey: err.Error(), toolResponseIsErrorKey: true}
+}
+
+// toolFailure is the function response of a call that produced no result, under
+// the message the model reads.
+func toolFailure(message string) map[string]any {
+	return map[string]any{toolResponseErrorKey: message, toolResponseIsErrorKey: true}
+}
+
+// rejectionMessage names the reason a person gave for rejecting a call when the
+// confirmation carries one, so the model can answer the question behind it
+// rather than only learning that it was refused. A confirmation that stands for
+// a child agent's decisions carries that state instead, and falls back to the
+// bare sentence.
+func rejectionMessage(confirmation *toolconfirmation.ToolConfirmation) string {
+	var payload map[string]any
+	if confirmation != nil {
+		payload, _ = confirmation.Payload.(map[string]any)
+	}
+	reason, _ := payload[apia2a.ToolConfirmationRejectionReasonKey].(string)
+	if reason = strings.TrimSpace(reason); reason == "" {
+		return rejectedToolMessage
+	}
+	return rejectedToolMessage + " Reason: " + reason
 }
 
 // mapKeys returns the top-level keys of a map for logging without exposing values.

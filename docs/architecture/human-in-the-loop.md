@@ -86,6 +86,11 @@ The kagent Go harness maps the contract to ADK confirmations. Remote A2A tools i
 the Go and Python ADKs can retain a child continuation when a subagent requests
 input.
 
+A rejected call is reported to the model as `Tool call was rejected by user.`,
+followed by `Reason: <reason>` when the decision carried a `rejection_reason`.
+The Go and Python ADKs say the same, so a model can answer the question behind a
+rejection and ask for the call again.
+
 The current v2 MCP tool-binding API does not expose per-tool approval policy, so
 users cannot configure generic MCP approval gating through `AgentTemplate` today.
 The extension remains valid for runtimes and tools that actually produce a pause,

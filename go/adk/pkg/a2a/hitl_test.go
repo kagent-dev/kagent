@@ -176,6 +176,17 @@ func TestBuildResumeHITLMessageBatchFlattensApprovals(t *testing.T) {
 	if err != nil || len(resume.Parts) != 2 {
 		t.Fatalf("resume parts = %v, err = %v", len(resume.Parts), err)
 	}
+	// The rejected call carries the reason the person gave, under the key the
+	// runtime reads it back from when it tells the model why.
+	response := asDataPart(resume.Parts[1])[PartKeyResponse].(map[string]any)["response"].(string)
+	var confirmation toolconfirmation.ToolConfirmation
+	if err := json.Unmarshal([]byte(response), &confirmation); err != nil {
+		t.Fatalf("unmarshal confirmation: %v", err)
+	}
+	payload, _ := confirmation.Payload.(map[string]any)
+	if confirmation.Confirmed || payload[apia2a.ToolConfirmationRejectionReasonKey] != "not now" {
+		t.Fatalf("rejected confirmation = %#v", confirmation)
+	}
 }
 
 func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
