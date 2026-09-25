@@ -1156,7 +1156,7 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 		}
 	})
 
-	var lastReady, lastPending *metav1.Condition
+	var lastReady *metav1.Condition
 	err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), template); err != nil {
 			return false, err
@@ -1167,12 +1167,8 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 			}
 			for index := range harness.Conditions {
 				condition := &harness.Conditions[index]
-				// A just-created ModelConfig may not have reached the controller's cache yet.
-				pending := (condition.Type == v1alpha3.AgentTemplateConditionReady && condition.Reason == "ActorTemplatePending") ||
-					(condition.Type == v1alpha3.AgentTemplateConditionResolvedRefs && condition.Reason == "ReferenceResolutionFailed")
-				if condition.Status == metav1.ConditionFalse && pending {
-					lastPending = condition.DeepCopy()
-				} else if condition.Status == metav1.ConditionFalse {
+				if condition.Status == metav1.ConditionFalse &&
+					(condition.Type != v1alpha3.AgentTemplateConditionReady || condition.Reason != "ActorTemplatePending") {
 					return false, fmt.Errorf("AgentTemplate %s/%s harness %q condition %s failed: %s: %s",
 						template.Namespace, template.Name, harnessName, condition.Type, condition.Reason, condition.Message)
 				}
@@ -1190,10 +1186,6 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 		if lastReady != nil {
 			t.Fatalf("wait for interaction AgentTemplate %s/%s on harness %q: %v; last Ready condition: status=%s reason=%s message=%q",
 				template.Namespace, template.Name, harnessName, err, lastReady.Status, lastReady.Reason, lastReady.Message)
-		}
-		if lastPending != nil {
-			t.Fatalf("wait for interaction AgentTemplate %s/%s on harness %q: %v; last pending condition: %s %s: %q",
-				template.Namespace, template.Name, harnessName, err, lastPending.Type, lastPending.Reason, lastPending.Message)
 		}
 		t.Fatalf("wait for interaction AgentTemplate: %v", err)
 	}
