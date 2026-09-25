@@ -24,7 +24,7 @@ func TestForkEventsRewritePublicReferencesOnly(t *testing.T) {
 	data, err := proto.Marshal(source)
 	require.NoError(t, err)
 	contextID := uuid.NewString()
-	rows, err := forkTaskEvents([]agentInstanceTaskEventRow{{TaskID: "source-task", Data: data}}, contextID)
+	rows, err := forkTaskEvents([]sessionTaskEventRow{{TaskID: "source-task", Data: data}}, contextID)
 	require.NoError(t, err)
 	rewritten := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(rows[0].Data, rewritten))

@@ -367,7 +367,7 @@ spec:
                       properties:
                         agentRef:
                           description: |-
-                            AgentRef selects a Dedicated subagent with its own Harness and AgentInstance, invoked over A2A.
+                            AgentRef selects a Dedicated subagent with its own Harness and Session, invoked over A2A.
                             Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
                           properties:
                             name:

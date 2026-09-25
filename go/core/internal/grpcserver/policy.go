@@ -68,23 +68,23 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.HarnessService_CreateHarness_FullMethodName:               auth.AccessCreate,
 		apiv1alpha1.HarnessService_DeleteHarness_FullMethodName:               auth.AccessDelete,
 	}
-	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = auth.AccessCreate
-	policies[apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName] = auth.AccessRead
-	policies[apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SessionService_CreateSession_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.SessionService_GetSession_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SessionService_ListSessions_FullMethodName] = auth.AccessRead
 	// A rename is the only write on this service that is not a lifecycle
 	// operation, and it must not inherit the read mode its neighbours carry.
-	policies[apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName] = auth.AccessUpdate
-	policies[apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName] = auth.AccessUpdate
-	policies[apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName] = auth.AccessUpdate
-	policies[apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName] = auth.AccessDelete
-	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName] = auth.AccessCreate
-	policies[apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName] = auth.AccessRead
-	policies[apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName] = auth.AccessDelete
+	policies[apiv1alpha1.SessionService_UpdateSessionName_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SessionService_SuspendSession_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SessionService_ResumeSession_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SessionService_DeleteSession_FullMethodName] = auth.AccessDelete
+	policies[apiv1alpha1.SessionService_CreateSessionShare_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.SessionService_ListSessionShares_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SessionService_RevokeSessionShare_FullMethodName] = auth.AccessDelete
 	policies[apiv1alpha1.CheckpointService_CreateCheckpoint_FullMethodName] = auth.AccessCreate
 	policies[apiv1alpha1.CheckpointService_GetCheckpoint_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.CheckpointService_ListCheckpoints_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.CheckpointService_DeleteCheckpoint_FullMethodName] = auth.AccessDelete
-	policies[apiv1alpha1.CheckpointService_ForkAgentInstance_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.CheckpointService_ForkSession_FullMethodName] = auth.AccessCreate
 	policies[apiv1alpha1.CheckpointService_UpdateCheckpointName_FullMethodName] = auth.AccessUpdate
 	policies[a2apb.A2AService_SendMessage_FullMethodName] = auth.AccessCreate
 	policies[a2apb.A2AService_SendStreamingMessage_FullMethodName] = auth.AccessCreate

@@ -15,13 +15,13 @@ import (
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
@@ -49,7 +49,7 @@ type Config struct {
 	TLSKeyFile            string
 	Authenticator         auth.AuthProvider
 	RuntimeAuthenticator  auth.AuthProvider
-	ShareStore            agentinstance.ShareStore
+	ShareStore            sessionsvc.ShareStore
 	AgentService          *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
 	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
@@ -59,7 +59,7 @@ type Config struct {
 	SystemService         *systemservice.Service
 	MemoryService         *memoryservice.Service
 	TaskStoreService      *taskstore.Service
-	AgentInstanceService  *agentinstance.Service
+	SessionService        *sessionsvc.Service
 	CheckpointService     *checkpoint.Service
 	ScheduledRunService   *scheduledrun.Service
 	A2AHandler            a2asrv.RequestHandler
@@ -149,8 +149,8 @@ func New(config Config) (*Server, error) {
 	if config.TaskStoreService != nil {
 		apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
 	}
-	if config.AgentInstanceService != nil {
-		apiv1alpha1.RegisterAgentInstanceServiceServer(grpcServer, &agentInstanceServer{service: config.AgentInstanceService})
+	if config.SessionService != nil {
+		apiv1alpha1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
 	}
 	if config.ScheduledRunService != nil {
 		apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})

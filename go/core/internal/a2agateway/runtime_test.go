@@ -52,8 +52,8 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
-	client, err := dialer.Dial(ctx, &apiv1alpha1.AgentInstance{
-		Id: "instance", A2AAuthority: substrate.ActorHost("team", "ai-instance", ""),
+	client, err := dialer.Dial(ctx, &apiv1alpha1.Session{
+		Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Destroy()) })
@@ -68,7 +68,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	for range 2 {
 		select {
 		case md := <-received:
-			require.Equal(t, []string{"team/ai-instance"}, md.Get("ate-target-actor"))
+			require.Equal(t, []string{"team/session-session"}, md.Get("ate-target-actor"))
 			require.Equal(t, []string{"Bearer runtime-test"}, md.Get("authorization"))
 			require.Equal(t, []string{listener.Addr().String()}, md.Get(":authority"))
 		case <-ctx.Done():

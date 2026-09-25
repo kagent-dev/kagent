@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"context"
@@ -23,20 +23,20 @@ const (
 )
 
 type store interface {
-	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
-	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
-	ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
-	UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte, string) (*apiv1alpha1.AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error)
-	DeleteAgentInstanceShare(context.Context, string, string) error
+	CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error)
+	GetSession(context.Context, string, string) (*apiv1alpha1.Session, error)
+	ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error)
+	UpdateSessionName(context.Context, string, string, string) (*apiv1alpha1.Session, error)
+	CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error)
+	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error)
+	DeleteSessionShare(context.Context, string, string) error
 }
 
-type instanceWorkflow interface {
-	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
-	Suspend(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
-	Resume(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
-	Delete(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
+type sessionWorkflow interface {
+	Create(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Suspend(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Resume(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 }
 
 type ListRequest struct {
@@ -49,29 +49,29 @@ type ListRequest struct {
 }
 
 type ListResult struct {
-	Instances     []*apiv1alpha1.AgentInstance
+	Sessions      []*apiv1alpha1.Session
 	NextPageToken string
 }
 
 type ShareListResult struct {
-	Shares        []*apiv1alpha1.AgentInstanceShare
+	Shares        []*apiv1alpha1.SessionShare
 	NextPageToken string
 }
 
 type Service struct {
 	store      store
 	authorizer auth.Authorizer
-	workflow   instanceWorkflow
+	workflow   sessionWorkflow
 }
 
-func NewService(store store, authorizer auth.Authorizer, workflow instanceWorkflow) *Service {
+func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflow) *Service {
 	return &Service{store: store, authorizer: authorizer, workflow: workflow}
 }
 
 // Create reserves and converges a new conversation. name is optional; an empty
-// name leaves the conversation identified by its id, which is how every instance
+// name leaves the conversation identified by its id, which is how every session
 // created before names existed behaves.
-func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.Session, error) {
 	if err := validateCreate(agent, requestID); err != nil {
 		return nil, err
 	}
@@ -81,38 +81,38 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
+		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
 	}
-	instance, _, err := s.store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+	session, _, err := s.store.CreateSession(ctx, &apiv1alpha1.Session{
 		Id: id.String(), Creator: creator, Name: name,
 		Agent: agent,
 	}, requestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
-		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
+		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
 	}
 	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted AgentInstance", err)
+		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted Session", err)
 	}
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewFailedPrecondition("Agent does not have a ready prepared revision", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to reserve AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to reserve Session", err)
 	}
-	instance, err = s.workflow.Create(ctx, instance)
+	session, err = s.workflow.Create(ctx, session)
 	if errors.Is(err, database.ErrConflict) {
 		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance was deleted", err)
+		return nil, serviceerrors.NewNotFound("Session was deleted", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to create AgentInstance", err)
+		return nil, serviceerrors.NewUnavailable("Failed to create Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
-func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
 	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
@@ -120,32 +120,32 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.AgentInstanc
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	session, err := s.store.GetSession(ctx, id, creator)
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
 // Rename sets the conversation's display name. Unlike every other read on this
 // service this is a write, and it authorizes as one: a reader who may list and
 // open a conversation must not be able to retitle it.
-func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.Session, error) {
 	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.UpdateAgentInstanceName(ctx, id, creator, name)
+	session, err := s.store.UpdateSessionName(ctx, id, creator, name)
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to rename AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to rename Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
@@ -154,7 +154,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "AgentInstanceAllCreators", ""); err != nil {
+		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
 			return ListResult{}, err
 		}
 	}
@@ -169,23 +169,23 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	instances, err := s.store.ListAgentInstances(ctx, database.AgentInstanceQuery{
+	sessions, err := s.store.ListSessions(ctx, database.SessionQuery{
 		UserID: userID, AllUsers: request.AllCreators,
 		Agent:   request.Agent,
 		AfterID: afterID, Limit: pageSize + 1,
 	})
 	if err != nil {
-		return ListResult{}, serviceerrors.NewInternal("Failed to list AgentInstances", err)
+		return ListResult{}, serviceerrors.NewInternal("Failed to list Sessions", err)
 	}
-	result := ListResult{Instances: instances}
-	if len(result.Instances) > pageSize {
-		result.NextPageToken = encodePageToken(result.Instances[pageSize-1].GetId())
-		result.Instances = result.Instances[:pageSize]
+	result := ListResult{Sessions: sessions}
+	if len(result.Sessions) > pageSize {
+		result.NextPageToken = encodePageToken(result.Sessions[pageSize-1].GetId())
+		result.Sessions = result.Sessions[:pageSize]
 	}
 	return result, nil
 }
 
-func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
 	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
@@ -193,14 +193,14 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	session, err := s.store.GetSession(ctx, id, creator)
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
-	instance, err = s.workflow.Delete(ctx, instance)
+	session, err = s.workflow.Delete(ctx, session)
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
@@ -208,12 +208,12 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to delete AgentInstance", err)
+		return nil, serviceerrors.NewUnavailable("Failed to delete Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
-func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
 	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
@@ -221,14 +221,14 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.AgentIns
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	session, err := s.store.GetSession(ctx, id, creator)
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
-	instance, err = s.workflow.Suspend(ctx, instance)
+	session, err = s.workflow.Suspend(ctx, session)
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
@@ -236,12 +236,12 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.AgentIns
 		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to suspend AgentInstance", err)
+		return nil, serviceerrors.NewUnavailable("Failed to suspend Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
-func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
 	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
@@ -249,14 +249,14 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	session, err := s.store.GetSession(ctx, id, creator)
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
-	instance, err = s.workflow.Resume(ctx, instance)
+	session, err = s.workflow.Resume(ctx, session)
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
@@ -264,19 +264,19 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to resume AgentInstance", err)
+		return nil, serviceerrors.NewUnavailable("Failed to resume Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
-func (s *Service) CreateShare(ctx context.Context, instanceID string, permission apiv1alpha1.AgentInstanceSharePermission) (*apiv1alpha1.AgentInstanceShare, string, error) {
-	if err := validateIdentity(instanceID); err != nil {
+func (s *Service) CreateShare(ctx context.Context, sessionID string, permission apiv1alpha1.SessionSharePermission) (*apiv1alpha1.SessionShare, string, error) {
+	if err := validateIdentity(sessionID); err != nil {
 		return nil, "", err
 	}
-	if permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE {
+	if permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE {
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbCreate, sessionID+"/shares")
 	if err != nil {
 		return nil, "", err
 	}
@@ -288,22 +288,22 @@ func (s *Service) CreateShare(ctx context.Context, instanceID string, permission
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
-	share, err := s.store.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: instanceID,
+	share, err := s.store.CreateSessionShare(ctx, &apiv1alpha1.SessionShare{Id: id.String(), SessionId: sessionID,
 		Permission: permission}, tokenHash, userID)
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, "", serviceerrors.NewNotFound("Session not found", err)
 	}
 	if err != nil {
-		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
+		return nil, "", serviceerrors.NewInternal("Failed to create Session share", err)
 	}
 	return share, token, nil
 }
 
-func (s *Service) ListShares(ctx context.Context, instanceID string, pageSize int, pageToken string) (ShareListResult, error) {
-	if err := validateIdentity(instanceID); err != nil {
+func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int, pageToken string) (ShareListResult, error) {
+	if err := validateIdentity(sessionID); err != nil {
 		return ShareListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbGet, sessionID+"/shares")
 	if err != nil {
 		return ShareListResult{}, err
 	}
@@ -317,9 +317,9 @@ func (s *Service) ListShares(ctx context.Context, instanceID string, pageSize in
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	shares, err := s.store.ListAgentInstanceShares(ctx, instanceID, userID, afterID, pageSize+1)
+	shares, err := s.store.ListSessionShares(ctx, sessionID, userID, afterID, pageSize+1)
 	if err != nil {
-		return ShareListResult{}, serviceerrors.NewInternal("Failed to list AgentInstance shares", err)
+		return ShareListResult{}, serviceerrors.NewInternal("Failed to list Session shares", err)
 	}
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
@@ -337,21 +337,21 @@ func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.store.DeleteAgentInstanceShare(ctx, shareID, userID); err != nil {
+	if err := s.store.DeleteSessionShare(ctx, shareID, userID); err != nil {
 		if errors.Is(err, database.ErrNotFound) {
-			return serviceerrors.NewNotFound("AgentInstance share not found", err)
+			return serviceerrors.NewNotFound("Session share not found", err)
 		}
-		return serviceerrors.NewInternal("Failed to revoke AgentInstance share", err)
+		return serviceerrors.NewInternal("Failed to revoke Session share", err)
 	}
 	return nil
 }
 
 /*
- * Resolves who an AgentInstance call is made as, honouring a share over that instance.
+ * Resolves who a Session call is made as, honouring a share over that session.
  *
  * The same rule the A2A gateway already applies, and it has to be the same: a share
- * token is authority over one instance, the visitor stays authenticated as themselves,
- * and the record is then read as the share's owner — because an instance is scoped to
+ * token is authority over one session, the visitor stays authenticated as themselves,
+ * and the record is then read as the share's owner — because a session is scoped to
  * its creator and reading it as the visitor finds nothing at all.
  *
  * Without this, everything a shared conversation offers beyond reading and sending was
@@ -366,14 +366,14 @@ func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
  */
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
 	if share, ok := auth.ShareContextFrom(ctx); ok {
-		if share.IsForAgentInstance(name) {
+		if share.IsForSession(name) {
 			if _, ok := auth.AuthSessionFrom(ctx); !ok {
 				return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 			}
 			return share.UserID, nil
 		}
 	}
-	return s.authorizeType(ctx, verb, "AgentInstance", name)
+	return s.authorizeType(ctx, verb, "Session", name)
 }
 
 func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
@@ -405,7 +405,7 @@ func validateCreate(agent *apiv1alpha1.ResourceReference, requestID string) erro
 
 func validateIdentity(id string) error {
 	if _, err := uuid.Parse(id); err != nil {
-		return serviceerrors.NewInvalidArgument("AgentInstance identifier is invalid", err)
+		return serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
 	}
 	return nil
 }

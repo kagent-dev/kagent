@@ -44,7 +44,7 @@ func (missingRequestStore) FindScheduledRunRequest(context.Context, string, stri
 
 func TestScheduleAuthorizationFailsBeforePersistence(t *testing.T) {
 	owner := auth.AuthSessionTo(t.Context(), session{})
-	shared := auth.ShareContextTo(owner, &auth.ShareContext{AgentInstanceID: "instance", UserID: "other-owner"})
+	shared := auth.ShareContextTo(owner, &auth.ShareContext{SessionID: "session", UserID: "other-owner"})
 	for _, tc := range []struct {
 		name string
 		ctx  context.Context
@@ -52,7 +52,7 @@ func TestScheduleAuthorizationFailsBeforePersistence(t *testing.T) {
 		want serviceerrors.Code
 	}{
 		{"anonymous", t.Context(), "", serviceerrors.CodeUnauthenticated},
-		{"instance share", shared, "", serviceerrors.CodePermissionDenied},
+		{"session share", shared, "", serviceerrors.CodePermissionDenied},
 		{"schedule denied", owner, "ScheduledRun", serviceerrors.CodePermissionDenied},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestTargetPermissionAndExistence(t *testing.T) {
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).Build()
 	request := scheduledrun.CreateRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "template"}, RequestID: "id", Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "run"}}
-	for _, denied := range []string{"Agent", "AgentInstance"} {
+	for _, denied := range []string{"Agent", "Session"} {
 		svc := scheduledrun.NewService(missingRequestStore{}, kube, authorizer{deny: denied})
 		_, err := svc.Create(owner, request)
 		require.Equal(t, serviceerrors.CodePermissionDenied, serviceerrors.CodeOf(err))

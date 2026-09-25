@@ -11,15 +11,15 @@ The public endpoint is a named `Agent`. HTTP selects it through
 `namespace/name`. A nonempty HTTP request tenant must agree with its URL.
 Actor addresses and runtime credentials remain internal.
 
-`AgentInstance.id` is the public A2A `contextId`. A send with no context or task ID
+`Session.id` is the public A2A `contextId`. A send with no context or task ID
 creates a conversation from that Agent. A context ID continues the corresponding
-instance. A task ID alone resolves its instance; if both IDs are present they must
-agree. Every operation verifies that the instance belongs to the endpoint's Agent
-and that the caller owns it or holds an appropriate instance share. A share cannot
+session. A task ID alone resolves its session; if both IDs are present they must
+agree. Every operation verifies that the session belongs to the endpoint's Agent
+and that the caller owns it or holds an appropriate session share. A share cannot
 create conversations. Task-only get, cancel, and subscribe use globally unique task
 IDs. ListTasks without a context lists only authorized conversations of that Agent;
 a share restricts the list to its own conversation. Authorization precedes totals
-and pagination. Card discovery does not create an instance.
+and pagination. Card discovery does not create a session.
 
 The runtime owns execution and persists updates through the private gRPC
 `TaskStoreService`. The gateway owns each caller's observation connection.
@@ -34,7 +34,7 @@ flowchart LR
     RUNTIME -->|private TaskStore gRPC| API[API]
     API --> DB[(PostgreSQL)]
     GATEWAY -->|stored get / list| DB
-    DB -->|idle instance| WORKER[AgentInstance lifecycle worker]
+    DB -->|idle session| WORKER[Session lifecycle worker]
     WORKER --> SUBSTRATE[Substrate pause / suspend]
 ```
 
@@ -53,11 +53,11 @@ and history in one transaction. Clients can read completion even when runtime
 pause/suspend is slow, unavailable, or has not started. TaskStore performs no
 runtime lifecycle calls and runs no background workers.
 
-An independent AgentInstance lifecycle worker pauses waiting actors or suspends
+An independent Session lifecycle worker pauses waiting actors or suspends
 terminal ones and records their matching snapshot. A new turn can supersede idle
 work that has not been claimed. Once claimed, pause/suspend blocks new execution,
 explicit lifecycle changes, and checkpoint capture until its outcome is recorded.
-The gateway reserves dispatch on the instance before forwarding input. A reservation
+The gateway reserves dispatch on the session before forwarding input. A reservation
 blocks idle work, checkpoint capture, and explicit lifecycle operations until the
 runtime saves an active task. Continuations may first save input while waiting;
 the reservation stays held until their active save. Each attempt expires after two
@@ -69,7 +69,7 @@ A rejected send carries A2A `ErrorInfo.metadata.reason=KAGENT_SEND_NOT_ACCEPTED`
 (and `retryAfterMs=100`) only if no dispatch occurred, or the unused attempt was
 atomically revoked and its input was never persisted. Clients may retry that
 response with the same message. They must not blindly retry transport errors.
-Persistence and revocation serialize on the instance; an ambiguous outcome stays
+Persistence and revocation serialize on the session; an ambiguous outcome stays
 an error, and previously accepted input is recovered only from its own saved task.
 Uncertain issued work remains claimed; it cannot safely be reassigned just because
 a timeout expires. It blocks new execution but never hides completed task results.
@@ -85,7 +85,7 @@ blocks both new turns and idle lifecycle work while the snapshot is retained.
 
 The persistence model enforces:
 
-- one non-quiescent task per instance history;
+- one non-quiescent task per session history;
 - task-ID uniqueness and optimistic version checks;
 - idempotent retries of the same storage mutation; and
 - an exact snapshot identity and history sequence for each checkpoint.
@@ -137,7 +137,7 @@ projection with that current task and apply subsequent upstream A2A updates.
 There is no event cursor or promise of replaying every previous token event.
 For an initial send with neither context nor task ID, the authenticated creator,
 Agent, and message ID form the creation retry key. Repeating that request reuses
-the conversation. Dispatch checks its persisted input under the instance lock;
+the conversation. Dispatch checks its persisted input under the session lock;
 an accepted message returns its task (or subscribes to ongoing work) without a
 second execution. A retry may still fail while creation or lifecycle work is in
 progress; keep the same message ID to retry it. A new message ID starts a new
@@ -159,7 +159,7 @@ execution. Other harnesses retain their existing policy for parked tasks. All ha
 TaskStore currently uses a temporary unsigned
 `x-kagent-insecure-runtime-identity` header carrying the projected atespace, actor
 name, and UID. Go and Python reread those files on every call so restored actors
-use their own identity. The API checks the requested instance, atespace, and
+use their own identity. The API checks the requested session, atespace, and
 recorded actor UID; user and share credentials do not grant private persistence
 access. Public authentication remains unchanged.
 

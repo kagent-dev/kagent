@@ -12,7 +12,7 @@ import (
 func TestAssemblerAppliesArtifactReplacement(t *testing.T) {
 	const (
 		taskID     = a2atype.TaskID("task-1")
-		contextID  = "instance-1"
+		contextID  = "session-1"
 		artifactID = a2atype.ArtifactID("answer")
 	)
 	events := []a2atype.Event{

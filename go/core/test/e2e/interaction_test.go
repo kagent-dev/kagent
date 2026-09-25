@@ -55,9 +55,9 @@ var interactionMocks embed.FS
 
 const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string"}},"required":["answer","explanation"],"additionalProperties":false}`
 
-// TestAgentInstanceInteraction verifies the complete public interaction path:
+// TestSessionInteraction verifies the complete public interaction path:
 // gateway routing, Substrate Actor transport, harness execution, and the model call.
-func TestAgentInstanceInteraction(t *testing.T) {
+func TestSessionInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
@@ -78,7 +78,7 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceStructuredOutput(t *testing.T) {
+func TestSessionStructuredOutput(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		switch harness.name {
@@ -144,7 +144,7 @@ func TestOpaqueBYOAgentInteraction(t *testing.T) {
 	}
 }
 
-func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
+func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		switch harness.name {
@@ -241,7 +241,7 @@ func createCheckpoint(t *testing.T, ctx context.Context, client apiv1alpha1.Chec
 	return result
 }
 
-func TestAgentInstanceCheckpoint(t *testing.T) {
+func TestSessionCheckpoint(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		if harness.name == "byo-adk-e2e" {
@@ -250,7 +250,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startForkMemoryMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 		created := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID),
+			SessionId: fixture.sessionID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID),
 		})
 		checkpoint := created.GetCheckpoint()
 		t.Cleanup(func() {
@@ -275,7 +275,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 			t.Fatalf("get checkpoint = %+v, error %v", got.GetCheckpoint(), err)
 		}
 		listed, err := fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
-			AgentInstanceId: fixture.instanceID,
+			SessionId: fixture.sessionID,
 		})
 		if err != nil || len(listed.GetCheckpoints()) != 1 || listed.GetCheckpoints()[0].GetId() != checkpoint.GetId() {
 			t.Fatalf("list checkpoints = %+v, error %v", listed.GetCheckpoints(), err)
@@ -286,24 +286,24 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		if later.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(later), "The answer is 6.") {
 			t.Fatalf("source continuation state = %s, text = %q; want a new answer after the checkpoint", later.Status.State, taskText(later))
 		}
-		if err := deleteIdleInstance(fixture.ctx, fixture.instances, fixture.instanceID); err != nil {
+		if err := deleteIdleSession(fixture.ctx, fixture.sessions, fixture.sessionID); err != nil {
 			t.Fatalf("delete checkpoint source: %v", err)
 		}
-		forked, err := fixture.checkpoints.ForkAgentInstance(fixture.ctx, &apiv1alpha1.ForkAgentInstanceRequest{
+		forked, err := fixture.checkpoints.ForkSession(fixture.ctx, &apiv1alpha1.ForkSessionRequest{
 			CheckpointId: checkpoint.GetId(), RequestId: uuid.NewString(),
 		})
 		if err != nil {
-			t.Fatalf("fork AgentInstance: %v", err)
+			t.Fatalf("fork Session: %v", err)
 		}
-		fork := forked.GetAgentInstance()
-		if fork.GetId() == fixture.instanceID || fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
+		fork := forked.GetSession()
+		if fork.GetId() == fixture.sessionID || fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
 			t.Fatalf("fork = %+v", fork)
 		}
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cleanupCancel()
-			if cleanupErr := deleteIdleInstance(cleanupCtx, fixture.instances, fork.GetId()); cleanupErr != nil {
-				t.Errorf("delete fork AgentInstance: %v", cleanupErr)
+			if cleanupErr := deleteIdleSession(cleanupCtx, fixture.sessions, fork.GetId()); cleanupErr != nil {
+				t.Errorf("delete fork Session: %v", cleanupErr)
 			}
 		})
 		forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
@@ -325,7 +325,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		// Before its first turn a fork borrows the retained Tag snapshot. Its
 		// copied head boundary must refer to that copy, not the deleted source.
 		forkCheckpoint := createCheckpoint(t, forkCtx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: string(copied.Tasks[0].ID),
+			SessionId: fork.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: string(copied.Tasks[0].ID),
 		})
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
@@ -338,28 +338,28 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 			}
 		})
 		// A second fork must find the same private runtime conversation even though
-		// neither of its instance authorities ever owned the original session ID.
-		nested, err := fixture.checkpoints.ForkAgentInstance(forkCtx, &apiv1alpha1.ForkAgentInstanceRequest{
+		// neither of its session authorities ever owned the original session ID.
+		nested, err := fixture.checkpoints.ForkSession(forkCtx, &apiv1alpha1.ForkSessionRequest{
 			CheckpointId: forkCheckpoint.GetCheckpoint().GetId(), RequestId: uuid.NewString(),
 		})
 		if err != nil {
 			t.Fatalf("fork fresh fork: %v", err)
 		}
-		nestedID := nested.GetAgentInstance().GetId()
+		nestedID := nested.GetSession().GetId()
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cancel()
-			if err := deleteIdleInstance(ctx, fixture.instances, nestedID); err != nil {
+			if err := deleteIdleSession(ctx, fixture.sessions, nestedID); err != nil {
 				t.Errorf("delete nested fork: %v", err)
 			}
 		})
 		nestedCtx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e")
-		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client, tenant: fixture.tenant, instanceID: nestedID, contextID: nestedID}
+		nestedFixture := &interactionFixture{ctx: nestedCtx, client: fixture.client, tenant: fixture.tenant, sessionID: nestedID, contextID: nestedID}
 		_, _, nestedTask := nestedFixture.send(t, "What was the answer before the checkpoint?")
 		if nestedTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(nestedTask), "The answer is 4.") {
 			t.Fatalf("nested fork task state = %s, text = %q; want checkpoint memory", nestedTask.Status.State, taskText(nestedTask))
 		}
-		if err := deleteIdleInstance(nestedCtx, fixture.instances, nestedID); err != nil {
+		if err := deleteIdleSession(nestedCtx, fixture.sessions, nestedID); err != nil {
 			t.Fatalf("delete nested fork: %v", err)
 		}
 		if _, err := fixture.checkpoints.DeleteCheckpoint(forkCtx, &apiv1alpha1.DeleteCheckpointRequest{
@@ -367,13 +367,13 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("delete fresh fork checkpoint: %v", err)
 		}
-		forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client, tenant: fixture.tenant, instanceID: fork.GetId(), contextID: fork.GetId()}
+		forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client, tenant: fixture.tenant, sessionID: fork.GetId(), contextID: fork.GetId()}
 		_, _, forkTask := forkFixture.send(t, "What was the answer before the checkpoint?")
 		if forkTask.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(forkTask), "The answer is 4.") {
 			t.Fatalf("fork A2A task state = %s, want COMPLETED", forkTask.Status.State)
 		}
-		if err := deleteIdleInstance(forkCtx, fixture.instances, fork.GetId()); err != nil {
-			t.Fatalf("delete fork AgentInstance: %v", err)
+		if err := deleteIdleSession(forkCtx, fixture.sessions, fork.GetId()); err != nil {
+			t.Fatalf("delete fork Session: %v", err)
 		}
 		if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
 			CheckpointId: checkpoint.GetId(),
@@ -435,13 +435,13 @@ func TestSharedAgentInteraction(t *testing.T) {
 		if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "Answer from the shared specialist.") {
 			t.Fatalf("A2A task state = %s, text = %q, want completed task with shared child response", task.Status.State, taskText(task))
 		}
-		instances, err := fixture.instances.ListAgentInstances(fixture.ctx, &apiv1alpha1.ListAgentInstancesRequest{})
+		sessions, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1alpha1.ListSessionsRequest{})
 		if err != nil {
-			t.Fatalf("list AgentInstances: %v", err)
+			t.Fatalf("list Sessions: %v", err)
 		}
-		for _, instance := range instances.GetAgentInstances() {
-			if instance.GetAgent().GetName() == fixture.childTemplate {
-				t.Fatalf("Shared child created AgentInstance %q", instance.GetId())
+		for _, session := range sessions.GetSessions() {
+			if session.GetAgent().GetName() == fixture.childTemplate {
+				t.Fatalf("Shared child created Session %q", session.GetId())
 			}
 		}
 
@@ -459,7 +459,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
+func TestSessionTaskPersistenceAndReconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
@@ -478,7 +478,7 @@ func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 			t.Fatalf("decode persisted task: %v", err)
 		}
 		if got.ID != task.ID || got.ContextID != fixture.contextID || got.Status.State != a2atype.TaskStateCompleted {
-			t.Fatalf("persisted task = %#v, want completed task %s in context %s", got, task.ID, fixture.instanceID)
+			t.Fatalf("persisted task = %#v, want completed task %s in context %s", got, task.ID, fixture.sessionID)
 		}
 
 		listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
@@ -494,7 +494,7 @@ func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 			t.Fatalf("decode listed tasks: %v", err)
 		}
 		if listed.TotalSize != 1 || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID || listed.Tasks[0].ContextID != fixture.contextID {
-			t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, fixture.instanceID)
+			t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, fixture.sessionID)
 		}
 
 		stream, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Tenant: fixture.tenant, Id: string(task.ID)})
@@ -511,7 +511,7 @@ func TestAgentInstanceTaskPersistenceAndReconnect(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceActiveTask(t *testing.T) {
+func TestSessionActiveTask(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
@@ -524,7 +524,7 @@ func TestAgentInstanceActiveTask(t *testing.T) {
 func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, started <-chan struct{}) {
 	t.Helper()
 	_, request := newMessageRequest(t, "Wait for cancellation")
-	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.instanceID
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming A2A message: %v", err)
@@ -553,7 +553,7 @@ func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, start
 	task := listed.Tasks[0]
 
 	_, busyRequest := newMessageRequest(t, "Second concurrent request")
-	busyRequest.Tenant, busyRequest.Message.ContextId = fixture.tenant, fixture.instanceID
+	busyRequest.Tenant, busyRequest.Message.ContextId = fixture.tenant, fixture.sessionID
 	if _, err := fixture.client.SendMessage(fixture.ctx, busyRequest); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("concurrent message error = %v, want %s", err, codes.FailedPrecondition)
 	}
@@ -617,10 +617,10 @@ func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, start
 type interactionFixture struct {
 	ctx         context.Context
 	client      a2apb.A2AServiceClient
-	instances   apiv1alpha1.AgentInstanceServiceClient
+	sessions    apiv1alpha1.SessionServiceClient
 	checkpoints apiv1alpha1.CheckpointServiceClient
 	system      apiv1alpha1.SystemServiceClient
-	instanceID  string
+	sessionID   string
 	contextID   string
 	tenant      string
 }
@@ -666,51 +666,51 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(func() { _ = conn.Close() })
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
 	t.Cleanup(cancel)
-	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
-	request := &apiv1alpha1.CreateAgentInstanceRequest{
+	sessions := apiv1alpha1.NewSessionServiceClient(conn)
+	request := &apiv1alpha1.CreateSessionRequest{
 		Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: templateName}, RequestId: uuid.NewString(),
 	}
-	var created *apiv1alpha1.CreateAgentInstanceResponse
+	var created *apiv1alpha1.CreateSessionResponse
 	err = wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-		created, err = instances.CreateAgentInstance(ctx, request)
+		created, err = sessions.CreateSession(ctx, request)
 		if status.Code(err) == codes.FailedPrecondition {
 			return false, nil
 		}
 		return err == nil, err
 	})
 	if err != nil {
-		t.Fatalf("create AgentInstance: %v", err)
+		t.Fatalf("create Session: %v", err)
 	}
-	instance := created.GetAgentInstance()
+	session := created.GetSession()
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
-		// DeleteAgentInstance returns only after its Substrate Actor has been
+		// DeleteSession returns only after its Substrate Actor has been
 		// suspended and deleted, so this cleanup covers both resources.
-		if cleanupErr := deleteIdleInstance(cleanupCtx, instances, instance.GetId()); cleanupErr != nil {
-			t.Errorf("delete AgentInstance: %v", cleanupErr)
+		if cleanupErr := deleteIdleSession(cleanupCtx, sessions, session.GetId()); cleanupErr != nil {
+			t.Errorf("delete Session: %v", cleanupErr)
 		}
 	})
-	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
-		t.Fatalf("created AgentInstance state = %s, want READY", instance.GetState())
+	if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		t.Fatalf("created Session state = %s, want READY", session.GetState())
 	}
 	return &interactionFixture{
 		ctx:         ctx,
-		tenant:      instance.GetAgent().GetNamespace() + "/" + instance.GetAgent().GetName(),
+		tenant:      session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName(),
 		client:      a2apb.NewA2AServiceClient(conn),
-		instances:   instances,
+		sessions:    sessions,
 		checkpoints: apiv1alpha1.NewCheckpointServiceClient(conn),
 		system:      apiv1alpha1.NewSystemServiceClient(conn),
-		instanceID:  instance.GetId(),
-		contextID:   instance.GetContextId(),
+		sessionID:   session.GetId(),
+		contextID:   session.GetContextId(),
 	}
 }
 
 // Completion is public before automatic suspension finishes. Cleanup retries
-// only the precondition indicating that lifecycle work still owns the instance.
-func deleteIdleInstance(ctx context.Context, instances apiv1alpha1.AgentInstanceServiceClient, id string) error {
+// only the precondition indicating that lifecycle work still owns the session.
+func deleteIdleSession(ctx context.Context, sessions apiv1alpha1.SessionServiceClient, id string) error {
 	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
-		_, err := instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: id})
+		_, err := sessions.DeleteSession(ctx, &apiv1alpha1.DeleteSessionRequest{SessionId: id})
 		switch status.Code(err) {
 		case codes.OK, codes.NotFound:
 			return true, nil
@@ -751,8 +751,8 @@ func newSharedInteractionFixture(t *testing.T, harness testHarness, target strin
 func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest, *a2atype.Task) {
 	t.Helper()
 	message, request := newMessageRequest(t, text)
-	message.ContextID = f.instanceID
-	request.Message.ContextId = f.instanceID
+	message.ContextID = f.sessionID
+	request.Message.ContextId = f.sessionID
 	request.Tenant = f.tenant
 	response, err := f.client.SendMessage(f.ctx, request)
 	if err != nil {
@@ -1395,7 +1395,7 @@ func TestAgentA2ACreatesConversation(t *testing.T) {
 			t.Cleanup(func() {
 				ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 				defer cancel()
-				if err := deleteIdleInstance(ctx, fixture.instances, id); err != nil {
+				if err := deleteIdleSession(ctx, fixture.sessions, id); err != nil {
 					t.Errorf("delete created conversation: %v", err)
 				}
 			})
@@ -1410,12 +1410,12 @@ func TestAgentA2ACreatesConversation(t *testing.T) {
 		if second.ContextId == first.ContextId {
 			t.Fatal("new initial message must create another conversation")
 		}
-		instance, err := fixture.instances.GetAgentInstance(fixture.ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: first.ContextId})
+		session, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: first.ContextId})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if instance.GetAgentInstance().GetId() != first.ContextId {
-			t.Fatal("public context must identify its AgentInstance")
+		if session.GetSession().GetId() != first.ContextId {
+			t.Fatal("public context must identify its Session")
 		}
 	})
 }

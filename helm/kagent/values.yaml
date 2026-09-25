@@ -226,7 +226,7 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- Public gateway base URL advertised by AgentInstance Agent Cards for gRPC and HTTP/JSON-RPC.
+  # -- Public gateway base URL advertised by Session Agent Cards for gRPC and HTTP/JSON-RPC.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
   # -- The image used for declarative agents.

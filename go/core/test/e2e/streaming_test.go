@@ -18,7 +18,7 @@ import (
 
 // Completion must reach durable storage with no public stream left attached.
 // A reconnect reads the completed task after native work and cleanup finish.
-func TestAgentInstanceCompletesAfterDisconnect(t *testing.T) {
+func TestSessionCompletesAfterDisconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		started, release := make(chan struct{}), make(chan struct{})
@@ -72,7 +72,7 @@ func TestAgentInstanceCompletesAfterDisconnect(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceStreamingResumeAndPersistence(t *testing.T) {
+func TestSessionStreamingResumeAndPersistence(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))

@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"bytes"
@@ -28,17 +28,17 @@ func (a serviceTestAuthorizer) Check(context.Context, auth.Principal, auth.Verb,
 }
 
 type serviceTestStore struct {
-	createInput  *apiv1alpha1.AgentInstance
+	createInput  *apiv1alpha1.Session
 	requestID    string
 	createErr    error
-	instances    []*apiv1alpha1.AgentInstance
-	listQuery    database.AgentInstanceQuery
-	share        *apiv1alpha1.AgentInstanceShare
+	sessions     []*apiv1alpha1.Session
+	listQuery    database.SessionQuery
+	share        *apiv1alpha1.SessionShare
 	tokenHash    []byte
-	shares       []*apiv1alpha1.AgentInstanceShare
+	shares       []*apiv1alpha1.SessionShare
 	shareAfterID string
 	shareLimit   int
-	renamed      *apiv1alpha1.AgentInstance
+	renamed      *apiv1alpha1.Session
 	renameName   string
 	renameUserID string
 	renameErr    error
@@ -47,65 +47,65 @@ type serviceTestStore struct {
 	shareErr     error
 }
 
-func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
-	s.createInput = instance
+func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1alpha1.Session, requestID string) (*apiv1alpha1.Session, bool, error) {
+	s.createInput = session
 	s.requestID = requestID
 	if s.createErr != nil {
 		return nil, false, s.createErr
 	}
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
-	return instance, true, nil
+	session.State = apiv1alpha1.SessionState_SESSION_STATE_READY
+	return session, true, nil
 }
 
-func (s *serviceTestStore) GetAgentInstance(_ context.Context, _, creator string) (*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) GetSession(_ context.Context, _, creator string) (*apiv1alpha1.Session, error) {
 	s.getCreator = creator
-	return &apiv1alpha1.AgentInstance{State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}, nil
+	return &apiv1alpha1.Session{State: apiv1alpha1.SessionState_SESSION_STATE_READY}, nil
 }
 
-func (s *serviceTestStore) ListAgentInstances(_ context.Context, query database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1alpha1.Session, error) {
 	s.listQuery = query
-	return s.instances, nil
+	return s.sessions, nil
 }
 
-func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) UpdateSessionName(_ context.Context, id, userID, name string) (*apiv1alpha1.Session, error) {
 	if s.renameErr != nil {
 		return nil, s.renameErr
 	}
 	s.renameName, s.renameUserID = name, userID
-	s.renamed = &apiv1alpha1.AgentInstance{Id: id, Name: name}
+	s.renamed = &apiv1alpha1.Session{Id: id, Name: name}
 	return s.renamed, nil
 }
 
-func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte, userID string) (*apiv1alpha1.AgentInstanceShare, error) {
+func (s *serviceTestStore) CreateSessionShare(_ context.Context, share *apiv1alpha1.SessionShare, tokenHash []byte, userID string) (*apiv1alpha1.SessionShare, error) {
 	s.share, s.tokenHash, s.shareUserID = share, tokenHash, userID
 	return s.share, s.shareErr
 }
 
-func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
+func (s *serviceTestStore) ListSessionShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1alpha1.SessionShare, error) {
 	s.shareAfterID, s.shareLimit = afterID, limit
 	return s.shares, nil
 }
 
-func (*serviceTestStore) DeleteAgentInstanceShare(context.Context, string, string) error {
+func (*serviceTestStore) DeleteSessionShare(context.Context, string, string) error {
 	return nil
 }
 
 type serviceTestWorkflow struct{ err error }
 
-func (w serviceTestWorkflow) Create(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, w.err
+func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, w.err
 }
 
-func (w serviceTestWorkflow) Suspend(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, w.err
+func (w serviceTestWorkflow) Suspend(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, w.err
 }
 
-func (w serviceTestWorkflow) Resume(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, w.err
+func (w serviceTestWorkflow) Resume(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, w.err
 }
 
-func (w serviceTestWorkflow) Delete(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, w.err
+func (w serviceTestWorkflow) Delete(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, w.err
 }
 
 func serviceTestContext(userID string) context.Context {
@@ -116,18 +116,18 @@ func TestServiceCreateUsesAuthenticatedOwnerAndGeneratedUUID(t *testing.T) {
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 
-	instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
+	session, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := uuid.Parse(instance.GetId())
+	id, err := uuid.Parse(session.GetId())
 	if err != nil {
-		t.Fatalf("generated id %q is not a UUID: %v", instance.GetId(), err)
+		t.Fatalf("generated id %q is not a UUID: %v", session.GetId(), err)
 	}
 	if id.Version() != 7 {
 		t.Fatalf("generated id %q is UUIDv%d, want UUIDv7", id, id.Version())
 	}
-	if store.createInput.GetCreator() != "alice" || store.createInput.GetId() != instance.GetId() || store.requestID != "request-1" {
+	if store.createInput.GetCreator() != "alice" || store.createInput.GetId() != session.GetId() || store.requestID != "request-1" {
 		t.Fatalf("create input = %+v, request ID = %q", store.createInput, store.requestID)
 	}
 }
@@ -179,7 +179,7 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 	for _, test := range []struct {
 		name string
-		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
+		call func(*Service, context.Context, string) (*apiv1alpha1.Session, error)
 	}{
 		{name: "suspend", call: (*Service).Suspend},
 		{name: "resume", call: (*Service).Resume},
@@ -193,7 +193,7 @@ func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 				{database.ErrConflict, serviceerrors.CodeAborted},
 				{database.ErrFailedPrecondition, serviceerrors.CodeFailedPrecondition},
 			} {
-				conflict := fmt.Errorf("AgentInstance is already suspending: %w", failure.cause)
+				conflict := fmt.Errorf("Session is already suspending: %w", failure.cause)
 				service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
 				_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
 				if !serviceerrors.IsCode(err, failure.code) {
@@ -207,20 +207,20 @@ func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 	}
 }
 
-func TestServiceListPaginatesByInstanceID(t *testing.T) {
+func TestServiceListPaginatesBySessionID(t *testing.T) {
 	ids := []string{
 		"11111111-1111-4111-8111-111111111111",
 		"22222222-2222-4222-8222-222222222222",
 		"33333333-3333-4333-8333-333333333333",
 	}
-	store := &serviceTestStore{instances: []*apiv1alpha1.AgentInstance{{Id: ids[0]}, {Id: ids[1]}, {Id: ids[2]}}}
+	store := &serviceTestStore{sessions: []*apiv1alpha1.Session{{Id: ids[0]}, {Id: ids[1]}, {Id: ids[2]}}}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 
 	result, err := service.List(serviceTestContext("alice"), ListRequest{PageSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Instances) != 2 || store.listQuery.UserID != "alice" || store.listQuery.AllUsers || store.listQuery.Limit != 3 {
+	if len(result.Sessions) != 2 || store.listQuery.UserID != "alice" || store.listQuery.AllUsers || store.listQuery.Limit != 3 {
 		t.Fatalf("List() = %+v, query = %+v", result, store.listQuery)
 	}
 	afterID, err := decodePageToken(result.NextPageToken)
@@ -238,9 +238,9 @@ func TestServiceListPaginatesByInstanceID(t *testing.T) {
 func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-	instanceID := "11111111-1111-4111-8111-111111111111"
+	sessionID := "11111111-1111-4111-8111-111111111111"
 
-	share, token, err := service.CreateShare(serviceTestContext("alice"), instanceID, apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY)
+	share, token, err := service.CreateShare(serviceTestContext("alice"), sessionID, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestServiceListSharesPaginatesInStore(t *testing.T) {
 		"33333333-3333-4333-8333-333333333333",
 		"44444444-4444-4444-8444-444444444444",
 	}
-	store := &serviceTestStore{shares: []*apiv1alpha1.AgentInstanceShare{
+	store := &serviceTestStore{shares: []*apiv1alpha1.SessionShare{
 		{Id: ids[1]}, {Id: ids[2]}, {Id: ids[3]},
 	}}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
@@ -298,27 +298,27 @@ func TestServiceCreateCarriesTheNameAndLeavesAnOmittedOneEmpty(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &serviceTestStore{}
 			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", test.given)
+			session, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", test.given)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if store.createInput.GetName() != test.want || instance.GetName() != test.want {
-				t.Fatalf("stored name = %q, returned name = %q, want %q", store.createInput.GetName(), instance.GetName(), test.want)
+			if store.createInput.GetName() != test.want || session.GetName() != test.want {
+				t.Fatalf("stored name = %q, returned name = %q, want %q", store.createInput.GetName(), session.GetName(), test.want)
 			}
-			if instance.GetName() == instance.GetId() && test.want == "" {
-				t.Fatal("an unnamed instance was given its id as a name")
+			if session.GetName() == session.GetId() && test.want == "" {
+				t.Fatal("an unnamed session was given its id as a name")
 			}
 		})
 	}
 }
 
 func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T) {
-	instanceID := "11111111-1111-4111-8111-111111111111"
+	sessionID := "11111111-1111-4111-8111-111111111111"
 
 	t.Run("refused without authorization", func(t *testing.T) {
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		_, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
+		_, err := service.Rename(serviceTestContext("alice"), sessionID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 			t.Fatalf("Rename() error = %v, want code %s", err, serviceerrors.CodePermissionDenied)
 		}
@@ -331,31 +331,31 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 		authorizer := &recordingAuthorizer{}
 		store := &serviceTestStore{}
 		service := NewService(store, authorizer, serviceTestWorkflow{})
-		instance, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
+		session, err := service.Rename(serviceTestContext("alice"), sessionID, "New title")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if authorizer.verb != auth.VerbUpdate {
 			t.Fatalf("authorized verb = %q, want %q", authorizer.verb, auth.VerbUpdate)
 		}
-		if store.renameUserID != "alice" || store.renameName != "New title" || instance.GetName() != "New title" {
-			t.Fatalf("rename owner = %q, name = %q, returned = %+v", store.renameUserID, store.renameName, instance)
+		if store.renameUserID != "alice" || store.renameName != "New title" || session.GetName() != "New title" {
+			t.Fatalf("rename owner = %q, name = %q, returned = %+v", store.renameUserID, store.renameName, session)
 		}
 	})
 
 	t.Run("clearing the name is allowed", func(t *testing.T) {
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-		instance, err := service.Rename(serviceTestContext("alice"), instanceID, "")
-		if err != nil || instance.GetName() != "" {
-			t.Fatalf("Rename(\"\") = %+v, error %v", instance, err)
+		session, err := service.Rename(serviceTestContext("alice"), sessionID, "")
+		if err != nil || session.GetName() != "" {
+			t.Fatalf("Rename(\"\") = %+v, error %v", session, err)
 		}
 	})
 
-	t.Run("a missing instance is not found", func(t *testing.T) {
+	t.Run("a missing session is not found", func(t *testing.T) {
 		store := &serviceTestStore{renameErr: database.ErrNotFound}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-		_, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
+		_, err := service.Rename(serviceTestContext("alice"), sessionID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 			t.Fatalf("Rename() error = %v, want code %s", err, serviceerrors.CodeNotFound)
 		}
@@ -363,14 +363,14 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 }
 
 /*
- * A share over an instance is authority to act on it, and the record is read as its owner.
+ * A share over a session is authority to act on it, and the record is read as its owner.
  *
  * The same rule the A2A gateway applies, which is the point: the visitor could already
  * talk to a shared conversation through the gateway, because that understands shares,
  * and could not suspend or resume it through this service, because this did not. So a
  * shared conversation offered a live agent with no way to give its worker back.
  *
- * An instance is scoped to its creator, so reading it as the visitor finds nothing —
+ * A session is scoped to its creator, so reading it as the visitor finds nothing —
  * which is why this asserts the creator the store is asked for, not merely that the
  * call succeeded. A call that authorized correctly and then looked the record up under
  * the wrong user would fail as "not found", which is the confusing half of this bug.
@@ -378,11 +378,11 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
  * Read-only shares are refused before reaching here, by the interceptor, and are tested
  * where that rule lives.
  */
-func TestServiceSuspendAcceptsAShareOverThatInstance(t *testing.T) {
-	instanceID := "11111111-1111-4111-8111-111111111111"
+func TestServiceSuspendAcceptsAShareOverThatSession(t *testing.T) {
+	sessionID := "11111111-1111-4111-8111-111111111111"
 	shared := auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{
-		AgentInstanceID: instanceID,
-		UserID:          "owner",
+		SessionID: sessionID,
+		UserID:    "owner",
 	})
 
 	t.Run("acts as the share's owner, not the visitor", func(t *testing.T) {
@@ -390,37 +390,23 @@ func TestServiceSuspendAcceptsAShareOverThatInstance(t *testing.T) {
 		// The authorizer refuses everything: a share that still needed its approval
 		// would pass this test for the wrong reason.
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		if _, err := service.Suspend(shared, instanceID); err != nil {
-			t.Fatalf("Suspend() with a share over this instance = %v, want it accepted", err)
+		if _, err := service.Suspend(shared, sessionID); err != nil {
+			t.Fatalf("Suspend() with a share over this session = %v, want it accepted", err)
 		}
 		if store.getCreator != "owner" {
 			t.Fatalf("record read as %q, want the share's owner", store.getCreator)
 		}
 	})
 
-	t.Run("a share over a different instance is no authority here", func(t *testing.T) {
+	t.Run("a share over a different session is no authority here", func(t *testing.T) {
 		elsewhere := auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{
-			AgentInstanceID: "22222222-2222-4222-8222-222222222222",
-			UserID:          "owner",
-		})
-		store := &serviceTestStore{}
-		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		if _, err := service.Suspend(elsewhere, instanceID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
-			t.Fatalf("Suspend() with a share over another instance = %v, want it refused", err)
-		}
-	})
-
-	t.Run("a session share is not an instance share", func(t *testing.T) {
-		// Two different kinds of share over two different resources. Treating one as
-		// the other is exactly what `IsForAgentInstance` exists to prevent.
-		session := auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{
-			SessionID: instanceID,
+			SessionID: "22222222-2222-4222-8222-222222222222",
 			UserID:    "owner",
 		})
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		if _, err := service.Suspend(session, instanceID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
-			t.Fatalf("Suspend() with a session share = %v, want it refused", err)
+		if _, err := service.Suspend(elsewhere, sessionID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+			t.Fatalf("Suspend() with a share over another session = %v, want it refused", err)
 		}
 	})
 }
@@ -452,7 +438,7 @@ func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	store := &serviceTestStore{shareErr: database.ErrNotFound}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	share, token, err := service.CreateShare(serviceTestContext("alice"), uuid.NewString(),
-		apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY)
+		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY)
 	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 		t.Fatalf("CreateShare error = %v, want NotFound", err)
 	}

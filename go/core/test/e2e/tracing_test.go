@@ -489,7 +489,7 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 	t.Helper()
-	actorID := substrate.ActorName(fixture.instanceID)
+	actorID := substrate.ActorName(fixture.sessionID)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 30*time.Second)
 	defer cancel()
 	err := wait.PollUntilContextTimeout(ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {

@@ -29,13 +29,13 @@ func (c *A2AClient) ForAgent(ctx context.Context, agent *apiv1alpha1.ResourceRef
 	return c.forAgent(ctx, agent, "")
 }
 
-// ForAgentInstance resolves its Agent and supplies the conversation context on sends.
-func (c *A2AClient) ForAgentInstance(ctx context.Context, id string) (*a2aclient.Client, error) {
-	response, err := newAgentInstanceClient(c.client).GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: id})
+// ForSession resolves its Agent and supplies the conversation context on sends.
+func (c *A2AClient) ForSession(ctx context.Context, id string) (*a2aclient.Client, error) {
+	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1alpha1.GetSessionRequest{SessionId: id})
 	if err != nil {
 		return nil, err
 	}
-	return c.forAgent(ctx, response.GetAgentInstance().GetAgent(), id)
+	return c.forAgent(ctx, response.GetSession().GetAgent(), id)
 }
 
 func (c *A2AClient) forAgent(ctx context.Context, agent *apiv1alpha1.ResourceReference, contextID string) (*a2aclient.Client, error) {

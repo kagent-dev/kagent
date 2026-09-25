@@ -13,8 +13,8 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc"
@@ -32,7 +32,7 @@ var forwardedMetadataKeys = map[string]string{
 	"x-share-token":                      "X-Share-Token",
 }
 
-func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
+func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
 		if err != nil {
@@ -42,7 +42,7 @@ func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.Aut
 	}
 }
 
-func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
+func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
 		if err != nil {
@@ -52,7 +52,7 @@ func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.Au
 	}
 }
 
-func authenticate(ctx context.Context, fullMethod string, authenticator, runtimeAuthenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) (context.Context, error) {
+func authenticate(ctx context.Context, fullMethod string, authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) (context.Context, error) {
 	access, ok := policies[fullMethod]
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
@@ -80,7 +80,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 		}
 		return authenticatedContext, nil
 	}
-	share, err := agentinstance.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
+	share, err := sessionsvc.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
 	if err != nil {
 		return ctx, mapError(err)
 	}

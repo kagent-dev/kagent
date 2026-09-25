@@ -7,8 +7,8 @@ import (
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -34,7 +34,7 @@ func route(ctx context.Context, tenant string) (*apiv1alpha1.ResourceReference, 
 	return &apiv1alpha1.ResourceReference{Namespace: namespace, Name: name}, nil
 }
 
-func (g *Gateway) taskInstance(ctx context.Context, verb auth.Verb, tenant string, taskID a2a.TaskID) (*apiv1alpha1.AgentInstance, error) {
+func (g *Gateway) taskSession(ctx context.Context, verb auth.Verb, tenant string, taskID a2a.TaskID) (*apiv1alpha1.Session, error) {
 	agent, err := route(ctx, tenant)
 	if err != nil {
 		return nil, err
@@ -45,44 +45,44 @@ func (g *Gateway) taskInstance(ctx context.Context, verb auth.Verb, tenant strin
 	if taskID == "" {
 		return nil, a2a.ErrInvalidParams
 	}
-	id, err := g.store.AgentInstanceForTask(ctx, string(taskID))
+	id, err := g.store.SessionForTask(ctx, string(taskID))
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
-	return g.storedInstance(ctx, verb, agent, id)
+	return g.storedSession(ctx, verb, agent, id)
 }
 
-func (g *Gateway) listInstances(ctx context.Context, agent *apiv1alpha1.ResourceReference, contextID string) ([]string, error) {
+func (g *Gateway) listSessions(ctx context.Context, agent *apiv1alpha1.ResourceReference, contextID string) ([]string, error) {
 	if contextID != "" {
-		instance, err := g.storedInstance(ctx, auth.VerbGet, agent, contextID)
+		session, err := g.storedSession(ctx, auth.VerbGet, agent, contextID)
 		if err != nil {
 			return nil, err
 		}
-		return []string{instance.Id}, nil
+		return []string{session.Id}, nil
 	}
-	// An instance share grants no access to other conversations of the Agent.
+	// A session share grants no access to other conversations of the Agent.
 	if share, ok := auth.ShareContextFrom(ctx); ok {
-		instance, err := g.storedInstance(ctx, auth.VerbGet, agent, share.AgentInstanceID)
+		session, err := g.storedSession(ctx, auth.VerbGet, agent, share.SessionID)
 		if err != nil {
 			return nil, err
 		}
-		return []string{instance.Id}, nil
+		return []string{session.Id}, nil
 	}
 	ids := []string{}
-	request := agentinstance.ListRequest{Agent: agent, PageSize: 100}
+	request := sessionsvc.ListRequest{Agent: agent, PageSize: 100}
 	for {
-		page, err := g.instances.List(ctx, request)
+		page, err := g.sessions.List(ctx, request)
 		if err != nil {
 			return nil, serviceError(ctx, err)
 		}
-		for _, instance := range page.Instances {
-			if _, err := g.storedInstance(ctx, auth.VerbGet, agent, instance.Id); err != nil {
+		for _, session := range page.Sessions {
+			if _, err := g.storedSession(ctx, auth.VerbGet, agent, session.Id); err != nil {
 				if errors.Is(err, a2a.ErrUnauthorized) {
 					continue
 				}
 				return nil, err
 			}
-			ids = append(ids, instance.Id)
+			ids = append(ids, session.Id)
 		}
 		if page.NextPageToken == "" {
 			return ids, nil

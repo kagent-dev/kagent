@@ -13,8 +13,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -34,7 +34,7 @@ import (
 // Uses the generated client, actual interceptors, and PostgreSQL. Kubernetes
 // target lookup is faked; runtime execution is outside this reservation slice.
 func TestScheduledRunServicePersistence(t *testing.T) {
-	store, client, instances, owner := scheduledRunTestServer(t)
+	store, client, sessions, owner := scheduledRunTestServer(t)
 	visitor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "bob"))
 	request := &apiv1alpha1.CreateScheduledRunRequest{
 		Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
@@ -115,12 +115,12 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "list executions: %v", err)
 	}
 	// Execution history survives deleting the linked conversation and schedule.
-	linked, err := store.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(reserved.Execution.Id), "alice")
+	linked, err := store.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(reserved.Execution.Id), "alice")
 	require.NoError(t, err)
-	require.NotEmpty(t, linked.AgentInstanceId)
-	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.AgentInstanceId, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE, "")
+	require.NotEmpty(t, linked.SessionId)
+	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.SessionId, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE, "")
 	require.NoError(t, err)
-	_, err = instances.GetAgentInstance(owner, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: linked.AgentInstanceId})
+	_, err = sessions.GetSession(owner, &apiv1alpha1.GetSessionRequest{SessionId: linked.SessionId})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	loaded, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: linked.Id})
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	}
 }
 
-func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.ScheduledRunServiceClient, apiv1alpha1.AgentInstanceServiceClient, context.Context) {
+func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.ScheduledRunServiceClient, apiv1alpha1.SessionServiceClient, context.Context) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("requires PostgreSQL")
@@ -192,9 +192,9 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener: listener, Authenticator: &authimpl.UnsecureAuthenticator{},
-		SystemService:        testSystemService(),
-		ScheduledRunService:  scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
-		AgentInstanceService: agentinstance.NewService(store, &pkgauth.NoopAuthorizer{}, nil),
+		SystemService:       testSystemService(),
+		ScheduledRunService: scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
+		SessionService:      sessionsvc.NewService(store, &pkgauth.NoopAuthorizer{}, nil),
 	})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -206,9 +206,9 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	client := apiv1alpha1.NewScheduledRunServiceClient(connection)
-	instances := apiv1alpha1.NewAgentInstanceServiceClient(connection)
+	sessions := apiv1alpha1.NewSessionServiceClient(connection)
 	owner := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
-	return store, client, instances, owner
+	return store, client, sessions, owner
 }
 
 func TestScheduledRunServiceDeletesMalformedConfig(t *testing.T) {

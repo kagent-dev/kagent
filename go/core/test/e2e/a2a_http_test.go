@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestAgentInstanceHTTPInteraction(t *testing.T) {
+func TestSessionHTTPInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
@@ -57,7 +57,7 @@ func TestAgentInstanceHTTPInteraction(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceHTTPResubscribeAndCancel(t *testing.T) {
+func TestSessionHTTPResubscribeAndCancel(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
@@ -123,7 +123,7 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 	t.Helper()
 	target := interactionTarget(t)
 	request, err := http.NewRequestWithContext(fixture.ctx, http.MethodGet,
-		"http://"+target+"/agents/"+fixture.instanceID+a2asrv.WellKnownAgentCardPath, nil)
+		"http://"+target+"/agents/"+fixture.sessionID+a2asrv.WellKnownAgentCardPath, nil)
 	require.NoError(t, err)
 	request.Header.Set("X-User-Id", "e2e")
 	response, err := http.DefaultClient.Do(request)
@@ -134,7 +134,7 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
 	require.Len(t, card.SupportedInterfaces, 2)
 	require.Equal(t, a2atype.TransportProtocolJSONRPC, card.SupportedInterfaces[0].ProtocolBinding)
-	require.True(t, strings.HasSuffix(card.SupportedInterfaces[0].URL, "/agents/"+fixture.instanceID))
+	require.True(t, strings.HasSuffix(card.SupportedInterfaces[0].URL, "/agents/"+fixture.sessionID))
 	require.Equal(t, a2atype.TransportProtocolGRPC, card.SupportedInterfaces[1].ProtocolBinding)
 
 	// The card advertises a cluster address. Dial through the test's port-forward

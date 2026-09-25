@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"context"
@@ -28,18 +28,18 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 		{name: "snapshot reference survives database retries", finishFailures: 4},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store, instance := lifecycleFixture(t)
+			store, session := lifecycleFixture(t)
 			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			instance, err := NewActorWorkflow(store, base).Create(t.Context(), instance)
+			session, err := NewActorWorkflow(store, base).Create(t.Context(), session)
 			require.NoError(t, err)
 			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
-			message.ContextID = instance.ContextId
+			message.ContextID = session.ContextId
 			task := a2a.NewSubmittedTask(message, message)
 			task.Status.State = a2a.TaskStateCompleted
 			hash := sha256.Sum256([]byte("completed"))
-			version, err := store.CreateRuntimeTask(t.Context(), instance.Id, hash[:], task, "")
+			version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
 			require.NoError(t, err)
-			require.NoError(t, store.SettleAgentInstanceTask(t.Context(), instance.Id, string(task.ID), version))
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
 
 			entered, release := make(chan struct{}), make(chan struct{})
 			actors := &retryTestActors{lifecycleTestActors: base, beforeRead: func(ctx context.Context) {
@@ -64,27 +64,27 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("idle work was not discovered")
 			}
-			visible, err := store.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(task.ID), nil)
+			visible, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.NoError(t, err)
 			require.Equal(t, a2a.TaskStateCompleted, visible.Status.State)
 			next := a2a.NewSubmittedTask(message, message)
-			_, err = store.CreateRuntimeTask(t.Context(), instance.Id, hash[:], next, "")
+			_, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], next, "")
 			require.ErrorIs(t, err, database.ErrFailedPrecondition)
-			checkpoint := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}
-			_, _, err = store.ReserveAgentInstanceCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
+			checkpoint := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
+			_, _, err = store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
 			require.ErrorIs(t, err, database.ErrFailedPrecondition)
 			close(release)
 
 			if test.mutationFails {
 				require.Eventually(t, func() bool { return actors.mutations.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
-				visible, err = store.GetSettledAgentInstanceTask(t.Context(), instance.Id, string(task.ID), nil)
+				visible, err = store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 				require.NoError(t, err)
 				require.Equal(t, a2a.TaskStateCompleted, visible.Status.State)
-				_, err = store.ClaimInstanceQuiescence(t.Context())
+				_, err = store.ClaimSessionQuiescence(t.Context())
 				require.ErrorIs(t, err, database.ErrNotFound, "an uncertain suspension cannot be reassigned")
 			} else {
 				require.Eventually(t, func() bool {
-					_, snapshot, err := store.ReserveAgentInstanceCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
+					_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
 					return err == nil && snapshot.URI == "s3://snapshots/snapshot-1"
 				}, 5*time.Second, 10*time.Millisecond)
 				require.EqualValues(t, 1, actors.mutations.Load(), "database retries must not suspend the actor again")
@@ -100,9 +100,9 @@ type quiescenceRetryStore struct {
 	attempts atomic.Int32
 }
 
-func (s *quiescenceRetryStore) FinishInstanceQuiescence(ctx context.Context, work *database.InstanceQuiescence, snapshot *database.AgentInstanceTaskSnapshot) error {
+func (s *quiescenceRetryStore) FinishSessionQuiescence(ctx context.Context, work *database.SessionQuiescence, snapshot *database.SessionTaskSnapshot) error {
 	if s.attempts.Add(1) <= s.failures {
 		return status.Error(codes.Unavailable, "database unavailable")
 	}
-	return s.Client.FinishInstanceQuiescence(ctx, work, snapshot)
+	return s.Client.FinishSessionQuiescence(ctx, work, snapshot)
 }

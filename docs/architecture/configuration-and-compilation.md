@@ -47,7 +47,7 @@ spec:
 ```
 
 Command and argument changes participate in revision identity. They affect newly
-prepared revisions, not existing AgentInstances pinned to an older revision.
+prepared revisions, not existing Sessions pinned to an older revision.
 
 ## Prepared revision pipeline
 
@@ -94,8 +94,8 @@ references are resolved under the root Agent's Harness; they do not require
 separate Agents or matching Harness references.
 
 A failed compile or apply leaves the previous successful revision available.
-AgentInstances pin a prepared revision, so later template edits do not mutate a
-running instance.
+Sessions pin a prepared revision, so later template edits do not mutate a
+running session.
 
 Harness compilers only translate inputs. The controller and Substrate adapter own
 application and readiness. The central entry points are
@@ -133,7 +133,7 @@ selector is unchanged. WorkerPool updates are tracked through KRT and recompute
 the desired revision. Empty and explicit `gvisor` preserve the previous digest
 byte-for-byte; `microvm` participates in the digest, so its prepared runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
-original digest. Existing AgentInstances remain pinned to their revisions.
+original digest. Existing Sessions remain pinned to their revisions.
 
 Unresolved inputs still replace the persisted desired pointer with the requested
 identity shown in status, without creating a runtime revision. This releases
@@ -227,10 +227,10 @@ These replacements are independent: both referenced, either side inline, or both
 inline are supported. No synthetic Kubernetes objects are created for inline
 specs. Use a real runtime image digest in place of the example.
 
-Create an instance with `kagent create agent-instance --agent assistant -n kagent`.
+Create a session with `kagent create session --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.
 The controller selects that Agent's latest successful revision. Deleting an Agent
-retires its definition; instances and checkpoints retain their pinned revisions.
+retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.
 

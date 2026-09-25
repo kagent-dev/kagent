@@ -8,8 +8,8 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -18,7 +18,7 @@ import (
 const HTTPPathPrefix = "/agents/"
 
 // NewHTTPHandler serves a card and JSON-RPC endpoint per named Agent.
-func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvider, shares agentinstance.ShareStore) http.Handler {
+func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvider, shares sessionsvc.ShareStore) http.Handler {
 	mux := http.NewServeMux()
 	rpc := withHTTPAgent(a2asrv.NewJSONRPCHandler(gateway))
 	mux.Handle("POST "+HTTPPathPrefix+"{namespace}/{name}", rpc)
@@ -57,7 +57,7 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		share, err := agentinstance.ResolveShare(r.Context(), shares, r.Header.Get("X-Share-Token"))
+		share, err := sessionsvc.ResolveShare(r.Context(), shares, r.Header.Get("X-Share-Token"))
 		if err != nil {
 			status := http.StatusInternalServerError
 			if serviceerrors.CodeOf(err) == serviceerrors.CodePermissionDenied {

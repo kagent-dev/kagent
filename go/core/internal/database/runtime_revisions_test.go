@@ -31,10 +31,10 @@ func TestRetireAgentIdentities(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := NewClient(setupTestDB(t))
 			ctx := t.Context()
-			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-			agentInstanceFixture(t, client, ctx, "team-b", "other-namespace", "assistant", "kagent")
-			agentInstanceFixture(t, client, ctx, "team-a", "other-template", "other", "kagent")
-			agentInstanceFixture(t, client, ctx, "team-a", "other-agent", "another", "other")
+			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			sessionFixture(t, client, ctx, "team-b", "other-namespace", "assistant", "kagent")
+			sessionFixture(t, client, ctx, "team-a", "other-template", "other", "kagent")
+			sessionFixture(t, client, ctx, "team-a", "other-agent", "another", "other")
 			for range 2 {
 				require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", test.except))
 			}
@@ -42,9 +42,9 @@ func TestRetireAgentIdentities(t *testing.T) {
 			require.NoError(t, err)
 			if test.keep {
 				require.Empty(t, revisions)
-				instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
+				session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
 				require.NoError(t, err)
-				require.Equal(t, "revision", instance.GetPreparedRevision(), "the exception retains its last-good revision")
+				require.Equal(t, "revision", session.GetPreparedRevision(), "the exception retains its last-good revision")
 			} else {
 				require.Len(t, revisions, 1, "retirement must stay within the requested namespace and names")
 				require.Equal(t, "revision", revisions[0].Revision)
@@ -56,7 +56,7 @@ func TestRetireAgentIdentities(t *testing.T) {
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 
 	// The successful pair must protect both the listing and deletion paths.
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
@@ -81,13 +81,13 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 }
 
-func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
+func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
 	require.NoError(t, err)
-	_, err = markAgentInstanceReady(ctx, client, instance.GetId(), "runtime")
+	_, err = markSessionReady(ctx, client, session.GetId(), "runtime")
 	require.NoError(t, err)
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 
@@ -104,30 +104,30 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assertRetained()
-	task := newAgentInstanceTask("task", "message")
-	task.ContextID = instance.GetContextId()
-	_, err = client.CreateRuntimeTask(ctx, instance.GetId(), taskMutationHash("request"), task, "")
+	task := newSessionTask("task", "message")
+	task.ContextID = session.GetContextId()
+	_, err = client.CreateRuntimeTask(ctx, session.GetId(), taskMutationHash("request"), task, "")
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, instance.GetId(), task, task,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
-	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
-		Id: uuid.NewString(), AgentInstanceId: instance.GetId(), HeadTaskId: string(task.ID),
+	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+		Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
 	}, "alice", "checkpoint")
 	require.NoError(t, err)
-	require.ErrorIs(t, deleteInstance(ctx, client, instance.GetId()), ErrConflict)
+	require.ErrorIs(t, deleteSession(ctx, client, session.GetId()), ErrConflict)
 
 	// A checkpoint retains the runtime throughout creation, use, and deletion,
-	// even after the source instance and active template pair are gone.
+	// even after the source session and active template pair are gone.
 	assertRetained()
-	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
+	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
-	require.NoError(t, deleteInstance(ctx, client, instance.GetId()))
+	require.NoError(t, deleteSession(ctx, client, session.GetId()))
 	assertRetained()
-	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
 	require.NoError(t, err)
 	assertRetained()
-	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"))
+	require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"))
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
@@ -142,7 +142,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "old", "assistant", "kagent")
+	sessionFixture(t, client, ctx, "team-a", "old", "assistant", "kagent")
 	revision, err := client.GetRuntimeRevision(ctx, "old")
 	require.NoError(t, err)
 	revision.Revision = "new"
@@ -154,8 +154,8 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 		DesiredRevision: "new",
 	}
 	require.NoError(t, client.UpsertAgentDefinition(ctx, pair))
-	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "")
-	_, _, err = client.CreateAgentInstance(ctx, request, "instance")
+	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "")
+	_, _, err = client.CreateSession(ctx, request, "session")
 	require.ErrorIs(t, err, ErrNotFound, "a replacement must not select the previous template UID")
 	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, true))
 
@@ -163,9 +163,9 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	// a new desired revision is still preparing.
 	pair.DesiredRevision = "pending"
 	require.NoError(t, client.UpsertAgentDefinition(ctx, pair))
-	instance, _, err := client.CreateAgentInstance(ctx, request, "instance")
+	session, _, err := client.CreateSession(ctx, request, "session")
 	require.NoError(t, err)
-	require.Equal(t, "new", instance.GetPreparedRevision())
+	require.Equal(t, "new", session.GetPreparedRevision())
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
@@ -204,16 +204,16 @@ func (b *runtimeReferenceBarrier) TraceQueryEnd(ctx context.Context, _ *pgx.Conn
 }
 
 func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T) {
-	for _, source := range []string{"instance", "reactivated pair", "new pair"} {
+	for _, source := range []string{"session", "reactivated pair", "new pair"} {
 		for _, referenceFirst := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/reference_first=%t", source, referenceFirst), func(t *testing.T) {
 				pool := setupTestDB(t)
 				client := NewClient(pool)
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
-				agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 				query := "FROM runtime_revision WHERE revision = $1 FOR UPDATE"
-				if source != "instance" {
+				if source != "session" {
 					query = "FOR UPDATE OF r"
 					require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 				}
@@ -228,8 +228,8 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				created := make(chan error, 1)
 				go func() {
 					creating := NewClient(creatingPool)
-					if source == "instance" {
-						_, _, err := creating.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
+					if source == "session" {
+						_, _, err := creating.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
 						created <- err
 						return
 					}
@@ -248,7 +248,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				case <-ctx.Done():
 					t.Fatal(ctx.Err())
 				}
-				if source == "instance" {
+				if source == "session" {
 					require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 				}
 				type claimResult struct {
@@ -289,7 +289,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	pool := setupTestDB(t)
 	client := NewClient(pool)
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	pair := AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid",
 		DesiredRevision: "pending",
@@ -298,10 +298,10 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	// A skipped finalization must leave last-good intact for reactivation.
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	require.NoError(t, client.UpsertAgentDefinition(ctx, pair))
-	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
 	require.NoError(t, err)
-	require.Equal(t, "revision", instance.GetPreparedRevision())
-	require.NoError(t, deleteInstance(ctx, client, instance.GetId()))
+	require.Equal(t, "revision", session.GetPreparedRevision())
+	require.NoError(t, deleteSession(ctx, client, session.GetId()))
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
@@ -349,7 +349,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				client := NewClient(pool)
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
-				agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 				require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 				claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 				require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	}
 	assertAvailableRevision := func(want string) {
 		t.Helper()
-		instance, _, err := c.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+		session, _, err := c.CreateSession(ctx, &apiv1alpha1.Session{
 			Id: uuid.NewString(), Creator: "alice",
 
 			Agent: &apiv1alpha1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
@@ -452,7 +452,7 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 			return
 		}
 		require.NoError(t, err)
-		require.Equal(t, want, instance.PreparedRevision)
+		require.Equal(t, want, session.PreparedRevision)
 	}
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
 	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, false))

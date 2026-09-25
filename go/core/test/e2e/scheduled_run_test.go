@@ -70,11 +70,11 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, manual.GetExecution().GetId(), retried.GetExecution().GetId())
 		second := f.waitExecution(t, manual.GetExecution().GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
-		require.NotEqual(t, first.GetAgentInstanceId(), second.GetAgentInstanceId())
+		require.NotEqual(t, first.GetSessionId(), second.GetSessionId())
 		f.assertCompletedTask(t, second)
 
 		// Continuing the conversation does not replace the original execution's task.
-		conversation := &interactionFixture{ctx: f.ctx, client: f.tasks, instances: f.instances, instanceID: second.GetAgentInstanceId(), contextID: second.GetAgentInstanceId(), tenant: f.schedule.GetAgent().GetNamespace() + "/" + f.schedule.GetAgent().GetName()}
+		conversation := &interactionFixture{ctx: f.ctx, client: f.tasks, sessions: f.sessions, sessionID: second.GetSessionId(), contextID: second.GetSessionId(), tenant: f.schedule.GetAgent().GetNamespace() + "/" + f.schedule.GetAgent().GetName()}
 		_, _, continued := conversation.send(t, "What is 2+2?")
 		require.NotEqual(t, second.GetTaskId(), string(continued.ID))
 		retained, err := f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: second.GetId()})
@@ -83,10 +83,10 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 
 		_, err = f.schedules.DeleteScheduledRun(f.ctx, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
 		require.NoError(t, err)
-		require.NoError(t, deleteIdleInstance(f.ctx, f.instances, first.GetAgentInstanceId()))
+		require.NoError(t, deleteIdleSession(f.ctx, f.sessions, first.GetSessionId()))
 		retained, err = f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: first.GetId()})
 		require.NoError(t, err)
-		require.Equal(t, first.GetAgentInstanceId(), retained.GetExecution().GetAgentInstanceId())
+		require.Equal(t, first.GetSessionId(), retained.GetExecution().GetSessionId())
 		require.Equal(t, first.GetState(), retained.GetExecution().GetState())
 	})
 }
@@ -97,7 +97,7 @@ func TestScheduledRunTimeout(t *testing.T) {
 		target := interactionTarget(t)
 		modelURL, started := startBlockingInteractionMock(t)
 		// Template preparation finishes before triggering; leave time for the new
-		// instance to reach the blocking model while exercising a real deadline.
+		// session to reach the blocking model while exercising a real deadline.
 		f := newScheduledFixture(t, harness, target, modelURL, true, 20*time.Second)
 		execution := f.trigger(t)
 		select {
@@ -152,7 +152,7 @@ func TestScheduledRunControllerRestart(t *testing.T) {
 		}), "wait for replacement controller")
 		release()
 		recovered := f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
-		require.Equal(t, execution.GetAgentInstanceId(), recovered.GetAgentInstanceId())
+		require.Equal(t, execution.GetSessionId(), recovered.GetSessionId())
 		require.Equal(t, execution.GetTaskId(), recovered.GetTaskId())
 		require.EqualValues(t, 1, calls.Load(), "restart must not resend the original prompt")
 		f.assertCompletedTask(t, recovered)
@@ -162,7 +162,7 @@ func TestScheduledRunControllerRestart(t *testing.T) {
 type scheduledFixture struct {
 	ctx       context.Context
 	schedules apiv1alpha1.ScheduledRunServiceClient
-	instances apiv1alpha1.AgentInstanceServiceClient
+	sessions  apiv1alpha1.SessionServiceClient
 	system    apiv1alpha1.SystemServiceClient
 	tasks     a2apb.A2AServiceClient
 	schedule  *apiv1alpha1.ScheduledRun
@@ -176,7 +176,7 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 	t.Cleanup(func() { _ = conn.Close() })
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 5*time.Minute)
 	t.Cleanup(cancel)
-	f := &scheduledFixture{ctx: ctx, schedules: apiv1alpha1.NewScheduledRunServiceClient(conn), instances: apiv1alpha1.NewAgentInstanceServiceClient(conn), system: apiv1alpha1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
+	f := &scheduledFixture{ctx: ctx, schedules: apiv1alpha1.NewScheduledRunServiceClient(conn), sessions: apiv1alpha1.NewSessionServiceClient(conn), system: apiv1alpha1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
 	created, err := f.schedules.CreateScheduledRun(ctx, &apiv1alpha1.CreateScheduledRunRequest{
 		RequestId: uuid.NewString(),
 		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
@@ -198,11 +198,11 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 			return
 		}
 		for _, execution := range executions.GetExecutions() {
-			if execution.GetAgentInstanceId() == "" {
+			if execution.GetSessionId() == "" {
 				continue
 			}
-			if err := deleteIdleInstance(cleanupCtx, f.instances, execution.GetAgentInstanceId()); err != nil {
-				t.Errorf("delete scheduled instance: %v", err)
+			if err := deleteIdleSession(cleanupCtx, f.sessions, execution.GetSessionId()); err != nil {
+				t.Errorf("delete scheduled session: %v", err)
 			}
 		}
 	})
@@ -239,7 +239,7 @@ func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1alph
 		return false, nil
 	})
 	require.NoError(t, err, "last execution: %v", execution)
-	require.NotEmpty(t, execution.GetAgentInstanceId())
+	require.NotEmpty(t, execution.GetSessionId())
 	require.Equal(t, "e2e", execution.GetCreator())
 	return execution
 }
@@ -252,10 +252,10 @@ func (f *scheduledFixture) task(t *testing.T, execution *apiv1alpha1.ScheduledRu
 	require.NoError(t, err)
 	task, err := pbconv.FromProtoTask(result)
 	require.NoError(t, err)
-	instance, err := f.instances.GetAgentInstance(f.ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: execution.GetAgentInstanceId()})
+	session, err := f.sessions.GetSession(f.ctx, &apiv1alpha1.GetSessionRequest{SessionId: execution.GetSessionId()})
 	require.NoError(t, err)
-	require.NotEmpty(t, instance.GetAgentInstance().GetContextId())
-	require.Equal(t, instance.GetAgentInstance().GetContextId(), task.ContextID)
+	require.NotEmpty(t, session.GetSession().GetContextId())
+	require.Equal(t, session.GetSession().GetContextId(), task.ContextID)
 	return task
 }
 
@@ -269,10 +269,10 @@ func (f *scheduledFixture) assertCompletedTask(t *testing.T, execution *apiv1alp
 
 func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.ScheduledRunExecution) {
 	t.Helper()
-	result, err := f.instances.GetAgentInstance(f.ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: execution.GetAgentInstanceId()})
+	result, err := f.sessions.GetSession(f.ctx, &apiv1alpha1.GetSessionRequest{SessionId: execution.GetSessionId()})
 	require.NoError(t, err)
 	// The public A2A authority identifies the Actor without reading internal DB state.
-	actorName, rest, _ := strings.Cut(result.GetAgentInstance().GetA2AAuthority(), ".")
+	actorName, rest, _ := strings.Cut(result.GetSession().GetA2AAuthority(), ".")
 	atespace, _, _ := strings.Cut(rest, ".")
 	require.NotEmpty(t, atespace)
 	require.NotEmpty(t, actorName)

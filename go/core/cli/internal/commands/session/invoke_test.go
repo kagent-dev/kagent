@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"bytes"
@@ -107,7 +107,7 @@ func TestWriteSendResultTable(t *testing.T) {
 		{
 			name: "completed Task with multiple artifacts",
 			result: &a2atype.Task{
-				ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+				ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 				Artifacts: []*a2atype.Artifact{
 					{ID: "first", Parts: a2atype.ContentParts{a2atype.NewTextPart("hello")}},
 					{ID: "second", Parts: a2atype.ContentParts{a2atype.NewTextPart("world")}},
@@ -128,7 +128,7 @@ func TestWriteSendResultTable(t *testing.T) {
 
 func TestWriteSendResultJSONPreservesArtifactsAndNonTextParts(t *testing.T) {
 	result := &a2atype.Task{
-		ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+		ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 		Artifacts: []*a2atype.Artifact{
 			{
 				ID: "structured", Name: "report",
@@ -156,14 +156,14 @@ func TestWriteTableResultContinuation(t *testing.T) {
 		state a2atype.TaskState
 		want  string
 	}{
-		{name: "input required", state: a2atype.TaskStateInputRequired, want: "Need a value\nInput required to continue this AgentInstance.\n"},
-		{name: "auth required", state: a2atype.TaskStateAuthRequired, want: "Sign in\nAuthentication required to continue this AgentInstance.\n"},
+		{name: "input required", state: a2atype.TaskStateInputRequired, want: "Need a value\nInput required to continue this Session.\n"},
+		{name: "auth required", state: a2atype.TaskStateAuthRequired, want: "Sign in\nAuthentication required to continue this Session.\n"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := &a2atype.Task{
-				ID: "task-1", ContextID: "instance-1",
+				ID: "task-1", ContextID: "session-1",
 				Status: a2atype.TaskStatus{
 					State: tt.state,
 					Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(map[a2atype.TaskState]string{
@@ -182,7 +182,7 @@ func TestWriteTableResultContinuation(t *testing.T) {
 
 func TestWriteJSONKeepsPausedStateExplicit(t *testing.T) {
 	result := &a2atype.Task{
-		ID: "task-1", ContextID: "instance-1",
+		ID: "task-1", ContextID: "session-1",
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired},
 	}
 	var output bytes.Buffer
@@ -209,7 +209,7 @@ func TestSendResultError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.state.String(), func(t *testing.T) {
 			err := sendResultError(&a2atype.Task{
-				ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: tt.state},
+				ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: tt.state},
 			})
 			if tt.wantErr {
 				require.Error(t, err)
@@ -223,10 +223,10 @@ func TestSendResultError(t *testing.T) {
 func TestConsumeA2AStreamReturnsPartialResultOnTruncation(t *testing.T) {
 	result, err := consumeA2AStream(eventStream(
 		streamItem{event: &a2atype.Task{
-			ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+			ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 		}},
 		streamItem{event: &a2atype.TaskArtifactUpdateEvent{
-			TaskID: "task-1", ContextID: "instance-1",
+			TaskID: "task-1", ContextID: "session-1",
 			Artifact: &a2atype.Artifact{ID: "answer", Parts: a2atype.ContentParts{a2atype.NewTextPart("partial")}},
 		}},
 	), func(a2atype.Event, a2atype.SendMessageResult) error { return nil })
@@ -240,14 +240,14 @@ func TestConsumeA2AStreamReturnsPartialResultOnTruncation(t *testing.T) {
 func TestConsumeA2AStreamWritesJSONL(t *testing.T) {
 	events := []streamItem{
 		{event: &a2atype.Task{
-			ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+			ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 		}},
 		{event: &a2atype.TaskArtifactUpdateEvent{
-			TaskID: "task-1", ContextID: "instance-1",
+			TaskID: "task-1", ContextID: "session-1",
 			Artifact: &a2atype.Artifact{ID: "answer", Parts: a2atype.ContentParts{a2atype.NewTextPart("done")}},
 		}},
 		{event: &a2atype.TaskStatusUpdateEvent{
-			TaskID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+			TaskID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 		}},
 	}
 	var output bytes.Buffer
@@ -271,25 +271,25 @@ func TestConsumeA2AStreamWritesTableBeforeCompletion(t *testing.T) {
 	t.Cleanup(func() { close(release) })
 	stream := func(yield func(a2atype.Event, error) bool) {
 		if !yield(&a2atype.Task{
-			ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+			ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 		}, nil) {
 			return
 		}
 		if !yield(&a2atype.TaskArtifactUpdateEvent{
-			TaskID: "task-1", ContextID: "instance-1",
+			TaskID: "task-1", ContextID: "session-1",
 			Artifact: &a2atype.Artifact{ID: "answer", Parts: a2atype.ContentParts{a2atype.NewTextPart("Hel")}},
 		}, nil) {
 			return
 		}
 		<-release
 		if !yield(&a2atype.TaskArtifactUpdateEvent{
-			TaskID: "task-1", ContextID: "instance-1", LastChunk: true,
+			TaskID: "task-1", ContextID: "session-1", LastChunk: true,
 			Artifact: &a2atype.Artifact{ID: "answer", Parts: a2atype.ContentParts{a2atype.NewTextPart("Hello")}},
 		}, nil) {
 			return
 		}
 		yield(&a2atype.TaskStatusUpdateEvent{
-			TaskID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+			TaskID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 		}, nil)
 	}
 	out := &signalWriter{wrote: make(chan struct{}, 1)}
@@ -321,7 +321,7 @@ func TestConsumeA2AStreamPreservesTerminalError(t *testing.T) {
 	wantErr := errors.New("stream disconnected")
 	result, err := consumeA2AStream(eventStream(
 		streamItem{event: &a2atype.Task{
-			ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+			ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 		}},
 		streamItem{err: wantErr},
 	), func(a2atype.Event, a2atype.SendMessageResult) error { return nil })
@@ -334,7 +334,7 @@ func TestFinishInvokeStreamPreservesStreamAndWriteErrors(t *testing.T) {
 	streamErr := errors.New("stream disconnected")
 	writeErr := errors.New("broken pipe")
 	result := &a2atype.Task{
-		ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+		ID: "task-1", ContextID: "session-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 	}
 
 	err := finishInvokeStream(&tableStreamWriter{w: failingWriter{err: writeErr}, text: "partial"}, result, streamErr)

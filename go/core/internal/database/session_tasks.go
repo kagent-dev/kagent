@@ -18,26 +18,26 @@ import (
 )
 
 // ErrDispatchBusy means a send has not been forwarded because another dispatch
-// or idle lifecycle operation currently owns the instance.
-var ErrDispatchBusy = errors.New("instance temporarily unavailable for dispatch")
+// or idle lifecycle operation currently owns the session.
+var ErrDispatchBusy = errors.New("session temporarily unavailable for dispatch")
 
 // ErrMessageAccepted means an earlier dispatch already persisted this initial input.
 var ErrMessageAccepted = errors.New("message already accepted")
 
-// ReserveAgentInstanceDispatch prevents pause/suspend between routing a request
+// ReserveSessionDispatch prevents pause/suspend between routing a request
 // and its first persisted task. The attempt expires after two minutes; a late
 // first save must fail before native execution. This is not a native work lease.
-func (c *Client) ReserveAgentInstanceDispatch(ctx context.Context, instanceID string, dispatchID uuid.UUID, initialMessageID string) error {
+func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, initialMessageID string) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
 		if initialMessageID != "" {
 			accepted, err := queryOne(ctx, tx, `
-				SELECT EXISTS (SELECT 1 FROM agent_instance_task_event
+				SELECT EXISTS (SELECT 1 FROM session_task_event
 				    WHERE history_id = $1 AND message_id = $2)
-			`, pgx.RowTo[bool], instance.HistoryID, initialMessageID)
+			`, pgx.RowTo[bool], session.HistoryID, initialMessageID)
 			if err != nil {
 				return err
 			}
@@ -45,103 +45,103 @@ func (c *Client) ReserveAgentInstanceDispatch(ctx context.Context, instanceID st
 				return ErrMessageAccepted
 			}
 		}
-		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
+		if session.State != "SESSION_STATE_READY" || session.Operation != "SESSION_OPERATION_UNSPECIFIED" {
 			return ErrConflict
 		}
 		blocked, err := queryOne(ctx, tx, `
-			SELECT EXISTS (SELECT 1 FROM agent_instance_task WHERE history_id = $1
+			SELECT EXISTS (SELECT 1 FROM session_task WHERE history_id = $1
 			    AND state IN ('TASK_STATE_SUBMITTED', 'TASK_STATE_WORKING'))
-			    OR EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $2 AND state = 'CREATING')
-		`, pgx.RowTo[bool], instance.HistoryID, instance.ID)
+			    OR EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $2 AND state = 'CREATING')
+		`, pgx.RowTo[bool], session.HistoryID, session.ID)
 		if err != nil {
 			return err
 		}
 		if blocked {
 			return ErrConflict
 		}
-		if err := requireSettledRuntime(ctx, tx, instance.HistoryID, ""); err != nil {
+		if err := requireSettledRuntime(ctx, tx, session.HistoryID, ""); err != nil {
 			if errors.Is(err, ErrFailedPrecondition) {
 				return ErrDispatchBusy
 			}
 			return err
 		}
 		return execSQL(ctx, tx, `
-			UPDATE agent_instance SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes'
+			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes'
 			WHERE id = $1
-		`, instance.ID, dispatchID)
+		`, session.ID, dispatchID)
 	})
 }
 
-// RevokeAgentInstanceDispatch fences an unused attempt. True proves its first
+// RevokeSessionDispatch fences an unused attempt. True proves its first
 // save did not commit and cannot commit later, so retrying the send is safe.
 // False does not prove acceptance: callers must preserve ambiguous outcomes.
-func (c *Client) RevokeAgentInstanceDispatch(ctx context.Context, instanceID string, dispatchID uuid.UUID, messageID string) (bool, error) {
+func (c *Client) RevokeSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, messageID string) (bool, error) {
 	var notAccepted bool
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
 		tag, err := tx.Exec(ctx, `
-			UPDATE agent_instance SET dispatch_id = NULL, dispatch_expires_at = NULL
+			UPDATE session SET dispatch_id = NULL, dispatch_expires_at = NULL
 			WHERE id = $1 AND dispatch_id = $2
-		`, instance.ID, dispatchID)
+		`, session.ID, dispatchID)
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
 		// A continuation may have saved its input while still marked waiting.
 		// Revoking that attempt is safe, but it is not an unaccepted input.
 		notAccepted, err = queryOne(ctx, tx, `
-			SELECT NOT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1 AND message_id = $2)
-		`, pgx.RowTo[bool], instance.HistoryID, messageID)
+			SELECT NOT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1 AND message_id = $2)
+		`, pgx.RowTo[bool], session.HistoryID, messageID)
 		return err
 	})
 	return notAccepted, err
 }
 
-// UpdateAgentInstanceTask applies a runtime update only to the version it read.
+// UpdateSessionTask applies a runtime update only to the version it read.
 // The transition and history commit together. An identical retry returns the
 // original committed version, even after later updates; a different stale save
-// returns ErrConflict. Callers authenticate the runtime's instance authority and
+// returns ErrConflict. Callers authenticate the runtime's session authority and
 // provide a SHA-256 digest of the complete mutation. This never creates a task.
-func (c *Client) UpdateAgentInstanceTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
+func (c *Client) UpdateSessionTask(ctx context.Context, sessionID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
 	if expectedVersion <= 0 {
 		return 0, fmt.Errorf("task update requires a stored version")
 	}
-	return c.writeRuntimeTask(ctx, instanceID, expectedVersion, mutationHash, task, event, dispatchID)
+	return c.writeRuntimeTask(ctx, sessionID, expectedVersion, mutationHash, task, event, dispatchID)
 }
 
 // CreateRuntimeTask stores a new SDK task and its history atomically. An identical
 // storage retry returns the original version; a different write to the same ID
 // conflicts. It does not deduplicate user requests or grant execution permission.
-func (c *Client) CreateRuntimeTask(ctx context.Context, instanceID string, mutationHash []byte, task *a2a.Task, dispatchID string) (int64, error) {
-	return c.writeRuntimeTask(ctx, instanceID, 0, mutationHash, task, task, dispatchID)
+func (c *Client) CreateRuntimeTask(ctx context.Context, sessionID string, mutationHash []byte, task *a2a.Task, dispatchID string) (int64, error) {
+	return c.writeRuntimeTask(ctx, sessionID, 0, mutationHash, task, task, dispatchID)
 }
 
-func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
+func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expectedVersion int64, mutationHash []byte, task *a2a.Task, event a2a.Event, dispatchID string) (int64, error) {
 	if expectedVersion < 0 || len(mutationHash) != 32 || task == nil || event == nil {
 		return 0, fmt.Errorf("runtime task update requires a version, digest, task, and event")
 	}
 	var version int64
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		instance, err := lockAgentInstance(ctx, tx, instanceID)
+		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+		if session.State == "SESSION_STATE_DELETED" {
 			return ErrNotFound
 		}
-		if task.ContextID != instance.ContextID.String() {
-			return fmt.Errorf("task context does not match AgentInstance: %w", ErrFailedPrecondition)
+		if task.ContextID != session.ContextID.String() {
+			return fmt.Errorf("task context does not match Session: %w", ErrFailedPrecondition)
 		}
 		type receipt struct {
 			Sequence     int64
 			MutationHash []byte
 		}
 		previous, err := queryOne(ctx, tx, `
-			SELECT sequence, mutation_hash FROM agent_instance_task_event
+			SELECT sequence, mutation_hash FROM session_task_event
 			WHERE history_id = $1 AND task_id = $2 AND expected_version = $3
-		`, pgx.RowToStructByName[receipt], instance.HistoryID, string(task.ID), expectedVersion)
+		`, pgx.RowToStructByName[receipt], session.HistoryID, string(task.ID), expectedVersion)
 		if err == nil {
 			if !bytes.Equal(previous.MutationHash, mutationHash) {
 				if expectedVersion == 0 {
@@ -156,7 +156,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 			return err
 		}
 		var stored *a2a.Task
-		row, err := readAgentInstanceTask(ctx, tx, instance.HistoryID, string(task.ID))
+		row, err := readSessionTask(ctx, tx, session.HistoryID, string(task.ID))
 		if expectedVersion == 0 {
 			if err == nil {
 				return ErrIdempotencyConflict
@@ -168,14 +168,14 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 			if err != nil {
 				return notFoundOr(err)
 			}
-			version, err = taskVersion(ctx, tx, instance.HistoryID, string(task.ID))
+			version, err = taskVersion(ctx, tx, session.HistoryID, string(task.ID))
 			if err != nil {
 				return err
 			}
 			if expectedVersion != version {
 				return ErrConflict
 			}
-			stored, err = unmarshalAgentInstanceTask(row.Data)
+			stored, err = unmarshalSessionTask(row.Data)
 			if err != nil {
 				return err
 			}
@@ -183,15 +183,15 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 				return fmt.Errorf("a terminal task cannot be updated: %w", ErrFailedPrecondition)
 			}
 		}
-		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
-			return fmt.Errorf("AgentInstance cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
+		if session.State != "SESSION_STATE_READY" || session.Operation != "SESSION_OPERATION_UNSPECIFIED" {
+			return fmt.Errorf("session cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
 		}
 		if (stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) && dispatchID != "" {
 			tag, err := tx.Exec(ctx, `
-				UPDATE agent_instance SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
+				UPDATE session SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
 				    dispatch_expires_at = CASE WHEN $3 THEN dispatch_expires_at END
 				WHERE id = $1 AND dispatch_id = $2 AND dispatch_expires_at > clock_timestamp()
-			`, instance.ID, dispatchID, stored != nil && stored.Status.State == task.Status.State)
+			`, session.ID, dispatchID, stored != nil && stored.Status.State == task.Status.State)
 			if err != nil {
 				return err
 			}
@@ -199,16 +199,16 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 				return fmt.Errorf("dispatch expired or was revoked before acceptance: %w", ErrFailedPrecondition)
 			}
 		}
-		if err := requireSettledRuntime(ctx, tx, instance.HistoryID, dispatchID); err != nil {
+		if err := requireSettledRuntime(ctx, tx, session.HistoryID, dispatchID); err != nil {
 			return err
 		}
 		// New execution supersedes idle work that no worker has claimed yet.
 		// Keep the marker for idempotent acknowledgements of the older boundary.
 		if stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired {
 			if err := execSQL(ctx, tx, `
-				UPDATE agent_instance_task_event SET quiescence_pending = FALSE
+				UPDATE session_task_event SET quiescence_pending = FALSE
 				WHERE history_id = $1 AND quiescence_pending
-			`, instance.HistoryID); err != nil {
+			`, session.HistoryID); err != nil {
 				return err
 			}
 		}
@@ -218,42 +218,42 @@ func (c *Client) writeRuntimeTask(ctx context.Context, instanceID string, expect
 			// projection until native cleanup finishes.
 			initial := *task
 			initial.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted}
-			if err := storeAgentInstanceTaskEvent(ctx, tx, instance, &initial, &initial, false); err != nil {
+			if err := storeSessionTaskEvent(ctx, tx, session, &initial, &initial, false); err != nil {
 				return err
 			}
 		}
-		if err := storeAgentInstanceTaskEvent(ctx, tx, instance, task, event, boundary); err != nil {
+		if err := storeSessionTaskEvent(ctx, tx, session, task, event, boundary); err != nil {
 			return err
 		}
-		version, err = taskVersion(ctx, tx, instance.HistoryID, string(task.ID))
+		version, err = taskVersion(ctx, tx, session.HistoryID, string(task.ID))
 		if err != nil {
 			return err
 		}
 		if boundary {
 			if err := execSQL(ctx, tx, `
-				UPDATE agent_instance_task_event SET published = FALSE
+				UPDATE session_task_event SET published = FALSE
 				WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
-			`, instance.HistoryID, string(task.ID), expectedVersion, version); err != nil {
+			`, session.HistoryID, string(task.ID), expectedVersion, version); err != nil {
 				return err
 			}
 		}
 		return execSQL(ctx, tx, `
-			UPDATE agent_instance_task_event SET expected_version = $2, mutation_hash = $3, quiescence_pending = CASE WHEN $4 THEN TRUE ELSE NULL END
+			UPDATE session_task_event SET expected_version = $2, mutation_hash = $3, quiescence_pending = CASE WHEN $4 THEN TRUE ELSE NULL END
 			WHERE sequence = $1
 		`, version, expectedVersion, mutationHash, boundary)
 	})
 	if err != nil {
-		return 0, fmt.Errorf("update AgentInstance task %s: %w", task.ID, err)
+		return 0, fmt.Errorf("update Session task %s: %w", task.ID, err)
 	}
 	return version, nil
 }
 
-// GetVersionedAgentInstanceTask returns one consistent task, full history, and
+// GetVersionedSessionTask returns one consistent task, full history, and
 // storage version for a runtime read. Versions come from the retained history,
 // so forks have independent versions even when their wire task IDs are shared.
-// Missing or deleted instances and absent tasks return ErrNotFound. Callers
-// authenticate instance authority before reading.
-func (c *Client) GetVersionedAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, int64, error) {
+// Missing or deleted sessions and absent tasks return ErrNotFound. Callers
+// authenticate session authority before reading.
+func (c *Client) GetVersionedSessionTask(ctx context.Context, sessionID, taskID string) (*a2a.Task, int64, error) {
 	var task *a2a.Task
 	var version int64
 	err := pgx.BeginTxFunc(ctx, c.db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
@@ -264,21 +264,21 @@ func (c *Client) GetVersionedAgentInstanceTask(ctx context.Context, instanceID, 
 		}
 		row, err := queryOne(ctx, tx, `
 			SELECT t.history_id, t.data,
-			    (SELECT MAX(e.sequence) FROM agent_instance_task_event e
+			    (SELECT MAX(e.sequence) FROM session_task_event e
 			     WHERE e.history_id = t.history_id AND e.task_id = t.id) AS version
-			FROM agent_instance_task t JOIN agent_instance i ON i.history_id = t.history_id
-			WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
-		`, pgx.RowToStructByName[storedTask], instanceID, taskID)
+			FROM session_task t JOIN session i ON i.history_id = t.history_id
+			WHERE i.id = $1 AND i.state <> 'SESSION_STATE_DELETED' AND t.id = $2
+		`, pgx.RowToStructByName[storedTask], sessionID, taskID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		task, err = unmarshalAgentInstanceTask(row.Data)
+		task, err = unmarshalSessionTask(row.Data)
 		if err != nil {
 			return err
 		}
 		version = row.Version
 		pending, err := queryOne(ctx, tx, `
-			SELECT data FROM agent_instance_task_event WHERE sequence = $1 AND NOT published
+			SELECT data FROM session_task_event WHERE sequence = $1 AND NOT published
 		`, pgx.RowTo[[]byte], version)
 		if err == nil {
 			wire, err := pbconv.ToProtoTask(task)
@@ -300,50 +300,50 @@ func (c *Client) GetVersionedAgentInstanceTask(ctx context.Context, instanceID, 
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		return loadAgentInstanceTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, nil, true)
+		return loadSessionTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, nil, true)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("get versioned AgentInstance task %s: %w", taskID, err)
+		return nil, 0, fmt.Errorf("get versioned Session task %s: %w", taskID, err)
 	}
 	return task, version, nil
 }
 
 // taskVersion reads the last committed event for a task. Callers serialize
-// mutations with the instance lock or use a consistent read transaction.
+// mutations with the session lock or use a consistent read transaction.
 func taskVersion(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (int64, error) {
 	return queryOne(ctx, db, `
-		SELECT sequence FROM agent_instance_task_event
+		SELECT sequence FROM session_task_event
 		WHERE history_id = $1 AND task_id = $2 ORDER BY sequence DESC LIMIT 1
 	`, pgx.RowTo[int64], historyID, taskID)
 }
 
-// storeAgentInstanceTaskEvent persists a task transition and its messages in the
-// caller's transaction. The caller must hold the instance row lock;
+// storeSessionTaskEvent persists a task transition and its messages in the
+// caller's transaction. The caller must hold the session row lock;
 // checkpoint creation blocks the write. The caller checks the storage version
 // before invoking this shared persistence operation.
-func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, deferPublication bool) error {
-	if instance.State == "AGENT_INSTANCE_STATE_DELETED" {
+func storeSessionTaskEvent(ctx context.Context, tx pgx.Tx, session sessionRow, task *a2a.Task, event a2a.Event, deferPublication bool) error {
+	if session.State == "SESSION_STATE_DELETED" {
 		return ErrNotFound
 	}
-	historyID := instance.HistoryID
-	if event.TaskInfo().ContextID != instance.ContextID.String() || task.ContextID != instance.ContextID.String() {
-		return fmt.Errorf("task event context does not match AgentInstance")
+	historyID := session.HistoryID
+	if event.TaskInfo().ContextID != session.ContextID.String() || task.ContextID != session.ContextID.String() {
+		return fmt.Errorf("task event context does not match Session")
 	}
 	creating, err := queryOne(ctx, tx, `
-		SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $1 AND state = 'CREATING')
-	`, pgx.RowTo[bool], instance.ID)
+		SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
+	`, pgx.RowTo[bool], session.ID)
 	if err != nil {
 		return err
 	}
 	if creating {
-		return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instance.ID, ErrConflict)
+		return fmt.Errorf("session %s has a checkpoint being created: %w", session.ID, ErrConflict)
 	}
 	var stored *a2apb.Task
-	var taskRow agentInstanceTaskRow
+	var taskRow sessionTaskRow
 	if row, err := queryOne(ctx, tx, `
 		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-		    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
-	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
+		    session_task WHERE history_id = $1 AND id = $2 FOR UPDATE
+	`, pgx.RowToStructByName[sessionTaskRow], historyID, string(task.ID)); err == nil {
 		taskRow = row
 		stored = &a2apb.Task{}
 		if err := proto.Unmarshal(row.Data, stored); err != nil {
@@ -364,11 +364,11 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 		}
 		if len(messages) > 0 {
 			if err := storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages); err != nil {
-				return fmt.Errorf("archive AgentInstance task history: %w", err)
+				return fmt.Errorf("archive Session task history: %w", err)
 			}
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
+		return fmt.Errorf("get Session task %s: %w", task.ID, err)
 	}
 	newTask := stored == nil
 	stored, durable, err := taskTransition(stored, task, event)
@@ -383,9 +383,9 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 		taskRow, err = saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
 		if err != nil {
 			if isActiveTaskConflict(err) {
-				return fmt.Errorf("AgentInstance %s already has an active task: %w", instance.ID, ErrConflict)
+				return fmt.Errorf("session %s already has an active task: %w", session.ID, ErrConflict)
 			}
-			return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
+			return fmt.Errorf("store Session task %s: %w", task.ID, err)
 		}
 	}
 
@@ -406,10 +406,10 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 		}
 	}
 
-	messages := agentInstanceTaskEventMessages(task, event)
+	messages := sessionTaskEventMessages(task, event)
 	if len(messages) > 0 {
-		if err := storeAgentInstanceTaskMessages(ctx, tx, historyID, string(event.TaskInfo().TaskID), instance.ContextID.String(), messages); err != nil {
-			return fmt.Errorf("store AgentInstance task history: %w", err)
+		if err := storeSessionTaskMessages(ctx, tx, historyID, string(event.TaskInfo().TaskID), session.ContextID.String(), messages); err != nil {
+			return fmt.Errorf("store Session task history: %w", err)
 		}
 	}
 	if !newTask {
@@ -421,31 +421,31 @@ func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentI
 			HistoryID: historyID, TaskID: string(task.ID), Data: eventData,
 		})
 		if err != nil {
-			return fmt.Errorf("store AgentInstance task event: %w", err)
+			return fmt.Errorf("store Session task event: %w", err)
 		}
 	}
 
 	return nil
 }
 
-// GetAgentInstanceTask returns a task with up to historyLength latest archived messages,
-// or ErrNotFound if the instance or task is absent. Nil or negative historyLength loads
-// all history; zero skips it. Callers authorize instance access.
-func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
-	return c.getPublicTask(ctx, instanceID, taskID, historyLength, false)
+// GetSessionTask returns a task with up to historyLength latest archived messages,
+// or ErrNotFound if the session or task is absent. Nil or negative historyLength loads
+// all history; zero skips it. Callers authorize session access.
+func (c *Client) GetSessionTask(ctx context.Context, sessionID, taskID string, historyLength *int) (*a2a.Task, error) {
+	return c.getPublicTask(ctx, sessionID, taskID, historyLength, false)
 }
 
-// GetSettledAgentInstanceTask reads the public task after native cleanup publishes
+// GetSettledSessionTask reads the public task after native cleanup publishes
 // its pending update. ErrConflict means cleanup is still pending. A later
 // admitted turn may already be current; callers must not wait for an old status
-// value to recur. Ownership and missing-record semantics match GetAgentInstanceTask.
-func (c *Client) GetSettledAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
-	return c.getPublicTask(ctx, instanceID, taskID, historyLength, true)
+// value to recur. Ownership and missing-record semantics match GetSessionTask.
+func (c *Client) GetSettledSessionTask(ctx context.Context, sessionID, taskID string, historyLength *int) (*a2a.Task, error) {
+	return c.getPublicTask(ctx, sessionID, taskID, historyLength, true)
 }
 
 // getPublicTask keeps the public projection and archived messages at one read
 // snapshot. Checking settlement never waits while holding a transaction or lock.
-func (c *Client) getPublicTask(ctx context.Context, instanceID, taskID string, historyLength *int, settled bool) (*a2a.Task, error) {
+func (c *Client) getPublicTask(ctx context.Context, sessionID, taskID string, historyLength *int, settled bool) (*a2a.Task, error) {
 	var task *a2a.Task
 	err := pgx.BeginTxFunc(ctx, c.db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		type publicTask struct {
@@ -456,58 +456,58 @@ func (c *Client) getPublicTask(ctx context.Context, instanceID, taskID string, h
 		}
 		row, err := queryOne(ctx, tx, `
 			SELECT t.history_id, t.data, t.created_at,
-			    ($3::boolean AND EXISTS (SELECT 1 FROM agent_instance_task_event e
+			    ($3::boolean AND EXISTS (SELECT 1 FROM session_task_event e
 			      WHERE e.history_id = t.history_id AND e.task_id = t.id AND NOT e.published)) AS pending
-			FROM agent_instance_task t JOIN agent_instance i ON i.history_id = t.history_id
-			WHERE i.id = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED' AND t.id = $2
-		`, pgx.RowToStructByName[publicTask], instanceID, taskID, settled)
+			FROM session_task t JOIN session i ON i.history_id = t.history_id
+			WHERE i.id = $1 AND i.state <> 'SESSION_STATE_DELETED' AND t.id = $2
+		`, pgx.RowToStructByName[publicTask], sessionID, taskID, settled)
 		if err != nil {
 			return notFoundOr(err)
 		}
 		if row.Pending {
 			return ErrConflict
 		}
-		task, err = unmarshalAgentInstanceTask(row.Data)
+		task, err = unmarshalSessionTask(row.Data)
 		if err != nil {
 			return err
 		}
 		apia2a.SetTaskCreatedAt(task, row.CreatedAt)
-		return loadAgentInstanceTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, historyLength, false)
+		return loadSessionTaskHistories(ctx, tx, row.HistoryID, []*a2a.Task{task}, historyLength, false)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("read public AgentInstance task %s: %w", taskID, err)
+		return nil, fmt.Errorf("read public Session task %s: %w", taskID, err)
 	}
 	return task, nil
 }
 
-// ListAgentInstanceTasks returns tasks with archived messages in immutable creation order
+// ListSessionTasks returns tasks with archived messages in immutable creation order
 // after afterID, with optional state and exclusive status-timestamp filters. The total
 // counts all matching tasks before pagination; it is read separately and can differ under
-// concurrent writes. History limits have the same semantics as GetAgentInstanceTask.
-// Callers authorize instance access.
-func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int, historyLength *int) ([]*a2a.Task, int, error) {
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
+// concurrent writes. History limits have the same semantics as GetSessionTask.
+// Callers authorize session access.
+func (c *Client) ListSessionTasks(ctx context.Context, sessionID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int, historyLength *int) ([]*a2a.Task, int, error) {
+	session, err := readSession(ctx, c.db, sessionID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
+		return nil, 0, fmt.Errorf("get Session history: %w", notFoundOr(err))
 	}
 
 	total, err := queryOne(ctx, c.db, `
-		SELECT COUNT(*) FROM agent_instance_task
+		SELECT COUNT(*) FROM session_task
 		WHERE history_id = $1
 		  AND ($2::text = '' OR state = $2)
 		  AND ($3::timestamptz IS NULL
 		       OR status_timestamp > $3)
-	`, pgx.RowTo[int64], instance.HistoryID, string(state), statusTimestampAfter)
+	`, pgx.RowTo[int64], session.HistoryID, string(state), statusTimestampAfter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
+		return nil, 0, fmt.Errorf("count Session tasks: %w", err)
 	}
 	rows, err := queryMany(ctx, c.db, `
 		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at,
 		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
-		    t.history_sequence, t.position FROM agent_instance_task t
+		    t.history_sequence, t.position FROM session_task t
 		WHERE t.history_id = $1
 		  AND ($2::text = '' OR t.position > (
-		      SELECT cursor.position FROM agent_instance_task cursor
+		      SELECT cursor.position FROM session_task cursor
 		      WHERE cursor.history_id = $1 AND cursor.id = $2
 		  ))
 		  AND ($3::text = '' OR t.state = $3)
@@ -516,45 +516,45 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		ORDER BY t.position
 		LIMIT $5
 	`,
-		pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID, afterID, string(state), statusTimestampAfter,
+		pgx.RowToStructByName[sessionTaskRow], session.HistoryID, afterID, string(state), statusTimestampAfter,
 		int32(limit),
 	)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list AgentInstance tasks: %w", err)
+		return nil, 0, fmt.Errorf("list Session tasks: %w", err)
 	}
 	tasks := make([]*a2a.Task, 0, len(rows))
 	for _, row := range rows {
-		task, err := unmarshalAgentInstanceTask(row.Data)
+		task, err := unmarshalSessionTask(row.Data)
 		if err != nil {
-			return nil, 0, fmt.Errorf("decode AgentInstance task %s: %w", row.ID, err)
+			return nil, 0, fmt.Errorf("decode Session task %s: %w", row.ID, err)
 		}
 		apia2a.SetTaskCreatedAt(task, row.CreatedAt)
 		tasks = append(tasks, task)
 	}
-	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks, historyLength, false); err != nil {
+	if err := loadSessionTaskHistories(ctx, c.db, session.HistoryID, tasks, historyLength, false); err != nil {
 		return nil, 0, err
 	}
 	return tasks, int(total), nil
 }
 
-// unmarshalAgentInstanceTaskEvent decodes a stored A2A event, returning an error for
+// unmarshalSessionTaskEvent decodes a stored A2A event, returning an error for
 // malformed or unsupported payloads.
-func unmarshalAgentInstanceTaskEvent(data []byte) (a2a.Event, error) {
+func unmarshalSessionTaskEvent(data []byte) (a2a.Event, error) {
 	var pb a2apb.StreamResponse
 	if err := proto.Unmarshal(data, &pb); err != nil {
-		return nil, fmt.Errorf("unmarshal AgentInstance task event: %w", err)
+		return nil, fmt.Errorf("unmarshal Session task event: %w", err)
 	}
 	event, err := pbconv.FromProtoStreamResponse(&pb)
 	if err != nil {
-		return nil, fmt.Errorf("convert AgentInstance task event: %w", err)
+		return nil, fmt.Errorf("convert Session task event: %w", err)
 	}
 	return event, nil
 }
 
-// agentInstanceTaskEventMessages selects the messages contributed by an event: the message
+// sessionTaskEventMessages selects the messages contributed by an event: the message
 // itself, a task's history, or the latest history message for a status update. Other
 // events contribute no messages.
-func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Message {
+func sessionTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Message {
 	switch event := event.(type) {
 	case *a2a.Message:
 		return []*a2a.Message{event}
@@ -568,13 +568,13 @@ func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Mess
 	return nil
 }
 
-// storeAgentInstanceTaskMessages converts and archives messages with valid IDs. The caller supplies a
+// storeSessionTaskMessages converts and archives messages with valid IDs. The caller supplies a
 // transaction when these writes must commit atomically with task state.
-func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2a.Message) error {
+func storeSessionTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2a.Message) error {
 	converted := make([]*a2apb.Message, 0, len(messages))
 	for _, message := range messages {
 		if message == nil || message.ID == "" {
-			return fmt.Errorf("AgentInstance task history contains a message without an ID")
+			return fmt.Errorf("session task history contains a message without an ID")
 		}
 		event, err := pbconv.ToProtoStreamResponse(message)
 		if err != nil {
@@ -592,7 +592,7 @@ func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyI
 func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2apb.Message) error {
 	for _, message := range messages {
 		if message.GetMessageId() == "" {
-			return fmt.Errorf("AgentInstance task history contains a message without an ID")
+			return fmt.Errorf("session task history contains a message without an ID")
 		}
 		message = proto.Clone(message).(*a2apb.Message)
 		if (message.TaskId != "" && message.TaskId != taskID) || (message.ContextId != "" && message.ContextId != contextID) {
@@ -616,11 +616,11 @@ func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.U
 	return nil
 }
 
-// loadAgentInstanceTaskHistories attaches archived messages to the supplied tasks in event
+// loadSessionTaskHistories attaches archived messages to the supplied tasks in event
 // order, limited to the latest historyLength per task. Zero clears history without a
 // query; nil or negative loads it all. Tasks without archived messages otherwise retain
 // their inline history, subject to the same limit. Malformed messages return errors.
-func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task, historyLength *int, includeUnpublished bool) error {
+func loadSessionTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task, historyLength *int, includeUnpublished bool) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -641,17 +641,17 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 	}
 	rows, err := readTaskMessages(ctx, db, historyID, ids, historyLength, includeUnpublished)
 	if err != nil {
-		return fmt.Errorf("list AgentInstance task history: %w", err)
+		return fmt.Errorf("list Session task history: %w", err)
 	}
 	histories := make(map[string][]*a2a.Message, len(tasks))
 	for _, row := range rows {
-		event, err := unmarshalAgentInstanceTaskEvent(row.Data)
+		event, err := unmarshalSessionTaskEvent(row.Data)
 		if err != nil {
 			return err
 		}
 		message, ok := event.(*a2a.Message)
 		if !ok {
-			return fmt.Errorf("AgentInstance task history event is %T, not a message", event)
+			return fmt.Errorf("session task history event is %T, not a message", event)
 		}
 		histories[row.TaskID] = append(histories[row.TaskID], message)
 	}
@@ -667,24 +667,24 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 // enforcing one active task per conversation.
 func isActiveTaskConflict(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.ConstraintName == "agent_instance_one_active_task_idx"
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == "session_one_active_task_idx"
 }
 
-// unmarshalAgentInstanceTask decodes a stored A2A task, returning an error for malformed
+// unmarshalSessionTask decodes a stored A2A task, returning an error for malformed
 // or unsupported payloads.
-func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
+func unmarshalSessionTask(data []byte) (*a2a.Task, error) {
 	var pb a2apb.Task
 	if err := proto.Unmarshal(data, &pb); err != nil {
-		return nil, fmt.Errorf("unmarshal AgentInstance task: %w", err)
+		return nil, fmt.Errorf("unmarshal Session task: %w", err)
 	}
 	task, err := pbconv.FromProtoTask(&pb)
 	if err != nil {
-		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
+		return nil, fmt.Errorf("convert Session task: %w", err)
 	}
 	return task, nil
 }
 
-type agentInstanceTaskRow struct {
+type sessionTaskRow struct {
 	HistoryID            uuid.UUID
 	ID                   string
 	State                string
@@ -698,7 +698,7 @@ type agentInstanceTaskRow struct {
 	Position             int64
 }
 
-type agentInstanceTaskEventRow struct {
+type sessionTaskEventRow struct {
 	Sequence             int64
 	HistoryID            uuid.UUID
 	TaskID               string
@@ -736,7 +736,7 @@ type taskHistoryRow struct {
 func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (int64, error) {
 	return queryOne(ctx, db, `
 		WITH inserted AS (
-		    INSERT INTO agent_instance_task_event
+		    INSERT INTO session_task_event
 		        (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope,
 		         task_position, created_at)
 		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::timestamptz, NOW()))
@@ -747,7 +747,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 		)
 		SELECT sequence FROM inserted
 		UNION ALL
-		SELECT sequence FROM agent_instance_task_event
+		SELECT sequence FROM session_task_event
 		WHERE history_id = $1 AND task_id = $2 AND message_id = $3
 		LIMIT 1
 	`,
@@ -757,29 +757,29 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 	)
 }
 
-// readAgentInstanceTask reads a task's stored projection without decoding or attaching
+// readSessionTask reads a task's stored projection without decoding or attaching
 // history. Missing tasks return pgx.ErrNoRows; callers authorize access.
-func readAgentInstanceTask(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (agentInstanceTaskRow, error) {
+func readSessionTask(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (sessionTaskRow, error) {
 	return queryOne(ctx, db, `
 		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-		    agent_instance_task
+		    session_task
 		WHERE history_id = $1 AND id = $2
-	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID)
+	`, pgx.RowToStructByName[sessionTaskRow], historyID, taskID)
 }
 
 // saveTaskProjection inserts or replaces current task state while preserving existing
 // creation and snapshot metadata. Callers validate the transition and persist its
 // events in the same transaction.
-func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, state string, statusTimestamp *time.Time, data []byte) (agentInstanceTaskRow, error) {
+func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, state string, statusTimestamp *time.Time, data []byte) (sessionTaskRow, error) {
 	return queryOne(ctx, db, `
-		INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
+		INSERT INTO session_task (history_id, id, state, status_timestamp, data)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (history_id, id) DO UPDATE SET
 		    state = EXCLUDED.state,
 		    status_timestamp = EXCLUDED.status_timestamp,
 		    data = EXCLUDED.data
 		RETURNING history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
-	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID, state, statusTimestamp, data)
+	`, pgx.RowToStructByName[sessionTaskRow], historyID, taskID, state, statusTimestamp, data)
 }
 
 // readTaskMessages returns the latest historyLength archived messages per requested task
@@ -794,7 +794,7 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 		FROM unnest($2::text[]) AS tasks(task_id)
 		CROSS JOIN LATERAL (
 		    SELECT task_id, data, sequence
-		    FROM agent_instance_task_event
+		    FROM session_task_event
 		    WHERE history_id = $1 AND task_id = tasks.task_id AND message_id IS NOT NULL
 		      AND (published OR $4::boolean)
 		    ORDER BY sequence DESC
@@ -806,12 +806,12 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 
 // requireSettledRuntime rejects unfinished native cleanup, claimed idle work, or
 // another unexpired dispatch. A writer may pass its own dispatch ID.
-// Callers hold the instance lock so new execution and lifecycle claims cannot race.
+// Callers hold the session lock so new execution and lifecycle claims cannot race.
 func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UUID, dispatchID string) error {
 	pending, err := queryOne(ctx, db, `
-		SELECT EXISTS (SELECT 1 FROM agent_instance_task_event WHERE history_id = $1
+		SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
 		    AND (NOT published OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
-		    OR EXISTS (SELECT 1 FROM agent_instance WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
+		    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
 		        AND ($2::text = '' OR dispatch_id::text <> $2))
 	`, pgx.RowTo[bool], historyID, dispatchID)
 	if err != nil {
@@ -823,19 +823,19 @@ func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UU
 	return nil
 }
 
-// GetAgentInstanceTaskByMessage finds the task containing an input after a runtime
+// GetSessionTaskByMessage finds the task containing an input after a runtime
 // disconnects before returning its unary response. Ambiguous message IDs fail;
 // this read never deduplicates sends or authorizes another execution.
-func (c *Client) GetAgentInstanceTaskByMessage(ctx context.Context, instanceID, taskID, messageID string) (*a2a.Task, error) {
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
+func (c *Client) GetSessionTaskByMessage(ctx context.Context, sessionID, taskID, messageID string) (*a2a.Task, error) {
+	session, err := readSession(ctx, c.db, sessionID)
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
 	ids, err := queryMany(ctx, c.db, `
-  SELECT task_id FROM agent_instance_task_event
+  SELECT task_id FROM session_task_event
   WHERE history_id = $1 AND ($2::text = '' OR task_id = $2) AND message_id = $3
   LIMIT 2
- `, pgx.RowTo[string], instance.HistoryID, taskID, messageID)
+ `, pgx.RowTo[string], session.HistoryID, taskID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -845,5 +845,5 @@ func (c *Client) GetAgentInstanceTaskByMessage(ctx context.Context, instanceID, 
 	if len(ids) != 1 {
 		return nil, ErrConflict
 	}
-	return c.GetAgentInstanceTask(ctx, instanceID, ids[0], nil)
+	return c.GetSessionTask(ctx, sessionID, ids[0], nil)
 }

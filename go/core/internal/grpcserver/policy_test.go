@@ -10,28 +10,28 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// TestAgentInstanceServicePoliciesMatchTheirEffect pins the access mode of every
+// TestSessionServicePoliciesMatchTheirEffect pins the access mode of every
 // method on the service. A wrong mode here fails silently in one of two ways: a
 // write classified as a read is reachable through a read-only share link, and a
 // read classified as a write is refused for a legitimate caller. Neither shows
 // up as an error anywhere near the policy table.
-func TestAgentInstanceServicePoliciesMatchTheirEffect(t *testing.T) {
+func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 	policies := DefaultMethodPolicies()
 	for _, test := range []struct {
 		name   string
 		method string
 		want   pkgauth.AccessMode
 	}{
-		{name: "create", method: apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName, want: pkgauth.AccessCreate},
-		{name: "get", method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, want: pkgauth.AccessRead},
-		{name: "list", method: apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName, want: pkgauth.AccessRead},
-		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "suspend", method: apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "resume", method: apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "delete", method: apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName, want: pkgauth.AccessDelete},
-		{name: "create share", method: apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName, want: pkgauth.AccessCreate},
-		{name: "list shares", method: apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName, want: pkgauth.AccessRead},
-		{name: "revoke share", method: apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName, want: pkgauth.AccessDelete},
+		{name: "create", method: apiv1alpha1.SessionService_CreateSession_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "get", method: apiv1alpha1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
+		{name: "list", method: apiv1alpha1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
+		{name: "rename is a write", method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "suspend", method: apiv1alpha1.SessionService_SuspendSession_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "resume", method: apiv1alpha1.SessionService_ResumeSession_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "delete", method: apiv1alpha1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
+		{name: "create share", method: apiv1alpha1.SessionService_CreateSessionShare_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "list shares", method: apiv1alpha1.SessionService_ListSessionShares_FullMethodName, want: pkgauth.AccessRead},
+		{name: "revoke share", method: apiv1alpha1.SessionService_RevokeSessionShare_FullMethodName, want: pkgauth.AccessDelete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := policies[test.method]
@@ -59,20 +59,20 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 	}{
 		{
 			name: "read-only share may read", permission: "READ_ONLY",
-			method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, wantCode: codes.OK,
+			method: apiv1alpha1.SessionService_GetSession_FullMethodName, wantCode: codes.OK,
 		},
 		{
 			name: "read-only share may not rename", permission: "READ_ONLY",
-			method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, wantCode: codes.PermissionDenied,
+			method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.PermissionDenied,
 		},
 		{
 			name: "read-write share may rename", permission: "READ_WRITE",
-			method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, wantCode: codes.OK,
+			method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.OK,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			shareStore := &testShareStore{
-				instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+test.permission])}, ownerUserID: "owner",
+				sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+test.permission])}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
 			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, nil, shareStore, DefaultMethodPolicies())

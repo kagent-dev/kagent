@@ -12,8 +12,8 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,11 +27,11 @@ type gatewayTestAgents struct {
 }
 
 func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*v1alpha3.Agent, error) {
-	session, ok := auth.AuthSessionFrom(ctx)
+	authSession, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("authentication required", nil)
 	}
-	if err := s.authorizer.Check(ctx, session.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Name: ref.String()}); err != nil {
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Name: ref.String()}); err != nil {
 		return nil, serviceerrors.NewPermissionDenied("not authorized", err)
 	}
 	if s.store.err != nil {
@@ -43,57 +43,57 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "revision-1"}}, nil
 }
 
-type gatewayTestInstances struct{ store *gatewayTestStore }
+type gatewayTestSessions struct{ store *gatewayTestStore }
 
-func (s gatewayTestInstances) Create(context.Context, *apiv1alpha1.ResourceReference, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return s.store.instance, s.store.err
+func (s gatewayTestSessions) Create(context.Context, *apiv1alpha1.ResourceReference, string, string) (*apiv1alpha1.Session, error) {
+	return s.store.session, s.store.err
 }
 
-func (s gatewayTestInstances) List(context.Context, agentinstance.ListRequest) (agentinstance.ListResult, error) {
-	return agentinstance.ListResult{Instances: []*apiv1alpha1.AgentInstance{s.store.instance}}, s.store.err
+func (s gatewayTestSessions) List(context.Context, sessionsvc.ListRequest) (sessionsvc.ListResult, error) {
+	return sessionsvc.ListResult{Sessions: []*apiv1alpha1.Session{s.store.session}}, s.store.err
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer runtimeDialer, url string) a2asrv.RequestHandler {
 	return New(Config{Store: store, Authorizer: authorizer, Dialer: dialer, GatewayURL: url,
-		Agents: gatewayTestAgents{store, authorizer}, Instances: gatewayTestInstances{store}})
+		Agents: gatewayTestAgents{store, authorizer}, Sessions: gatewayTestSessions{store}})
 }
 
-func (s *gatewayTestStore) AgentInstanceForTask(context.Context, string) (string, error) {
+func (s *gatewayTestStore) SessionForTask(context.Context, string) (string, error) {
 	if s.taskErr != nil {
 		return "", s.taskErr
 	}
-	if s.instance == nil {
+	if s.session == nil {
 		return "", database.ErrNotFound
 	}
-	return s.instance.Id, nil
+	return s.session.Id, nil
 }
 
-// Creation idempotency belongs to the instance service; the gateway supplies a
+// Creation idempotency belongs to the session service; the gateway supplies a
 // stable request key scoped to the Agent and initial message.
-type creatingTestInstances struct {
-	gatewayTestInstances
-	created map[string]*apiv1alpha1.AgentInstance
+type creatingTestSessions struct {
+	gatewayTestSessions
+	created map[string]*apiv1alpha1.Session
 }
 
-func (s *creatingTestInstances) Create(_ context.Context, ref *apiv1alpha1.ResourceReference, requestID, _ string) (*apiv1alpha1.AgentInstance, error) {
+func (s *creatingTestSessions) Create(_ context.Context, ref *apiv1alpha1.ResourceReference, requestID, _ string) (*apiv1alpha1.Session, error) {
 	if existing := s.created[requestID]; existing != nil {
 		return existing, nil
 	}
-	instance := gatewayTestInstance()
-	instance.Id = uuid.NewString()
-	instance.ContextId, instance.Agent = instance.Id, ref
-	s.created[requestID] = instance
-	s.store.instance = instance
-	return instance, nil
+	session := gatewayTestSession()
+	session.Id = uuid.NewString()
+	session.ContextId, session.Agent = session.Id, ref
+	s.created[requestID] = session
+	s.store.session = session
+	return session, nil
 }
 
 func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 	store := &gatewayTestStore{}
-	instances := &creatingTestInstances{gatewayTestInstances{store}, map[string]*apiv1alpha1.AgentInstance{}}
+	sessions := &creatingTestSessions{gatewayTestSessions{store}, map[string]*apiv1alpha1.Session{}}
 	runtime := &gatewayTestRuntime{}
 	authorizer := &gatewayTestAuthorizer{}
 	gateway := New(Config{Store: store, Authorizer: authorizer,
-		Agents: gatewayTestAgents{store, authorizer}, Instances: instances,
+		Agents: gatewayTestAgents{store, authorizer}, Sessions: sessions,
 		Dialer: &gatewayTestDialer{client: gatewayTestClient(t, runtime)}})
 	request := func(id string) *a2a.SendMessageRequest {
 		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
@@ -103,19 +103,19 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 	first, err := gateway.SendMessage(gatewayTestContext(), request("first"))
 	require.NoError(t, err)
 	task := first.(*a2a.Task)
-	require.Equal(t, store.instance.Id, task.ContextID)
+	require.Equal(t, store.session.Id, task.ContextID)
 	require.Equal(t, "first", store.initialID)
 	store.reserveErr, store.replay = database.ErrMessageAccepted, task
 	retry, err := gateway.SendMessage(gatewayTestContext(), request("first"))
 	require.NoError(t, err)
 	require.Equal(t, first, retry)
 	require.Equal(t, 1, runtime.sendCalls)
-	require.Len(t, instances.created, 1)
+	require.Len(t, sessions.created, 1)
 	store.reserveErr = nil
 	second, err := gateway.SendMessage(gatewayTestContext(), request("second"))
 	require.NoError(t, err)
 	require.NotEqual(t, task.ContextID, second.(*a2a.Task).ContextID)
-	require.Len(t, instances.created, 2)
+	require.Len(t, sessions.created, 2)
 }
 
 func TestGatewayTaskRoutingAndAgentIsolation(t *testing.T) {
@@ -129,7 +129,7 @@ func TestGatewayTaskRoutingAndAgentIsolation(t *testing.T) {
 		{"different Agent", "team-a/other", "", a2a.ErrUnauthorized},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &gatewayTestStore{instance: gatewayTestInstance()}
+			store := &gatewayTestStore{session: gatewayTestSession()}
 			runtime := &gatewayTestRuntime{}
 			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 			req := gatewayTestRequest()
@@ -157,8 +157,8 @@ func TestRouteURLIsAuthoritative(t *testing.T) {
 }
 
 func TestShareCannotCreateConversation(t *testing.T) {
-	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{AgentInstanceID: gatewayTestID, UserID: "alice"})
-	gateway := newTestGateway(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, "")
+	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice"})
+	gateway := newTestGateway(&gatewayTestStore{session: gatewayTestSession()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, "")
 	req := gatewayTestRequest()
 	req.Message.ContextID = ""
 	_, err := gateway.SendMessage(ctx, req)
@@ -167,7 +167,7 @@ func TestShareCannotCreateConversation(t *testing.T) {
 
 func TestInitialStreamingRetrySubscribesWithoutRedispatch(t *testing.T) {
 	task := &a2a.Task{ID: "accepted-task", ContextID: gatewayTestID, Status: a2a.TaskStatus{State: a2a.TaskStateWorking}}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, replay: task, reserveErr: database.ErrMessageAccepted}
+	store := &gatewayTestStore{session: gatewayTestSession(), task: task, replay: task, reserveErr: database.ErrMessageAccepted}
 	runtime := &gatewayTestRuntime{subscribeEvent: task}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 	req := gatewayTestRequest()
@@ -183,9 +183,9 @@ func TestInitialStreamingRetrySubscribesWithoutRedispatch(t *testing.T) {
 }
 
 func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
-	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	store := &gatewayTestStore{session: gatewayTestSession()}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, "")
-	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{AgentInstanceID: gatewayTestID, UserID: "alice", ReadOnly: true})
+	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice", ReadOnly: true})
 	_, err := gateway.ListTasks(ctx, &a2a.ListTasksRequest{Tenant: gatewayTestAgent})
 	require.NoError(t, err)
 	require.Equal(t, []string{gatewayTestID}, store.listedIDs)

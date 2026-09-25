@@ -11,7 +11,7 @@ import (
 // forkTaskEvents assigns identities once while copying a checkpoint. Only typed
 // A2A references change; opaque metadata and remote-agent references stay intact.
 // Callers validate the source history before invoking this function.
-func forkTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]agentInstanceTaskEventRow, error) {
+func forkTaskEvents(events []sessionTaskEventRow, contextID string) ([]sessionTaskEventRow, error) {
 	namespace, err := uuid.Parse(contextID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid fork context: %w", err)
@@ -34,7 +34,7 @@ func forkTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]age
 			}
 		}
 	}
-	result := make([]agentInstanceTaskEventRow, len(events))
+	result := make([]sessionTaskEventRow, len(events))
 	for i, source := range events {
 		event := &a2apb.StreamResponse{}
 		if err := proto.Unmarshal(source.Data, event); err != nil {

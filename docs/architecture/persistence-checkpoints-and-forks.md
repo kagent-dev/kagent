@@ -2,11 +2,11 @@
 
 ## Durable interaction model
 
-`AgentInstance` is a stable conversation identity. Its replaceable Substrate Actor
-provides compute; PostgreSQL owns public task history. `AgentInstance.id` equals
+`Session` is a stable conversation identity. Its replaceable Substrate Actor
+provides compute; PostgreSQL owns public task history. `Session.id` equals
 its public A2A context ID. The private `history_id` selects durable history and a
 composite foreign key ensures the context binding agrees with `a2a_context`.
-Forks receive new instance, context, and history IDs.
+Forks receive new session, context, and history IDs.
 
 The core PostgreSQL records are:
 
@@ -14,17 +14,17 @@ The core PostgreSQL records are:
 | --- | --- |
 | `runtime_revision` | Immutable compiled input and ate-api identity |
 | `agent_definition` | Agent status and latest successful revision |
-| `agent_instance` | Conversation identity, pinned revision, lifecycle phase, and Actor identity |
-| `agent_instance_share` | Instance authorization grants |
+| `session` | Conversation identity, pinned revision, lifecycle phase, and Actor identity |
+| `session_share` | Session authorization grants |
 | `a2a_context` | Durable history scope and its wire A2A context binding |
-| `agent_instance_task` | Rebuildable current A2A task state and query indexes |
-| `agent_instance_task_event` | Authoritative append-only task and message events, with creation and runtime-boundary metadata |
-| `agent_instance_checkpoint` | Named immutable snapshot/history boundary |
+| `session_task` | Rebuildable current A2A task state and query indexes |
+| `session_task_event` | Authoritative append-only task and message events, with creation and runtime-boundary metadata |
+| `session_checkpoint` | Named immutable snapshot/history boundary |
 
 Identity columns use PostgreSQL's native UUID type. Other framework-specific
 tables are runtime implementation details, not part of this ownership model.
 
-Instance, checkpoint, and share request IDs are validated as UUIDs by the gRPC
+Session, checkpoint, and share request IDs are validated as UUIDs by the gRPC
 Protovalidate interceptor before handlers run. Services also validate IDs from
 MCP and direct callers. The store passes SQL parameters safely and returns errors
 for malformed IDs rather than panicking.
@@ -37,14 +37,14 @@ without duplicating SQL. Transaction boundaries remain with the owning operation
 ```mermaid
 flowchart TD
     AGENT[Agent definition] --> REV[runtime revision]
-    REV --> INSTANCE[AgentInstance]
-    INSTANCE --> CONTEXT[history scope + wire context]
+    REV --> SESSION[Session]
+    SESSION --> CONTEXT[history scope + wire context]
     CONTEXT --> EVENT[immutable ordered task events]
     EVENT -->|replay| TASK[materialized task views]
     CONTEXT --> CHECKPOINT[checkpoint boundary]
     REV --> CHECKPOINT
     CHECKPOINT --> TAG[Substrate snapshot tag]
-    CHECKPOINT --> FORK[forked AgentInstance]
+    CHECKPOINT --> FORK[forked Session]
     FORK --> NEWCTX[new history and public context]
     EVENT -->|copy through checkpoint cutoff| NEWCTX
 ```
@@ -53,7 +53,7 @@ flowchart TD
 
 A checkpoint names a durable terminal boundary with a matching native snapshot.
 TaskStore publishes task completion after native cleanup; the independent
-AgentInstance lifecycle worker records its snapshot later. Creating a checkpoint
+Session lifecycle worker records its snapshot later. Creating a checkpoint
 returns FailedPrecondition until that snapshot is ready.
 Input-required and auth-required tasks are paused on their current node and are
 not checkpointable or forkable; callers must resolve the interaction first.
@@ -71,12 +71,12 @@ failed database finalization leaves the reservation and completed Tag for retry.
 Idle lifecycle work records snapshots without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
 
-The checkpoint retains source-instance provenance, source history, prepared
+The checkpoint retains source-session provenance, source history, prepared
 revision, name, head task, and history sequence. Reservation saves an event
 cutoff in the same transaction as the runtime boundary reference. Later replies
 append events beyond that cutoff and cannot change the saved task state.
 The head identifies the task whose snapshot
-covers the latest history event, including when an older paused task resumes. The source AgentInstance may be
+covers the latest history event, including when an older paused task resumes. The source Session may be
 deleted while its context and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
@@ -84,7 +84,7 @@ the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes 
 
 ## Forking
 
-Forking creates a new AgentInstance and context ID. It copies events through the
+Forking creates a new Session and context ID. It copies events through the
 saved cutoff and reconstructs task views without reading the source's current task
 views. During that copy, the store assigns fresh task IDs and rewrites typed A2A
 context/task references, including message `referenceTaskIds`. Message and artifact
@@ -135,7 +135,7 @@ of the saved event history; malformed or incomplete history fails the fork trans
 Authority-scoped snapshot cloning is a kagent contract; A2A does not specify
 snapshot forks. The Agent endpoint and globally unique task ID identify a task.
 Reads, writes, cancellation, subscriptions, authorization, and dispatch remain
-scoped to the resolved instance. Forks have independent public identities.
+scoped to the resolved session. Forks have independent public identities.
 
 ## Unreleased schema
 
@@ -143,7 +143,7 @@ Until release, core schema changes are folded into `000001_initial.sql`.
 Recreate development databases when that baseline changes; there is no upgrade
 path from earlier development schemas. The Down migration removes the core schema.
 
-Deploy the controller and clients together: clients must use `AgentInstance.context_id`
+Deploy the controller and clients together: clients must use `Session.context_id`
 or omit the context and let the routed gateway resolve it.
 
 ## Malformed scheduling records

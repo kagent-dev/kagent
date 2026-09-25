@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const testInstanceID = "707f3f49-fdc4-40c5-93c7-472d37c8d355"
+const testSessionID = "707f3f49-fdc4-40c5-93c7-472d37c8d355"
 
 func TestValidateGetCfg(t *testing.T) {
 	tests := []struct {
@@ -24,11 +24,11 @@ func TestValidateGetCfg(t *testing.T) {
 	}{
 		{name: "list"},
 		{name: "list page", config: GetCfg{PageSize: 100, PageToken: "next"}},
-		{name: "get", config: GetCfg{InstanceID: testInstanceID}},
-		{name: "invalid ID", config: GetCfg{InstanceID: "not-an-id"}, wantErr: "invalid AgentInstance ID"},
+		{name: "get", config: GetCfg{SessionID: testSessionID}},
+		{name: "invalid ID", config: GetCfg{SessionID: "not-an-id"}, wantErr: "invalid Session ID"},
 		{name: "negative page size", config: GetCfg{PageSize: -1}, wantErr: "page size"},
 		{name: "large page size", config: GetCfg{PageSize: 101}, wantErr: "page size"},
-		{name: "pagination with get", config: GetCfg{InstanceID: testInstanceID, PageSize: 1}, wantErr: "pagination flags"},
+		{name: "pagination with get", config: GetCfg{SessionID: testSessionID, PageSize: 1}, wantErr: "pagination flags"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -43,34 +43,34 @@ func TestValidateGetCfg(t *testing.T) {
 	}
 }
 
-func TestGetAgentInstanceTableUsesFullID(t *testing.T) {
-	client := &fakeAgentInstanceClient{instance: testInstance(), nextPageToken: "next-page"}
+func TestGetSessionTableUsesFullID(t *testing.T) {
+	client := &fakeSessionClient{session: testSession(), nextPageToken: "next-page"}
 	cfg := &GetCfg{}
 	var output bytes.Buffer
 
 	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatTable, &output))
-	assert.Equal(t, &apiv1alpha1.ListAgentInstancesRequest{
+	assert.Equal(t, &apiv1alpha1.ListSessionsRequest{
 		Page: &apiv1alpha1.PageRequest{},
 	}, client.listRequest)
-	assert.Contains(t, output.String(), testInstanceID)
+	assert.Contains(t, output.String(), testSessionID)
 	assert.Contains(t, output.String(), "smoke")
 	assert.Contains(t, output.String(), "READY")
 	assert.Contains(t, output.String(), "Next page token: next-page")
 }
 
-func TestGetOneAgentInstanceJSON(t *testing.T) {
-	client := &fakeAgentInstanceClient{instance: testInstance()}
-	cfg := &GetCfg{InstanceID: testInstanceID}
+func TestGetOneSessionJSON(t *testing.T) {
+	client := &fakeSessionClient{session: testSession()}
+	cfg := &GetCfg{SessionID: testSessionID}
 	var output bytes.Buffer
 
 	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatJSON, &output))
-	assert.Equal(t, testInstanceID, client.getRequest.GetAgentInstanceId())
+	assert.Equal(t, testSessionID, client.getRequest.GetSessionId())
 	assert.True(t, json.Valid(output.Bytes()))
-	assert.Contains(t, output.String(), testInstanceID)
+	assert.Contains(t, output.String(), testSessionID)
 }
 
-func TestListAgentInstancesJSONPreservesNextPageToken(t *testing.T) {
-	client := &fakeAgentInstanceClient{instance: testInstance(), nextPageToken: "next-page"}
+func TestListSessionsJSONPreservesNextPageToken(t *testing.T) {
+	client := &fakeSessionClient{session: testSession(), nextPageToken: "next-page"}
 	cfg := &GetCfg{
 		PageSize: 1, PageToken: "current-page",
 	}
@@ -83,38 +83,38 @@ func TestListAgentInstancesJSONPreservesNextPageToken(t *testing.T) {
 	assert.Contains(t, output.String(), `"nextPageToken":"next-page"`)
 }
 
-type fakeAgentInstanceClient struct {
-	instance      *apiv1alpha1.AgentInstance
+type fakeSessionClient struct {
+	session       *apiv1alpha1.Session
 	nextPageToken string
-	getRequest    *apiv1alpha1.GetAgentInstanceRequest
-	listRequest   *apiv1alpha1.ListAgentInstancesRequest
+	getRequest    *apiv1alpha1.GetSessionRequest
+	listRequest   *apiv1alpha1.ListSessionsRequest
 }
 
-func (c *fakeAgentInstanceClient) GetAgentInstance(
+func (c *fakeSessionClient) GetSession(
 	_ context.Context,
-	request *apiv1alpha1.GetAgentInstanceRequest,
-) (*apiv1alpha1.GetAgentInstanceResponse, error) {
+	request *apiv1alpha1.GetSessionRequest,
+) (*apiv1alpha1.GetSessionResponse, error) {
 	c.getRequest = request
-	return &apiv1alpha1.GetAgentInstanceResponse{AgentInstance: c.instance}, nil
+	return &apiv1alpha1.GetSessionResponse{Session: c.session}, nil
 }
 
-func (c *fakeAgentInstanceClient) ListAgentInstances(
+func (c *fakeSessionClient) ListSessions(
 	_ context.Context,
-	request *apiv1alpha1.ListAgentInstancesRequest,
-) (*apiv1alpha1.ListAgentInstancesResponse, error) {
+	request *apiv1alpha1.ListSessionsRequest,
+) (*apiv1alpha1.ListSessionsResponse, error) {
 	c.listRequest = request
-	return &apiv1alpha1.ListAgentInstancesResponse{
-		AgentInstances: []*apiv1alpha1.AgentInstance{c.instance},
-		Page:           &apiv1alpha1.PageResponse{NextPageToken: c.nextPageToken},
+	return &apiv1alpha1.ListSessionsResponse{
+		Sessions: []*apiv1alpha1.Session{c.session},
+		Page:     &apiv1alpha1.PageResponse{NextPageToken: c.nextPageToken},
 	}, nil
 }
 
-func testInstance() *apiv1alpha1.AgentInstance {
-	return &apiv1alpha1.AgentInstance{
-		Id: testInstanceID, Creator: "e2e",
+func testSession() *apiv1alpha1.Session {
+	return &apiv1alpha1.Session{
+		Id: testSessionID, Creator: "e2e",
 
 		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"},
-		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		State:     apiv1alpha1.SessionState_SESSION_STATE_READY,
 		CreatedAt: timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)),
 	}
 }

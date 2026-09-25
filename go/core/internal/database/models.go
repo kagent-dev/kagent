@@ -71,8 +71,8 @@ type RuntimeRevision struct {
 	ActorTemplateUID      string
 }
 
-// AgentInstanceQuery narrows a page of instances to an optional Agent.
-type AgentInstanceQuery struct {
+// SessionQuery narrows a page of sessions to an optional Agent.
+type SessionQuery struct {
 	UserID   string
 	AllUsers bool
 	Agent    *apiv1alpha1.ResourceReference
@@ -80,9 +80,9 @@ type AgentInstanceQuery struct {
 	Limit    int
 }
 
-// AgentInstanceTaskSnapshot records the external snapshot at an A2A turn boundary.
+// SessionTaskSnapshot records the external snapshot at an A2A turn boundary.
 // Only an explicit checkpoint retains a copy after the Actor advances or is deleted.
-type AgentInstanceTaskSnapshot struct {
+type SessionTaskSnapshot struct {
 	Atespace     string
 	URI          string
 	ContentScope string

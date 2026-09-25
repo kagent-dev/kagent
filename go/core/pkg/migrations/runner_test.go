@@ -213,17 +213,17 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	// The conversation is the public context; history remains private.
 	contextID := "00000000-0000-0000-0000-000000000002"
-	instanceID := "00000000-0000-0000-0000-000000000002"
+	sessionID := "00000000-0000-0000-0000-000000000002"
 	historyID := "00000000-0000-0000-0000-000000000003"
 	execSQL(t, dsn, "INSERT INTO a2a_context (id, context_id) VALUES ($1, $2)", historyID, contextID)
-	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'AGENT_INSTANCE_STATE_READY', $2, $3, $4)", instanceID, []byte{}, contextID, historyID)
-	execSQL(t, dsn, "INSERT INTO agent_instance_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
+	execSQL(t, dsn, "INSERT INTO session (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'SESSION_STATE_READY', $2, $3, $4)", sessionID, []byte{}, contextID, historyID)
+	execSQL(t, dsn, "INSERT INTO session_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
 	scheduleID := "00000000-0000-0000-0000-000000000003"
 	executionID := "00000000-0000-0000-0000-000000000004"
 	execSQL(t, dsn, `INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
         VALUES ($1, 'user', 'schedule', $2, $3)`, scheduleID, make([]byte, 32), []byte{})
-	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, agent_instance_id, data, deadline)
-        VALUES ($1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, instanceID, []byte{})
+	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, session_id, data, deadline)
+        VALUES ($1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, sessionID, []byte{})
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)

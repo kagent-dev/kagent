@@ -7,7 +7,7 @@ import "kagent/api/v1alpha1/common.proto";
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
 // HarnessService manages reusable runtime and execution configuration.
-// An Agent selects a Harness by reference or embeds its complete spec. Instance
+// An Agent selects a Harness by reference or embeds its complete spec. Session
 // creation names that Agent and pins its latest successful revision.
 service HarnessService {
   rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);

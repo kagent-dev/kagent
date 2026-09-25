@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"context"
@@ -22,12 +22,12 @@ import (
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")
 
 type InvokeCfg struct {
-	OutputFormat  string
-	Task          string
-	File          string
-	AgentInstance string
-	Stream        bool
-	Token         string
+	OutputFormat string
+	Task         string
+	File         string
+	Session      string
+	Stream       bool
+	Token        string
 }
 
 func runInvoke(
@@ -45,9 +45,9 @@ func runInvoke(
 	if err != nil {
 		return err
 	}
-	instanceID, err := uuid.Parse(cfg.AgentInstance)
+	sessionID, err := uuid.Parse(cfg.Session)
 	if err != nil {
-		return fmt.Errorf("invalid AgentInstance ID %q: %w", cfg.AgentInstance, err)
+		return fmt.Errorf("invalid Session ID %q: %w", cfg.Session, err)
 	}
 	if strings.ContainsAny(cfg.Token, " \t\r\n") {
 		return errors.New("model API key must not contain whitespace")
@@ -60,9 +60,9 @@ func runInvoke(
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	a2aClient, err := session.Gateway.A2A.ForAgentInstance(ctx, instanceID.String())
+	a2aClient, err := session.Gateway.A2A.ForSession(ctx, sessionID.String())
 	if err != nil {
-		return fmt.Errorf("create AgentInstance A2A client: %w", err)
+		return fmt.Errorf("create Session A2A client: %w", err)
 	}
 
 	request := newInvokeRequest(task)
@@ -124,7 +124,7 @@ func invokeNonStreaming(
 ) error {
 	result, err := client.SendMessage(ctx, request)
 	if err != nil {
-		return fmt.Errorf("invoke AgentInstance: %w", err)
+		return fmt.Errorf("invoke Session: %w", err)
 	}
 	if err := writeSendResult(out, format, result); err != nil {
 		return err
@@ -159,7 +159,7 @@ func finishInvokeStream(tableWriter *tableStreamWriter, result a2atype.SendMessa
 		streamErr = errors.Join(streamErr, tableWriter.Finish(result))
 	}
 	if streamErr != nil {
-		return fmt.Errorf("invoke AgentInstance stream: %w", streamErr)
+		return fmt.Errorf("invoke Session stream: %w", streamErr)
 	}
 	return sendResultError(result)
 }
@@ -274,9 +274,9 @@ func writeTableContinuation(w io.Writer, result a2atype.SendMessageResult) error
 	var continuation string
 	switch task.Status.State {
 	case a2atype.TaskStateInputRequired:
-		continuation = "Input required to continue this AgentInstance.\n"
+		continuation = "Input required to continue this Session.\n"
 	case a2atype.TaskStateAuthRequired:
-		continuation = "Authentication required to continue this AgentInstance.\n"
+		continuation = "Authentication required to continue this Session.\n"
 	}
 	if continuation != "" {
 		if _, err := io.WriteString(w, continuation); err != nil {
@@ -336,21 +336,21 @@ func sendResultError(result a2atype.SendMessageResult) error {
 	case a2atype.TaskStateCompleted, a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired:
 		return nil
 	case a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateCanceled:
-		return fmt.Errorf("AgentInstance task %s ended in %s", task.ID, task.Status.State)
+		return fmt.Errorf("session task %s ended in %s", task.ID, task.Status.State)
 	default:
-		return fmt.Errorf("AgentInstance task %s returned before reaching a final state: %s", task.ID, task.Status.State)
+		return fmt.Errorf("session task %s returned before reaching a final state: %s", task.ID, task.Status.State)
 	}
 }
 
-// NewInvokeCmd constructs the AgentInstance invoke command.
+// NewInvokeCmd constructs the Session invoke command.
 func NewInvokeCmd() *cobra.Command {
 	cfg := &InvokeCfg{}
 	cmd := &cobra.Command{
 		Use:     "invoke",
-		Short:   "Invoke an AgentInstance",
-		Long:    `Invoke an existing AgentInstance through the A2A API.`,
+		Short:   "Invoke a Session",
+		Long:    `Invoke an existing Session through the A2A API.`,
 		Args:    cobra.NoArgs,
-		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
+		Example: `kagent invoke --session 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
@@ -364,12 +364,12 @@ func NewInvokeCmd() *cobra.Command {
 			return runInvoke(cmd.Context(), options, cfg, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().StringVar(&cfg.AgentInstance, "agent-instance", "", "AgentInstance ID")
+	cmd.Flags().StringVar(&cfg.Session, "session", "", "Session ID")
 	cmd.Flags().StringVarP(&cfg.Task, "task", "t", "", "Task text")
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
 	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
-	_ = cmd.MarkFlagRequired("agent-instance")
+	_ = cmd.MarkFlagRequired("session")
 	cmd.MarkFlagsOneRequired("task", "file")
 	cmd.MarkFlagsMutuallyExclusive("task", "file")
 	return cmd

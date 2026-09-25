@@ -8,7 +8,7 @@ they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
 
 Bindings are persisted with the prepared revision and installed before an
-instance becomes ready, including retries and checkpoint forks. Secret names,
+session becomes ready, including retries and checkpoint forks. Secret names,
 keys, destinations, and headers affect revision identity. Secret values and
 Secret UIDs do not. Rotation is handled by the gateway; its credential cache can
 take up to five minutes to refresh, without recompiling or restarting an agent.

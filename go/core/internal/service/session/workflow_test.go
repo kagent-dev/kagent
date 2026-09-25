@@ -1,4 +1,4 @@
-package agentinstance
+package session
 
 import (
 	"context"
@@ -24,46 +24,46 @@ import (
 )
 
 func TestActorWorkflowLifecycle(t *testing.T) {
-	store, instance := lifecycleFixture(t)
+	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	workflow := NewActorWorkflow(store, actors)
 
-	created, err := workflow.Create(context.Background(), instance)
+	created, err := workflow.Create(context.Background(), session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || created.GetA2AAuthority() == "" {
-		t.Fatalf("created instance = %+v", created)
+	if created.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || created.GetA2AAuthority() == "" {
+		t.Fatalf("created session = %+v", created)
 	}
 	if len(actors.actors) != 1 {
 		t.Fatalf("actors = %v", actors.actors)
 	}
-	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
-	actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	if err := workflow.Pause(context.Background(), created); err != nil {
 		t.Fatal(err)
 	}
-	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
 		t.Fatalf("paused Actor status = %s", actor.GetStatus().GetState())
 	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
-		t.Fatalf("quiesced instance = %+v, boundary = %+v", created, boundary)
+	if created.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
+		t.Fatalf("quiesced session = %+v, boundary = %+v", created, boundary)
 	}
 
 	suspended, err := workflow.Suspend(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if suspended.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
-		t.Fatalf("suspended instance = %+v", suspended)
+	if suspended.GetState() != apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+		t.Fatalf("suspended session = %+v", suspended)
 	}
-	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("suspended Actor status = %s", actor.GetStatus().GetState())
 	}
 
@@ -71,41 +71,41 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || resumed.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
-		t.Fatalf("resumed instance = %+v", resumed)
+	if resumed.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || resumed.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+		t.Fatalf("resumed session = %+v", resumed)
 	}
 
 	deleted, err := workflow.Delete(context.Background(), resumed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.GetAgentInstanceByID(t.Context(), instance.Id)
+	_, err = store.GetSessionByID(t.Context(), session.Id)
 	require.ErrorIs(t, err, database.ErrNotFound)
-	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || len(actors.actors) != 0 {
-		t.Fatalf("deleted instance = %+v, actors = %v", deleted, actors.actors)
+	if deleted.GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED || len(actors.actors) != 0 {
+		t.Fatalf("deleted session = %+v, actors = %v", deleted, actors.actors)
 	}
 }
 
 func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 	for _, operation := range []string{"pause", "quiesce", "suspend", "delete"} {
 		t.Run(operation, func(t *testing.T) {
-			store, instance := lifecycleFixture(t)
+			store, session := lifecycleFixture(t)
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 			workflow := NewActorWorkflow(store, actors)
-			instance, err := workflow.Create(t.Context(), instance)
+			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
-			actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.Id))]
+			actor := actors.actors[actorKey("team-a", substrate.ActorName(session.Id))]
 			actor.Metadata.Uid = "replacement-uid"
 			actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 			switch operation {
 			case "pause":
-				err = workflow.Pause(t.Context(), instance)
+				err = workflow.Pause(t.Context(), session)
 			case "quiesce":
-				_, err = workflow.Quiesce(t.Context(), instance)
+				_, err = workflow.Quiesce(t.Context(), session)
 			case "suspend":
-				_, err = workflow.Suspend(t.Context(), instance)
+				_, err = workflow.Suspend(t.Context(), session)
 			case "delete":
-				_, err = workflow.Delete(t.Context(), instance)
+				_, err = workflow.Delete(t.Context(), session)
 			}
 			require.ErrorContains(t, err, "verify runtime actor UID")
 			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.Status.State)
@@ -115,28 +115,28 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 }
 
 func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
-	store, instance := lifecycleFixture(t)
+	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	instance, checkpointID := lifecycleForkFixture(t, store, actors, instance)
-	fork, err := NewActorWorkflow(store, actors).Create(t.Context(), instance)
+	session, checkpointID := lifecycleForkFixture(t, store, actors, session)
+	fork, err := NewActorWorkflow(store, actors).Create(t.Context(), session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]
-	if fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
+	actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]
+	if fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY ||
 		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
 		actor.GetSourceTag().GetName() != "checkpoint-"+checkpointID {
 		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
 	}
 	actor.Status.ExternalSnapshot.SnapshotUri = "s3://snapshots/later-turn"
-	replayed, err := NewActorWorkflow(store, actors).Create(t.Context(), instance)
+	replayed, err := NewActorWorkflow(store, actors).Create(t.Context(), session)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(fork, replayed), "a retry returns the current instance without revalidating later Actor state")
+	require.True(t, proto.Equal(fork, replayed), "a retry returns the current session without revalidating later Actor state")
 }
 
 // lifecycleFixture uses the same persistence boundary as production; only Actor
 // calls are faked, so concurrency assertions exercise PostgreSQL admission.
-func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.AgentInstance) {
+func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.Session) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
 	t.Cleanup(cancel)
@@ -156,9 +156,9 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.AgentInst
 	}
 	require.NoError(t, client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}))
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, true))
-	instance, _, err := client.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
+	session, _, err := client.CreateSession(t.Context(), &apiv1alpha1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
 	require.NoError(t, err)
-	return &lifecycleTestStore{Client: client, revision: revision}, instance
+	return &lifecycleTestStore{Client: client, revision: revision}, session
 }
 
 type lifecycleTestStore struct {
@@ -252,21 +252,21 @@ func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name stri
 }
 
 func TestQuiesceRejectsWrongActorIdentity(t *testing.T) {
-	instance := &apiv1alpha1.AgentInstance{Id: "instance-1", PreparedRevision: "revision-1"}
+	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
 	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{
-		actorKey("team-a", substrate.ActorName(instance.Id)): {
+		actorKey("team-a", substrate.ActorName(session.Id)): {
 			Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "different-actor", Uid: "actor-uid"},
 			Status:   &ateapipb.ActorStatus{},
 		},
 	}}
-	if _, err := NewActorWorkflow(store, actors).Quiesce(t.Context(), instance); err == nil {
+	if _, err := NewActorWorkflow(store, actors).Quiesce(t.Context(), session); err == nil {
 		t.Fatal("Quiesce() accepted the wrong Actor")
 	}
 }
 
 // lifecycleForkFixture retains a real checkpoint and its independent fork history.
-func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifecycleTestActors, source *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, string) {
+func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifecycleTestActors, source *apiv1alpha1.Session) (*apiv1alpha1.Session, string) {
 	t.Helper()
 	source, err := NewActorWorkflow(store, actors).Create(t.Context(), source)
 	require.NoError(t, err)
@@ -278,22 +278,22 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	hash := sha256.Sum256([]byte("fixture-complete"))
-	version, err := store.UpdateAgentInstanceTask(t.Context(), source.Id, initialVersion, hash[:], task, task, "")
+	version, err := store.UpdateSessionTask(t.Context(), source.Id, initialVersion, hash[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleAgentInstanceTask(t.Context(), source.Id, string(task.ID), version))
-	boundary, err := store.ClaimInstanceQuiescence(t.Context())
+	require.NoError(t, store.SettleSessionTask(t.Context(), source.Id, string(task.ID), version))
+	boundary, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, store.FinishInstanceQuiescence(t.Context(), boundary,
-		&database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
-	checkpoint, _, err := store.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.Id, HeadTaskId: string(task.ID)}, source.Creator, uuid.NewString())
+	require.NoError(t, store.FinishSessionQuiescence(t.Context(), boundary,
+		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
+	checkpoint, _, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(task.ID)}, source.Creator, uuid.NewString())
 	require.NoError(t, err)
-	_, err = store.FinalizeAgentInstanceCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshots/snapshot-1", "")
+	_, err = store.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshots/snapshot-1", "")
 	require.NoError(t, err)
 	requestID := uuid.NewString()
-	fork, _, err := store.ForkAgentInstance(t.Context(), checkpoint.Id, source.Creator, requestID, uuid.NewString())
+	fork, _, err := store.ForkSession(t.Context(), checkpoint.Id, source.Creator, requestID, uuid.NewString())
 	require.NoError(t, err)
 	// An ordinary Create must not reuse a fork request ID, even for the same pair.
-	_, _, err = store.CreateAgentInstance(t.Context(), &apiv1alpha1.AgentInstance{Id: uuid.NewString(), Creator: source.Creator, Agent: source.Agent, Name: fork.Name}, requestID)
+	_, _, err = store.CreateSession(t.Context(), &apiv1alpha1.Session{Id: uuid.NewString(), Creator: source.Creator, Agent: source.Agent, Name: fork.Name}, requestID)
 	require.ErrorIs(t, err, database.ErrIdempotencyConflict)
 	return fork, checkpoint.Id
 }
@@ -310,16 +310,16 @@ func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespac
 func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 	for _, name := range []string{"create", "fork"} {
 		t.Run(name, func(t *testing.T) {
-			store, instance := lifecycleFixture(t)
+			store, session := lifecycleFixture(t)
 			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 			if name == "fork" {
-				instance, _ = lifecycleForkFixture(t, store, base, instance)
+				session, _ = lifecycleForkFixture(t, store, base, session)
 			}
 			actors := &retryTestActors{lifecycleTestActors: base}
 			workflow := NewActorWorkflow(store, actors)
 			callsBefore := base.policyCalls
 			store.revision.EgressDestinations = []string{"*"}
-			_, err := workflow.Create(t.Context(), instance)
+			_, err := workflow.Create(t.Context(), session)
 			require.ErrorContains(t, err, "invalid egress destination")
 			require.Zero(t, actors.mutations.Load(), "validate the allowlist before issuing Actor creation")
 			require.Equal(t, callsBefore, base.policyCalls)
@@ -327,13 +327,13 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			store.revision.EgressDestinations = []string{"api.example.com", "192.0.2.1"}
 			store.revision.Credentials = []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team-a/auth/token"}}
 			base.policyErr = context.DeadlineExceeded
-			_, err = workflow.Create(t.Context(), instance)
+			_, err = workflow.Create(t.Context(), session)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
-			current, err := store.GetAgentInstanceByID(t.Context(), instance.Id)
+			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING, current.State)
+			require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_CREATING, current.State)
 			require.Empty(t, current.A2AAuthority)
-			require.Equal(t, actorKey("team-a", substrate.ActorName(instance.Id)), base.policyActor)
+			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
 			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
 			require.Len(t, base.policy.Rules, 3)
 			require.Equal(t, &ateapipb.CredentialHeaderInjection{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://kubernetes.io/team-a/auth/token"}, base.policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders()[0])
@@ -343,9 +343,9 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			// The Actor was created, but policy setup may still be running.
 			// Another caller must neither repeat effects nor publish readiness.
 			base.policyErr = nil
-			_, err = workflow.Create(t.Context(), instance)
+			_, err = workflow.Create(t.Context(), session)
 			require.ErrorIs(t, err, database.ErrConflict)
-			_, err = workflow.Delete(t.Context(), instance)
+			_, err = workflow.Delete(t.Context(), session)
 			require.ErrorIs(t, err, database.ErrConflict)
 			require.EqualValues(t, 1, actors.mutations.Load())
 			require.Equal(t, callsBefore+1, base.policyCalls)
@@ -391,9 +391,9 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
 	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors))
 	ctx := serviceTestContext("alice")
-	instance, err := service.Create(ctx, fixture.Agent, "retry-request", "conversation")
+	session, err := service.Create(ctx, fixture.Agent, "retry-request", "conversation")
 	require.NoError(t, err)
-	suspended, err := service.Suspend(ctx, instance.Id)
+	suspended, err := service.Suspend(ctx, session.Id)
 	require.NoError(t, err)
 	mutations := actors.mutations.Load()
 	retried, err := service.Create(ctx, fixture.Agent, "retry-request", "ignored retry name")
@@ -401,18 +401,18 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, suspended.Id, retried.Id)
 	require.Equal(t, suspended.State, retried.State)
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
-	deleted, err := service.Delete(ctx, instance.Id)
+	deleted, err := service.Delete(ctx, session.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED, deleted.State)
+	require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
 	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
-	_, err = service.Get(ctx, instance.Id)
+	_, err = service.Get(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-	_, err = service.Delete(ctx, instance.Id)
+	_, err = service.Delete(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
-	_, err = service.Resume(ctx, instance.Id)
+	_, err = service.Resume(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
 }

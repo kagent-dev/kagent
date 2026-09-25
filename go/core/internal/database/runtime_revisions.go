@@ -165,7 +165,7 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 }
 
 // RetireAgentIdentities retires identities at the given namespace/Agent
-// names, except the supplied UID when non-nil. Existing instances retain
+// names, except the supplied UID when non-nil. Existing sessions retain
 // their pinned revisions. Missing and already-retired identities are a no-op.
 func (c *Client) RetireAgentIdentities(ctx context.Context, namespace, name string, except *AgentDefinition) error {
 	return retireAgentIdentities(ctx, c.db, namespace, name, except)
@@ -187,7 +187,7 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name s
 }
 
 // ListUnreferencedRuntimeRevisions lists revisions unused by active Agents,
-// instances, or checkpoints, including deletions still awaiting compute cleanup.
+// sessions, or checkpoints, including deletions still awaiting compute cleanup.
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT revision, namespace, agent_name, agent_uid,
