@@ -169,6 +169,7 @@ type AgentOptions struct {
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
 	PromptTemplate *v1alpha2.PromptTemplateSpec
+	Context        *v1alpha2.ContextConfig
 
 	IconURL          string
 	DocumentationURL string
@@ -525,6 +526,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if opts.PromptTemplate != nil {
 		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
+	}
+
+	if opts.Context != nil {
+		agent.Spec.Declarative.Context = opts.Context
 	}
 
 	agent.Spec.IconURL = opts.IconURL
