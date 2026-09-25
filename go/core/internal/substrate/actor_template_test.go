@@ -2,8 +2,11 @@ package substrate
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
@@ -162,4 +165,61 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")
 	}
+}
+
+func TestActorTemplateEnvironmentValueSize(t *testing.T) {
+	// configWithInstruction renders the instruction the way the compilers do,
+	// with json.Marshal's HTML escaping, and returns the rendered config.
+	configWithInstruction := func(t *testing.T, instruction string) []byte {
+		t.Helper()
+		config, err := json.Marshal(map[string]string{"instruction": instruction})
+		require.NoError(t, err)
+		return config
+	}
+	// overhead is what the config costs around an ASCII instruction.
+	overhead := utf8.RuneCount(configWithInstruction(t, ""))
+
+	for _, tc := range []struct {
+		name        string
+		instruction string
+		wantSize    int
+	}{
+		{name: "ASCII at the limit", instruction: strings.Repeat("a", maxEnvironmentValueRunes-overhead)},
+		{name: "ASCII one past the limit", instruction: strings.Repeat("a", maxEnvironmentValueRunes-overhead+1), wantSize: maxEnvironmentValueRunes + 1},
+		{name: "HTML-escaped characters cost six each", instruction: strings.Repeat("<>&", 2000), wantSize: overhead + 6*6000},
+		{name: "multibyte characters count once", instruction: strings.Repeat("é", 16000) + strings.Repeat("🙂", 16000)},
+		{name: "multibyte characters past the limit", instruction: strings.Repeat("日", maxEnvironmentValueRunes), wantSize: overhead + maxEnvironmentValueRunes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := &translator.Revision{
+				Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", WorkerPoolName: "default",
+				ConfigJSON: configWithInstruction(t, tc.instruction), AgentCard: sizeTestCard(),
+			}
+			revisionID, err := spec.Digest()
+			require.NoError(t, err)
+			_, err = ActorTemplateForRevision(spec, revisionID)
+			if tc.wantSize == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, fmt.Sprintf("compiled agent config is %d characters after JSON encoding; Substrate accepts at most 32768 in environment variable KAGENT_CONFIG_JSON. Move long reference material, such as a long system prompt, into a skill", tc.wantSize))
+		})
+	}
+
+	t.Run("other variables are named", func(t *testing.T) {
+		spec := &translator.Revision{
+			Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", WorkerPoolName: "default",
+			ConfigJSON: []byte(`{}`), AgentCard: sizeTestCard(),
+			Environment: []corev1.EnvVar{{Name: "EXTRA", Value: strings.Repeat("x", maxEnvironmentValueRunes+1)}},
+		}
+		revisionID, err := spec.Digest()
+		require.NoError(t, err)
+		_, err = ActorTemplateForRevision(spec, revisionID)
+		require.EqualError(t, err, "environment variable EXTRA is 32769 characters; Substrate accepts at most 32768")
+	})
+}
+
+func sizeTestCard() *a2apb.AgentCard {
+	return &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+		SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}}
 }
