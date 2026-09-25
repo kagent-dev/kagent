@@ -1,417 +1,216 @@
 package app
 
 import (
-	"flag"
-	"strings"
+	"context"
+	"fmt"
+	"net/http"
+	"net/url"
+	"reflect"
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
-func TestFilterValidNamespaces(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		expected []string
-	}{
-		{
-			name:     "valid namespaces should pass through",
-			input:    []string{"default", "kube-system", "test-ns"},
-			expected: []string{"default", "kube-system", "test-ns"},
-		},
-		{
-			name:     "empty strings should be filtered out",
-			input:    []string{"default", "", "test-ns", ""},
-			expected: []string{"default", "test-ns"},
-		},
-		{
-			name:     "whitespace should be trimmed",
-			input:    []string{" whitespaces-invalid-1 ", "  ", " whitespaces-invalid-2  "},
-			expected: nil,
-		},
-		{
-			name:     "invalid namespace names should be filtered out",
-			input:    []string{"default", "invalid_namespace", "test-ns", "namespace-with-too-long-name-that-exceeds-kubernetes-limit-123456789012345678901234567890123456789012345678901234567890"},
-			expected: []string{"default", "test-ns"},
-		},
-		{
-			name:     "mixed valid and invalid names",
-			input:    []string{"default", "", "Test-ns", "valid-ns", "ns.with.dots"},
-			expected: []string{"default", "valid-ns"},
-		},
-	}
+// stubAuthenticator and stubAuthorizer stand in for a library consumer's own
+// implementations. They only need to be distinguishable from core's defaults.
+type stubAuthenticator struct{ auth.AuthProvider }
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := filterValidNamespaces(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+func (stubAuthenticator) Authenticate(context.Context, http.Header, url.Values) (auth.Session, error) {
+	return nil, nil
 }
 
-func TestConfigureNamespaceWatching(t *testing.T) {
-	tests := []struct {
-		name                  string
-		watchNamespace        string
-		expectedWatchAll      bool
-		expectedNamespaceKeys []string
-	}{
-		{
-			name:                  "empty watchNamespaces should watch all",
-			watchNamespace:        "",
-			expectedWatchAll:      true,
-			expectedNamespaceKeys: []string{""},
-		},
-		{
-			name:                  "valid namespaces should be watched",
-			watchNamespace:        "default,kube-system",
-			expectedWatchAll:      false,
-			expectedNamespaceKeys: []string{"default", "kube-system"},
-		},
-		{
-			name:                  "invalid namespaces should be filtered out",
-			watchNamespace:        "default,invalid_name,kube-system",
-			expectedWatchAll:      false,
-			expectedNamespaceKeys: []string{"default", "kube-system"},
-		},
-		{
-			name:                  "only invalid namespaces should result in watching all",
-			watchNamespace:        "invalid_name,another-invalid!",
-			expectedWatchAll:      true,
-			expectedNamespaceKeys: []string{""},
-		},
-		{
-			name:                  "whitespace should not be trimmed automatically",
-			watchNamespace:        " default , kube-system ",
-			expectedWatchAll:      true,
-			expectedNamespaceKeys: []string{""},
-		},
-	}
+type stubAuthorizer struct{}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			watchNamespaces := strings.Split(strings.TrimSpace(tt.watchNamespace), ",")
-			if tt.watchNamespace == "" {
-				watchNamespaces = []string{}
-			}
-			filteredNamespaces := filterValidNamespaces(watchNamespaces)
-
-			result := configureNamespaceWatching(filteredNamespaces)
-
-			// For the "watch all" case
-			if tt.expectedWatchAll {
-				assert.Contains(t, result, "", "Should contain empty string key for watching all namespaces")
-				assert.Len(t, result, 1, "Should only have one entry for watching all namespaces")
-				return
-			}
-
-			// For specific namespaces, verify we have exactly the expected namespaces
-			assert.Len(t, result, len(tt.expectedNamespaceKeys), "Should have the expected number of namespaces")
-			for _, ns := range tt.expectedNamespaceKeys {
-				assert.Contains(t, result, ns, "Expected namespace %s to be in result", ns)
-			}
-		})
-	}
+func (stubAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
+	return nil
 }
 
-func TestLoadFromEnv(t *testing.T) {
-	tests := []struct {
-		name        string
-		envVars     map[string]string
-		flagName    string
-		flagDefault string
-		wantValue   string
-	}{
-		{
-			name: "string flag with hyphen",
-			envVars: map[string]string{
-				"METRICS_BIND_ADDRESS": ":9090",
-			},
-			flagName:    "metrics-bind-address",
-			flagDefault: ":8080",
-			wantValue:   ":9090",
-		},
-		{
-			name: "flag without env var uses default",
-			envVars: map[string]string{
-				"OTHER_FLAG": "value",
-			},
-			flagName:    "test-flag",
-			flagDefault: "default",
-			wantValue:   "default",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Set environment variables
-			for k, v := range tt.envVars {
-				t.Setenv(k, v)
-			}
-
-			// Create a new flag set for testing
-			fs := flag.NewFlagSet("test", flag.ContinueOnError)
-			var testVar string
-			fs.StringVar(&testVar, tt.flagName, tt.flagDefault, "test flag")
-
-			// Load from environment
-			if err := LoadFromEnv(fs); err != nil {
-				t.Fatalf("LoadFromEnv() error = %v", err)
-			}
-
-			// Check the value
-			if testVar != tt.wantValue {
-				t.Errorf("flag value = %v, want %v", testVar, tt.wantValue)
-			}
-		})
-	}
+func (stubAuthorizer) Scope(context.Context, auth.Principal, auth.Verb, string) (apiauthorization.AuthorizationScope, error) {
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, nil
 }
 
-func TestLoadFromEnvBoolFlags(t *testing.T) {
+func TestOptionsResolve(t *testing.T) {
+	consumerAuthn := stubAuthenticator{}
+	consumerAuthz := stubAuthorizer{}
+
 	tests := []struct {
 		name      string
-		envValue  string
-		wantValue bool
-		wantErr   bool
+		opts      Options
+		wantAuthn auth.AuthProvider
+		wantAuthz auth.CollectionAuthorizer
 	}{
 		{
-			name:      "true value",
-			envValue:  "true",
-			wantValue: true,
-			wantErr:   false,
+			name:      "both nil selects core defaults",
+			opts:      Options{},
+			wantAuthn: &authimpl.UnsecureAuthenticator{},
+			wantAuthz: &auth.NoopAuthorizer{},
 		},
 		{
-			name:      "false value",
-			envValue:  "false",
-			wantValue: false,
-			wantErr:   false,
+			name:      "authenticator only leaves the default authorizer",
+			opts:      Options{Authenticator: consumerAuthn},
+			wantAuthn: consumerAuthn,
+			wantAuthz: &auth.NoopAuthorizer{},
 		},
 		{
-			name:      "1 value",
-			envValue:  "1",
-			wantValue: true,
-			wantErr:   false,
+			name:      "authorizer only leaves the default authenticator",
+			opts:      Options{Authorizer: consumerAuthz},
+			wantAuthn: &authimpl.UnsecureAuthenticator{},
+			wantAuthz: consumerAuthz,
 		},
 		{
-			name:      "0 value",
-			envValue:  "0",
-			wantValue: false,
-			wantErr:   false,
-		},
-		{
-			name:      "invalid value",
-			envValue:  "invalid",
-			wantValue: false,
-			wantErr:   true,
+			name:      "both supplied replaces both",
+			opts:      Options{Authenticator: consumerAuthn, Authorizer: consumerAuthz},
+			wantAuthn: consumerAuthn,
+			wantAuthz: consumerAuthz,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			envName := "TEST_BOOL"
-			t.Setenv(envName, tt.envValue)
-
-			fs := flag.NewFlagSet("test", flag.ContinueOnError)
-			var testVar bool
-			fs.BoolVar(&testVar, "test-bool", false, "test bool flag")
-
-			err := LoadFromEnv(fs)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("LoadFromEnv() error = %v, wantErr %v", err, tt.wantErr)
-				return
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			authn, authz := test.opts.resolve()
+			if authn == nil || authz == nil {
+				t.Fatalf("resolve returned a nil component: authn=%v authz=%v", authn, authz)
 			}
-
-			if !tt.wantErr && testVar != tt.wantValue {
-				t.Errorf("flag value = %v, want %v", testVar, tt.wantValue)
+			if got, want := fmt.Sprintf("%T", authn), fmt.Sprintf("%T", test.wantAuthn); got != want {
+				t.Errorf("authenticator = %s, want %s", got, want)
+			}
+			if got, want := fmt.Sprintf("%T", authz), fmt.Sprintf("%T", test.wantAuthz); got != want {
+				t.Errorf("authorizer = %s, want %s", got, want)
 			}
 		})
 	}
 }
 
-func TestLoadFromEnvDurationFlags(t *testing.T) {
-	envName := "TEST_DURATION"
-	t.Setenv(envName, "5m")
-
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	var testVar time.Duration
-	fs.DurationVar(&testVar, "test-duration", 1*time.Second, "test duration flag")
-
-	if err := LoadFromEnv(fs); err != nil {
-		t.Fatalf("LoadFromEnv() error = %v", err)
+func TestLeaderElectionDefaultsOnWithLocalOptOut(t *testing.T) {
+	t.Setenv("LEADER_ELECT", "")
+	if !kagentenv.LeaderElect.Get() {
+		t.Fatal("leader election must default to enabled")
 	}
-
-	wantValue := 5 * time.Minute
-	if testVar != wantValue {
-		t.Errorf("flag value = %v, want %v", testVar, wantValue)
+	t.Setenv("LEADER_ELECT", "false")
+	if kagentenv.LeaderElect.Get() {
+		t.Fatal("local testing must be able to disable leader election")
 	}
 }
 
-func TestDatabaseUrlFileFlag(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	cfg := Config{}
-	cfg.SetFlags(fs)
-
-	// Verify the flag exists and has the right default
-	f := fs.Lookup("postgres-database-url-file")
-	assert.NotNil(t, f, "postgres-database-url-file flag should be registered")
-	assert.Equal(t, "", f.DefValue, "default should be empty string")
-
-	// Verify env var loading works for the new flag
-	t.Setenv("POSTGRES_DATABASE_URL_FILE", "/etc/credentials/db-url")
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
+func TestMetricsBindAddressNeverFallsBackToTheControllerRuntimeDefault(t *testing.T) {
+	set := func(value string) *string { return &value }
+	for name, testCase := range map[string]struct {
+		value *string
+		want  string
+	}{
+		"unset":    {value: nil, want: "0"},
+		"empty":    {value: set(""), want: "0"},
+		"disabled": {value: set("0"), want: "0"},
+		"port":     {value: set(":8443"), want: ":8443"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if testCase.value != nil {
+				t.Setenv("METRICS_BIND_ADDRESS", *testCase.value)
+			}
+			if got := metricsBindAddress(); got != testCase.want {
+				t.Fatalf("metricsBindAddress() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
 }
 
-func TestDatabasePoolFlags(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	cfg := Config{}
-	cfg.SetFlags(fs)
-
-	assert.Equal(t, "0", fs.Lookup("db-max-conns").DefValue)
-	assert.Equal(t, "-1", fs.Lookup("db-min-conns").DefValue)
-	assert.Equal(t, "0s", fs.Lookup("db-max-conn-idle-time").DefValue)
-	assert.Equal(t, "0s", fs.Lookup("db-max-conn-lifetime").DefValue)
-
-	t.Setenv("DB_MAX_CONNS", "4")
-	t.Setenv("DB_MIN_CONNS", "0")
-	t.Setenv("DB_MAX_CONN_IDLE_TIME", "1m")
-	t.Setenv("DB_MAX_CONN_LIFETIME", "10m")
-	assert.NoError(t, LoadFromEnv(fs))
-	assert.Equal(t, 4, cfg.Database.MaxConns)
-	assert.Equal(t, 0, cfg.Database.MinConns)
-	assert.Equal(t, time.Minute, cfg.Database.MaxConnIdleTime)
-	assert.Equal(t, 10*time.Minute, cfg.Database.MaxConnLifetime)
-
-	pgCfg := postgresConfigFromApp("postgres://localhost/db", &cfg)
-	require.NotNil(t, pgCfg.MaxConns)
-	assert.Equal(t, int32(4), *pgCfg.MaxConns)
-	require.NotNil(t, pgCfg.MinConns)
-	assert.Equal(t, int32(0), *pgCfg.MinConns)
-	require.NotNil(t, pgCfg.MaxConnIdleTime)
-	assert.Equal(t, time.Minute, *pgCfg.MaxConnIdleTime)
-	require.NotNil(t, pgCfg.MaxConnLifetime)
-	assert.Equal(t, 10*time.Minute, *pgCfg.MaxConnLifetime)
+func TestMetricsSecureDefaultsOff(t *testing.T) {
+	if kagentenv.MetricsSecure.Get() {
+		t.Fatal("METRICS_SECURE must default to false")
+	}
+	t.Setenv("METRICS_SECURE", "true")
+	if !kagentenv.MetricsSecure.Get() {
+		t.Fatal("METRICS_SECURE=true must enable secure serving")
+	}
 }
 
-func TestPostgresConfigFromAppUnset(t *testing.T) {
-	cfg := Config{}
-	cfg.Database.MinConns = -1 // flag default
-	pgCfg := postgresConfigFromApp("postgres://localhost/db", &cfg)
-	assert.Nil(t, pgCfg.MaxConns)
-	assert.Nil(t, pgCfg.MinConns)
-	assert.Nil(t, pgCfg.MaxConnIdleTime)
-	assert.Nil(t, pgCfg.MaxConnLifetime)
+func TestNamespaces(t *testing.T) {
+	want := []string{"one", "two"}
+	if got := namespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("namespaces() = %q, want %q", got, want)
+	}
 }
 
-func TestSessionRetentionDaysFlag(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	cfg := Config{}
-	cfg.SetFlags(fs)
-
-	f := fs.Lookup("session-retention-days")
-	assert.NotNil(t, f, "session-retention-days flag should be registered")
-	assert.Equal(t, "0", f.DefValue, "default should be 0 (disabled)")
-
-	t.Setenv("SESSION_RETENTION_DAYS", "30")
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, 30, cfg.Database.SessionRetentionDays)
+func TestNamespaceCache(t *testing.T) {
+	if got := namespaceCache(nil); got != nil {
+		t.Fatalf("namespaceCache(nil) = %#v, want nil", got)
+	}
+	got := namespaceCache([]string{"team-a", "team-b"})
+	if len(got) != 2 {
+		t.Fatalf("namespaceCache() = %#v", got)
+	}
+	if _, ok := got["team-a"]; !ok {
+		t.Fatal("namespaceCache() missing team-a")
+	}
+	if _, ok := got["team-b"]; !ok {
+		t.Fatal("namespaceCache() missing team-b")
+	}
 }
 
-func TestSubstrateAteAPIMTLSFlags(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	cfg := Config{}
-	cfg.SetFlags(fs)
+// The built-in tracks must reach their final version before a library consumer's,
+// which may reference them, so order is the contract here -- not membership.
+func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
+	extra := []migrations.Source{{Name: "custom-track"}}
+	sources := append(migrations.BuiltinSources(false), extra...)
 
-	assert.NotNil(t, fs.Lookup("substrate-ate-api-ca-file"))
-	assert.NotNil(t, fs.Lookup("substrate-ate-api-client-cert-file"))
-
-	t.Setenv("SUBSTRATE_ATE_API_CA_FILE", "/run/substrate-servicedns/trust-bundle.pem")
-	t.Setenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE", "/run/substrate-podidentity/credential-bundle.pem")
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, "/run/substrate-servicedns/trust-bundle.pem", cfg.Substrate.AteAPICAFile)
-	assert.Equal(t, "/run/substrate-podidentity/credential-bundle.pem", cfg.Substrate.AteAPIClientCertFile)
+	if len(sources) != len(migrations.BuiltinSources(false))+len(extra) {
+		t.Fatalf("sources = %d entries, want builtins + %d", len(sources), len(extra))
+	}
+	if got := sources[0].Name; got != "core" {
+		t.Errorf("first source = %q, want the built-in %q", got, "core")
+	}
+	if got := sources[len(sources)-1].Name; got != "custom-track" {
+		t.Errorf("last source = %q, want the extra track", got)
+	}
 }
 
-func TestLoadFromEnvIntegration(t *testing.T) {
-	envVars := map[string]string{
-		"METRICS_BIND_ADDRESS":           ":9090",
-		"HEALTH_PROBE_BIND_ADDRESS":      ":8081",
-		"LEADER_ELECT":                   "true",
-		"METRICS_SECURE":                 "false",
-		"ENABLE_HTTP2":                   "true",
-		"DEFAULT_MODEL_CONFIG_NAME":      "custom-model",
-		"DEFAULT_MODEL_CONFIG_NAMESPACE": "custom-ns",
-		"HTTP_SERVER_ADDRESS":            ":9000",
-		"GRPC_BIND_ADDRESS":              ":9001",
-		"GRPC_MAX_MESSAGE_BYTES":         "1048576",
-		"GRPC_REFLECTION":                "true",
-		"A2A_BASE_URL":                   "http://example.com:9000",
-		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
-		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
-		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
+// SetupLogger rejects a bad level before it touches the global logger, so this
+// case does not disturb whatever logger the rest of the suite runs under.
+func TestSetupLoggerRejectsBadLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "not-a-level")
+	if err := SetupLogger(); err == nil {
+		t.Fatal("SetupLogger accepted an unparseable LOG_LEVEL")
 	}
+}
 
-	for k, v := range envVars {
-		t.Setenv(k, v)
-	}
+func TestMergePolicies(t *testing.T) {
+	defaults := grpcserver.MethodPolicies{"/core.Svc/Get": auth.AccessRead}
 
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	cfg := Config{}
-	cfg.SetFlags(fs) // Sets flags and defaults
+	t.Run("adds a consumer method", func(t *testing.T) {
+		merged, err := mergePolicies(defaults, map[string]auth.AccessMode{
+			"/consumer.Svc/Public": auth.AccessPublic,
+		})
+		if err != nil {
+			t.Fatalf("mergePolicies: %v", err)
+		}
+		if got := merged["/consumer.Svc/Public"]; got != auth.AccessPublic {
+			t.Errorf("consumer method = %q, want %q", got, auth.AccessPublic)
+		}
+		if got := merged["/core.Svc/Get"]; got != auth.AccessRead {
+			t.Errorf("core method = %q, want %q", got, auth.AccessRead)
+		}
+	})
 
-	if err := LoadFromEnv(fs); err != nil {
-		t.Fatalf("LoadFromEnv() error = %v", err)
-	}
+	// The security property: a consumer must not be able to reclassify a core
+	// method, or Options becomes a way to make an authenticated method public.
+	t.Run("refuses to reclassify a core method", func(t *testing.T) {
+		_, err := mergePolicies(defaults, map[string]auth.AccessMode{
+			"/core.Svc/Get": auth.AccessPublic,
+		})
+		if err == nil {
+			t.Fatal("mergePolicies allowed a core method to be overridden")
+		}
+	})
 
-	// Verify values - env vars should override default flags
-	if cfg.Metrics.Addr != ":9090" {
-		t.Errorf("Metrics.Addr = %v, want :9090", cfg.Metrics.Addr)
-	}
-	if cfg.ProbeAddr != ":8081" {
-		t.Errorf("ProbeAddr = %v, want :8081", cfg.ProbeAddr)
-	}
-	if !cfg.LeaderElection {
-		t.Errorf("LeaderElection = false, want true")
-	}
-	if cfg.SecureMetrics {
-		t.Errorf("SecureMetrics = true, want false")
-	}
-	if !cfg.EnableHTTP2 {
-		t.Errorf("EnableHTTP2 = false, want true")
-	}
-	if cfg.DefaultModelConfig.Name != "custom-model" {
-		t.Errorf("DefaultModelConfig.Name = %v, want custom-model", cfg.DefaultModelConfig.Name)
-	}
-	if cfg.DefaultModelConfig.Namespace != "custom-ns" {
-		t.Errorf("DefaultModelConfig.Namespace = %v, want custom-ns", cfg.DefaultModelConfig.Namespace)
-	}
-	if cfg.HttpServerAddr != ":9000" {
-		t.Errorf("HttpServerAddr = %v, want :9000", cfg.HttpServerAddr)
-	}
-	if cfg.GRPC.BindAddress != ":9001" {
-		t.Errorf("GRPC.BindAddress = %v, want :9001", cfg.GRPC.BindAddress)
-	}
-	if cfg.GRPC.MaxMessageBytes != 1048576 {
-		t.Errorf("GRPC.MaxMessageBytes = %v, want 1048576", cfg.GRPC.MaxMessageBytes)
-	}
-	if !cfg.GRPC.Reflection {
-		t.Error("GRPC.Reflection = false, want true")
-	}
-	if cfg.Proxy.URL != "http://proxy.kagent.svc.cluster.local:8080" {
-		t.Errorf("Proxy.URL = %v, want http://proxy.kagent.svc.cluster.local:8080", cfg.Proxy.URL)
-	}
-	if cfg.A2ABaseUrl != "http://example.com:9000" {
-		t.Errorf("A2ABaseUrl = %v, want http://example.com:9000", cfg.A2ABaseUrl)
-	}
-	if cfg.Database.Url != "postgres://localhost:5432/testdb" {
-		t.Errorf("Database.Url = %v, want postgres://localhost:5432/testdb", cfg.Database.Url)
-	}
-	if cfg.WatchNamespaces != "ns1,ns2,ns3" {
-		t.Errorf("WatchNamespaces = %v, want ns1,ns2,ns3", cfg.WatchNamespaces)
-	}
+	t.Run("nil extra leaves defaults intact", func(t *testing.T) {
+		merged, err := mergePolicies(defaults, nil)
+		if err != nil || len(merged) != len(defaults) {
+			t.Fatalf("mergePolicies(nil) = %v, %v", merged, err)
+		}
+	})
 }

@@ -22,8 +22,84 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// KagentHarness selects the kagent runtime adapter.
-type KagentHarness struct{}
+// KagentHarness configures the kagent runtime adapter.
+type KagentHarness struct {
+	// Memory enables long-term memory for agents using this Harness.
+	// +optional
+	Memory *KagentHarnessMemory `json:"memory,omitempty"`
+
+	// Compaction summarizes older session events so the prompt stays small as
+	// a conversation grows. Omitted leaves the history uncompacted.
+	// +optional
+	Compaction *KagentHarnessCompaction `json:"compaction,omitempty"`
+}
+
+// KagentHarnessCompaction selects the compaction strategies and the model that
+// writes the summaries. The sliding window (compactionInterval, overlapSize)
+// summarizes each group of completed invocations; tail retention
+// (tokenThreshold, eventRetentionSize) bounds the prompt by summarizing
+// everything but the most recent events once the prompt grows past a token
+// count. At least one strategy must be configured.
+// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) || has(self.tokenThreshold)",message="compactionInterval or tokenThreshold must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.tokenThreshold) == has(self.eventRetentionSize)",message="tokenThreshold and eventRetentionSize must be specified together"
+// +kubebuilder:validation:XValidation:rule="!has(self.overlapSize) || has(self.compactionInterval)",message="overlapSize requires compactionInterval"
+type KagentHarnessCompaction struct {
+	// CompactionInterval is the number of new user-initiated invocations that,
+	// once fully represented in the session, triggers a sliding-window
+	// compaction of those invocations.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CompactionInterval *int `json:"compactionInterval,omitempty"`
+	// OverlapSize is the number of already-compacted invocations pulled back
+	// into the next sliding window so consecutive summaries overlap.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	OverlapSize *int `json:"overlapSize,omitempty"`
+	// TokenThreshold is the prompt token count at which tail-retention
+	// compaction summarizes the history before the next model call.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TokenThreshold *int `json:"tokenThreshold,omitempty"`
+	// EventRetentionSize is the number of most recent events that tail
+	// retention keeps uncompacted.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
+	// Summarizer selects the model and prompt that write the summaries.
+	// Omitted summarizes with the agent's own model and the runtime's default
+	// prompt.
+	// +optional
+	Summarizer *KagentHarnessSummarizer `json:"summarizer,omitempty"`
+}
+
+// KagentHarnessSummarizer configures the model that summarizes compacted events.
+// +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
+type KagentHarnessSummarizer struct {
+	// ModelConfigRef references the ModelConfig in the Harness namespace that
+	// writes the summaries. Omitted uses the agent's own model.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
+	// +optional
+	ModelConfigRef *corev1.LocalObjectReference `json:"modelConfigRef,omitempty"`
+	// PromptTemplate replaces the runtime's default summarization prompt. It
+	// must contain {conversation_history}, which the runtime replaces with the
+	// rendered events.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	PromptTemplate string `json:"promptTemplate,omitempty"`
+}
+
+// KagentHarnessMemory configures kagent's long-term memory service.
+// +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
+type KagentHarnessMemory struct {
+	// ModelConfigRef references the embedding ModelConfig in the Harness namespace.
+	// +required
+	ModelConfigRef corev1.LocalObjectReference `json:"modelConfigRef"`
+
+	// TTLDays controls how many days a stored memory entry remains valid.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TTLDays int `json:"ttlDays,omitempty"`
+}
 
 // CodexHarness selects the Codex runtime adapter.
 type CodexHarness struct{}
@@ -31,12 +107,25 @@ type CodexHarness struct{}
 // ClaudeHarness selects the Claude runtime adapter.
 type ClaudeHarness struct{}
 
+// BYOHarness selects an image that implements kagent's private A2A contract.
+type BYOHarness struct{}
+
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
 	// Image is an OCI image reference pinned by sha256 digest.
 	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
 	// +required
 	Image string `json:"image"`
+
+	// Command overrides the image entrypoint when set.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Args overrides the image command arguments when set.
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Args []string `json:"args,omitempty"`
 }
 
 // HarnessEnvVar configures one runtime environment variable.
@@ -88,7 +177,8 @@ type HarnessAgentTemplateAdmission struct {
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) == 1",message="exactly one of kagent, codex, or claude must be specified"
+// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || size(self.workload.command) > 0",message="BYO harnesses must specify workload.command"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`
@@ -98,6 +188,9 @@ type HarnessSpec struct {
 
 	// +optional
 	Claude *ClaudeHarness `json:"claude,omitempty"`
+
+	// +optional
+	BYO *BYOHarness `json:"byo,omitempty"`
 
 	// +required
 	Workload HarnessWorkload `json:"workload"`
@@ -144,6 +237,10 @@ type HarnessCapabilities struct {
 	InputRequired bool `json:"inputRequired"`
 	// +required
 	Approvals bool `json:"approvals"`
+	// StructuredOutput reports whether the pinned adapter can enforce a root
+	// JSON output contract and emit it as an A2A DataPart.
+	// +required
+	StructuredOutput bool `json:"structuredOutput"`
 
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set
@@ -160,6 +257,11 @@ type HarnessCapabilities struct {
 	// +required
 	Checkpoint bool `json:"checkpoint"`
 }
+
+// HarnessConditionType enumerates the condition types a Harness may report.
+const (
+	HarnessConditionTypeReady = "Ready"
+)
 
 // HarnessStatus reports controller-derived capabilities and current health.
 type HarnessStatus struct {

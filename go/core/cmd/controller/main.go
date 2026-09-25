@@ -1,5 +1,5 @@
 /*
-Copyright 2025.
+Copyright 2026.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,40 +17,29 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
-//nolint:gocyclo
 func main() {
-	authorizer := &auth.NoopAuthorizer{}
-	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
-		authenticator, err := getAuthenticator(bootstrap.Config.Auth)
-		if err != nil {
-			return nil, err
-		}
-		return &app.ExtensionConfig{
-			Authenticator: authenticator,
-			Authorizer:    authorizer,
-			AgentPlugins:  nil,
-		}, nil
-	}, nil)
-}
+	if err := app.SetupLogger(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	logger := slog.Default()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) (pkgauth.AuthProvider, error) {
-	switch authCfg.Mode {
-	case "trusted-proxy":
-		return auth.NewProxyAuthenticator(authCfg.UserIDClaim), nil
-	case "unsecure":
-		return &auth.UnsecureAuthenticator{}, nil
-	default:
-		return nil, fmt.Errorf("unknown auth mode %q (valid modes: unsecure, trusted-proxy)", authCfg.Mode)
+	// No options: core's own controller runs with the default authenticator and
+	// authorizer. A library consumer supplies its own by calling app.Run directly.
+	if err := app.Run(ctx, app.Options{}); err != nil {
+		logger.ErrorContext(ctx, "controller stopped", "error", err)
+		os.Exit(1)
 	}
 }

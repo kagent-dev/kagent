@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// AgentTemplateService is CRUD over the kagent.dev/v1alpha3 AgentTemplate CRD:
+// the portable-behavior half of the (Harness, AgentTemplate) pair that
+// CreateAgentInstance names. Without it an AgentTemplate can only be authored
+// with kubectl, so no caller can offer a template picker or an edit form.
+service AgentTemplateService {
+  rpc ListAgentTemplates(ListAgentTemplatesRequest) returns (ListAgentTemplatesResponse);
+  rpc GetAgentTemplate(GetAgentTemplateRequest) returns (GetAgentTemplateResponse);
+  rpc CreateAgentTemplate(CreateAgentTemplateRequest) returns (CreateAgentTemplateResponse);
+  rpc UpdateAgentTemplate(UpdateAgentTemplateRequest) returns (UpdateAgentTemplateResponse);
+  rpc DeleteAgentTemplate(DeleteAgentTemplateRequest) returns (DeleteAgentTemplateResponse);
+}
+
+message AgentTemplate {
+  ResourceReference ref = 1;
+
+  // Resource is the whole AgentTemplate CR. The spec is rich — model config,
+  // system prompt, tools, skills, plugins — and is carried verbatim rather than
+  // re-modelled here so that a CRD change cannot silently drift from the API.
+  StructuredObject resource = 2;
+
+  // ModelConfigRef is spec.modelConfig resolved into the template's namespace.
+  // Denormalised because it is required on every template and is what a caller
+  // needs to render a list without parsing each spec.
+  ResourceReference model_config_ref = 3;
+
+  string description = 4;
+
+  // AdmittingHarnesses names the same-namespace Harnesses whose admission
+  // selector matches this template, as reported in status. It is the set a
+  // caller may legally pair with this template in CreateAgentInstance, and it
+  // is derivable only from the Harness side, so a caller cannot compute it.
+  repeated string admitting_harnesses = 5;
+}
+
+message ListAgentTemplatesRequest {
+  string namespace = 1;
+}
+
+message ListAgentTemplatesResponse {
+  repeated AgentTemplate agent_templates = 1;
+}
+
+message GetAgentTemplateRequest {
+  ResourceReference ref = 1;
+}
+
+message GetAgentTemplateResponse {
+  AgentTemplate agent_template = 1;
+}
+
+message CreateAgentTemplateRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message CreateAgentTemplateResponse {
+  AgentTemplate agent_template = 1;
+}
+
+message UpdateAgentTemplateRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message UpdateAgentTemplateResponse {
+  AgentTemplate agent_template = 1;
+}
+
+message DeleteAgentTemplateRequest {
+  ResourceReference ref = 1;
+}
+
+message DeleteAgentTemplateResponse {}

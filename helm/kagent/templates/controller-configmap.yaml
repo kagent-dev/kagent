@@ -6,8 +6,7 @@ metadata:
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
-  A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
-  A2A_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
+  KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   {{- if .Values.ui.externalUrl }}
@@ -16,32 +15,36 @@ data:
   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry | quote }}
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
-  LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
-  # OpenTelemetry Configuration
-  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
-  OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
-  {{- $tracesEndpoint := .Values.otel.tracing.exporter.otlp.endpoint }}
-  {{- $logsEndpoint := .Values.otel.logging.exporter.otlp.endpoint }}
-  {{- if and $tracesEndpoint $logsEndpoint (eq $tracesEndpoint $logsEndpoint) }}
-  # Using unified OTEL endpoint (same for traces and logs)
-  OTEL_EXPORTER_OTLP_ENDPOINT: {{ $tracesEndpoint | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
-  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.otel.tracing.exporter.otlp.protocol | quote }}
-  {{- else }}
-  # Using separate endpoints for traces and logs
-  {{- if $tracesEndpoint }}
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ $tracesEndpoint | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: {{ .Values.otel.tracing.exporter.otlp.protocol | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  {{- with .Values.otel }}
+  {{- if not (or .traces.enabled .metrics.enabled .logs.enabled) }}
+  OTEL_SDK_DISABLED: "true"
   {{- end }}
-  {{- if $logsEndpoint }}
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ $logsEndpoint | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  OTEL_TRACES_EXPORTER: {{ ternary "otlp" "none" .traces.enabled | quote }}
+  OTEL_METRICS_EXPORTER: {{ ternary "otlp" "none" .metrics.enabled | quote }}
+  OTEL_LOGS_EXPORTER: {{ ternary "otlp" "none" .logs.enabled | quote }}
+  {{- with .exporter.otlp.endpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
+  {{- end }}
+  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .exporter.otlp.protocol | default "grpc" | quote }}
+  {{- with .exporter.otlp.timeout }}
+  OTEL_EXPORTER_OTLP_TIMEOUT: {{ . | quote }}
+  {{- end }}
+  {{- range $signal := list "traces" "metrics" "logs" }}
+  {{- $config := index $.Values.otel $signal }}
+  {{- with $config.endpoint }}
+  OTEL_EXPORTER_OTLP_{{ upper $signal }}_ENDPOINT: {{ . | quote }}
+  {{- end }}
+  {{- with $config.protocol }}
+  OTEL_EXPORTER_OTLP_{{ upper $signal }}_PROTOCOL: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: {{ ternary "SPAN_ONLY" "NO_CONTENT" .capture.messageContent | quote }}
+  KAGENT_OTEL_CAPTURE_RAW_API_BODIES: {{ .capture.rawApiBodies | quote }}
+  {{- with .capture.maxBytes }}
+  KAGENT_OTEL_MAX_CAPTURE_BYTES: {{ . | quote }}
+  {{- end }}
+  {{- with include "kagent.otel.resourceAttributes" $ }}
+  KAGENT_OTEL_RESOURCE_ATTRIBUTES: {{ . | quote }}
   {{- end }}
   {{- end }}
   {{- if .Values.proxy.url }}
@@ -63,10 +66,9 @@ data:
   DB_MAX_CONN_LIFETIME: {{ .maxConnLifetime | quote }}
   {{- end }}
   {{- end }}
-  SESSION_RETENTION_DAYS: {{ .Values.database.postgres.sessionRetentionDays | default 0 | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   {{- if .Values.controller.a2aClientTimeout }}
   KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
   {{- end }}
-  ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  LOG_LEVEL: {{ .Values.controller.loglevel | quote }}

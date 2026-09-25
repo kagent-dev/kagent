@@ -1,0 +1,158 @@
+file_format: definition/2
+attribute_groups:
+  - id: kagent.identity
+    visibility: public
+    brief: The compiled agent an invocation belongs to.
+    stability: development
+    attributes:
+      - ref: gen_ai.agent.name
+        requirement_level: required
+        note: The compiled agent identity, `<template>-<harness>`.
+      - ref: gen_ai.agent.id
+        requirement_level: required
+        note: The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`.
+      - ref: gen_ai.provider.name
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+        note: >
+          kagent also writes `ollama` and `sap.ai_core`, which the conventions do
+          not list.
+      - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+        note: >
+          The ADK runtimes report the model on each inference span instead.
+
+  - id: kagent.request
+    visibility: public
+    brief: The A2A request an invocation serves.
+    stability: development
+    attributes:
+      - ref: gen_ai.conversation.id
+        requirement_level:
+          conditionally_required: The gateway assigned an A2A context.
+        note: The A2A context ID.
+      - ref: a2a.task.id
+        requirement_level:
+          conditionally_required: The gateway assigned an A2A task.
+      - ref: enduser.id
+        requirement_level:
+          conditionally_required: A trusted identity reached the runtime.
+        note: >
+          Absent when the gateway forwarded no trusted identity. Never on a
+          resource or a metric. Hashing the value is an operator decision.
+      - ref: a2a.method
+        requirement_level: required
+      - ref: kagent.invocation.segment
+        requirement_level: required
+
+  - id: kagent.outcome
+    visibility: public
+    brief: How an invocation ended.
+    stability: development
+    attributes:
+      - ref: a2a.task.state
+        requirement_level:
+          conditionally_required: Execution reported a task state.
+      - ref: kagent.invocation.disposition
+        requirement_level:
+          conditionally_required: The task state does not say how the segment stopped.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The invocation failed.
+        note: >
+          A bounded kagent vocabulary: `runtime_panic`, `invalid_request`,
+          `continuation_unavailable`, `actor_unavailable`, `runtime_error`,
+          `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure`
+          and `transport_error`. Never a provider response, a credential or
+          captured content.
+
+  - id: kagent.capture
+    visibility: public
+    brief: Whether captured turn content was shortened.
+    note: >
+      The content itself is `gen_ai.input.messages` and `gen_ai.output.messages`
+      on the invoke_agent span, since a complex attribute cannot be part of a
+      group.
+    stability: development
+    attributes:
+      - ref: kagent.capture.input_truncated
+        requirement_level:
+          conditionally_required: gen_ai.input.messages is present.
+      - ref: kagent.capture.output_truncated
+        requirement_level:
+          conditionally_required: gen_ai.output.messages is present.
+
+span_refinements:
+  - id: kagent.invoke_agent.internal
+    ref: gen_ai.invoke_agent.internal
+    brief: One execution segment of a kagent agent.
+    note: >
+      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a
+      runtime that emits no invoke_agent span of its own. A resumed segment links
+      to the segment that started the native turn, with
+      `kagent.invocation.relationship` set to `resume_origin`.
+    stability: development
+    attributes:
+      - ref: gen_ai.operation.name
+        requirement_level: required
+        note: Always `invoke_agent`.
+      - ref: gen_ai.input.messages
+        requirement_level: opt_in
+        note: >
+          Bounded turn content, recorded only under
+          `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`.
+      - ref: gen_ai.output.messages
+        requirement_level: opt_in
+        note: >
+          Bounded turn content, recorded only under
+          `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`.
+      - ref_group: kagent.identity
+      - ref_group: kagent.request
+      - ref_group: kagent.outcome
+      - ref_group: kagent.capture
+
+  - id: kagent.a2a.http.server
+    ref: http.server
+    brief: The instrumentation SERVER span of an A2A request over HTTP.
+    note: kagent adds request identity and outcome to the span the HTTP instrumentation opens.
+    stability: development
+    attributes:
+      - ref_group: kagent.request
+      - ref_group: kagent.outcome
+
+  - id: kagent.a2a.rpc.server
+    ref: rpc.call.server
+    brief: The instrumentation SERVER span of an A2A request over gRPC.
+    note: kagent adds request identity and outcome to the span the gRPC instrumentation opens.
+    stability: development
+    attributes:
+      - ref_group: kagent.request
+      - ref_group: kagent.outcome
+
+entities:
+  - type: kagent.agent
+    requirement_level: recommended
+    brief: An agent runtime compiled by kagent.
+    note: >
+      Conversation, task and user identity never appear here, since one runtime
+      process serves many of each.
+    stability: development
+    identity:
+      - ref: gen_ai.agent.id
+        requirement_level: required
+        note: The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`.
+    description:
+      - ref: kagent.runtime
+        requirement_level: required
+      - ref: gen_ai.agent.name
+        requirement_level: required
+        note: The compiled agent identity, `<template>-<harness>`.
+      - ref: gen_ai.provider.name
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+        note: The provider the agent is compiled against.
+      - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+        note: The model the agent is compiled against.

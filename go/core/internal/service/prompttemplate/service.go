@@ -81,7 +81,7 @@ func (s *Service) Get(ctx context.Context, ref types.NamespacedName) (Detail, er
 	if err := validateRef(ref); err != nil {
 		return Detail{}, err
 	}
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "PromptTemplate", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "PromptTemplate", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return Detail{}, err
 	}
 
@@ -124,7 +124,7 @@ func (s *Service) Update(ctx context.Context, ref types.NamespacedName, data map
 	if err := validateRef(ref); err != nil {
 		return Detail{}, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: "PromptTemplate", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: "PromptTemplate", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return Detail{}, err
 	}
 	if len(data) == 0 {
@@ -149,7 +149,7 @@ func (s *Service) Delete(ctx context.Context, ref types.NamespacedName) error {
 	if err := validateRef(ref); err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "PromptTemplate", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "PromptTemplate", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return err
 	}
 

@@ -7,22 +7,24 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"log/slog"
+
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -35,6 +37,14 @@ type ServerConfig struct {
 	Host            string
 	Port            string
 	ShutdownTimeout time.Duration
+	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
+	HealthPaths   []string
+	HealthHandler http.Handler
+
+	// Telemetry is the compiler-owned identity every invocation span reports.
+	// Request identity is added by whichever component resolves it, never here.
+	Telemetry tracing.RuntimeTelemetry
+	Flush     func(context.Context) error
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
@@ -43,21 +53,37 @@ type A2AServer struct {
 	readyServer  *http.Server
 	grpcServer   *grpc.Server
 	healthServer *health.Server
-	logger       logr.Logger
+	logger       *slog.Logger
 	config       ServerConfig
 	listenErr    chan error
 }
 
 // NewA2AServer creates a new A2A server using a2asrv.
-func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger logr.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
+func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
+		newInvocationInterceptor(logger, config.Telemetry, config.Flush)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
 		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, *maxContentLength)
 	}
 
+	healthPaths := defaultHealthPaths()
+	if config.HealthPaths != nil {
+		for _, path := range config.HealthPaths {
+			// Mux patterns (subtrees, wildcards) would route what the exact-match tracing filter misses.
+			if !strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") || strings.ContainsAny(path, "{} \t") {
+				return nil, fmt.Errorf("health path %q must be a literal path", path)
+			}
+		}
+		healthPaths = slices.Clone(config.HealthPaths)
+	}
+	healthHandler := config.HealthHandler
+	if healthHandler == nil {
+		healthHandler = defaultHealthHandler
+	}
 	mux := http.NewServeMux()
-	RegisterHealthEndpoints(mux)
+	registerHealthEndpoints(mux, healthPaths, healthHandler)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 
@@ -79,7 +105,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
 			return false
-		case r.URL.Path == "/health", r.URL.Path == "/healthz", r.URL.Path == a2asrv.WellKnownAgentCardPath:
+		case r.URL.Path == a2asrv.WellKnownAgentCardPath, slices.Contains(healthPaths, r.URL.Path):
 			return false
 		default:
 			return true
@@ -95,22 +121,17 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		}),
 		otelhttp.WithFilter(isA2ARequest),
 	)
-	// Pre-response span flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH
-	// (the controller sets it on Agent Substrate actors): a checkpoint/suspend
-	// runtime freezes as soon as the response body closes, making this the only
-	// reliable export window. Everywhere else the batch exporter's timer
-	// suffices, and a per-request flush would only add export churn and, during
-	// a collector outage, response-tail latency.
-	//
-	// When enabled, flush after the otelhttp server span ends (when the inner
-	// handler returns) but before net/http closes the response body — a flush
-	// issued inside the executor can never include the still-open server span.
+	// Flush again on handler return for errors and non-quiescent responses.
+	// Quiescent events must flush earlier: the gateway may suspend or pause
+	// the actor immediately upon receiving the event, before HTTP body close.
 	handler := http.Handler(instrumentedHandler)
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true") {
+	if config.Flush != nil {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			instrumentedHandler.ServeHTTP(w, r)
 			if isA2ARequest(r) {
-				telemetry.ForceFlush(r.Context())
+				if err := config.Flush(r.Context()); err != nil {
+					logger.ErrorContext(r.Context(), "failed to flush traces after A2A handler", "error", err)
+				}
 			}
 		})
 	}
@@ -144,7 +165,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	}, nil
 }
 
-func getMaxContentLength(logger logr.Logger) *int64 {
+func getMaxContentLength(logger *slog.Logger) *int64 {
 	value, ok := os.LookupEnv(a2aMaxContentLengthEnvVar)
 	if !ok {
 		maxContentLength := defaultMaxContentLength
@@ -160,8 +181,8 @@ func getMaxContentLength(logger logr.Logger) *int64 {
 	maxContentLength, err := strconv.ParseInt(trimmedValue, 10, 64)
 	if err != nil || maxContentLength < 0 {
 		logger.Info(
-			"Invalid A2A request size limit, using default",
-			"environmentVariable", a2aMaxContentLengthEnvVar,
+			"invalid A2A request size limit, using default",
+			"environment_variable", a2aMaxContentLengthEnvVar,
 			"value", value,
 			"default", defaultMaxContentLength,
 		)
@@ -183,7 +204,7 @@ func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handle
 
 // Start initializes and starts the HTTP server.
 func (s *A2AServer) Start() error {
-	s.logger.Info("Starting Go ADK server!", "addr", s.httpServer.Addr)
+	s.logger.Info("starting Go ADK server!", "addr", s.httpServer.Addr)
 
 	s.listenErr = make(chan error, 1)
 	go func() {
@@ -208,7 +229,7 @@ func (s *A2AServer) WaitForShutdown() error {
 
 	select {
 	case <-stop:
-		s.logger.Info("Shutting down server...")
+		s.logger.Info("shutting down server...")
 	case err := <-s.listenErr:
 		return fmt.Errorf("server listen failed: %w", err)
 	}

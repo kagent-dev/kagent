@@ -1,0 +1,204 @@
+{
+  "openai": [
+    {
+      "name": "simple_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What is 2+2?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-golang-adk-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "The answer is 4.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    },
+    {
+      "name": "second_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What is 3+3?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-golang-adk-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "The answer is 6.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    }
+  ],
+  "openai_response": [
+    {
+      "name": "first_codex_request",
+      "match": {
+        "match_type": "contains",
+        "input": "What is 2+2?"
+      },
+      "response": {
+        "id": "resp_codex_mock_first",
+        "object": "response",
+        "created_at": 1677652288,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "msg_codex_mock_first",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "The answer is 4.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "name": "second_codex_request",
+      "match": {
+        "match_type": "contains",
+        "input": "What is 3+3?"
+      },
+      "response": {
+        "id": "resp_codex_mock_second",
+        "object": "response",
+        "created_at": 1677652288,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "msg_codex_mock_second",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "The answer is 6.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    }
+  ],
+  "anthropic": [
+    {
+      "name": "first_claude_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "What is 2+2?"
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "msg_claude_mock_first",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "The answer is 4."
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4
+        }
+      }
+    },
+    {
+      "name": "second_claude_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "What is 3+3?"
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "msg_claude_mock_second",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "The answer is 6."
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4
+        }
+      }
+    }
+  ]
+}

@@ -123,16 +123,6 @@ tests:
       - isNull:
           path: spec.template.spec.containers[0].securityContext.seccompProfile
 
-  - it: should have nextjs-cache volume for UI
-    template: ui-deployment.yaml
-    asserts:
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: nextjs-cache
-            emptyDir:
-              sizeLimit: 100Mi
-
   - it: should have tmp volume for UI
     template: ui-deployment.yaml
     asserts:
@@ -142,15 +132,6 @@ tests:
             name: tmp
             emptyDir:
               sizeLimit: 50Mi
-
-  - it: should have nextjs-cache volume mount for UI
-    template: ui-deployment.yaml
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: nextjs-cache
-            mountPath: /app/ui/.next/cache
 
   - it: should have tmp volume mount for UI
     template: ui-deployment.yaml

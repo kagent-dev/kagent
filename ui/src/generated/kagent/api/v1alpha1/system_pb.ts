@@ -4,14 +4,20 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import { file_google_protobuf_struct } from "@bufbuild/protobuf/wkt";
+import type { Actor, ActorState, ActorTemplate, Worker } from "../../../ateapi_pb";
+import { file_ateapi } from "../../../ateapi_pb";
+import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { PageRequest, PageResponse, ResourceReference, StructuredObject } from "./common_pb";
+import { file_kagent_api_v1alpha1_common } from "./common_pb";
 import type { JsonObject, Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file kagent/api/v1alpha1/system.proto.
  */
 export const file_kagent_api_v1alpha1_system: GenFile = /*@__PURE__*/
-  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL3N5c3RlbS5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSITChFHZXRWZXJzaW9uUmVxdWVzdCJUChJHZXRWZXJzaW9uUmVzcG9uc2USFgoOa2FnZW50X3ZlcnNpb24YASABKAkSEgoKZ2l0X2NvbW1pdBgCIAEoCRISCgpidWlsZF9kYXRlGAMgASgJIhcKFUdldEN1cnJlbnRVc2VyUmVxdWVzdCJBChZHZXRDdXJyZW50VXNlclJlc3BvbnNlEicKBmNsYWltcxgBIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiFwoVTGlzdE5hbWVzcGFjZXNSZXF1ZXN0IikKCU5hbWVzcGFjZRIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJMChZMaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEjIKCm5hbWVzcGFjZXMYASADKAsyHi5rYWdlbnQuYXBpLnYxYWxwaGExLk5hbWVzcGFjZSIuChlHZXRTdWJzdHJhdGVTdGF0dXNSZXF1ZXN0EhEKCW5hbWVzcGFjZRgBIAEoCSK2AgoaR2V0U3Vic3RyYXRlU3RhdHVzUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEj4KDHdvcmtlcl9wb29scxgDIAMoCzIoLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlV29ya2VyUG9vbBJECg9hY3Rvcl90ZW1wbGF0ZXMYBCADKAsyKy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZUFjdG9yVGVtcGxhdGUSMwoGYWN0b3JzGAUgAygLMiMua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVBY3RvchI1Cgd3b3JrZXJzGAYgAygLMiQua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVXb3JrZXIiXQoTU3Vic3RyYXRlV29ya2VyUG9vbBIRCgluYW1lc3BhY2UYASABKAkSDAoEbmFtZRgCIAEoCRIQCghyZXBsaWNhcxgDIAEoBRITCgthdGVvbV9pbWFnZRgEIAEoCSLbAQoWU3Vic3RyYXRlQWN0b3JUZW1wbGF0ZRIRCgluYW1lc3BhY2UYASABKAkSDAoEbmFtZRgCIAEoCRINCgVwaGFzZRgDIAEoCRIXCg9nb2xkZW5fYWN0b3JfaWQYBCABKAkSFwoPZ29sZGVuX3NuYXBzaG90GAUgASgJEhUKDXNhbmRib3hfY2xhc3MYBiABKAkSFwoPd29ya2VyX3NlbGVjdG9yGAcgASgJEhQKDGhhcm5lc3NfbmFtZRgIIAEoCRIZChFtYW5hZ2VkX2J5X2thZ2VudBgJIAEoCCKwAgoOU3Vic3RyYXRlQWN0b3ISEAoIYWN0b3JfaWQYASABKAkSEAoIYXRlc3BhY2UYAiABKAkSDgoGc3RhdHVzGAMgASgJEiAKGGFjdG9yX3RlbXBsYXRlX25hbWVzcGFjZRgEIAEoCRIbChNhY3Rvcl90ZW1wbGF0ZV9uYW1lGAUgASgJEhsKE2F0ZW9tX3BvZF9uYW1lc3BhY2UYBiABKAkSFgoOYXRlb21fcG9kX25hbWUYByABKAkSFAoMYXRlb21fcG9kX2lwGAggASgJEhcKD2xhdGVzdF9zbmFwc2hvdBgJIAEoCRIYChB3b3JrZXJfcG9vbF9uYW1lGAogASgJEhwKFGluX3Byb2dyZXNzX3NuYXBzaG90GAsgASgJEg8KB3ZlcnNpb24YDCABKAMitAEKD1N1YnN0cmF0ZVdvcmtlchIYChB3b3JrZXJfbmFtZXNwYWNlGAEgASgJEhMKC3dvcmtlcl9wb29sGAIgASgJEhIKCndvcmtlcl9wb2QYAyABKAkSFwoPYWN0b3JfbmFtZXNwYWNlGAQgASgJEhYKDmFjdG9yX3RlbXBsYXRlGAUgASgJEhAKCGFjdG9yX2lkGAYgASgJEgoKAmlwGAcgASgJEg8KB3ZlcnNpb24YCCABKAMyuwMKDVN5c3RlbVNlcnZpY2USXQoKR2V0VmVyc2lvbhImLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0VmVyc2lvblJlcXVlc3QaJy5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFZlcnNpb25SZXNwb25zZRJpCg5HZXRDdXJyZW50VXNlchIqLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0Q3VycmVudFVzZXJSZXF1ZXN0Gisua2FnZW50LmFwaS52MWFscGhhMS5HZXRDdXJyZW50VXNlclJlc3BvbnNlEmkKDkxpc3ROYW1lc3BhY2VzEioua2FnZW50LmFwaS52MWFscGhhMS5MaXN0TmFtZXNwYWNlc1JlcXVlc3QaKy5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3ROYW1lc3BhY2VzUmVzcG9uc2USdQoSR2V0U3Vic3RyYXRlU3RhdHVzEi4ua2FnZW50LmFwaS52MWFscGhhMS5HZXRTdWJzdHJhdGVTdGF0dXNSZXF1ZXN0Gi8ua2FnZW50LmFwaS52MWFscGhhMS5HZXRTdWJzdHJhdGVTdGF0dXNSZXNwb25zZUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z", [file_google_protobuf_struct]);
+  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL3N5c3RlbS5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSITChFHZXRWZXJzaW9uUmVxdWVzdCJUChJHZXRWZXJzaW9uUmVzcG9uc2USFgoOa2FnZW50X3ZlcnNpb24YASABKAkSEgoKZ2l0X2NvbW1pdBgCIAEoCRISCgpidWlsZF9kYXRlGAMgASgJIhcKFUdldEN1cnJlbnRVc2VyUmVxdWVzdCJBChZHZXRDdXJyZW50VXNlclJlc3BvbnNlEicKBmNsYWltcxgBIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiFwoVTGlzdE5hbWVzcGFjZXNSZXF1ZXN0IikKCU5hbWVzcGFjZRIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJMChZMaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEjIKCm5hbWVzcGFjZXMYASADKAsyHi5rYWdlbnQuYXBpLnYxYWxwaGExLk5hbWVzcGFjZSKDAQoTU3Vic3RyYXRlV29ya2VyUG9vbBIzCgNyZWYYBSABKAsyJi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc291cmNlUmVmZXJlbmNlEjcKCHJlc291cmNlGAYgASgLMiUua2FnZW50LmFwaS52MWFscGhhMS5TdHJ1Y3R1cmVkT2JqZWN0IpsBChpHZXRTdWJzdHJhdGVTdW1tYXJ5UmVxdWVzdBI+CgluYW1lc3BhY2UYASABKAlCK7pIKHImGD8yIl4oW2EtejAtOV0oWy1hLXowLTldKlthLXowLTldKT8pPyQSPQoIYXRlc3BhY2UYAiABKAlCK7pIKHImGD8yIl4oW2EtejAtOV0oWy1hLXowLTldKlthLXowLTldKT8pPyQiTQoZU3Vic3RyYXRlQWN0b3JTdGF0dXNDb3VudBINCgVjb3VudBgCIAEoAxIhCgVzdGF0ZRgDIAEoDjISLmF0ZWFwaS5BY3RvclN0YXRlIoUDChtHZXRTdWJzdHJhdGVTdW1tYXJ5UmVzcG9uc2USFQoNYXRlX2FwaV9lcnJvchgCIAEoCRI+Cgx3b3JrZXJfcG9vbHMYAyADKAsyKC5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVdvcmtlclBvb2wSEwoLYWN0b3JfY291bnQYBSABKAMSFAoMd29ya2VyX2NvdW50GAYgASgDEhsKE3J1bm5pbmdfYWN0b3JfY291bnQYByABKAMSGQoRYnVzeV93b3JrZXJfY291bnQYCCABKAMSSwoTYWN0b3Jfc3RhdHVzX2NvdW50cxgJIAMoCzIuLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlQWN0b3JTdGF0dXNDb3VudBIvCgtjb21wdXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoPYWN0b3JfdGVtcGxhdGVzGAsgAygLMhUuYXRlYXBpLkFjdG9yVGVtcGxhdGUiiwEKGkxpc3RTdWJzdHJhdGVBY3RvcnNSZXF1ZXN0Ej0KCGF0ZXNwYWNlGAYgASgJQiu6SChyJhg/MiJeKFthLXowLTldKFstYS16MC05XSpbYS16MC05XSk/KT8kEi4KBHBhZ2UYAiABKAsyIC5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXF1ZXN0IrUBChtMaXN0U3Vic3RyYXRlQWN0b3JzUmVzcG9uc2USFQoNYXRlX2FwaV9lcnJvchgCIAEoCRIdCgZhY3RvcnMYAyADKAsyDS5hdGVhcGkuQWN0b3ISLwoEcGFnZRgEIAEoCzIhLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlc3BvbnNlEi8KC2NvbXB1dGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKNAQobTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXF1ZXN0Ej4KCW5hbWVzcGFjZRgBIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JBIuCgRwYWdlGAIgASgLMiAua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVxdWVzdCK4AQocTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXNwb25zZRIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEh8KB3dvcmtlcnMYAyADKAsyDi5hdGVhcGkuV29ya2VyEi8KBHBhZ2UYBCABKAsyIS5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXNwb25zZRIvCgtjb21wdXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAytQUKDVN5c3RlbVNlcnZpY2USXQoKR2V0VmVyc2lvbhImLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0VmVyc2lvblJlcXVlc3QaJy5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFZlcnNpb25SZXNwb25zZRJpCg5HZXRDdXJyZW50VXNlchIqLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0Q3VycmVudFVzZXJSZXF1ZXN0Gisua2FnZW50LmFwaS52MWFscGhhMS5HZXRDdXJyZW50VXNlclJlc3BvbnNlEmkKDkxpc3ROYW1lc3BhY2VzEioua2FnZW50LmFwaS52MWFscGhhMS5MaXN0TmFtZXNwYWNlc1JlcXVlc3QaKy5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3ROYW1lc3BhY2VzUmVzcG9uc2USeAoTR2V0U3Vic3RyYXRlU3VtbWFyeRIvLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0U3Vic3RyYXRlU3VtbWFyeVJlcXVlc3QaMC5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFN1YnN0cmF0ZVN1bW1hcnlSZXNwb25zZRJ4ChNMaXN0U3Vic3RyYXRlQWN0b3JzEi8ua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U3Vic3RyYXRlQWN0b3JzUmVxdWVzdBowLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdFN1YnN0cmF0ZUFjdG9yc1Jlc3BvbnNlEnsKFExpc3RTdWJzdHJhdGVXb3JrZXJzEjAua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U3Vic3RyYXRlV29ya2Vyc1JlcXVlc3QaMS5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RTdWJzdHJhdGVXb3JrZXJzUmVzcG9uc2VCSVpHZ2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjFhbHBoYTE7YXBpdjFhbHBoYTFiBnByb3RvMw", [file_ateapi, file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_common]);
 
 /**
  * @generated from message kagent.api.v1alpha1.GetVersionRequest
@@ -136,32 +142,93 @@ export const ListNamespacesResponseSchema: GenMessage<ListNamespacesResponse> = 
   messageDesc(file_kagent_api_v1alpha1_system, 6);
 
 /**
- * @generated from message kagent.api.v1alpha1.GetSubstrateStatusRequest
+ * @generated from message kagent.api.v1alpha1.SubstrateWorkerPool
  */
-export type GetSubstrateStatusRequest = Message<"kagent.api.v1alpha1.GetSubstrateStatusRequest"> & {
+export type SubstrateWorkerPool = Message<"kagent.api.v1alpha1.SubstrateWorkerPool"> & {
   /**
-   * @generated from field: string namespace = 1;
+   * @generated from field: kagent.api.v1alpha1.ResourceReference ref = 5;
    */
-  namespace: string;
+  ref?: ResourceReference | undefined;
+
+  /**
+   * The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+   *
+   * @generated from field: kagent.api.v1alpha1.StructuredObject resource = 6;
+   */
+  resource?: StructuredObject | undefined;
 };
 
 /**
- * Describes the message kagent.api.v1alpha1.GetSubstrateStatusRequest.
- * Use `create(GetSubstrateStatusRequestSchema)` to create a new message.
+ * Describes the message kagent.api.v1alpha1.SubstrateWorkerPool.
+ * Use `create(SubstrateWorkerPoolSchema)` to create a new message.
  */
-export const GetSubstrateStatusRequestSchema: GenMessage<GetSubstrateStatusRequest> = /*@__PURE__*/
+export const SubstrateWorkerPoolSchema: GenMessage<SubstrateWorkerPool> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_system, 7);
 
 /**
- * @generated from message kagent.api.v1alpha1.GetSubstrateStatusResponse
+ * The inventory as counts, plus the two lists whose length is set by configuration
+ * rather than by the cluster.
+ *
+ * ate-api reports no totals, so these cost a walk of every one of its pages. Only the
+ * counts cross the wire, so there is no message-size ceiling — but a caller polling
+ * this as often as it pages will spend most of its time here.
+ *
+ * @generated from message kagent.api.v1alpha1.GetSubstrateSummaryRequest
  */
-export type GetSubstrateStatusResponse = Message<"kagent.api.v1alpha1.GetSubstrateStatusResponse"> & {
+export type GetSubstrateSummaryRequest = Message<"kagent.api.v1alpha1.GetSubstrateSummaryRequest"> & {
   /**
-   * @generated from field: bool enabled = 1;
+   * Kubernetes namespace for workers and pools. Empty uses watched namespaces.
+   *
+   * @generated from field: string namespace = 1;
    */
-  enabled: boolean;
+  namespace: string;
 
   /**
+   * ATE atespace for actors and templates. Empty lists all atespaces.
+   *
+   * @generated from field: string atespace = 2;
+   */
+  atespace: string;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.GetSubstrateSummaryRequest.
+ * Use `create(GetSubstrateSummaryRequestSchema)` to create a new message.
+ */
+export const GetSubstrateSummaryRequestSchema: GenMessage<GetSubstrateSummaryRequest> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_system, 8);
+
+/**
+ * @generated from message kagent.api.v1alpha1.SubstrateActorStatusCount
+ */
+export type SubstrateActorStatusCount = Message<"kagent.api.v1alpha1.SubstrateActorStatusCount"> & {
+  /**
+   * @generated from field: int64 count = 2;
+   */
+  count: bigint;
+
+  /**
+   * @generated from field: ateapi.ActorState state = 3;
+   */
+  state: ActorState;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.SubstrateActorStatusCount.
+ * Use `create(SubstrateActorStatusCountSchema)` to create a new message.
+ */
+export const SubstrateActorStatusCountSchema: GenMessage<SubstrateActorStatusCount> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_system, 9);
+
+/**
+ * @generated from message kagent.api.v1alpha1.GetSubstrateSummaryResponse
+ */
+export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstrateSummaryResponse"> & {
+  /**
+   * Set when one of the three ate-api reads behind this answer failed. They do not gate
+   * each other, so the counts here may be short while the Kubernetes-derived lists are
+   * complete: a warning to show beside the data rather than a failed call.
+   *
    * @generated from field: string ate_api_error = 2;
    */
   ateApiError: string;
@@ -172,240 +239,176 @@ export type GetSubstrateStatusResponse = Message<"kagent.api.v1alpha1.GetSubstra
   workerPools: SubstrateWorkerPool[];
 
   /**
-   * @generated from field: repeated kagent.api.v1alpha1.SubstrateActorTemplate actor_templates = 4;
+   * @generated from field: int64 actor_count = 5;
    */
-  actorTemplates: SubstrateActorTemplate[];
+  actorCount: bigint;
 
   /**
-   * @generated from field: repeated kagent.api.v1alpha1.SubstrateActor actors = 5;
+   * @generated from field: int64 worker_count = 6;
    */
-  actors: SubstrateActor[];
+  workerCount: bigint;
 
   /**
-   * @generated from field: repeated kagent.api.v1alpha1.SubstrateWorker workers = 6;
+   * @generated from field: int64 running_actor_count = 7;
    */
-  workers: SubstrateWorker[];
+  runningActorCount: bigint;
+
+  /**
+   * A worker is busy when its reported allocated actor count is positive.
+   *
+   * @generated from field: int64 busy_worker_count = 8;
+   */
+  busyWorkerCount: bigint;
+
+  /**
+   * Every actor status present, with how many hold it: knowing 12 of 410,110 are
+   * running says nothing about the other 410,098.
+   *
+   * @generated from field: repeated kagent.api.v1alpha1.SubstrateActorStatusCount actor_status_counts = 9;
+   */
+  actorStatusCounts: SubstrateActorStatusCount[];
+
+  /**
+   * When this answer was computed, which is not when it was received.
+   *
+   * @generated from field: google.protobuf.Timestamp computed_at = 10;
+   */
+  computedAt?: Timestamp | undefined;
+
+  /**
+   * Inventory metadata and status only; runtime configuration may contain credentials.
+   *
+   * @generated from field: repeated ateapi.ActorTemplate actor_templates = 11;
+   */
+  actorTemplates: ActorTemplate[];
 };
 
 /**
- * Describes the message kagent.api.v1alpha1.GetSubstrateStatusResponse.
- * Use `create(GetSubstrateStatusResponseSchema)` to create a new message.
+ * Describes the message kagent.api.v1alpha1.GetSubstrateSummaryResponse.
+ * Use `create(GetSubstrateSummaryResponseSchema)` to create a new message.
  */
-export const GetSubstrateStatusResponseSchema: GenMessage<GetSubstrateStatusResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 8);
-
-/**
- * @generated from message kagent.api.v1alpha1.SubstrateWorkerPool
- */
-export type SubstrateWorkerPool = Message<"kagent.api.v1alpha1.SubstrateWorkerPool"> & {
-  /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string name = 2;
-   */
-  name: string;
-
-  /**
-   * @generated from field: int32 replicas = 3;
-   */
-  replicas: number;
-
-  /**
-   * @generated from field: string ateom_image = 4;
-   */
-  ateomImage: string;
-};
-
-/**
- * Describes the message kagent.api.v1alpha1.SubstrateWorkerPool.
- * Use `create(SubstrateWorkerPoolSchema)` to create a new message.
- */
-export const SubstrateWorkerPoolSchema: GenMessage<SubstrateWorkerPool> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 9);
-
-/**
- * @generated from message kagent.api.v1alpha1.SubstrateActorTemplate
- */
-export type SubstrateActorTemplate = Message<"kagent.api.v1alpha1.SubstrateActorTemplate"> & {
-  /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string name = 2;
-   */
-  name: string;
-
-  /**
-   * @generated from field: string phase = 3;
-   */
-  phase: string;
-
-  /**
-   * @generated from field: string golden_actor_id = 4;
-   */
-  goldenActorId: string;
-
-  /**
-   * @generated from field: string golden_snapshot = 5;
-   */
-  goldenSnapshot: string;
-
-  /**
-   * @generated from field: string sandbox_class = 6;
-   */
-  sandboxClass: string;
-
-  /**
-   * @generated from field: string worker_selector = 7;
-   */
-  workerSelector: string;
-
-  /**
-   * @generated from field: string harness_name = 8;
-   */
-  harnessName: string;
-
-  /**
-   * @generated from field: bool managed_by_kagent = 9;
-   */
-  managedByKagent: boolean;
-};
-
-/**
- * Describes the message kagent.api.v1alpha1.SubstrateActorTemplate.
- * Use `create(SubstrateActorTemplateSchema)` to create a new message.
- */
-export const SubstrateActorTemplateSchema: GenMessage<SubstrateActorTemplate> = /*@__PURE__*/
+export const GetSubstrateSummaryResponseSchema: GenMessage<GetSubstrateSummaryResponse> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_system, 10);
 
 /**
- * @generated from message kagent.api.v1alpha1.SubstrateActor
+ * One upstream page of actors, in Substrate order.
+ *
+ * @generated from message kagent.api.v1alpha1.ListSubstrateActorsRequest
  */
-export type SubstrateActor = Message<"kagent.api.v1alpha1.SubstrateActor"> & {
+export type ListSubstrateActorsRequest = Message<"kagent.api.v1alpha1.ListSubstrateActorsRequest"> & {
   /**
-   * @generated from field: string actor_id = 1;
-   */
-  actorId: string;
-
-  /**
-   * @generated from field: string atespace = 2;
+   * ATE atespace of the actor itself. Empty lists all atespaces.
+   *
+   * @generated from field: string atespace = 6;
    */
   atespace: string;
 
   /**
-   * @generated from field: string status = 3;
+   * `limit` is capped at 100 in common.proto and zero means the server's default;
+   * above the cap is refused rather than clamped.
+   *
+   * @generated from field: kagent.api.v1alpha1.PageRequest page = 2;
    */
-  status: string;
-
-  /**
-   * @generated from field: string actor_template_namespace = 4;
-   */
-  actorTemplateNamespace: string;
-
-  /**
-   * @generated from field: string actor_template_name = 5;
-   */
-  actorTemplateName: string;
-
-  /**
-   * @generated from field: string ateom_pod_namespace = 6;
-   */
-  ateomPodNamespace: string;
-
-  /**
-   * @generated from field: string ateom_pod_name = 7;
-   */
-  ateomPodName: string;
-
-  /**
-   * @generated from field: string ateom_pod_ip = 8;
-   */
-  ateomPodIp: string;
-
-  /**
-   * @generated from field: string latest_snapshot = 9;
-   */
-  latestSnapshot: string;
-
-  /**
-   * @generated from field: string worker_pool_name = 10;
-   */
-  workerPoolName: string;
-
-  /**
-   * @generated from field: string in_progress_snapshot = 11;
-   */
-  inProgressSnapshot: string;
-
-  /**
-   * @generated from field: int64 version = 12;
-   */
-  version: bigint;
+  page?: PageRequest | undefined;
 };
 
 /**
- * Describes the message kagent.api.v1alpha1.SubstrateActor.
- * Use `create(SubstrateActorSchema)` to create a new message.
+ * Describes the message kagent.api.v1alpha1.ListSubstrateActorsRequest.
+ * Use `create(ListSubstrateActorsRequestSchema)` to create a new message.
  */
-export const SubstrateActorSchema: GenMessage<SubstrateActor> = /*@__PURE__*/
+export const ListSubstrateActorsRequestSchema: GenMessage<ListSubstrateActorsRequest> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_system, 11);
 
 /**
- * @generated from message kagent.api.v1alpha1.SubstrateWorker
+ * @generated from message kagent.api.v1alpha1.ListSubstrateActorsResponse
  */
-export type SubstrateWorker = Message<"kagent.api.v1alpha1.SubstrateWorker"> & {
+export type ListSubstrateActorsResponse = Message<"kagent.api.v1alpha1.ListSubstrateActorsResponse"> & {
   /**
-   * @generated from field: string worker_namespace = 1;
+   * @generated from field: string ate_api_error = 2;
    */
-  workerNamespace: string;
+  ateApiError: string;
 
   /**
-   * @generated from field: string worker_pool = 2;
+   * @generated from field: repeated ateapi.Actor actors = 3;
    */
-  workerPool: string;
+  actors: Actor[];
 
   /**
-   * @generated from field: string worker_pod = 3;
+   * Upstream continuation token. A page can be empty even when another page exists.
+   *
+   * @generated from field: kagent.api.v1alpha1.PageResponse page = 4;
    */
-  workerPod: string;
+  page?: PageResponse | undefined;
 
   /**
-   * @generated from field: string actor_namespace = 4;
+   * @generated from field: google.protobuf.Timestamp computed_at = 5;
    */
-  actorNamespace: string;
-
-  /**
-   * @generated from field: string actor_template = 5;
-   */
-  actorTemplate: string;
-
-  /**
-   * @generated from field: string actor_id = 6;
-   */
-  actorId: string;
-
-  /**
-   * @generated from field: string ip = 7;
-   */
-  ip: string;
-
-  /**
-   * @generated from field: int64 version = 8;
-   */
-  version: bigint;
+  computedAt?: Timestamp | undefined;
 };
 
 /**
- * Describes the message kagent.api.v1alpha1.SubstrateWorker.
- * Use `create(SubstrateWorkerSchema)` to create a new message.
+ * Describes the message kagent.api.v1alpha1.ListSubstrateActorsResponse.
+ * Use `create(ListSubstrateActorsResponseSchema)` to create a new message.
  */
-export const SubstrateWorkerSchema: GenMessage<SubstrateWorker> = /*@__PURE__*/
+export const ListSubstrateActorsResponseSchema: GenMessage<ListSubstrateActorsResponse> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_system, 12);
+
+/**
+ * One upstream page of workers, in Substrate order.
+ * Namespace filtering applies to this page only; it may be empty and still have a next token.
+ *
+ * @generated from message kagent.api.v1alpha1.ListSubstrateWorkersRequest
+ */
+export type ListSubstrateWorkersRequest = Message<"kagent.api.v1alpha1.ListSubstrateWorkersRequest"> & {
+  /**
+   * @generated from field: string namespace = 1;
+   */
+  namespace: string;
+
+  /**
+   * @generated from field: kagent.api.v1alpha1.PageRequest page = 2;
+   */
+  page?: PageRequest | undefined;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.ListSubstrateWorkersRequest.
+ * Use `create(ListSubstrateWorkersRequestSchema)` to create a new message.
+ */
+export const ListSubstrateWorkersRequestSchema: GenMessage<ListSubstrateWorkersRequest> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_system, 13);
+
+/**
+ * @generated from message kagent.api.v1alpha1.ListSubstrateWorkersResponse
+ */
+export type ListSubstrateWorkersResponse = Message<"kagent.api.v1alpha1.ListSubstrateWorkersResponse"> & {
+  /**
+   * @generated from field: string ate_api_error = 2;
+   */
+  ateApiError: string;
+
+  /**
+   * @generated from field: repeated ateapi.Worker workers = 3;
+   */
+  workers: Worker[];
+
+  /**
+   * @generated from field: kagent.api.v1alpha1.PageResponse page = 4;
+   */
+  page?: PageResponse | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp computed_at = 5;
+   */
+  computedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.ListSubstrateWorkersResponse.
+ * Use `create(ListSubstrateWorkersResponseSchema)` to create a new message.
+ */
+export const ListSubstrateWorkersResponseSchema: GenMessage<ListSubstrateWorkersResponse> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_system, 14);
 
 /**
  * @generated from service kagent.api.v1alpha1.SystemService
@@ -436,12 +439,28 @@ export const SystemService: GenService<{
     output: typeof ListNamespacesResponseSchema;
   },
   /**
-   * @generated from rpc kagent.api.v1alpha1.SystemService.GetSubstrateStatus
+   * @generated from rpc kagent.api.v1alpha1.SystemService.GetSubstrateSummary
    */
-  getSubstrateStatus: {
+  getSubstrateSummary: {
     methodKind: "unary";
-    input: typeof GetSubstrateStatusRequestSchema;
-    output: typeof GetSubstrateStatusResponseSchema;
+    input: typeof GetSubstrateSummaryRequestSchema;
+    output: typeof GetSubstrateSummaryResponseSchema;
+  },
+  /**
+   * @generated from rpc kagent.api.v1alpha1.SystemService.ListSubstrateActors
+   */
+  listSubstrateActors: {
+    methodKind: "unary";
+    input: typeof ListSubstrateActorsRequestSchema;
+    output: typeof ListSubstrateActorsResponseSchema;
+  },
+  /**
+   * @generated from rpc kagent.api.v1alpha1.SystemService.ListSubstrateWorkers
+   */
+  listSubstrateWorkers: {
+    methodKind: "unary";
+    input: typeof ListSubstrateWorkersRequestSchema;
+    output: typeof ListSubstrateWorkersResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_kagent_api_v1alpha1_system, 0);

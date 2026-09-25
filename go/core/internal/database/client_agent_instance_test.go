@@ -2,21 +2,54 @@ package database
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
-	a2a "github.com/a2aproject/a2a-go/v2/a2a"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
+func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	for _, test := range []struct {
+		name string
+		call func() error
+	}{
+		{"get instance", func() error { _, err := client.GetAgentInstance(ctx, "invalid", "alice"); return err }},
+		{"rename instance", func() error { _, err := client.UpdateAgentInstanceName(ctx, "invalid", "alice", "name"); return err }},
+		{"delete instance", func() error { return client.DeleteAgentInstance(ctx, "invalid") }},
+		{"get checkpoint", func() error { _, err := client.GetAgentInstanceCheckpoint(ctx, "invalid", "alice"); return err }},
+		{"reserve checkpoint", func() error {
+			_, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{AgentInstanceId: "invalid"}, "alice", "request")
+			return err
+		}},
+		{"fork", func() error {
+			_, _, err := client.ForkAgentInstance(ctx, "invalid", "alice", "request", uuid.NewString())
+			return err
+		}},
+		{"create share", func() error {
+			_, err := client.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: "invalid", Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY}, []byte("token"), "alice")
+			return err
+		}},
+		{"create task", func() error {
+			_, _, err := client.CreateAgentInstanceTask(ctx, "invalid", []byte("hash"), newAgentInstanceTask("task", "message"))
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) { require.Error(t, test.call()) })
+	}
+}
+
 func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
-		Id:        "instance-1",
+		Id: "11111111-1111-4111-8111-111111111111", Name: "Renamed later",
 		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED,
 	})
@@ -24,8 +57,8 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	instance, err := toAgentInstance(dbgen.AgentInstance{
-		ID: "instance-1", Data: data, State: "SUSPENDED", Operation: "RESUME",
+	instance, err := toAgentInstance(agentInstanceRow{
+		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "AGENT_INSTANCE_STATE_SUSPENDED", Operation: "AGENT_INSTANCE_OPERATION_RESUME",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,67 +67,119 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
 	}
+	// Display names live only in the protobuf payload.
+	if instance.GetName() != "Renamed later" {
+		t.Fatalf("name = %q, want the column's value", instance.GetName())
+	}
+}
+
+// TestToAgentInstanceLeavesAnEmptyNameEmpty pins the additive property: a row
+// written before the column existed reads as unnamed, not as its id and not as
+// some placeholder.
+func TestToAgentInstanceLeavesAnEmptyNameEmpty(t *testing.T) {
+	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
+		Id:    "instance-1",
+		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := toAgentInstance(agentInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "AGENT_INSTANCE_STATE_READY", Operation: "AGENT_INSTANCE_OPERATION_UNSPECIFIED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.GetName() != "" {
+		t.Fatalf("name = %q, want empty", instance.GetName())
+	}
 }
 
 func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data)
-		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'READY', '\x00')
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\x')
 	`); err != nil {
 		t.Fatal(err)
 	}
 	client := NewClient(db)
 	now := time.Now()
 	first := &a2a.Task{
-		ID: "task-1", ContextID: "instance-1",
+		ID: "task-1", ContextID: "11111111-1111-4111-8111-111111111111",
 		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now},
 		History: []*a2a.Message{{ID: "message-1", Role: a2a.MessageRoleUser}},
 	}
-	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first)
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("request-1"), first)
 	if err != nil || !created || stored.ID != first.ID {
 		t.Fatalf("CreateAgentInstanceTask() = %#v, created %v, error %v", stored, created, err)
 	}
-	replayed, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"),
-		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History})
+	replayed, created, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("request-1"),
+		&a2a.Task{ID: "ignored", ContextID: "11111111-1111-4111-8111-111111111111", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History})
 	if err != nil || created || replayed.ID != first.ID {
 		t.Fatalf("replayed CreateAgentInstanceTask() = %#v, created %v, error %v", replayed, created, err)
 	}
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("different"), first); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting message error = %v", err)
 	}
-	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
-		t.Fatalf("event count after retries = %d, want 1", events)
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 2 {
+		t.Fatalf("event count after retries = %d, want 2", events)
 	}
 	var eventTaskID string
 	if err := db.QueryRow(ctx, "SELECT task_id FROM agent_instance_task_event").Scan(&eventTaskID); err != nil || eventTaskID != string(first.ID) {
 		t.Fatalf("initial event task ID = %q, want %q: %v", eventTaskID, first.ID, err)
 	}
-	got, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	got, err := client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1", nil)
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
 		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)
 	}
-	second := &a2a.Task{ID: "task-2", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
-	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
+	var projectionData []byte
+	if err := db.QueryRow(ctx, `SELECT data FROM agent_instance_task WHERE history_id = '11111111-1111-4111-8111-111111111111' AND id = 'task-1'`).Scan(&projectionData); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := unmarshalAgentInstanceTask(projectionData)
+	if err != nil || len(projection.History) != 0 {
+		t.Fatalf("stored task projection history = %#v, error %v", projection.History, err)
+	}
+	second := &a2a.Task{ID: "task-2", ContextID: "11111111-1111-4111-8111-111111111111", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", second, second, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second active task error = %v", err)
 	}
+	first.History = append(first.History, a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("done")))
 	first.Status.State = a2a.TaskStateCompleted
-	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", first, first); err != nil {
+	snapshot := &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", first, first, snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second); err != nil {
+	var snapshotAtespace, snapshotURI string
+	var historySequence, latestSequence int64
+	if err := db.QueryRow(ctx, `
+		SELECT snapshot_atespace, snapshot_uri, history_sequence
+		FROM agent_instance_task WHERE history_id = '11111111-1111-4111-8111-111111111111' AND id = 'task-1'
+	`).Scan(&snapshotAtespace, &snapshotURI, &historySequence); err != nil {
 		t.Fatal(err)
 	}
-	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 3 {
-		t.Fatalf("event count = %d, want 3", events)
+	if err := db.QueryRow(ctx, `SELECT MAX(sequence) FROM agent_instance_task_event`).Scan(&latestSequence); err != nil {
+		t.Fatal(err)
+	}
+	if snapshotAtespace != snapshot.Atespace || snapshotURI != snapshot.URI || historySequence != latestSequence {
+		t.Fatalf("stored boundary = %s/%s sequence %d", snapshotAtespace, snapshotURI, historySequence)
+	}
+	got, err = client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1", nil)
+	if err != nil || len(got.History) != 2 || got.History[1].Role != a2a.MessageRoleAgent {
+		t.Fatalf("reconstructed task history = %#v, error %v", got, err)
+	}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", second, second, nil); err != nil {
+		t.Fatal(err)
+	}
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 5 {
+		t.Fatalf("event count = %d, want 5", events)
 	}
 
-	tasks, total, err := client.ListAgentInstanceTasks(ctx, "instance-1", "", a2a.TaskStateUnspecified, nil, 1)
+	tasks, total, err := client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", "", a2a.TaskStateUnspecified, nil, 1, nil)
 	if err != nil || total != 2 || len(tasks) != 1 || tasks[0].ID != first.ID {
 		t.Fatalf("first page = %#v, total %d, error %v", tasks, total, err)
 	}
-	tasks, total, err = client.ListAgentInstanceTasks(ctx, "instance-1", string(first.ID), a2a.TaskStateSubmitted, nil, 2)
+	tasks, total, err = client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", string(first.ID), a2a.TaskStateSubmitted, nil, 2, nil)
 	if err != nil || total != 1 || len(tasks) != 1 || tasks[0].ID != second.ID {
 		t.Fatalf("filtered page = %#v, total %d, error %v", tasks, total, err)
 	}
@@ -104,8 +189,8 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data)
-		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'READY', '\x00')
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\x')
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -120,9 +205,9 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	for _, taskID := range []a2a.TaskID{"task-1", "task-2"} {
 		go func() {
 			<-start
-			message := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: taskID, ContextID: "instance-1"}
+			message := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: taskID, ContextID: "11111111-1111-4111-8111-111111111111"}
 			task := a2a.NewSubmittedTask(message, message)
-			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task)
+			stored, created, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("request-1"), task)
 			results <- result{stored, created, err}
 		}()
 	}
@@ -149,41 +234,411 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	}
 }
 
-func TestAgentInstanceCreateAndTransitions(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
+	db := setupTestDB(t)
 	ctx := context.Background()
-	revision := dbpkg.RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a",
-		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid",
-		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
-		ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
-		ActorTemplateUID: "actor-template-uid", Phase: "Ready",
-	}
-	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
+	instanceID := "11111111-1111-4111-8111-111111111111"
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\\x00')
+	`); err != nil {
 		t.Fatal(err)
 	}
-	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
+	client := NewClient(db)
+	asked := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: instanceID}
+	question := &a2a.Message{ID: "question-1", Role: a2a.MessageRoleAgent, TaskID: "task-1", ContextID: instanceID}
+	parked := &a2a.Task{
+		ID: "task-1", ContextID: instanceID, History: []*a2a.Message{asked},
+		Status: a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question},
+	}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("request-1"), parked); err != nil {
+		t.Fatal(err)
+	}
+
+	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: instanceID}
+	resumed := *parked
+	resumed.History = []*a2a.Message{asked, question, answer}
+	resumed.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, instanceID, &resumed, answer, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := client.GetAgentInstanceTask(ctx, instanceID, "task-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var storedCard map[string]string
-	if err := json.Unmarshal(storedRevision.AgentCard, &storedCard); err != nil || storedCard["name"] != "assistant" {
-		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
+	ids := make([]string, 0, len(got.History))
+	for _, message := range got.History {
+		ids = append(ids, message.ID)
 	}
-	pair := dbpkg.AgentTemplateHarnessPair{
+	if strings.Join(ids, ",") != "message-1,question-1,answer-1" {
+		t.Fatalf("history = %v, want the question between the message it answers and its own answer", ids)
+	}
+}
+
+func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	instanceID := "11111111-1111-4111-8111-111111111111"
+	instance := &apiv1alpha1.AgentInstance{
+		Id: instanceID, Creator: "alice",
+		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+	}
+	instanceData, err := proto.Marshal(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)
+	`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'instance-request', $1, $1, 'AGENT_INSTANCE_STATE_READY', $2)
+	`, instanceID, instanceData); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+	task := newAgentInstanceTask("task-1", "message-1")
+	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("message-request"), task); err != nil {
+		t.Fatal(err)
+	}
+	task.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, instanceID, task, task,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoint, snapshot, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "22222222-2222-4222-8222-222222222222", AgentInstanceId: instanceID}, "alice", "checkpoint-request")
+	if err != nil {
+		t.Fatalf("ReserveAgentInstanceCheckpoint() = %+v, error %v", checkpoint, err)
+	}
+	if _, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("creating checkpoint is publicly visible: %v", err)
+	}
+	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice"); err != nil {
+		t.Fatalf("creating checkpoint is unavailable to lifecycle work: %v", err)
+	}
+	if _, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "premature-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fork from creating checkpoint = %v, want not found", err)
+	}
+	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("snapshot lookup by another user = %v, want not found", err)
+	}
+	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", checkpoint.GetName())
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too early"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a creating checkpoint = %v, want not found", err)
+	}
+	if checkpoint.HeadTaskId != "task-1" || snapshot == nil ||
+		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
+		t.Fatalf("checkpoint boundary = %+v", checkpoint)
+	}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("blocked-request"), newAgentInstanceTask("task-2", "message-2")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("CreateAgentInstanceTask() during checkpoint = %v, want %v", err, ErrConflict)
+	} else {
+		require.ErrorContains(t, err, "checkpoint being created")
+	}
+	suspending := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
+	suspending.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND
+	current, err := client.TransitionAgentInstance(ctx, suspending, instance.GetState(), instance.GetOperation())
+	if !errors.Is(err, ErrConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		t.Fatalf("lifecycle transition during checkpoint = %+v, error %v", current, err)
+	}
+	replayed, replayedSnapshot, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", AgentInstanceId: instanceID}, "alice", "checkpoint-request")
+	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
+		t.Fatalf("replayed checkpoint = %+v, error %v", replayed, err)
+	}
+	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
+	if err != nil || ready.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
+		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
+	}
+	if _, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fork by another user = %v, want not found", err)
+	}
+	renamed, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", renamed.GetName())
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "mallory", "stolen"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename by another user = %v, want not found", err)
+	}
+	stored, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", stored.GetName())
+	restored, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "")
+	require.NoError(t, err)
+	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", restored.GetName())
+	retained, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
+	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
+		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
+	}
+	if replayed, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", ""); err != nil || replayed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
+		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
+	}
+	failed, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", AgentInstanceId: instanceID}, "alice", "failed-checkpoint-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.GetId(), "", "", "tag creation failed")
+	if err != nil || failed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
+		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
+	}
+	if _, err := client.UpdateCheckpointName(ctx, failed.GetId(), "alice", "doomed"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a failed checkpoint = %v, want not found", err)
+	}
+	if err := client.DeleteAgentInstance(ctx, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	replayed, replayedSnapshot, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", AgentInstanceId: instanceID}, "alice", "checkpoint-request")
+	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *retained {
+		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
+	}
+	listed, err := client.ListAgentInstanceCheckpoints(ctx, instanceID, "alice", "", 10)
+	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id {
+		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
+	}
+	if ref, tag, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) || ref != nil || tag != "" {
+		t.Fatalf("unauthorized deletion = %+v, %q, %v", ref, tag, err)
+	}
+	deletingSnapshot, deletingTagUID, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
+		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
+	}
+	if _, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleting checkpoint is publicly visible: %v", err)
+	}
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too late"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a deleting checkpoint = %v, want not found", err)
+	}
+	deletingSnapshot, deletingTagUID, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
+		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
+	}
+	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReserveAgentInstanceCheckpointRejectsCorruptSource(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	client := NewClient(db)
+	instanceID := "99999999-9999-4999-8999-999999999999"
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)
+	`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'instance-request', $1, $1, 'AGENT_INSTANCE_STATE_READY', $2)
+	`, instanceID, []byte{0xff}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instanceID}, "alice", "checkpoint-request")
+	require.ErrorContains(t, err, "decode AgentInstance")
+}
+
+func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+	sourceID := "66666666-6666-4666-8666-666666666666"
+	forkID := "77777777-7777-4777-8777-777777777777"
+	fork2ID := "88888888-8888-4888-8888-888888888888"
+	revision := RuntimeRevision{
+		Revision: "revision-1", Namespace: "team-a",
+		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
+		HarnessName: "kagent", HarnessUID: "harness-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+		ActorTemplateUID: "actor-template-uid",
+	}
+	pair := AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
 	}
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
 		t.Fatal(err)
 	}
 
+	source, _, err := client.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+		Id: sourceID, Creator: "alice", Name: "Namespace explanation",
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+	}, "source-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := markAgentInstanceReady(ctx, client, source.GetId(), "source.example"); err != nil {
+		t.Fatal(err)
+	}
+	first := newAgentInstanceTask("task-1", "message-1")
+	first.ContextID = source.GetContextId()
+	first.History[0].ContextID = source.GetContextId()
+	first.History[0].TaskID = first.ID
+	first.History[0].ReferenceTasks = []a2a.TaskID{first.ID}
+	first.Status.Message = &a2a.Message{ID: "message-1", Role: a2a.MessageRoleAgent, TaskID: first.ID, ContextID: source.GetContextId()}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, source.GetId(), []byte("message-request-1"), first); err != nil {
+		t.Fatal(err)
+	}
+	first.Status.State = a2a.TaskStateInputRequired
+	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.GetId()}, "alice", "hitl-checkpoint-request")
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+
+	first.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", AgentInstanceId: source.GetId()}, "alice", "checkpoint-request-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UpdateAgentInstanceName(ctx, source.GetId(), "alice", "Renamed after checkpoint")
+	require.NoError(t, err)
+	_, err = client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
+	require.NoError(t, err)
+
+	// Advancing the same task must not mutate the saved checkpoint projection.
+	first.Status.Message = a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("source advanced"))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/resumed", ContentScope: "DATA"}))
+
+	second := newAgentInstanceTask("task-2", "message-2")
+	second.ContextID = source.GetContextId()
+	if _, _, err := client.CreateAgentInstanceTask(ctx, source.GetId(), []byte("message-request-2"), second); err != nil {
+		t.Fatal(err)
+	}
+	second.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), second, second,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-2", ContentScope: "DATA"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteAgentInstance(ctx, source.GetId()); err != nil {
+		t.Fatal(err)
+	}
+
+	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)
+	require.Equal(t, "Before the detour", fork.GetName())
+	if err != nil || !created {
+		t.Fatalf("ForkAgentInstance() = %+v, created %v, error %v", fork, created, err)
+	}
+	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
+		fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING ||
+		fork.GetHarness().GetName() != "kagent" || fork.GetAgentTemplate().GetName() != "assistant" {
+		t.Fatalf("fork = %+v", fork)
+	}
+	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{
+		UserID: "alice", Limit: 10,
+	})
+	if err != nil || len(instances) != 1 || instances[0].GetId() != fork.GetId() {
+		t.Fatalf("listed forks = %+v, error %v", instances, err)
+	}
+	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.GetId(), "", a2a.TaskStateUnspecified, nil, 10, nil)
+	if err != nil || total != 1 || len(tasks) != 1 {
+		t.Fatalf("fork tasks = %+v, total %d, error %v", tasks, total, err)
+	}
+	copied := tasks[0]
+	require.Equal(t, a2a.TaskStateCompleted, copied.Status.State)
+	if copied.ID != first.ID || copied.ContextID != source.GetContextId() || len(copied.History) != 1 ||
+		copied.History[0].ID != first.History[0].ID || copied.History[0].ContextID != source.GetContextId() ||
+		copied.History[0].TaskID != copied.ID || copied.History[0].ReferenceTasks[0] != copied.ID ||
+		copied.Status.Message.ID != copied.History[0].ID || copied.Status.Message.TaskID != copied.ID {
+		t.Fatalf("reidentified task = %+v", copied)
+	}
+	var initialMessageID *string
+	var requestHash []byte
+	var snapshotUID string
+	if err := db.QueryRow(ctx, `
+		SELECT initial_message_id, request_hash, snapshot_uri
+		FROM agent_instance_task WHERE history_id = (SELECT history_id FROM agent_instance WHERE id = $1) AND id = $2
+	`, fork.GetId(), copied.ID).Scan(&initialMessageID, &requestHash, &snapshotUID); err != nil {
+		t.Fatal(err)
+	}
+	if initialMessageID == nil || *initialMessageID != first.History[0].ID || string(requestHash) != "message-request-1" || snapshotUID != "s3://tags/checkpoint" {
+		t.Fatalf("copied persistence metadata = message %v hash %v snapshot %q", initialMessageID, requestHash, snapshotUID)
+	}
+	replayed, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", "ignored")
+	if err != nil || created || replayed.GetId() != fork.GetId() {
+		t.Fatalf("replayed fork = %+v, created %v, error %v", replayed, created, err)
+	}
+	if _, _, err := client.ForkAgentInstance(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "fork-request-1", "ignored"); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("conflicting fork request error = %v", err)
+	}
+	if _, _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete referenced checkpoint error = %v", err)
+	}
+
+	if _, err := markAgentInstanceReady(ctx, client, fork.GetId(), "fork.example"); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint2, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", AgentInstanceId: fork.GetId()}, "alice", "checkpoint-request-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint2.GetId(), "tag-uid-2", "s3://tags/checkpoint", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteAgentInstance(ctx, fork.GetId()); err != nil {
+		t.Fatal(err)
+	}
+	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
+	require.Equal(t, "77777777-7777-4777-8777-777777777777-task-1", fork2.GetName())
+	if err != nil || !created || fork2.GetId() != fork2ID {
+		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
+	}
+	// Deleting a fork releases its checkpoint pin but preserves its original
+	// request identity, even after that checkpoint itself has been removed.
+	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	require.NoError(t, err)
+	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"))
+	_, _, err = client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", uuid.NewString())
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	_, _, err = client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-1", uuid.NewString())
+	require.ErrorIs(t, err, ErrIdempotencyConflict)
+}
+
+func TestAgentInstanceCreateAndTransitions(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	revision := RuntimeRevision{
+		Revision: "revision-1", Namespace: "team-a",
+		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
+		HarnessName: "kagent", HarnessUID: "harness-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+		ActorTemplateUID: "actor-template-uid",
+	}
+	pair := AgentTemplateHarnessPair{
+		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
+		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
+	}
+	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+		t.Fatal(err)
+	}
+
+	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedRevision.AgentCard.GetName() != "assistant" {
+		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
+	}
+
 	request := &apiv1alpha1.AgentInstance{
-		Id: "instance-1", Namespace: "team-a", Creator: "alice",
+		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice",
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}
@@ -191,7 +646,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if err != nil || !wasCreated {
 		t.Fatalf("first CreateAgentInstance() = created %v, error %v", wasCreated, err)
 	}
-	request.Id = "instance-2"
+	request.Id = "22222222-2222-4222-8222-222222222222"
 	replayed, wasCreated, err := client.CreateAgentInstance(ctx, request, "request-1")
 	if err != nil || wasCreated {
 		t.Fatalf("replayed CreateAgentInstance() = created %v, error %v", wasCreated, err)
@@ -199,14 +654,13 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if replayed.GetId() != created.GetId() || replayed.GetPreparedRevision() != revision.Revision {
 		t.Fatalf("replayed instance = %+v, want id %q revision %q", replayed, created.GetId(), revision.Revision)
 	}
-	if len(replayed.GetLabels()) != 0 {
-		t.Fatalf("labels = %v", replayed.GetLabels())
-	}
-	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
+	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{
+		UserID: "alice", Limit: 10,
+	})
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
 	}
-	ready, err := client.MarkAgentInstanceReady(ctx, created.GetId(), "actor.example")
+	ready, err := markAgentInstanceReady(ctx, client, created.GetId(), "actor.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +672,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	resuming := proto.Clone(ready).(*apiv1alpha1.AgentInstance)
 	resuming.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME
 	current, err := client.TransitionAgentInstance(ctx, resuming, ready.GetState(), ready.GetOperation())
-	if !errors.Is(err, dbpkg.ErrAgentInstanceConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
+	if !errors.Is(err, ErrConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
 		t.Fatalf("conflicting transition = instance %v, error %v", current, err)
 	}
 	suspended := proto.Clone(suspending).(*apiv1alpha1.AgentInstance)
@@ -229,7 +683,503 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	}
 
 	request.AgentTemplate.Name = "different"
-	if _, _, err := client.CreateAgentInstance(ctx, request, "request-1"); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if _, _, err := client.CreateAgentInstance(ctx, request, "request-1"); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting request error = %v", err)
+	}
+}
+
+func newAgentInstanceTask(id, messageID string) *a2a.Task {
+	now := time.Now()
+	return &a2a.Task{
+		ID: a2a.TaskID(id), ContextID: "11111111-1111-4111-8111-111111111111",
+		Status:  a2a.TaskStatus{State: a2a.TaskStateWorking, Timestamp: &now},
+		History: []*a2a.Message{{ID: messageID, Role: a2a.MessageRoleUser}},
+	}
+}
+
+func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\x')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+
+	interrupted := newAgentInstanceTask("task-1", "message-1")
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("request-1"), interrupted); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := client.GetActiveAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111")
+	if err != nil || active.ID != interrupted.ID {
+		t.Fatalf("GetActiveAgentInstanceTask() = %#v, %v", active, err)
+	}
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "different-task"); err != nil || interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask(wrong task) = %v, %v", interruptedTask, err)
+	}
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1"); err != nil || !interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask() = %v, %v", interruptedTask, err)
+	}
+
+	replacement := newAgentInstanceTask("task-2", "message-2")
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("request-2"), replacement)
+	if err != nil || !created || stored.ID != "task-2" {
+		t.Fatalf("send after interruption = %#v, created %v, error %v", stored, created, err)
+	}
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1"); err != nil || interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask(replaced task) = %v, %v", interruptedTask, err)
+	}
+	replacement.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", replacement, replacement, nil); err != nil {
+		t.Fatal(err)
+	}
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-2"); err != nil || interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask(terminal task) = %v, %v", interruptedTask, err)
+	}
+
+	terminated, err := client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminated.Status.State != a2a.TaskStateFailed {
+		t.Fatalf("interrupted task state = %s, want %s", terminated.Status.State, a2a.TaskStateFailed)
+	}
+	if len(terminated.History) != 2 {
+		t.Fatalf("interrupted task history = %d messages, want the interruption appended", len(terminated.History))
+	}
+	last := terminated.History[len(terminated.History)-1]
+	if last.Role != a2a.MessageRoleAgent || last.TaskID != terminated.ID {
+		t.Fatalf("interruption message = %#v, want an agent message on the task", last)
+	}
+	if terminated.Status.Message == nil || terminated.Status.Message.ID != last.ID {
+		t.Fatalf("interrupted task status message = %#v, want the appended message", terminated.Status.Message)
+	}
+	if events := countRows(t, db,
+		"SELECT COUNT(*) FROM agent_instance_task_event WHERE task_id = $1", "task-1"); events != 4 {
+		t.Fatalf("events recorded for the interrupted task = %d, want creation, send, interruption message and status", events)
+	}
+}
+
+// agentInstanceFixture installs a runnable agent — a template/harness pair with a
+// successful revision — so instances can be created against it.
+func agentInstanceFixture(t *testing.T, client *Client, ctx context.Context, namespace, revisionID, template, harness string) {
+	t.Helper()
+	revision := RuntimeRevision{
+		Revision: revisionID, Namespace: namespace,
+		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		HarnessName: harness, HarnessUID: harness + "-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
+		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template",
+		ActorTemplateUID: revisionID + "-actor-uid",
+	}
+	pair := AgentTemplateHarnessPair{
+		Namespace: namespace, AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		HarnessName: harness, HarnessUID: harness + "-uid", DesiredRevision: revisionID,
+	}
+	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newAgentInstanceRequest(id, template, harness, name string) *apiv1alpha1.AgentInstance {
+	return &apiv1alpha1.AgentInstance{
+		Id: id, Creator: "alice", Name: name,
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: harness},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
+	}
+}
+
+func TestAgentInstancesUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
+	c := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	for _, namespace := range []string{"team-a", "team-b"} {
+		agentInstanceFixture(t, c, ctx, namespace, namespace+"-revision", "assistant", "kagent")
+	}
+	first := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "")
+	created, _, err := c.CreateAgentInstance(ctx, first, "request")
+	require.NoError(t, err)
+	second := proto.CloneOf(first)
+	second.Id = uuid.NewString()
+	second.Harness.Namespace, second.AgentTemplate.Namespace = "team-b", "team-b"
+	_, _, err = c.CreateAgentInstance(ctx, second, "request")
+	require.ErrorIs(t, err, ErrIdempotencyConflict, "request IDs belong to the caller, across targets")
+	other, _, err := c.CreateAgentInstance(ctx, second, "other-request")
+	require.NoError(t, err)
+	rows, err := c.ListAgentInstances(ctx, AgentInstanceQuery{UserID: "alice", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	filtered, err := c.ListAgentInstances(ctx, AgentInstanceQuery{UserID: "alice", Limit: 10, AgentTemplate: second.AgentTemplate})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	require.Equal(t, other.Id, filtered[0].Id)
+	loaded, err := c.GetAgentInstance(ctx, created.Id, "alice")
+	require.NoError(t, err)
+	require.Equal(t, "team-a", loaded.AgentTemplate.Namespace)
+	_, err = c.GetAgentInstance(ctx, created.Id, "bob")
+	require.ErrorIs(t, err, ErrNotFound)
+	second.Id = uuid.NewString()
+	second.Harness.Namespace = "team-a"
+	_, _, err = c.CreateAgentInstance(ctx, second, "mixed-targets")
+	require.ErrorIs(t, err, ErrNotFound, "never silently resolve the template in the harness's namespace")
+}
+
+func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+	namedID := "11111111-1111-4111-8111-111111111111"
+	unnamedID := "22222222-2222-4222-8222-222222222222"
+
+	for _, test := range []struct {
+		name     string
+		id       string
+		given    string
+		wantName string
+	}{
+		{name: "a name round-trips", id: namedID, given: "Debugging the ingress", wantName: "Debugging the ingress"},
+		// An instance created without a name must read back empty, which is how
+		// every row written before the column existed reads.
+		{name: "an omitted name stays empty", id: unnamedID, given: "", wantName: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			created, wasCreated, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(test.id, "assistant", "kagent", test.given), test.id)
+			if err != nil || !wasCreated {
+				t.Fatalf("CreateAgentInstance() = created %v, error %v", wasCreated, err)
+			}
+			if created.GetName() != test.wantName {
+				t.Fatalf("created name = %q, want %q", created.GetName(), test.wantName)
+			}
+			read, err := client.GetAgentInstance(ctx, test.id, "alice")
+			if err != nil || read.GetName() != test.wantName {
+				t.Fatalf("re-read name = %q (%v), want %q", read.GetName(), err, test.wantName)
+			}
+		})
+	}
+
+	renamed, err := client.UpdateAgentInstanceName(ctx, unnamedID, "alice", "Named afterwards")
+	if err != nil || renamed.GetName() != "Named afterwards" {
+		t.Fatalf("UpdateAgentInstanceName() = %+v, error %v", renamed, err)
+	}
+	// The rename has to survive a re-read, not just be echoed back: the name lives
+	// in a column while the rest of the message lives in a blob the rename does not
+	// rewrite, so an echoed value proves nothing about what was stored.
+	read, err := client.GetAgentInstance(ctx, unnamedID, "alice")
+	if err != nil || read.GetName() != "Named afterwards" {
+		t.Fatalf("re-read after rename = %+v, error %v", read, err)
+	}
+	// Renaming back to empty must be possible, or a name can never be undone.
+	cleared, err := client.UpdateAgentInstanceName(ctx, unnamedID, "alice", "")
+	if err != nil || cleared.GetName() != "" {
+		t.Fatalf("UpdateAgentInstanceName(\"\") = %+v, error %v", cleared, err)
+	}
+	// A rename is scoped to the owner, so it cannot reach another reader's row.
+	if _, err := client.UpdateAgentInstanceName(ctx, namedID, "bob", "Stolen"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("UpdateAgentInstanceName() as another user error = %v, want %v", err, ErrNotFound)
+	}
+	if _, err := client.UpdateAgentInstanceName(ctx, "33333333-3333-4333-8333-333333333333", "alice", "Nothing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("UpdateAgentInstanceName() of a missing instance error = %v, want %v", err, ErrNotFound)
+	}
+}
+
+// TestListAgentInstancesFiltersByAgentPair covers the server-side filter behind
+// "this agent's conversations". The pair is resolved through the instance's
+// prepared revision, distinguishing harnesses that admit the same template.
+func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-2", "assistant", "claude")
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-3", "researcher", "kagent")
+
+	for id, pair := range map[string][2]string{
+		"11111111-1111-4111-8111-111111111111": {"assistant", "kagent"},
+		"22222222-2222-4222-8222-222222222222": {"assistant", "claude"},
+		"33333333-3333-4333-8333-333333333333": {"researcher", "kagent"},
+	} {
+		if _, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(id, pair[0], pair[1], ""), id); err != nil {
+			t.Fatalf("CreateAgentInstance(%s) error %v", id, err)
+		}
+	}
+
+	for _, test := range []struct {
+		name  string
+		query AgentInstanceQuery
+		want  []string
+	}{
+		{
+			name:  "no filter lists every conversation",
+			query: AgentInstanceQuery{},
+			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"},
+		},
+		{
+			name:  "one agent, which is one pair",
+			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
+			want:  []string{"11111111-1111-4111-8111-111111111111"},
+		},
+		{
+			name:  "the same template on a different harness is a different agent",
+			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "claude"}},
+			want:  []string{"22222222-2222-4222-8222-222222222222"},
+		},
+		{
+			name:  "template alone spans its harnesses",
+			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
+			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"},
+		},
+		{
+			name:  "harness alone spans its templates",
+			query: AgentInstanceQuery{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
+			want:  []string{"11111111-1111-4111-8111-111111111111", "33333333-3333-4333-8333-333333333333"},
+		},
+		{
+			name:  "an unknown agent matches nothing rather than everything",
+			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "absent"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
+			want:  []string{},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query := test.query
+			query.UserID, query.Limit = "alice", 10
+			instances, err := client.ListAgentInstances(ctx, query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(instances))
+			for _, instance := range instances {
+				got = append(got, instance.GetId())
+			}
+			if strings.Join(got, ",") != strings.Join(test.want, ",") {
+				t.Fatalf("ListAgentInstances() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	source, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
+	require.NoError(t, err)
+	_, err = markAgentInstanceReady(ctx, client, source.GetId(), "source.example")
+	require.NoError(t, err)
+	require.NotEqual(t, source.GetId(), source.GetContextId())
+	sourceRow, err := readAgentInstance(ctx, client.db, source.GetId())
+	require.NoError(t, err)
+	require.NotEqual(t, source.GetId(), sourceRow.HistoryID.String())
+	require.NotEqual(t, source.GetContextId(), sourceRow.HistoryID.String())
+
+	// Reverse lexical order and identical timestamps must not determine chronology.
+	stamp := time.Now()
+	for _, id := range []string{"z-first", "a-second"} {
+		task := newAgentInstanceTask(id, "message-"+id)
+		task.ContextID = source.GetContextId()
+		task.Status.Timestamp = &stamp
+		_, _, err := client.CreateAgentInstanceTask(ctx, source.GetId(), []byte(id), task)
+		require.NoError(t, err)
+		task.Status.State = a2a.TaskStateCompleted
+		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), task, task,
+			&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
+	}
+	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+		Id: uuid.NewString(), AgentInstanceId: source.GetId(),
+	}, "alice", uuid.NewString())
+	require.NoError(t, err)
+	waiting, err := client.GetAgentInstanceTask(ctx, source.GetId(), "z-first", nil)
+	require.NoError(t, err)
+	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), waiting, waiting, nil), ErrConflict)
+	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag", "tag-snapshot", "")
+	require.NoError(t, err)
+	_, _, err = client.ForkAgentInstance(ctx, checkpoint.GetId(), "bob", uuid.NewString(), uuid.NewString())
+	require.ErrorIs(t, err, ErrNotFound)
+	fork, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", uuid.NewString(), uuid.NewString())
+	require.NoError(t, err)
+	_, err = markAgentInstanceReady(ctx, client, fork.GetId(), "fork.example")
+	require.NoError(t, err)
+	require.Equal(t, source.GetContextId(), fork.GetContextId())
+	forkRow, err := readAgentInstance(ctx, client.db, fork.GetId())
+	require.NoError(t, err)
+	require.NotEqual(t, sourceRow.HistoryID, forkRow.HistoryID)
+
+	for _, instance := range []*apiv1alpha1.AgentInstance{source, fork} {
+		page, total, err := client.ListAgentInstanceTasks(ctx, instance.GetId(), "", a2a.TaskStateUnspecified, nil, 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, 2, total)
+		require.Len(t, page, 1)
+		require.Equal(t, a2a.TaskID("z-first"), page[0].ID)
+		page, _, err = client.ListAgentInstanceTasks(ctx, instance.GetId(), string(page[0].ID), a2a.TaskStateUnspecified, nil, 1, nil)
+		require.NoError(t, err)
+		require.Len(t, page, 1)
+		require.Equal(t, a2a.TaskID("a-second"), page[0].ID)
+	}
+	// A copied request is still a retry within the fork's own history.
+	retry := newAgentInstanceTask("unused", "message-z-first")
+	retry.ContextID = fork.GetContextId()
+	replayed, created, err := client.CreateAgentInstanceTask(ctx, fork.GetId(), []byte("z-first"), retry)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, waiting.ID, replayed.ID)
+	_, _, err = client.CreateAgentInstanceTask(ctx, fork.GetId(), []byte("different request"), retry)
+	require.ErrorIs(t, err, ErrIdempotencyConflict)
+
+	// A fork can itself be checkpointed without losing task chronology.
+	nested, snapshot, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+		Id: uuid.NewString(), AgentInstanceId: fork.GetId(),
+	}, "alice", uuid.NewString())
+	require.NoError(t, err)
+	require.Equal(t, "tag-snapshot", snapshot.URI)
+	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, nested.GetId(), "nested-tag", "nested-snapshot", "")
+	require.NoError(t, err)
+	fork2, _, err := client.ForkAgentInstance(ctx, nested.GetId(), "alice", uuid.NewString(), uuid.NewString())
+	require.NoError(t, err)
+	tasks, _, err := client.ListAgentInstanceTasks(ctx, fork2.GetId(), "", a2a.TaskStateUnspecified, nil, 10, nil)
+	require.NoError(t, err)
+	require.Len(t, tasks, 2)
+	require.Equal(t, a2a.TaskID("z-first"), tasks[0].ID)
+	require.Equal(t, a2a.TaskStateCompleted, tasks[0].Status.State)
+	require.Equal(t, a2a.TaskID("a-second"), tasks[1].ID)
+	wrong := *waiting
+	wrong.ContextID = fork.GetId()
+	require.Error(t, client.StoreAgentInstanceTaskEvent(ctx, fork.GetId(), &wrong, &wrong, nil))
+}
+
+// markAgentInstanceReady completes creation for persistence fixtures using the lifecycle CAS.
+func markAgentInstanceReady(ctx context.Context, client *Client, id, authority string) (*apiv1alpha1.AgentInstance, error) {
+	return client.TransitionAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+		Id:           id,
+		State:        apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		A2AAuthority: authority,
+	}, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
+}
+
+func TestAgentInstanceShareCreationRequiresOwner(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
+	require.NoError(t, err)
+	share := &apiv1alpha1.AgentInstanceShare{
+		Id: uuid.NewString(), AgentInstanceId: instance.Id,
+		Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY,
+	}
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("token"), "bob")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, []byte("token"))
+	require.ErrorIs(t, err, ErrNotFound)
+
+	created, err := client.CreateAgentInstanceShare(ctx, share, []byte("token"), "alice")
+	require.NoError(t, err)
+	require.Equal(t, share.Id, created.Id)
+	require.NotNil(t, created.CreatedAt)
+	require.Nil(t, share.CreatedAt)
+
+	require.NoError(t, client.DeleteAgentInstance(ctx, instance.Id))
+	share.Id = uuid.NewString()
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("missing-token"), "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestDeletedInstancePreservesRequestIdentityAndHidesAccess(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original")
+	instance, _, err := client.CreateAgentInstance(ctx, request, "stable-request")
+	require.NoError(t, err)
+	instance, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime.example")
+	require.NoError(t, err)
+	task := newAgentInstanceTask("task", "message")
+	task.ContextID = instance.ContextId
+	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("hash"), task)
+	require.NoError(t, err)
+	task.Status.State = a2a.TaskStateInputRequired
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
+	share := &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: instance.Id, Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE}
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("token"), "alice")
+	require.NoError(t, err)
+	require.NoError(t, client.DeleteAgentInstance(ctx, instance.Id))
+	require.NoError(t, client.DeleteAgentInstance(ctx, instance.Id))
+	_, err = client.GetAgentInstanceByID(ctx, instance.Id)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.GetAgentInstance(ctx, instance.Id, "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{AllUsers: true, Limit: 10})
+	require.NoError(t, err)
+	require.Empty(t, instances)
+	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "resurrect")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, []byte("token"))
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("new token"), "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.GetAgentInstanceTask(ctx, instance.Id, string(task.ID), nil)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.GetActiveAgentInstanceTask(ctx, instance.Id)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("hash"), task)
+	require.ErrorIs(t, err, ErrNotFound, "even task retries must respect deletion")
+	reply := a2a.NewMessageForTask(a2a.MessageRoleUser, task, a2a.NewTextPart("reply"))
+	reply.ID = "reply"
+	_, err = client.ContinueAgentInstanceTask(ctx, instance.Id, []byte("reply hash"), reply)
+	require.ErrorIs(t, err, ErrNotFound)
+	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil), ErrNotFound)
+	request.Id = uuid.NewString()
+	_, created, err := client.CreateAgentInstance(ctx, request, "stable-request")
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	require.False(t, created)
+	request.AgentTemplate.Name = "different"
+	_, _, err = client.CreateAgentInstance(ctx, request, "stable-request")
+	require.ErrorIs(t, err, ErrIdempotencyConflict)
+	// Tombstones release the revision FK and no longer block runtime cleanup.
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	_, err = client.BeginRuntimeRevisionDeletion(ctx, "revision")
+	require.NoError(t, err)
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", revisions[0].ActorTemplateUID))
+}
+
+func TestShareCreationRacesInstanceDeletion(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	for range 8 {
+		instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+		require.NoError(t, err)
+		token := []byte(uuid.NewString())
+		share := &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: instance.Id, Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY}
+		start := make(chan struct{})
+		shared, deleted := make(chan error, 1), make(chan error, 1)
+		go func() {
+			<-start
+			_, err := client.CreateAgentInstanceShare(ctx, share, token, "alice")
+			shared <- err
+		}()
+		go func() {
+			<-start
+			deleted <- client.DeleteAgentInstance(ctx, instance.Id)
+		}()
+		close(start)
+		shareErr, deleteErr := <-shared, <-deleted
+		require.NoError(t, deleteErr)
+		if shareErr != nil {
+			require.ErrorIs(t, shareErr, ErrNotFound)
+		}
+		_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, token)
+		require.ErrorIs(t, err, ErrNotFound)
+		// A revoked share must actually be removed, releasing its unique token hash.
+		other, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+		require.NoError(t, err)
+		share.AgentInstanceId = other.Id
+		_, err = client.CreateAgentInstanceShare(ctx, share, token, "alice")
+		require.NoError(t, err)
 	}
 }

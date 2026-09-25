@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
 )
 
@@ -27,7 +30,7 @@ type TransportConfig struct {
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
-// TLS → custom headers → timeout.
+// TLS → custom headers → trace propagation → timeout.
 func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	transport, err := BuildTLSTransport(
 		http.DefaultTransport,
@@ -52,6 +55,11 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	if len(tc.Headers) > 0 {
 		transport = &headerTransport{base: transport, headers: tc.Headers}
 	}
+
+	// Outermost layer: inject W3C traceparent/tracestate from the active span so
+	// LLM calls stay attached to the invocation trace instead of starting fresh
+	// root traces at tracing-aware proxies (kagent-dev/kagent#2550).
+	transport = otelhttp.NewTransport(transport)
 
 	timeout := defaultTimeout
 	if tc.Timeout != nil {
@@ -83,6 +91,10 @@ var BearerTokenKey = &contextKey{}
 // is enabled, so every model/embedding provider resolves passthrough the same way.
 // Each caller wraps the returned token in its own SDK's request-option type, since
 // that varies by provider (e.g. Authorization vs Api-Key header).
+//
+// It reads BearerTokenKey alone and takes no call-context fallback, unlike
+// BearerTokenFromContext: passthrough sends the credential to a third-party model
+// provider, so it is limited to the contexts the executor threaded it through.
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
@@ -95,6 +107,39 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 }
 
 type contextKey struct{}
+
+// BearerFromCallContext returns the bearer token carried by the A2A call
+// context's Authorization header, or "" when there is none.
+func BearerFromCallContext(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ""
+	}
+	meta := callCtx.ServiceParams()
+	if meta == nil {
+		return ""
+	}
+	vals, ok := meta.Get(constants.AuthorizationHeader)
+	if !ok || len(vals) == 0 {
+		return ""
+	}
+	parts := strings.Fields(strings.TrimSpace(vals[0]))
+	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return ""
+}
+
+// BearerTokenFromContext returns the credential the request authenticates with.
+// It prefers the value stored under BearerTokenKey and falls back to the A2A
+// call context, which reaches callers whose context was not threaded through
+// the executor.
+func BearerTokenFromContext(ctx context.Context) string {
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		return token
+	}
+	return BearerFromCallContext(ctx)
+}
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {

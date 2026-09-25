@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
@@ -33,19 +32,11 @@ import (
 //
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
 //   - Skills are added via SkillsPlugin in Python
-//   - In go-adk, skills are handled via KAGENT_SKILLS_FOLDER env var
+//   - In go-adk, skills are handled via AgentConfig.SkillsDirectory (or the legacy KAGENT_SKILLS_FOLDER env var for root agents)
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used
 // This is a helper function to ensure we're using all fields correctly
 func ValidateAgentConfigUsage(config *adk.AgentConfig) error {
-	var logger logr.Logger
-	return ValidateAgentConfigUsageWithLogger(config, logger)
-}
-
-// ValidateAgentConfigUsageWithLogger validates that all AgentConfig fields are properly used
-// This is a helper function to ensure we're using all fields correctly
-// If logger is the zero value (no sink), validation will proceed without logging
-func ValidateAgentConfigUsageWithLogger(config *adk.AgentConfig, logger logr.Logger) error {
 	if config == nil {
 		return fmt.Errorf("agent config is nil")
 	}
@@ -54,25 +45,6 @@ func ValidateAgentConfigUsageWithLogger(config *adk.AgentConfig, logger logr.Log
 	if config.Model == nil {
 		return fmt.Errorf("agent config model is required")
 	}
-	if config.Instruction == "" {
-		if logger.GetSink() != nil {
-			logger.Info("Warning: agent config instruction is empty")
-		}
-	}
-
-	// Log field usage (for debugging)
-	if logger.GetSink() != nil {
-		logger.Info("AgentConfig fields",
-			"description", config.Description,
-			"instructionLength", len(config.Instruction),
-			"modelType", config.Model.GetType(),
-			"stream", config.Stream,
-			"hasNetworkConfig", config.Network != nil,
-			"httpToolsCount", len(config.HttpTools),
-			"sseToolsCount", len(config.SseTools),
-			"remoteAgentsCount", len(config.RemoteAgents))
-	}
-
 	// Validate tools
 	for i, tool := range config.HttpTools {
 		if tool.Params.Url == "" {

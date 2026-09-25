@@ -106,7 +106,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: mcp/grafana:latest
+          value: docker.io/grafana/mcp-grafana:1.4.1
 
   - it: should omit empty registry segment in image
     template: deployment.yaml
@@ -116,7 +116,97 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: grafana:latest
+          value: grafana/mcp-grafana:1.4.1
       - notMatchRegex:
           path: spec.template.spec.containers[0].image
           pattern: "^/"          # no leading slash
+
+  - it: should substitute the registry host from global.imageRegistry
+    template: deployment.yaml
+    set:
+      global.imageRegistry: mirror.example
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example/grafana/mcp-grafana:1.4.1
+
+  - it: should refuse an organization in image.registry
+    template: deployment.yaml
+    set:
+      image.registry: grafana
+    asserts:
+      - failedTemplate:
+          errorPattern: 'image\.registry \("grafana"\) is not a registry host'
+
+  - it: should refuse a removed image.name
+    template: deployment.yaml
+    set:
+      image.name: grafana
+    asserts:
+      - failedTemplate:
+          errorPattern: 'image\.name was removed'
+
+  # =============================================================================
+  # Host allow-list
+  #
+  # The server rejects any Host it was not told about, and its own default covers only
+  # loopback — so without these args it answers the handshake with "forbidden: host not
+  # allowed" and the RemoteMCPServer reports no tools. The first assertion holds the
+  # allow-list to the URL in remotemcpserver.yaml: if that URL ever changes shape, the
+  # host it implies has to change with it.
+  # =============================================================================
+  - it: should allow the host the RemoteMCPServer URL dials
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -allowed-hosts
+      - equal:
+          path: spec.template.spec.containers[0].args[3]
+          value: RELEASE-NAME-grafana-mcp:8000,RELEASE-NAME-grafana-mcp.NAMESPACE:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc.cluster.local:8000,localhost:8000,127.0.0.1:8000
+
+  - it: should follow the service port into the allow-list
+    template: deployment.yaml
+    set:
+      service.port: 9100
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[3]
+          pattern: RELEASE-NAME-grafana-mcp\.NAMESPACE:9100
+
+  - it: should let allowedHosts override the default
+    template: deployment.yaml
+    set:
+      allowedHosts: "*"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[3]
+          value: "*"
+
+  # The default tag is mutable, so the terminal pull policy must stay Always;
+  # the values default is empty so global.imagePullPolicy can reach this chart.
+  - it: should default the pull policy to Always
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+
+  - it: should fall back to global.imagePullPolicy when image.pullPolicy is empty
+    template: deployment.yaml
+    set:
+      global.imagePullPolicy: IfNotPresent
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: should let image.pullPolicy win over the global
+    template: deployment.yaml
+    set:
+      image.pullPolicy: Never
+      global.imagePullPolicy: IfNotPresent
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Never

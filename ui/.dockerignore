@@ -6,4 +6,9 @@ env/
 htmlcov/
 workspace/
 node_modules/
-.next/
+# Build output — the builder stage produces its own, and a stale local copy
+# would only bloat the build context.
+dist/
+# Test artifacts.
+test-results/
+playwright-report/

@@ -48,19 +48,33 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "kagent.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: database
+        {{- /* extra pod labels: component merged over global, selector labels
+             applied last so they can never be overridden */}}
+        {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) ($pg.podLabels | default dict) (include "kagent.selectorLabels" . | fromYaml) (dict "app.kubernetes.io/component" "database") }}
+        {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" $) }}{{- . | nindent 6 }}{{- end }}
       serviceAccountName: {{ $fullname }}
       {{- with $pg.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with $pg.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
-          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" $ "local" $pg.image.pullPolicy) }}
           {{- with $pg.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}

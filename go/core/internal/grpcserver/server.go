@@ -6,35 +6,36 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"time"
 
+	"buf.build/go/protovalidate"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
-	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
+	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
-	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
+	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
-	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	DefaultBindAddress     = ":8084"
+	DefaultBindAddress     = ":8083"
 	DefaultMaxMessageSize  = 16 << 20
 	defaultShutdownTimeout = 5 * time.Second
 )
@@ -48,25 +49,30 @@ type Config struct {
 	Authenticator         auth.AuthProvider
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
-	AgentService          *agentservice.Service
+	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service
 	SystemService         *systemservice.Service
-	FeedbackService       *feedbackservice.Service
 	MemoryService         *memoryservice.Service
-	SessionService        *sessionservice.Service
-	TaskService           *taskservice.Service
 	AgentInstanceService  *agentinstance.Service
+	CheckpointService     *checkpoint.Service
+	ScheduledRunService   *scheduledrun.Service
 	A2AHandler            a2asrv.RequestHandler
-	MethodPolicies        MethodPolicies
-	Listener              net.Listener
+	// RegisterServices registers services core does not own. Called during New,
+	// because gRPC requires every service to be registered before Serve.
+	RegisterServices func(grpc.ServiceRegistrar)
+	MethodPolicies   MethodPolicies
+	Listener         net.Listener
+	HTTPHandler      http.Handler
 }
 
 type Server struct {
 	config       Config
 	server       *grpc.Server
 	healthServer *health.Server
+	tlsConfig    *tls.Config
 }
 
 func New(config Config) (*Server, error) {
@@ -77,7 +83,7 @@ func New(config Config) (*Server, error) {
 		config.MaxMessageBytes = DefaultMaxMessageSize
 	}
 	if config.SystemService == nil {
-		config.SystemService = systemservice.NewService()
+		return nil, fmt.Errorf("system service is required")
 	}
 	if config.MethodPolicies == nil {
 		config.MethodPolicies = DefaultMethodPolicies()
@@ -86,6 +92,10 @@ func New(config Config) (*Server, error) {
 	metrics, err := newServerMetrics(config.Registerer)
 	if err != nil {
 		return nil, fmt.Errorf("create gRPC metrics: %w", err)
+	}
+	validator, err := protovalidate.New()
+	if err != nil {
+		return nil, fmt.Errorf("create protobuf validator: %w", err)
 	}
 
 	serverOptions := []grpc.ServerOption{
@@ -97,6 +107,7 @@ func New(config Config) (*Server, error) {
 			metrics.unaryInterceptor,
 			recoverUnaryInterceptor,
 			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
@@ -108,20 +119,20 @@ func New(config Config) (*Server, error) {
 		),
 	}
 
-	transportCredentials, err := loadTransportCredentials(config.TLSCertFile, config.TLSKeyFile)
+	tlsConfig, err := loadTLSConfig(config.TLSCertFile, config.TLSKeyFile)
 	if err != nil {
 		return nil, err
-	}
-	if transportCredentials != nil {
-		serverOptions = append(serverOptions, grpc.Creds(transportCredentials))
 	}
 
 	grpcServer := grpc.NewServer(serverOptions...)
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService))
-	if config.AgentService != nil {
-		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
+	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
+	if config.AgentTemplateService != nil {
+		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
+	}
+	if config.HarnessService != nil {
+		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
 	}
 	if config.ModelService != nil {
 		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
@@ -132,23 +143,25 @@ func New(config Config) (*Server, error) {
 	if config.PromptTemplateService != nil {
 		apiv1alpha1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))
 	}
-	if config.FeedbackService != nil {
-		apiv1alpha1.RegisterFeedbackServiceServer(grpcServer, newFeedbackServer(config.FeedbackService))
-	}
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
 	}
-	if config.SessionService != nil {
-		apiv1alpha1.RegisterSessionServiceServer(grpcServer, newSessionServer(config.SessionService))
-	}
-	if config.TaskService != nil {
-		apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, newTaskServer(config.TaskService))
-	}
 	if config.AgentInstanceService != nil {
-		agentinstance.RegisterGRPC(grpcServer, config.AgentInstanceService)
+		apiv1alpha1.RegisterAgentInstanceServiceServer(grpcServer, &agentInstanceServer{service: config.AgentInstanceService})
+	}
+	if config.ScheduledRunService != nil {
+		apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
+	}
+	if config.CheckpointService != nil {
+		apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
 	}
 	if config.A2AHandler != nil {
 		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
+	}
+	// After core's own, so reflection sees them and a consumer registering a
+	// duplicate service name panics here rather than silently taking over.
+	if config.RegisterServices != nil {
+		config.RegisterServices(grpcServer)
 	}
 	if config.Reflection {
 		reflection.Register(grpcServer)
@@ -158,12 +171,12 @@ func New(config Config) (*Server, error) {
 		config:       config,
 		server:       grpcServer,
 		healthServer: healthServer,
+		tlsConfig:    tlsConfig,
 	}, nil
 }
 
 type ShareStore interface {
-	GetSessionShareByToken(context.Context, string) (*dbpkg.SessionShare, error)
-	RecordShareAccess(context.Context, string, int64) error
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -176,27 +189,47 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 
-	log := ctrllog.FromContext(ctx).WithName("grpc-server")
-	log.Info("Starting gRPC server", "address", listener.Addr().String())
+	logger := logging.FromContext(ctx).With("component", "api_server")
+	logger.InfoContext(ctx, "starting API server", "address", listener.Addr().String())
 	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	if s.tlsConfig == nil {
+		protocols.SetUnencryptedHTTP2(true)
+	} else {
+		protocols.SetHTTP2(true)
+	}
+	httpServer := &http.Server{
+		Handler:   s.HandlerOr(s.config.HTTPHandler),
+		TLSConfig: s.tlsConfig,
+		Protocols: protocols,
+	}
+	if s.tlsConfig != nil {
+		listener = tls.NewListener(listener, s.tlsConfig)
+	}
 
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- s.server.Serve(listener)
+		serveErr <- httpServer.Serve(listener)
 	}()
 
 	select {
 	case err := <-serveErr:
-		if errors.Is(err, grpc.ErrServerStopped) {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
-		return fmt.Errorf("serve gRPC: %w", err)
+		return fmt.Errorf("serve API: %w", err)
 	case <-ctx.Done():
 		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-		log.Info("Shutting down gRPC server")
-		s.gracefulStop(defaultShutdownTimeout)
-		if err := <-serveErr; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			return fmt.Errorf("serve gRPC during shutdown: %w", err)
+		logger.InfoContext(ctx, "shutting down API server")
+		shutdownContext, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownContext); err != nil {
+			_ = httpServer.Close()
+		}
+		s.server.Stop()
+		if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve API during shutdown: %w", err)
 		}
 		return nil
 	}
@@ -206,24 +239,7 @@ func (s *Server) NeedLeaderElection() bool {
 	return false
 }
 
-func (s *Server) gracefulStop(timeout time.Duration) {
-	stopped := make(chan struct{})
-	go func() {
-		s.server.GracefulStop()
-		close(stopped)
-	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-stopped:
-	case <-timer.C:
-		s.server.Stop()
-		<-stopped
-	}
-}
-
-func loadTransportCredentials(certFile, keyFile string) (credentials.TransportCredentials, error) {
+func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
 		return nil, nil
 	}
@@ -234,8 +250,8 @@ func loadTransportCredentials(certFile, keyFile string) (credentials.TransportCr
 	if err != nil {
 		return nil, fmt.Errorf("load gRPC TLS key pair: %w", err)
 	}
-	return credentials.NewTLS(&tls.Config{
+	return &tls.Config{
 		Certificates: []tls.Certificate{certificate},
 		MinVersion:   tls.VersionTLS12,
-	}), nil
+	}, nil
 }

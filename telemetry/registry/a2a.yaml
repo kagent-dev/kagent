@@ -1,0 +1,64 @@
+file_format: definition/2
+attributes:
+  - key: a2a.task.id
+    brief: The A2A task that an invocation executes.
+    note: >
+      The GenAI conventions have no task identity, so it stays in the A2A
+      namespace. Never on a resource or a metric.
+    stability: development
+    type: string
+    examples: ["0f6a7c1e-3d2b-4b8e-9a51-2c7d8e4f1a90"]
+
+  - key: a2a.method
+    brief: The A2A method that started the invocation.
+    stability: development
+    type:
+      members:
+        - id: send_message
+          value: SendMessage
+          brief: A unary A2A request.
+          stability: development
+        - id: send_streaming_message
+          value: SendStreamingMessage
+          brief: A streaming A2A request.
+          stability: development
+
+  - key: a2a.task.state
+    brief: The A2A task state that execution reported.
+    note: >
+      The values are the A2A v1 wire names. An absent state does not mean success.
+    stability: development
+    type:
+      members:
+        - id: submitted
+          value: TASK_STATE_SUBMITTED
+          brief: The task was accepted.
+          stability: development
+        - id: working
+          value: TASK_STATE_WORKING
+          brief: The task is running.
+          stability: development
+        - id: completed
+          value: TASK_STATE_COMPLETED
+          brief: The task finished.
+          stability: development
+        - id: failed
+          value: TASK_STATE_FAILED
+          brief: The task failed.
+          stability: development
+        - id: canceled
+          value: TASK_STATE_CANCELED
+          brief: The task was canceled.
+          stability: development
+        - id: input_required
+          value: TASK_STATE_INPUT_REQUIRED
+          brief: The task waits for an approval or an answer.
+          stability: development
+        - id: rejected
+          value: TASK_STATE_REJECTED
+          brief: The agent rejected the task.
+          stability: development
+        - id: auth_required
+          value: TASK_STATE_AUTH_REQUIRED
+          brief: The task waits for authentication.
+          stability: development

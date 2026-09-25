@@ -184,6 +184,73 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			},
 			wantReject: "reasoningEffort",
 		},
+		{
+			name: "mistral config with matching provider accepted",
+			build: func() ctrl_client.Object {
+				baseURL := "https://api.mistral.ai/v1"
+				temp := "0.3"
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-ok", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "mistral-large-latest",
+						Provider:        ModelProviderMistral,
+						APIKeySecret:    "mistral-secret",
+						APIKeySecretKey: "api-key",
+						Mistral: &MistralConfig{
+							BaseURL:     &baseURL,
+							Temperature: &temp,
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "mistral config without any provider-specific block accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-plain", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "mistral-medium-latest",
+						Provider:        ModelProviderMistral,
+						APIKeySecret:    "mistral-secret",
+						APIKeySecretKey: "api-key",
+					},
+				}
+			},
+		},
+		{
+			name: "mistral config with mismatched provider rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-bad-provider", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "mistral-large-latest",
+						Provider:        ModelProviderOpenAI,
+						APIKeySecret:    "openai-secret",
+						APIKeySecretKey: "api-key",
+						Mistral:         &MistralConfig{},
+					},
+				}
+			},
+			wantReject: "provider.mistral must be nil if the provider is not Mistral",
+		},
+		{
+			name: "mistral maxTokens below minimum rejected",
+			build: func() ctrl_client.Object {
+				neg := -1
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-mistral-maxtokens-neg", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "mistral-large-latest",
+						Provider:        ModelProviderMistral,
+						APIKeySecret:    "mistral-secret",
+						APIKeySecretKey: "api-key",
+						Mistral:         &MistralConfig{MaxTokens: &neg},
+					},
+				}
+			},
+			wantReject: "maxTokens",
+		},
 	}
 
 	for _, c := range cases {

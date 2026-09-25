@@ -44,6 +44,8 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 		return "https://generativelanguage.googleapis.com"
 	case ModelProviderOllama:
 		return "http://localhost:11434"
+	case ModelProviderMistral:
+		return "https://api.mistral.ai/v1"
 	default:
 		// Azure, Bedrock, Vertex AI require user-specific endpoints
 		return ""
@@ -122,6 +124,7 @@ type ModelProviderConfigStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:categories=kagent,shortName=mprov
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"

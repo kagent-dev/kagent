@@ -1,0 +1,101 @@
+// Command kagent-codex runs the Codex Harness runtime adapter.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/harness/codex/executor"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+)
+
+const (
+	configEnv    = "KAGENT_CONFIG_JSON"
+	agentCardEnv = "KAGENT_AGENT_CARD_JSON"
+	dataDir      = "/data"
+	privatePort  = "80"
+)
+
+func main() {
+	check := flag.Bool("check", false, "validate configuration and Codex version, then exit")
+	flag.Parse()
+	logger, err := logging.NewFromEnv(os.Stderr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	ctx := logging.IntoContext(context.Background(), logger)
+	if err := run(ctx, *check, os.Getenv, os.Environ()); err != nil {
+		logger.ErrorContext(ctx, "codex harness stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, check bool, getenv func(string) string, environment []string) error {
+	configJSON, err := requiredEnvironment(getenv, configEnv)
+	if err != nil {
+		return err
+	}
+	agentCardJSON, err := requiredEnvironment(getenv, agentCardEnv)
+	if err != nil {
+		return err
+	}
+	var card a2atype.AgentCard
+	if err := json.Unmarshal(agentCardJSON, &card); err != nil {
+		return fmt.Errorf("decode agent card: %w", err)
+	}
+	if strings.TrimSpace(card.Name) == "" {
+		return fmt.Errorf("agent card name is required")
+	}
+	// Telemetry identity and capture policy are compiled into the runtime
+	// configuration, so the configuration is read before tracing starts.
+	cfg, err := config.Parse(configJSON)
+	if err != nil {
+		return err
+	}
+	providers, err := telemetry.Init(ctx, telemetry.Options{
+		Runtime: string(cfg.RuntimeTelemetry.Runtime), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
+	})
+	if err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := providers.Shutdown(shutdownCtx); err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to shutdown harness telemetry", "error", err)
+		}
+	}()
+	exec, err := executor.New(ctx, executor.Config{ConfigJSON: configJSON, DataDir: dataDir, Environment: environment})
+	if err != nil {
+		return err
+	}
+	if check {
+		return nil
+	}
+	application, err := app.New(app.AppConfig{
+		AgentCard: card, Port: privatePort, AppName: card.Name,
+		Logger: logging.FromContext(ctx), Telemetry: cfg.RuntimeTelemetry, Flush: providers.ForceFlush,
+	}, exec)
+	if err != nil {
+		return fmt.Errorf("construct private A2A app: %w", err)
+	}
+	return application.Run()
+}
+
+func requiredEnvironment(getenv func(string) string, name string) ([]byte, error) {
+	value := strings.TrimSpace(getenv(name))
+	if value == "" {
+		return nil, fmt.Errorf("%s is required", name)
+	}
+	return []byte(value), nil
+}

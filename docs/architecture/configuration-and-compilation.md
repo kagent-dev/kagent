@@ -1,0 +1,159 @@
+# Configuration and Compilation
+
+## Public configuration
+
+`Harness` describes how to run a class of agents. It selects exactly one runtime
+variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
+environment and credential references, WorkerPool configuration, snapshot
+location, and an admission selector.
+
+`AgentTemplate` describes what the agent does. It contains model configuration,
+description and prompt, MCP tool bindings, skills, plugins, and Shared or
+Dedicated agent bindings. Model configuration may be omitted for BYO images;
+pair compilation rejects managed harness combinations without one.
+
+Both are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
+values such as runtime addresses and inferred egress do not belong in the public
+API.
+
+### kagent workload overrides
+
+The kagent compiler preserves explicit `spec.workload.command` and
+`spec.workload.args` in the runtime revision and generated ActorTemplate,
+regardless of the runtime image's implementation language. Omitted overrides
+remain unset.
+
+For example, this Harness excerpt selects debug logging for the Go ADK image
+without changing the AgentTemplate:
+
+```yaml
+spec:
+  kagent: {}
+  workload:
+    # Retain the digest-pinned Go ADK image here.
+    command: ["/app"]
+    args: ["--log-level", "debug"]
+```
+
+Command and argument changes participate in revision identity. They affect newly
+prepared revisions, not existing AgentInstances pinned to an older revision.
+
+## Prepared revision pipeline
+
+The v2 controller collects admitted Harness/AgentTemplate pairs and compiles each
+pair through one pipeline:
+
+```mermaid
+flowchart TD
+    H[Harness] --> MATCH{admission selector matches}
+    AT[AgentTemplate] --> MATCH
+    MATCH --> RESOLVE[resolve template tree and references]
+    RESOLVE --> INPUTS[build explicit inputs]
+    INPUTS --> REGISTRY{runtime type}
+    REGISTRY --> K[kagent compiler]
+    REGISTRY --> X[Codex compiler]
+    REGISTRY --> C[Claude compiler]
+    REGISTRY --> B[BYO compiler]
+    K --> POOL[resolve WorkerPool sandbox class]
+    X --> POOL
+    C --> POOL
+    B --> POOL
+    POOL --> REV[immutable revision and digest]
+    POOL -->|error| STATUS
+    REV --> ATE[ate-api ActorTemplate]
+    ATE --> GOLDEN[golden snapshot]
+    GOLDEN -->|ready| LATEST[latest successful revision]
+    RESOLVE -->|error| STATUS[pair status]
+    ATE -->|error| STATUS
+```
+
+1. Resolve the template tree and referenced Kubernetes objects.
+2. Build explicit, harness-independent inputs.
+3. Select the harness compiler from the runtime-type registration map.
+4. Produce an immutable revision containing workload, configuration, Agent Card,
+   capacity, snapshot, provenance, and inferred egress inputs.
+5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and apply
+   it as an ate-api ActorTemplate.
+6. Wait for the golden snapshot to become ready.
+7. Persist the revision and advance the pair's latest-successful pointer.
+
+A failed compile or apply leaves the previous successful revision available.
+AgentInstances pin a prepared revision, so later template edits do not mutate a
+running instance.
+
+Harness compilers only translate inputs. The controller and Substrate adapter own
+application and readiness. The central entry points are
+[`translator/compiler.go`](../../go/core/internal/translator/compiler.go) and
+[`controller/reconciler.go`](../../go/core/internal/controller/reconciler.go).
+
+Reconciliation and runtime-observation collections compare ActorTemplates and
+nested revision Agent Cards with protobuf semantic equality. Lazy protobuf
+reflection and size caches are not state changes and must not be inspected by
+KRT's reflection-based comparison. Other fields retain their existing equality
+semantics.
+
+### WorkerPool sandbox selection
+
+For every harness type, the controller resolves `spec.substrate.workerPoolRef`
+in the Harness/AgentTemplate namespace. The pool's `spec.sandboxClass` selects
+the ActorTemplate's sandbox configuration:
+
+| WorkerPool class | ActorTemplate sandbox class | SandboxConfig name |
+| --- | --- | --- |
+| Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
+| `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
+
+These names follow Substrate v0.2.0-beta5's standard gVisor installation and
+MicroVM setup/E2E convention. They are not API-level defaults or discovery:
+Substrate requires an explicit name and rejects a missing SandboxConfig or a
+class mismatch. Operators must install the corresponding cluster-scoped
+SandboxConfig and provision compatible workers and runtime assets. Selecting
+`microvm` does not install those prerequisites or configure a Kubernetes
+RuntimeClass.
+
+A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
+`RevisionInvalid`. Neither produces a desired ActorTemplate. The worker-pool
+selector is unchanged. WorkerPool updates are tracked through KRT and recompute
+the desired revision. Empty and explicit `gvisor` preserve the previous digest
+byte-for-byte; `microvm` participates in the digest, so its prepared runtime
+cannot be confused with a gVisor revision. Returning to gVisor restores the
+original digest. Existing AgentInstances remain pinned to their revisions.
+
+Unresolved inputs still replace the persisted desired pointer with the requested
+identity shown in status, without creating a runtime revision. This releases
+abandoned preparations for garbage collection while preserving the current
+pair's last-successful runtime.
+
+Substrate and persistence failures during preparation report
+`Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
+silently pending. Status includes a safe error code; a failed precondition also
+names the expected SandboxConfig and class. Raw backend error messages are not
+copied into Kubernetes status. Preparation keeps retrying and clears the failure
+after the prerequisite or service recovers; terminal compilation, immutable
+template conflict, and golden-snapshot failures are not retried by that poll.
+
+This selection does not by itself guarantee full MicroVM lifecycle or
+cross-node restore compatibility; those also depend on Substrate, runtime
+images, and compatible worker hardware.
+
+## Harness-specific output
+
+- **kagent** emits Go ADK configuration, the Harness's memory and context
+  compaction policy, Shared native subagents, and the kagent HITL extension.
+- **Codex** emits native App Server configuration, OpenAI or Bedrock model setup,
+  Streamable HTTP MCP servers, Shared agents, and skills. Approvals are currently
+  disabled by policy.
+- **Claude** emits Anthropic, Bedrock, or Vertex model setup, HTTP/SSE MCP
+  servers, Shared agents, and skills.
+- **BYO** runs a digest-pinned user image that implements private A2A gRPC and
+  `/readyz`. Optional model, prompt, tool, skill, and plugin configuration is
+  supplied in the ADK-shaped format when requested.
+
+Dedicated agent bindings are not compiled yet.
+
+`spec.kagent.compaction` on the Harness is runtime policy, like `spec.kagent.memory`:
+it belongs to the runner that drives the root agent and is not part of the
+portable template. The kagent compiler applies it to every root agent the
+Harness runs. A summarizer `ModelConfig` other than the agent's own is resolved
+from the Harness namespace like the memory model and joins the revision's
+credentials, egress, and provenance.

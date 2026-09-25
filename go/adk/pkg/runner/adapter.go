@@ -6,13 +6,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
-	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkmemory "google.golang.org/adk/v2/memory"
 	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
@@ -37,7 +38,7 @@ func CreateRunnerConfig(
 	memoryService *kagentmemory.KagentMemoryService,
 	controllerClient *controllerclient.Client,
 ) (runner.Config, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	var extraTools []adktool.Tool
 	if memoryService != nil {
@@ -48,23 +49,6 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && controllerClient != nil {
-		createTool, err := tools.NewCreateShareLinkTool(controllerClient, appName)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create create_share_link tool: %w", err)
-		}
-		listTool, err := tools.NewListShareLinksTool(controllerClient, appName)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create list_share_links tool: %w", err)
-		}
-		deleteTool, err := tools.NewDeleteShareLinkTool(controllerClient, appName)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create delete_share_link tool: %w", err)
-		}
-		extraTools = append(extraTools, createTool, listTool, deleteTool)
-		log.Info("Share link tools enabled")
-	}
-
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
 	if err != nil {
 		return runner.Config{}, err
@@ -73,6 +57,14 @@ func CreateRunnerConfig(
 	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
 		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
+	}
+
+	// Context compaction is a runner concern: the runner summarizes older
+	// session events on the strategies the agent configures. Nil keeps the
+	// runner exactly as it is without the feature.
+	compactionConfig, err := agent.CompactionConfig(ctx, agentConfig)
+	if err != nil {
+		return runner.Config{}, fmt.Errorf("failed to configure context compaction: %w", err)
 	}
 
 	adkSessionService := sessionService
@@ -108,12 +100,13 @@ func CreateRunnerConfig(
 		PluginConfig: runner.PluginConfig{
 			Plugins: adkPlugins,
 		},
+		Compaction: compactionConfig,
 	}
 
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.TokenPropagationPlugin, error) {
 	propagateToken := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PROPAGATE_TOKEN")), "true")
 	stsWellKnownURI := strings.TrimSpace(os.Getenv("STS_WELL_KNOWN_URI"))
 	if !propagateToken && stsWellKnownURI == "" {
@@ -122,7 +115,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 
 	// Propagate-only mode: keep parity with Python by enabling plugin without STS exchange.
 	if stsWellKnownURI == "" {
-		log.Info("Enabling token propagation plugin without STS exchange")
+		log.InfoContext(ctx, "enabling token propagation plugin without STS exchange")
 		return sts.NewTokenPropagationPlugin(nil, log, nil, nil), nil
 	}
 	defaultSTSConfig := sts.DefaultSTSConfig(stsWellKnownURI)
@@ -145,7 +138,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 	resource := splitCSV(os.Getenv("KAGENT_STS_RESOURCE"))
 	audience := splitCSV(os.Getenv("KAGENT_STS_AUDIENCE"))
 
-	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
+	log.InfoContext(ctx, "enabling STS token propagation plugin", "well_known_uri", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
 }
 

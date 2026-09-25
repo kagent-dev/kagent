@@ -4,11 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	"github.com/kagent-dev/kagent/go/api/authorization"
 )
 
 type Verb string
 
 const (
+	VerbList   Verb = "list"
 	VerbGet    Verb = "get"
 	VerbCreate Verb = "create"
 	VerbUpdate Verb = "update"
@@ -16,8 +19,9 @@ const (
 )
 
 type Resource struct {
-	Name string
-	Type string
+	Type      string
+	Namespace string
+	Name      string
 }
 
 type User struct {
@@ -39,6 +43,16 @@ type Session interface {
 	Principal() Principal
 }
 
+// ControlPlaneSession identifies an internal controller call without human
+// credentials. It does not assert a Substrate Actor identity. AuthProvider and
+// Authorizer implementations may explicitly allow, deny, or authenticate these
+// calls; actor credentials for runtime tool calls remain a separate concern.
+type ControlPlaneSession struct{}
+
+var _ Session = ControlPlaneSession{}
+
+func (ControlPlaneSession) Principal() Principal { return Principal{} }
+
 // Responsibilities:
 // - Authenticate:
 //   - a2a requests from ui/cli (human users)
@@ -51,9 +65,43 @@ type AuthProvider interface {
 	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
+// AccessMode is what a gRPC method requires of its caller.
+//
+// It lives here rather than beside the server because a library consumer
+// registering its own services has to name these, and the server package is
+// internal. AccessPublic is the only value that skips authentication; every
+// other value is the verb the authorizer is asked to allow.
+type AccessMode string
+
+const (
+	AccessPublic AccessMode = "public"
+	AccessRead   AccessMode = "read"
+	AccessCreate AccessMode = "create"
+	AccessUpdate AccessMode = "update"
+	AccessDelete AccessMode = "delete"
+)
+
 // Authz
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
+}
+
+type CollectionAuthorizer interface {
+	Authorizer
+	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (authorization.AuthorizationScope, error)
+}
+
+// NoopAuthorizer permits every action and collection entry.
+type NoopAuthorizer struct{}
+
+var _ CollectionAuthorizer = NoopAuthorizer{}
+
+func (NoopAuthorizer) Check(context.Context, Principal, Verb, Resource) error {
+	return nil
+}
+
+func (NoopAuthorizer) Scope(context.Context, Principal, Verb, string) (authorization.AuthorizationScope, error) {
+	return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
 }
 
 // context utils

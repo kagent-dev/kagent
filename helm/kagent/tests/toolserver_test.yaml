@@ -30,13 +30,24 @@ tests:
           path: spec.url
           value: http://RELEASE-NAME-tools.NAMESPACE:8084/mcp
 
-  - it: should use custom namespace when overridden
+  - it: should keep the tool URL in the release namespace when the parent namespace is overridden
     set:
       namespaceOverride: "custom-namespace"
     asserts:
       - equal:
           path: metadata.namespace
           value: custom-namespace
+      - equal:
+          path: spec.url
+          value: http://RELEASE-NAME-tools.NAMESPACE:8084/mcp
+
+  - it: should use the kagent-tools namespace in the tool URL when overridden
+    set:
+      kagent-tools.namespaceOverride: "tools-namespace"
+    asserts:
+      - equal:
+          path: spec.url
+          value: http://RELEASE-NAME-tools.tools-namespace:8084/mcp
 
   - it: should use custom fullname when overridden
     set:

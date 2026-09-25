@@ -13,7 +13,6 @@ service ModelService {
   rpc UpdateModelConfig(UpdateModelConfigRequest) returns (UpdateModelConfigResponse);
   rpc DeleteModelConfig(DeleteModelConfigRequest) returns (DeleteModelConfigResponse);
   rpc ListSupportedModelProviders(ListSupportedModelProvidersRequest) returns (ListSupportedModelProvidersResponse);
-  rpc ListSupportedMemoryProviders(ListSupportedMemoryProvidersRequest) returns (ListSupportedMemoryProvidersResponse);
   rpc ListConfiguredProviders(ListConfiguredProvidersRequest) returns (ListConfiguredProvidersResponse);
   rpc ListProviderModels(ListProviderModelsRequest) returns (ListProviderModelsResponse);
   rpc ListSupportedModels(ListSupportedModelsRequest) returns (ListSupportedModelsResponse);
@@ -82,12 +81,6 @@ message ProviderDefinition {
 message ListSupportedModelProvidersRequest {}
 
 message ListSupportedModelProvidersResponse {
-  repeated ProviderDefinition providers = 1;
-}
-
-message ListSupportedMemoryProvidersRequest {}
-
-message ListSupportedMemoryProvidersResponse {
   repeated ProviderDefinition providers = 1;
 }
 
