@@ -23,7 +23,12 @@ jobs:
           BASE=$(git merge-base HEAD "origin/${BASE_REF#refs/heads/}")
           CHANGED=$(git diff --no-renames --name-status --diff-filter=MDR "$BASE" HEAD \
             -- 'go/core/pkg/migrations/**/*.sql' \
-            | awk '$1 != "D" || $2 !~ /\.(up|down)\.sql$/ { print $2 }')
+            | awk -v base="${BASE_REF#refs/heads/}" '
+                # Pre-alpha main permits resets of the initial core schema.
+                # Release branches retain migration immutability.
+                $1 == "M" && base == "main" && $2 == "go/core/pkg/migrations/core/000001_initial.sql" { next }
+                $1 != "D" || $2 !~ /\.(up|down)\.sql$/ { print $2 }
+              ')
 
           if [ -n "$CHANGED" ]; then
             echo "ERROR: These migration files changed or were removed."
@@ -34,7 +39,7 @@ jobs:
             exit 1
           fi
 
-          echo "OK: no existing migration files were modified."
+          echo "OK: no protected migration files were modified."
 
       - name: Reject non-transactional migrations
         run: |
