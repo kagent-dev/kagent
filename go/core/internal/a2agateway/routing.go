@@ -14,19 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
-type httpAgentKey struct{}
-
-// route uses the URL for HTTP and the standard A2A tenant for gRPC. An HTTP
-// payload cannot change the Agent selected by its URL.
-func route(ctx context.Context, tenant string) (*apiv1alpha1.ResourceReference, error) {
-	if urlAgent, ok := ctx.Value(httpAgentKey{}).(string); ok {
-		if tenant != "" && tenant != urlAgent {
-			return nil, a2a.NewError(a2a.ErrInvalidRequest, "tenant does not match the Agent URL")
-		}
-		tenant = urlAgent
-	} else if tenant == "" {
-		tenant, _ = a2a.TenantFrom(ctx)
-	}
+// route resolves the Agent selected at the transport boundary. Both transports
+// supply the SDK's routing metadata, so the gateway never inspects HTTP paths or
+// chooses between a payload tenant and a URL.
+func route(ctx context.Context) (*apiv1alpha1.ResourceReference, error) {
+	tenant, _ := a2a.TenantFrom(ctx)
 	namespace, name, ok := strings.Cut(tenant, "/")
 	if !ok || len(validation.IsDNS1123Label(namespace)) != 0 || len(validation.IsDNS1123Subdomain(name)) != 0 {
 		return nil, a2a.NewError(a2a.ErrInvalidRequest, "Agent tenant must be namespace/name")
@@ -34,8 +26,8 @@ func route(ctx context.Context, tenant string) (*apiv1alpha1.ResourceReference, 
 	return &apiv1alpha1.ResourceReference{Namespace: namespace, Name: name}, nil
 }
 
-func (g *Gateway) taskSession(ctx context.Context, verb auth.Verb, tenant string, taskID a2a.TaskID) (*apiv1alpha1.Session, error) {
-	agent, err := route(ctx, tenant)
+func (g *Gateway) taskSession(ctx context.Context, verb auth.Verb, taskID a2a.TaskID) (*apiv1alpha1.Session, error) {
+	agent, err := route(ctx)
 	if err != nil {
 		return nil, err
 	}

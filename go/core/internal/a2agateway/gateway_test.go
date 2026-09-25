@@ -329,14 +329,14 @@ func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
 
 func TestGatewayRequiresValidAgentTenant(t *testing.T) {
 	gateway := newTestGateway(&gatewayTestStore{session: gatewayTestSession()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
-	for _, ctx := range []context.Context{
-		auth.AuthSessionTo(context.Background(), gatewayTestAuthSession{}),
-		gatewayTestContextWithRoute("INVALID", gatewayTestID),
-		gatewayTestContextWithRoute("team-a", "not-a-uuid"),
-	} {
-		if _, err := gateway.SendMessage(ctx, &a2atype.SendMessageRequest{}); err == nil {
-			t.Fatal("SendMessage() accepted invalid routing headers")
-		}
+	for _, tenant := range []string{"", "assistant", "INVALID/assistant", "team-a/INVALID", "team-a/assistant/extra"} {
+		t.Run(tenant, func(t *testing.T) {
+			ctx := auth.AuthSessionTo(t.Context(), gatewayTestAuthSession{})
+			request := gatewayTestRequest()
+			request.Tenant = tenant
+			_, err := gateway.SendMessage(ctx, request)
+			require.ErrorIs(t, err, a2atype.ErrInvalidRequest)
+		})
 	}
 }
 

@@ -162,7 +162,7 @@ func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2
 	if req == nil {
 		return nil, a2atype.ErrInvalidParams
 	}
-	session, err := g.taskSession(ctx, auth.VerbGet, req.Tenant, req.ID)
+	session, err := g.taskSession(ctx, auth.VerbGet, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) 
 	if req == nil {
 		req = &a2atype.ListTasksRequest{}
 	}
-	agent, err := route(ctx, req.Tenant)
+	agent, err := route(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if req == nil {
 		return nil, a2atype.ErrInvalidParams
 	}
-	session, err := g.taskSession(ctx, auth.VerbUpdate, req.Tenant, req.ID)
+	session, err := g.taskSession(ctx, auth.VerbUpdate, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 	if req == nil {
 		return errorEvents(a2atype.ErrInvalidParams)
 	}
-	session, err := g.taskSession(ctx, auth.VerbGet, req.Tenant, req.ID)
+	session, err := g.taskSession(ctx, auth.VerbGet, req.ID)
 	if err != nil {
 		return errorEvents(err)
 	}
@@ -365,7 +365,7 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 				yield(task, nil)
 				return
 			}
-			g.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{Tenant: req.Tenant, ID: task.ID})(yield)
+			g.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: task.ID})(yield)
 			return
 		}
 		if err != nil {
@@ -585,7 +585,7 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2atype.GetExte
 	if req == nil {
 		return nil, a2atype.ErrInvalidParams
 	}
-	ref, err := route(ctx, req.Tenant)
+	ref, err := route(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -623,9 +623,9 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2atype.GetExte
 		a2atype.NewAgentInterface(strings.TrimRight(g.gatewayURL, "/")+HTTPPathPrefix+ref.Namespace+"/"+ref.Name, a2atype.TransportProtocolJSONRPC),
 		a2atype.NewAgentInterface(g.gatewayURL, a2atype.TransportProtocolGRPC),
 	}
-	for _, endpoint := range card.SupportedInterfaces {
-		endpoint.Tenant = ref.Namespace + "/" + ref.Name
-	}
+	// HTTP identifies the Agent in its URL; only the shared gRPC endpoint needs
+	// clients to send a tenant.
+	card.SupportedInterfaces[1].Tenant = ref.Namespace + "/" + ref.Name
 	// Extensions are the exception, and replacing the whole capabilities struct
 	// used to drop them. They describe what the runtime behind this gateway can
 	// negotiate — human-in-the-loop among them — which is not the gateway's to
@@ -647,7 +647,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req.Config != nil && req.Config.PushConfig != nil {
 		return nil, a2atype.ErrPushNotificationNotSupported
 	}
-	agent, err := route(ctx, req.Tenant)
+	agent, err := route(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -655,7 +655,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	var session *apiv1alpha1.Session
 	switch {
 	case req.Message.TaskID != "":
-		session, err = g.taskSession(ctx, auth.VerbUpdate, req.Tenant, req.Message.TaskID)
+		session, err = g.taskSession(ctx, auth.VerbUpdate, req.Message.TaskID)
 	case req.Message.ContextID != "":
 		session, err = g.storedSession(ctx, auth.VerbCreate, agent, req.Message.ContextID)
 	default:

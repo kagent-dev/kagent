@@ -11,9 +11,10 @@ Each Agent has a discoverable HTTP endpoint:
 | Read the Agent Card | `GET /agents/{namespace}/{name}/.well-known/agent-card.json` |
 | Call JSON-RPC, including streaming | `POST /agents/{namespace}/{name}` |
 
-The URL selects the Agent. gRPC requests use the standard A2A `tenant` field
-(`namespace/name`), also advertised on the card's interfaces. A nonempty HTTP
-request tenant must match its URL. The message `contextId` is the Session ID;
+The URL selects the Agent; HTTP requests do not need a `tenant`. gRPC requests use
+the standard A2A `tenant` field (`namespace/name`), advertised only on the card's
+gRPC interface. If an HTTP request supplies a tenant, it must match its URL.
+The message `contextId` is the Session ID;
 omitting both context and task IDs creates a new conversation. Retrying that first
 message with the same message ID reuses the conversation. Task-only requests resolve
 the conversation from the globally unique task ID.
