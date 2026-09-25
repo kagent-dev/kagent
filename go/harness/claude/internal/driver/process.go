@@ -362,7 +362,10 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				}
 				return runtime.Outcome{}, item.err
 			}
-			if waitErr := <-session.wait; waitErr != nil {
+			// Claude Code exits non-zero when it stops at one of its own limits,
+			// after reporting the limit in its result; that exit is the limit's,
+			// not a crash's.
+			if waitErr := <-session.wait; waitErr != nil && (session.terminal == nil || session.terminal.StoppedBy == "") {
 				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, session.stderr.String())
 			}
 			if session.terminal == nil {
