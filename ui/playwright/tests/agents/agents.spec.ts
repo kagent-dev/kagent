@@ -169,8 +169,9 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
     await expect(concepts).toBeVisible();
     await expect(concepts).toContainText("AgentTemplate");
     await expect(concepts).toContainText("Harness");
-    await expect(page.getByTestId("concepts-pairing")).toHaveText("An agent is one template plus one harness.");
-    await expect(page.getByTestId("concepts-sources")).toContainText("shared template or harness");
+    await expect(page.getByTestId("concepts-pairing")).toHaveText(
+      "An agent consists of one template (describing what it does), plus one harness (describing where and how it runs).",
+    );
   });
 
   await test.step("2. each tab is reachable and shows its own list", async () => {

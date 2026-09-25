@@ -28,13 +28,7 @@ export function AgentConcepts() {
     >
       {/* One sentence per line: each is a separate fact. */}
       <Line theme={theme} testId="concepts-pairing">
-        An agent is one template plus one harness.
-      </Line>
-      <Line theme={theme}>
-        The template is what it does; the harness is where and how it runs.
-      </Line>
-      <Line theme={theme} testId="concepts-sources">
-        Point to a shared template or harness, or write one inline.
+        An agent consists of one template (describing what it does), plus one harness (describing where and how it runs).
       </Line>
       <Line theme={theme}>Each chat you start belongs to that agent.</Line>
 
