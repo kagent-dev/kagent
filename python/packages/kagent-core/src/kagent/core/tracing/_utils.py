@@ -357,7 +357,6 @@ def configure(
         logging.info("Enabling metrics")
         metric_endpoint = (
             os.getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
-            or os.getenv("OTEL_METRICS_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
             or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
         )
         metric_timeout_seconds = _resolve_otlp_timeout_seconds("METRICS")
