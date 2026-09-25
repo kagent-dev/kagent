@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,8 @@ type ProcessConfig struct {
 	MaxStderrBytes       int
 	InterruptGrace       time.Duration
 	ApprovalBroker       *ApprovalBroker
+	MaxBudgetUSD         string
+	MaxTurns             int
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
@@ -137,6 +140,12 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	}
 	if d.config.Model != "" {
 		args = append(args, "--model", d.config.Model)
+	}
+	if d.config.MaxBudgetUSD != "" {
+		args = append(args, "--max-budget-usd", d.config.MaxBudgetUSD)
+	}
+	if d.config.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(d.config.MaxTurns))
 	}
 	if d.config.AppendSystemPrompt != "" {
 		args = append(args, "--append-system-prompt", d.config.AppendSystemPrompt)
@@ -435,7 +444,7 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)
 		}
 	case EventCompleted:
-		return &runtime.Outcome{}, nil
+		return &runtime.Outcome{Usage: event.Usage, StoppedBy: event.Category}, nil
 	case EventFailed:
 		return &runtime.Outcome{Failure: &runtime.Failure{Message: event.SafeMessage}}, nil
 	default:

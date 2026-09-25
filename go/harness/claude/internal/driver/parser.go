@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 type parser struct {
@@ -71,14 +73,20 @@ func readBoundedLine(r *bufio.Reader, max int) ([]byte, error) {
 
 func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 	var envelope struct {
-		Type      string          `json:"type"`
-		Subtype   string          `json:"subtype"`
-		SessionID string          `json:"session_id"`
-		IsError   bool            `json:"is_error"`
-		Result    string          `json:"result"`
-		Event     json.RawMessage `json:"event"`
-		Message   json.RawMessage `json:"message"`
-		Origin    struct {
+		Type      string  `json:"type"`
+		Subtype   string  `json:"subtype"`
+		SessionID string  `json:"session_id"`
+		IsError   bool    `json:"is_error"`
+		Result    string  `json:"result"`
+		Cost      float64 `json:"total_cost_usd"`
+		NumTurns  int     `json:"num_turns"`
+		Usage     struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+		Event   json.RawMessage `json:"event"`
+		Message json.RawMessage `json:"message"`
+		Origin  struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
 	}
@@ -101,6 +109,16 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 			return nil
 		}
 		p.terminal = true
+		usage := &runtime.Usage{
+			TotalCostUSD: envelope.Cost, NumTurns: envelope.NumTurns,
+			InputTokens: envelope.Usage.InputTokens, OutputTokens: envelope.Usage.OutputTokens,
+		}
+		// A turn that reached one of its own limits is a completed turn: the work
+		// so far is kept, the session continues on the next turn, and the limit
+		// is reported rather than raised as a failure.
+		if stopped, ok := runtime.LimitReached(envelope.Subtype); ok {
+			return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result, Category: stopped, Usage: usage})
+		}
 		if envelope.IsError || envelope.Subtype != "success" {
 			message := envelope.Result
 			if message == "" {
@@ -108,7 +126,7 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 			}
 			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message})
 		}
-		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result})
+		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result, Usage: usage})
 	}
 	return nil
 }

@@ -339,7 +339,13 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if outcome.Failure == nil {
 			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
 			endInvocation()
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
+			var message *a2atype.Message
+			if outcome.Usage != nil || outcome.StoppedBy != "" {
+				message = taskMessage(reqCtx, limitNotice(outcome.StoppedBy))
+				message.Metadata = usageMetadata(outcome)
+				apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
+			}
+			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, message), nil)
 			return
 		}
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
@@ -747,3 +753,35 @@ func safeFailure(message string) string {
 
 var _ runtime.EventSink = (*executionSink)(nil)
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
+
+// TurnUsageMetadataType marks the completed status message that carries a
+// turn's usage; UsageMetadataKey holds it.
+const (
+	TurnUsageMetadataType = "turn_usage"
+	UsageMetadataKey      = "kagent_usage"
+)
+
+func limitNotice(stoppedBy string) string {
+	switch stoppedBy {
+	case runtime.LimitBudget:
+		return "The turn stopped at its budget limit; what it did so far is kept, and a follow-up message continues from here."
+	case runtime.LimitTurns:
+		return "The turn stopped at its limit of model turns; what it did so far is kept, and a follow-up message continues from here."
+	default:
+		return ""
+	}
+}
+
+func usageMetadata(outcome runtime.Outcome) map[string]any {
+	metadata := map[string]any{apia2a.PartTypeMetadataKey: TurnUsageMetadataType}
+	if outcome.StoppedBy != "" {
+		metadata["stopped_by"] = outcome.StoppedBy
+	}
+	if usage := outcome.Usage; usage != nil {
+		metadata[UsageMetadataKey] = map[string]any{
+			"total_cost_usd": usage.TotalCostUSD, "num_turns": usage.NumTurns,
+			"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens,
+		}
+	}
+	return metadata
+}

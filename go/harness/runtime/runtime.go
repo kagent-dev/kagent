@@ -79,9 +79,40 @@ type PendingTurn interface {
 // Outcome describes why a runtime operation stopped producing events. Failure
 // ends the turn, Pending transfers its live resources to the caller, and an
 // empty Outcome is successful completion. Failure and Pending are exclusive.
+// StoppedBy names the turn's own limit that ended it (LimitBudget,
+// LimitTurns); the turn is complete and the next one continues the session.
 type Outcome struct {
-	Failure *Failure
-	Pending PendingTurn
+	Failure   *Failure
+	Pending   PendingTurn
+	Usage     *Usage
+	StoppedBy string
+}
+
+// Usage is what one turn consumed, as the runtime reported it.
+type Usage struct {
+	TotalCostUSD float64
+	NumTurns     int
+	InputTokens  int
+	OutputTokens int
+}
+
+const (
+	LimitBudget = "budget"
+	LimitTurns  = "turns"
+)
+
+// LimitReached maps a runtime's terminal reason to the limit it names, for
+// the reasons that are limits: Claude Code's error_max_budget_usd and
+// error_max_turns result subtypes.
+func LimitReached(reason string) (string, bool) {
+	switch reason {
+	case "error_max_budget_usd":
+		return LimitBudget, true
+	case "error_max_turns":
+		return LimitTurns, true
+	default:
+		return "", false
+	}
 }
 
 // InputRequest is one structured request that parks a native turn.

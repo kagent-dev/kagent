@@ -544,3 +544,37 @@ func collect(seq iter.Seq2[a2atype.Event, error]) ([]a2atype.Event, []error) {
 	}
 	return events, errs
 }
+
+func TestExecuteReportsALimitedTurnAsCompletedWithUsage(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		if err := sink.SessionStarted(runtime.SessionStarted{ContinuationID: testSessionID}); err != nil {
+			return runtime.Outcome{}, err
+		}
+		return runtime.Outcome{
+			StoppedBy: runtime.LimitBudget,
+			Usage:     &runtime.Usage{TotalCostUSD: 0.05, NumTurns: 3, InputTokens: 120, OutputTokens: 40},
+		}, nil
+	}}, &fakeContinuation{data: testSessionID}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	if len(errs) != 0 {
+		t.Fatalf("Execute() errors = %v", errs)
+	}
+	last, ok := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || last.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("last event = %#v, want a completed status", events[len(events)-1])
+	}
+	message := last.Status.Message
+	if message == nil || !strings.Contains(message.Parts[0].Text(), "budget") {
+		t.Fatalf("a limited turn names its limit: %#v", message)
+	}
+	if message.Metadata[apia2a.PartTypeMetadataKey] != TurnUsageMetadataType || message.Metadata["stopped_by"] != runtime.LimitBudget {
+		t.Fatalf("message metadata = %#v", message.Metadata)
+	}
+	usage, _ := message.Metadata[UsageMetadataKey].(map[string]any)
+	if usage["total_cost_usd"] != 0.05 || usage["num_turns"] != 3 {
+		t.Fatalf("usage metadata = %#v", usage)
+	}
+}

@@ -972,3 +972,26 @@ func inlineAgent(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) *v
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: harness.Namespace},
 		Spec: v1alpha3.AgentSpec{Template: &template.Spec, Harness: &harness.Spec}}
 }
+
+func TestCompileAgentRejectsLimitsOffTheClaudeRuntime(t *testing.T) {
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help",
+			Limits: &v1alpha3.AgentTemplateLimits{MaxTurns: 5},
+		},
+	}
+	_, err := compiler(t, modelConfig()).CompileAgent(t.Context(), inlineAgent(harness, template))
+	require.Error(t, err)
+	require.ErrorContains(t, err, "claude Harness runtime only")
+	var validation *v2translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+}
