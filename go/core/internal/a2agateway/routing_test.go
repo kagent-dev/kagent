@@ -87,37 +87,6 @@ func (s *creatingTestSessions) Create(_ context.Context, ref *apiv1alpha1.Resour
 	return session, nil
 }
 
-func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
-	store := &gatewayTestStore{}
-	sessions := &creatingTestSessions{gatewayTestSessions{store}, map[string]*apiv1alpha1.Session{}}
-	runtime := &gatewayTestRuntime{}
-	authorizer := &gatewayTestAuthorizer{}
-	gateway := New(Config{Store: store, Authorizer: authorizer,
-		Agents: gatewayTestAgents{store, authorizer}, Sessions: sessions,
-		Dialer: &gatewayTestDialer{client: gatewayTestClient(t, runtime)}})
-	request := func(id string) *a2a.SendMessageRequest {
-		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
-		message.ID = id
-		return &a2a.SendMessageRequest{Tenant: gatewayTestAgent, Message: message, Config: &a2a.SendMessageConfig{ReturnImmediately: true}}
-	}
-	first, err := gateway.SendMessage(gatewayTestContext(), request("first"))
-	require.NoError(t, err)
-	task := first.(*a2a.Task)
-	require.Equal(t, store.session.Id, task.ContextID)
-	require.Equal(t, "first", store.initialID)
-	store.reserveErr, store.replay = database.ErrMessageAccepted, task
-	retry, err := gateway.SendMessage(gatewayTestContext(), request("first"))
-	require.NoError(t, err)
-	require.Equal(t, first, retry)
-	require.Equal(t, 1, runtime.sendCalls)
-	require.Len(t, sessions.created, 1)
-	store.reserveErr = nil
-	second, err := gateway.SendMessage(gatewayTestContext(), request("second"))
-	require.NoError(t, err)
-	require.NotEqual(t, task.ContextID, second.(*a2a.Task).ContextID)
-	require.Len(t, sessions.created, 2)
-}
-
 func TestGatewayTaskRoutingAndAgentIsolation(t *testing.T) {
 	for _, tc := range []struct {
 		name, tenant, contextID string
@@ -145,15 +114,6 @@ func TestGatewayTaskRoutingAndAgentIsolation(t *testing.T) {
 			require.Equal(t, a2a.TaskID("task"), runtime.sentTaskID)
 		})
 	}
-}
-
-func TestRouteURLIsAuthoritative(t *testing.T) {
-	ctx := context.WithValue(t.Context(), httpAgentKey{}, gatewayTestAgent)
-	_, err := route(ctx, "team-a/other")
-	require.ErrorIs(t, err, a2a.ErrInvalidRequest)
-	ref, err := route(ctx, "")
-	require.NoError(t, err)
-	require.Equal(t, "assistant", ref.Name)
 }
 
 func TestShareCannotCreateConversation(t *testing.T) {

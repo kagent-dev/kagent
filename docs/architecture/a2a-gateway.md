@@ -11,6 +11,11 @@ The public endpoint is a named `Agent`. HTTP selects it through
 `namespace/name`. A nonempty HTTP request tenant must agree with its URL.
 Actor addresses and runtime credentials remain internal.
 
+Agent selection belongs to the transport boundary. The HTTP adapter binds the
+URL's Agent after JSON-RPC decoding, while the gRPC SDK reads the request tenant.
+Both supply the same SDK routing metadata to the gateway; Session and task
+routing do not depend on which transport carried the request.
+
 `Session.id` is the public A2A `contextId`. A send with no context or task ID
 creates a conversation from that Agent. A context ID continues the corresponding
 session. A task ID alone resolves its session; if both IDs are present they must
