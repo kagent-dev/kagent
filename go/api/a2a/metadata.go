@@ -12,6 +12,7 @@ const (
 	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
 	PartTypeMetadataKey         = MetadataPrefix + "part-type"
 	UsageMetadataKey            = MetadataPrefix + "usage"
+	UsageTotalMetadataKey       = MetadataPrefix + "usage-total"
 )
 
 // SetTimelinePosition records the temporary task-timeline ordering key.

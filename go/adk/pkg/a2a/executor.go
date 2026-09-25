@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
@@ -83,6 +84,12 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 	if rootName == "" {
 		return nil, fmt.Errorf("root agent name is required")
 	}
+	logger := cfg.Logger.With("component", "kagent-executor")
+	if usagePlugin, err := newTurnUsagePlugin(); err != nil {
+		logger.Error("token usage aggregation is disabled", "error", err)
+	} else {
+		runnerConfig.PluginConfig.Plugins = append([]*plugin.Plugin{usagePlugin}, runnerConfig.PluginConfig.Plugins...)
+	}
 	builtin := adka2a.NewExecutor(adka2a.ExecutorConfig{
 		RunnerConfig:       runnerConfig,
 		RunConfig:          runConfig,
@@ -99,6 +106,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 			}
 			return transformStructuredOutput(output, rootName, event, processed)
 		},
+		// The aggregate rides on the terminal status update (completed,
+		// input-required or failed), whose metadata a2a-go merges into the
+		// stored task.
+		AfterExecuteCallback: func(ctx adka2a.ExecutorContext, finalEvent *a2atype.TaskStatusUpdateEvent, _ error) error {
+			turnUsageFrom(ctx).stampEvent(finalEvent)
+			return nil
+		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
 	})
 
@@ -106,7 +120,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		builtin:                 builtin,
 		sessionService:          runnerConfig.SessionService,
 		appName:                 cfg.AppName,
-		logger:                  cfg.Logger.With("component", "kagent-executor"),
+		logger:                  logger,
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
 	}, nil
@@ -246,6 +260,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
+
+		// Resumed tasks (HITL cycles, follow-up messages) carry the previously
+		// persisted total, so the usage total stays a task-lifetime sum.
+		usage := &turnUsage{}
+		usage.seedFromTask(reqCtx.StoredTask)
+		ctx = withTurnUsage(ctx, usage)
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
 		// through the request attribute span processor.

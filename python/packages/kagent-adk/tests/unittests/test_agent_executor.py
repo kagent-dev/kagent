@@ -7,7 +7,9 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.types import Artifact, Message, Part, Role, SendMessageRequest, TaskArtifactUpdateEvent
 from google.adk.a2a.converters.request_converter import AgentRunRequest
+from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.runners import InMemoryRunner
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
@@ -117,7 +119,7 @@ def test_adk_event_metadata_is_projected_at_adapter_boundary():
 async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(monkeypatch):
     context = _request_context()
     event_queue = object()
-    runner = object()
+    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
     run_request = AgentRunRequest(
         user_id="user-1",
         session_id="context-1",
