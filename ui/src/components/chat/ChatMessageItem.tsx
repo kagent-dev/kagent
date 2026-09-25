@@ -1,6 +1,8 @@
+import type { ComponentType } from "react";
 import { Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { ExtensionSlot } from "@/appExtensions";
+import { ExtensionSlot, useExtensionChatPartRenderers } from "@/appExtensions";
+import type { ChatPartRendererProps, ExtensionChatPartRenderers } from "@/appExtensions";
 import type { ChatMessage } from "@/api";
 import { ToolCallCard } from "./ToolCallCard";
 import { StructuredOutputCard } from "./StructuredOutputCard";
@@ -39,6 +41,7 @@ export function ChatMessageItem({
   // retain the ordinary right-aligned, content-sized user lane.
   const isQuestionRecord = message.parts.some((part) => part.kind === "ask_user");
   const text = messageText(message);
+  const partRenderers = useExtensionChatPartRenderers();
 
   return (
     <article
@@ -89,43 +92,25 @@ export function ChatMessageItem({
           width: isUser && !isQuestionRecord ? "auto" : "100%",
         }}
       >
-        {message.parts.map((part, index) =>
-          part.kind === "text" ? (
-            part.text ? (
-              <div
-                key={index}
-                data-testid="chat-message-text"
-                css={{
-                  padding: `${theme.space(2)} ${theme.space(3)}`,
-                  borderRadius: theme.radius.md,
-                  background: isUser ? theme.color.primary : theme.color.bgElevated,
-                  border: isUser ? "none" : `1px solid ${theme.color.border}`,
-                  // The user's bubble is a primary surface, so it takes the primary
-                  // foreground. Using the page's `text` for both put near-black on
-                  // deep purple on the light theme.
-                  color: isUser ? theme.color.textOnPrimary : theme.color.text,
-                  // The user's own words are shown verbatim, newlines and all. The
-                  // agent's reply is markdown, which brings its own line breaks and
-                  // block spacing — so `pre-wrap` is only for the user's side.
-                  whiteSpace: isUser ? "pre-wrap" : undefined,
-                  wordBreak: "break-word",
-                }}
-              >
-                {isUser ? part.text : <MarkdownMessage>{part.text}</MarkdownMessage>}
-              </div>
-            ) : null
-          ) : part.kind === "data" ? (
-            part.dataKind === "structured_output" ? (
-              <StructuredOutputCard key={index} part={part} />
-            ) : (
-              <ToolCallCard key={index} part={part} />
-            )
-          ) : part.kind === "tool_approval" ? (
-            <ToolApprovalRecord key={index} part={part} />
-          ) : (
-            <AskUserRecord key={index} part={part} />
-          ),
-        )}
+        {message.parts.map((part, index) => {
+          // Empty text is a reply still streaming in, so nothing renders it yet.
+          if (part.kind === "text" && !part.text) return null;
+          const key = part.kind === "data" ? part.dataKind : part.kind;
+          // The key picks a renderer typed for this part; TS cannot correlate the two.
+          const Renderer = (partRenderers[key] ?? CORE_PART_RENDERERS[key]) as ComponentType<
+            ChatPartRendererProps
+          >;
+          return (
+            <Renderer
+              key={index}
+              part={part}
+              role={message.role}
+              messageId={message.id}
+              taskId={message.taskId}
+              sessionId={sessionId}
+            />
+          );
+        })}
 
         {/* A reply that has been announced but has no text yet: without this the
             message would be an invisible gap between the tool result and the
@@ -142,3 +127,43 @@ export function ChatMessageItem({
     </article>
   );
 }
+
+/** The prose bubble: the user's words verbatim, the agent's reply as markdown. */
+function TextPart({ part, role }: ChatPartRendererProps<"text">) {
+  const theme = useTheme();
+  const isUser = role === "user";
+  return (
+    <div
+      data-testid="chat-message-text"
+      css={{
+        padding: `${theme.space(2)} ${theme.space(3)}`,
+        borderRadius: theme.radius.md,
+        background: isUser ? theme.color.primary : theme.color.bgElevated,
+        border: isUser ? "none" : `1px solid ${theme.color.border}`,
+        // The user's bubble is a primary surface, so it takes the primary
+        // foreground. Using the page's `text` for both put near-black on
+        // deep purple on the light theme.
+        color: isUser ? theme.color.textOnPrimary : theme.color.text,
+        // The user's own words are shown verbatim, newlines and all. The
+        // agent's reply is markdown, which brings its own line breaks and
+        // block spacing — so `pre-wrap` is only for the user's side.
+        whiteSpace: isUser ? "pre-wrap" : undefined,
+        wordBreak: "break-word",
+      }}
+    >
+      {isUser ? part.text : <MarkdownMessage>{part.text}</MarkdownMessage>}
+    </div>
+  );
+}
+
+/** What renders each part when no extension replaces it. */
+const CORE_PART_RENDERERS: Required<ExtensionChatPartRenderers> = {
+  text: TextPart,
+  tool_call: ToolCallCard,
+  tool_result: ToolCallCard,
+  tool_not_run: ToolCallCard,
+  unknown: ToolCallCard,
+  structured_output: StructuredOutputCard,
+  tool_approval: ToolApprovalRecord,
+  ask_user: AskUserRecord,
+};

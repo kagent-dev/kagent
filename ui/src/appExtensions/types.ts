@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { ExtensionSlotComponents } from "./extensionPoints";
 import type { ExtensionFormFieldContribution } from "./formFields";
-import type { AgentInstance, ApiCallId } from "@/api";
+import type { AgentInstance, ApiCallId, ChatDataPart, ChatMessage, ChatPart } from "@/api";
 import type { ExtensionApi } from "./api/extensionApi";
 import type { ExtensionTheme } from "./theme";
 import type { ExtensionAgentRailOverrides } from "./railOverrides";
@@ -297,6 +297,11 @@ export interface AppExtensionConfig {
    */
   providerIcons?: Readonly<Record<string, ComponentType>>;
   /**
+   * Replacement renderers for chat message parts, keyed by part kind, or by
+   * `dataKind` for a data part. Merged over the core map like `providerIcons`.
+   */
+  chatPartRenderers?: ExtensionChatPartRenderers;
+  /**
    * Agent destinations the application resolves from this configuration.
    */
   agentLinks?: ExtensionAgentLinks;
@@ -313,3 +318,24 @@ export interface AppExtensionConfig {
    */
   agentRailOverrides?: ExtensionAgentRailOverrides;
 }
+
+/** A chat part's renderer key: its `kind`, or its `dataKind` for a data part. */
+export type ChatPartRendererKey = Exclude<ChatPart["kind"], "data"> | ChatDataPart["dataKind"];
+
+/** The part a renderer for `K` receives, so a `"text"` renderer gets a text part. */
+export type ChatPartForKey<K extends ChatPartRendererKey> = K extends ChatDataPart["dataKind"]
+  ? ChatDataPart & { dataKind: K }
+  : Extract<ChatPart, { kind: K }>;
+
+/** Props a chat part renderer receives: the part and the turn it belongs to. */
+export interface ChatPartRendererProps<K extends ChatPartRendererKey = ChatPartRendererKey> {
+  part: ChatPartForKey<K>;
+  role: ChatMessage["role"];
+  messageId: string;
+  taskId?: string;
+  sessionId?: string;
+}
+
+export type ExtensionChatPartRenderers = {
+  readonly [K in ChatPartRendererKey]?: ComponentType<ChatPartRendererProps<K>>;
+};
