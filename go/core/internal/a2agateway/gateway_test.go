@@ -401,9 +401,9 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	if result.(*a2atype.Task).ID == "" || !runtime.sent || !runtime.destroyed {
 		t.Fatalf("runtime result = %#v, sent %v, destroyed %v", result, runtime.sent, runtime.destroyed)
 	}
-	createdAt, ok := store.created.Metadata[TaskCreatedAtMetadataKey].(string)
+	createdAt, ok := store.created.Metadata[apia2a.TaskCreatedAtMetadataKey].(string)
 	if _, err := time.Parse(time.RFC3339Nano, createdAt); !ok || err != nil {
-		t.Fatalf("task creation timestamp = %#v: %v", store.created.Metadata[TaskCreatedAtMetadataKey], err)
+		t.Fatalf("task creation timestamp = %#v: %v", store.created.Metadata[apia2a.TaskCreatedAtMetadataKey], err)
 	}
 	position, ok := store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey].(string)
 	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil {
@@ -614,7 +614,7 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 func TestTaskForResultPreservesCreationTime(t *testing.T) {
 	submitted := &a2atype.Task{
 		ID: gatewayTestID, ContextID: gatewayTestContextID,
-		Metadata: map[string]any{TaskCreatedAtMetadataKey: "2026-08-26T10:00:00Z"},
+		Metadata: map[string]any{apia2a.TaskCreatedAtMetadataKey: "2026-08-26T10:00:00Z"},
 	}
 	result, err := taskForResult(submitted, &a2atype.Task{
 		ID: gatewayTestID, ContextID: gatewayTestContextID,
@@ -623,8 +623,8 @@ func TestTaskForResultPreservesCreationTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Metadata[TaskCreatedAtMetadataKey] != submitted.Metadata[TaskCreatedAtMetadataKey] {
-		t.Fatalf("creation timestamp = %#v", result.Metadata[TaskCreatedAtMetadataKey])
+	if result.Metadata[apia2a.TaskCreatedAtMetadataKey] != submitted.Metadata[apia2a.TaskCreatedAtMetadataKey] {
+		t.Fatalf("creation timestamp = %#v", result.Metadata[apia2a.TaskCreatedAtMetadataKey])
 	}
 }
 
@@ -879,8 +879,11 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	if card.Name != "assistant" || card.Description != "pinned description" || card.Version != "v1" {
 		t.Fatalf("template metadata = %#v", card)
 	}
-	if len(card.SupportedInterfaces) != 1 || card.SupportedInterfaces[0].URL != gatewayTestURL ||
-		card.SupportedInterfaces[0].ProtocolBinding != a2atype.TransportProtocolGRPC {
+	if len(card.SupportedInterfaces) != 2 ||
+		card.SupportedInterfaces[0].URL != gatewayTestURL+HTTPPathPrefix+gatewayTestID ||
+		card.SupportedInterfaces[0].ProtocolBinding != a2atype.TransportProtocolJSONRPC ||
+		card.SupportedInterfaces[1].URL != gatewayTestURL ||
+		card.SupportedInterfaces[1].ProtocolBinding != a2atype.TransportProtocolGRPC {
 		t.Fatalf("public interfaces = %#v", card.SupportedInterfaces)
 	}
 	if !card.Capabilities.Streaming || !card.Capabilities.ExtendedAgentCard || card.Capabilities.PushNotifications {

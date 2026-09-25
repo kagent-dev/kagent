@@ -28,7 +28,8 @@ func toAgentInstanceShare(row agentInstanceShareRow) (*apiv1alpha1.AgentInstance
 // CreateAgentInstanceShare stores a share with the supplied ID, permission, and token hash
 // for an instance owned by userID and sets its creation time. A missing or unowned
 // instance returns ErrNotFound. Callers authorize sharing and generate the token;
-// the plaintext token is never stored.
+// the plaintext token is never stored. Insertion locks the live instance so
+// concurrent deletion either revokes this share or prevents its creation.
 func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte, userID string) (*apiv1alpha1.AgentInstanceShare, error) {
 	if share == nil {
 		return nil, fmt.Errorf("missing AgentInstance share")
@@ -41,7 +42,9 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 	}
 	row, err := queryOne(ctx, c.db, `
 		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data)
-		SELECT $1, id, $3, $4, $5 FROM agent_instance WHERE id = $2 AND user_id = $6
+		SELECT $1, id, $3, $4, $5 FROM agent_instance
+		WHERE id = $2 AND user_id = $6 AND state <> 'AGENT_INSTANCE_STATE_DELETED'
+		FOR UPDATE
 		RETURNING id, instance_id, permission, data
 	`,
 		pgx.RowToStructByNameLax[agentInstanceShareRow], value.Id,
@@ -61,7 +64,7 @@ func (c *Client) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash
 		SELECT s.id, s.instance_id, s.permission, s.data, i.user_id AS owner_user_id
 		FROM agent_instance_share s
 		JOIN agent_instance i ON i.id = s.instance_id
-		WHERE s.token_hash = $1
+		WHERE s.token_hash = $1 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED'
 	`, pgx.RowToStructByName[agentInstanceShareRow], tokenHash)
 	if err != nil {
 		return nil, "", fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
@@ -80,7 +83,7 @@ func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID
 	rows, err := queryMany(ctx, c.db, `
 		SELECT s.id, s.instance_id, s.permission, s.data FROM agent_instance_share s
 		JOIN agent_instance i ON i.id = s.instance_id
-		WHERE s.instance_id = $1 AND i.user_id = $2
+		WHERE s.instance_id = $1 AND i.user_id = $2 AND i.state <> 'AGENT_INSTANCE_STATE_DELETED'
 		  AND (NULLIF($3::text, '') IS NULL OR s.id > NULLIF($3::text, '')::uuid)
 		ORDER BY s.id
 		LIMIT $4

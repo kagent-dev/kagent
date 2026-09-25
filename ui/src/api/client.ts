@@ -13,6 +13,7 @@
  */
 
 import { type ResourceRefInput, invoke } from "./operations";
+import { randomId } from "./randomId";
 import { sortedByFields, sortedByRef } from "./order";
 import type {
   CreateModelConfigRequest,
@@ -242,6 +243,13 @@ export interface AgentInstancesApi {
     list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
     create(id: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+    /**
+     * Names a boundary, which is what a fork of it is called too.
+     *
+     * An empty name clears the reader's title and restores the generated one, so the
+     * record that comes back is what it is now called rather than what was sent.
+     */
+    rename(checkpointId: string, name: string): Promise<Checkpoint>;
     /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
     remove(checkpointId: string): Promise<void>;
   };
@@ -360,21 +368,23 @@ export function createApiClient(): KagentApiClient {
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>
-        invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
+        invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {
         list: (id, options) =>
           invoke("agentInstances.checkpoints.list", { id }, options),
         create: (id) =>
           invoke("agentInstances.checkpoints.create", {
             id,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
           }),
         fork: (checkpointId, name) =>
           invoke("agentInstances.checkpoints.fork", {
             checkpointId,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
             name,
           }),
+        rename: (checkpointId, name) =>
+          invoke("agentInstances.checkpoints.rename", { checkpointId, name }),
         remove: (checkpointId) =>
           invoke("agentInstances.checkpoints.delete", { checkpointId }),
       },

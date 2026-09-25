@@ -2,17 +2,17 @@ package grpcserver
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"strings"
 	"time"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -31,7 +31,7 @@ var forwardedMetadataKeys = map[string]string{
 	"x-share-token": "X-Share-Token",
 }
 
-func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
+func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, shareStore, policies)
 		if err != nil {
@@ -41,7 +41,7 @@ func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore 
 	}
 }
 
-func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
+func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, shareStore, policies)
 		if err != nil {
@@ -51,7 +51,7 @@ func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore
 	}
 }
 
-func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore ShareStore, policies MethodPolicies) (context.Context, error) {
+func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) (context.Context, error) {
 	access, ok := policies[fullMethod]
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
@@ -70,37 +70,20 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	}
 
 	authenticatedContext := auth.AuthSessionTo(ctx, session)
-	shareToken := headers.Get("X-Share-Token")
-	if shareToken == "" {
+	share, err := agentinstance.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
+	if err != nil {
+		return ctx, mapError(err)
+	}
+	if share == nil {
 		return authenticatedContext, nil
 	}
-	if shareStore == nil {
-		return ctx, status.Error(codes.Internal, "share-token validation is unavailable")
-	}
-
-	// Only the digest is stored, which is what stops a database dump being a set of
-	// working share links — so the token is hashed the same way it was on creation.
-	digest := sha256.Sum256([]byte(shareToken))
-	instanceShare, ownerUserID, err := shareStore.GetAgentInstanceShareByTokenHash(authenticatedContext, digest[:])
-	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
-			return ctx, status.Error(codes.PermissionDenied, "invalid or expired share token")
-		}
-		return ctx, status.Error(codes.Internal, "failed to validate share token")
-	}
-	// READ_WRITE also allows A2A send and cancel; anything else is read-only.
-	readOnly := instanceShare.Permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE
-	if readOnly && access != auth.AccessPublic && access != auth.AccessRead {
+	// A2A owns share authorization in its transport-independent gateway. Other
+	// services still rely on the per-RPC policy for read-only share restrictions.
+	a2aMethod := strings.HasPrefix(fullMethod, "/"+a2apb.A2AService_ServiceDesc.ServiceName+"/")
+	if !a2aMethod && share.ReadOnly && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
-	return auth.ShareContextTo(authenticatedContext, &auth.ShareContext{
-		Token: shareToken,
-		// The owner, not the visitor: the token widens what this account may reach
-		// to what the owner can see, and the instance read runs as the owner.
-		UserID:          ownerUserID,
-		ReadOnly:        readOnly,
-		AgentInstanceID: instanceShare.GetAgentInstanceId(),
-	}), nil
+	return auth.ShareContextTo(authenticatedContext, share), nil
 }
 
 func incomingHTTPHeaders(ctx context.Context) http.Header {

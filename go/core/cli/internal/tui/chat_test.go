@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/stretchr/testify/assert"
 )
@@ -36,7 +37,7 @@ func dataPart(kind, name string, payload map[string]any) *a2atype.Part {
 	payload["name"] = name
 	payload["id"] = "call-1"
 	part := a2atype.NewDataPart(payload)
-	part.Metadata = map[string]any{"adk_type": kind}
+	part.Metadata = map[string]any{kagenta2a.PartTypeMetadataKey: kind}
 	return part
 }
 

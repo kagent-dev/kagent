@@ -5,6 +5,7 @@ import (
 	"math"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
 	adksession "google.golang.org/adk/v2/session"
@@ -13,10 +14,10 @@ import (
 
 // usageTotalMetadataKey is the A2A metadata key carrying the aggregated
 // token usage of a task. The value has the same shape as the per-event
-// adk_usage_metadata entry, plus modelVersion. Every terminal status update of
-// a task carries the running task-lifetime total, so consumers take the latest
-// value rather than summing across executions.
-var usageTotalMetadataKey = GetKAgentMetadataKey("usage_total")
+// usage entry, plus modelVersion. Every terminal status update of a task
+// carries the running task-lifetime total, so consumers take the latest value
+// rather than summing across executions.
+const usageTotalMetadataKey = apia2a.UsageTotalMetadataKey
 
 const turnUsagePluginName = "kagent_turn_usage"
 
@@ -131,8 +132,8 @@ func (u *turnUsage) empty() bool {
 }
 
 // stampEvent attaches the aggregate to a terminal status update under
-// kagent_usage_total. The value is serialized exactly like the per-event
-// adk_usage_metadata (same genai type, same JSON mapping) plus modelVersion, so
+// usageTotalMetadataKey. The value is serialized exactly like the per-event
+// usage entry (same genai type, same JSON mapping) plus modelVersion, so
 // consumers can share one parser.
 func (u *turnUsage) stampEvent(event *a2atype.TaskStatusUpdateEvent) {
 	if u == nil || event == nil || u.empty() {

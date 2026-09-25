@@ -3,6 +3,7 @@ import { useTheme } from "@emotion/react";
 import { ExtensionSlot } from "@/appExtensions";
 import type { ChatMessage } from "@/api";
 import { ToolCallCard } from "./ToolCallCard";
+import { StructuredOutputCard } from "./StructuredOutputCard";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
@@ -114,7 +115,11 @@ export function ChatMessageItem({
               </div>
             ) : null
           ) : part.kind === "data" ? (
-            <ToolCallCard key={index} part={part} />
+            part.dataKind === "structured_output" ? (
+              <StructuredOutputCard key={index} part={part} />
+            ) : (
+              <ToolCallCard key={index} part={part} />
+            )
           ) : part.kind === "tool_approval" ? (
             <ToolApprovalRecord key={index} part={part} />
           ) : (

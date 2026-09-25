@@ -5,7 +5,9 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
 import { coreNavItems } from "@/components/Structure/navItems";
+import { env } from "@/env";
 import { paths } from "./routes";
+import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import type { AppExtensionConfig } from "@/appExtensions";
 import {
   applyNavOverrides,
@@ -156,23 +158,35 @@ export function createAppRouter(extensions: readonly AppExtensionConfig[]) {
   );
 
   return createBrowserRouter([
-    { path: paths.login, element: <LoginPage /> },
+    { path: paths.login, element: <LoginPage />, errorElement: <RouteErrorBoundary /> },
     ...contributedRoutes
       .filter((route) => route.standalone)
-      .map(({ path, element }) => ({ path, element })),
+      .map(({ path, element }) => ({
+        path,
+        element,
+        errorElement: <RouteErrorBoundary />,
+      })),
     {
       element: shell,
+      errorElement: <RouteErrorBoundary />,
       children: [
-        ...remainingCoreRoutes,
-        ...contributedRoutes
-          .filter((route) => !route.standalone)
-          .map(({ path, element, handle }) => ({
-            path,
-            element,
-            ...(handle ? { handle } : {}),
-          })),
-        { path: "*", element: <NotFoundPage /> },
+        {
+          // Its own errorElement, nested inside the shell route rather than on it:
+          // a page crash then replaces only this outlet, so the nav/sidebar stay up.
+          errorElement: <RouteErrorBoundary />,
+          children: [
+            ...remainingCoreRoutes,
+            ...contributedRoutes
+              .filter((route) => !route.standalone)
+              .map(({ path, element, handle }) => ({
+                path,
+                element,
+                ...(handle ? { handle } : {}),
+              })),
+            { path: "*", element: <NotFoundPage /> },
+          ],
+        },
       ],
     },
-  ]);
+  ], { basename: env("BASE_PATH") || "/" });
 }

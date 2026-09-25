@@ -73,7 +73,17 @@ export const mockProviderModels: ProviderModelsResponse = {
     { name: "claude-sonnet-4", function_calling: true },
     { name: "claude-haiku-4", function_calling: true },
   ],
-  Ollama: [{ name: "llama3.2", function_calling: false }],
+  // Ollama models, mirroring the controller's static catalog: cloud models
+  // reached at api.ollama.com with a key, and local models served by a daemon.
+  // Every one reports tool support.
+  Ollama: [
+    { name: "kimi-k2.6", function_calling: true },
+    { name: "glm-5.3-flash", function_calling: true },
+    { name: "deepseek-v4.1-flash", function_calling: true },
+    { name: "gpt-oss:120b", function_calling: true },
+    { name: "qwen3.5", function_calling: true },
+    { name: "deepseek-r1", function_calling: true },
+  ],
   Foundry: [
     { name: "gpt-4.1", function_calling: true },
     { name: "gpt-4.1-mini", function_calling: true },
@@ -288,8 +298,7 @@ export const mockSubstrateInventory: {
       atespace: "kagent",
       name: "coder-template",
       phase: "Ready",
-      goldenActorId: "actor-golden-001",
-      goldenSnapshot: "snap-2026-07-28",
+      goldenTag: "ate-golden/snap-2026-07-28",
       sandboxClass: "gvisor",
       workerSelector: "pool=default-pool",
     },
@@ -679,6 +688,33 @@ export const mockHarnesses: Harness[] = [
         // template comes to be admitted by two harnesses on a real cluster.
         allowedAgentTemplates: {
           selector: { matchLabels: { "kagent.dev/tier": "shared" } },
+        },
+      },
+    },
+  },
+  {
+    // Bring your own: the user's image serves A2A itself, so it sets a command and
+    // runs templates with no model.
+    ref: "kagent/byo-echo",
+    namespace: "kagent",
+    name: "byo-echo",
+    runtime: "byo",
+    workloadImage:
+      "ghcr.io/example/echo-agent@sha256:a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0",
+    ready: true,
+    resource: {
+      metadata: { name: "byo-echo", namespace: "kagent" },
+      spec: {
+        byo: {},
+        workload: {
+          image:
+            "ghcr.io/example/echo-agent@sha256:a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0",
+          command: ["/app/echo-agent"],
+          args: ["--port=8080"],
+        },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        allowedAgentTemplates: {
+          selector: { matchLabels: { "kagent.dev/runtime": "byo-echo" } },
         },
       },
     },

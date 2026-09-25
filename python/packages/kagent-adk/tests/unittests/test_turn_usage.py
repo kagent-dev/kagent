@@ -4,11 +4,13 @@ import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.types import (
+    Artifact,
     Message,
     Part,
     Role,
     SendMessageRequest,
     Task,
+    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
@@ -58,7 +60,7 @@ def usage_event(
 def stamped_total(usage: TurnUsage) -> dict:
     metadata: dict = {}
     usage.stamp(metadata)
-    assert USAGE_TOTAL_KEY in metadata, "kagent_usage_total must be stamped"
+    assert USAGE_TOTAL_KEY in metadata, "usage total must be stamped"
     return metadata[USAGE_TOTAL_KEY]
 
 
@@ -130,7 +132,7 @@ def test_shape_matches_per_event_usage_metadata():
     usage.add(event)
 
     assert stamped_total(usage) == serialize_metadata_value(event.usage_metadata), (
-        "kagent_usage_total must serialize identically to kagent_usage_metadata"
+        "usage total must serialize identically to per-event usage metadata"
     )
 
 
@@ -311,7 +313,11 @@ async def test_executor_stamps_total_on_terminal_status_update():
     executor_context = ExecutorContext(app_name="app", user_id="user-1", session_id="context-1", runner=None)
 
     adk_event = usage_event(10, 5, 15, "model-a", partial=False, event_id="event-1")
-    a2a_event = object()
+    a2a_event = TaskArtifactUpdateEvent(
+        task_id="task-1",
+        context_id="context-1",
+        artifact=Artifact(artifact_id="artifact-1", parts=[Part(text="hi")]),
+    )
     await TurnUsagePlugin(state.usage).on_event_callback(invocation_context=None, event=adk_event)
     assert await executor._after_event(state, executor_context, a2a_event, adk_event) is a2a_event
 

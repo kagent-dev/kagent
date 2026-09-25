@@ -88,7 +88,7 @@ def test_build_drops_native_exporter_even_if_configure_tracing_fails(monkeypatch
 
     from kagent.openai import _a2a
 
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
 
     def boom(*args, **kwargs):
         raise RuntimeError("no collector")

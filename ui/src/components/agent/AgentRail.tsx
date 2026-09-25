@@ -44,7 +44,7 @@ import {
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
@@ -1561,7 +1561,18 @@ function ChatEntry({
         aria-current={isActive ? "page" : undefined}
         css={{ ...rowStyles(theme, isActive), flex: 1, fontSize: 13, minWidth: 0 }}
       >
-        <Text ellipsis css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}>
+        {/* Tooltipped, because the row is narrow and a conversation named after a
+            snapshot carries two ids — the ellipsis would otherwise hide the part that
+            tells two of them apart. antd only raises it when the text actually clips. */}
+        <Text
+          // The title alone, not the row's label: the age is already legible in the
+          // row, and what the ellipsis hides is the name. To the right, so it opens
+          // into the page rather than back over the list it is explaining one of.
+          ellipsis={{
+            tooltip: { title: conversationTitle(instance, autoTitle), placement: "right" },
+          }}
+          css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
+        >
           {conversationLabel(instance, autoTitle)}
         </Text>
       </Link>

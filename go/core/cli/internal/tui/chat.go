@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/kagent-dev/kagent/go/api/utils"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
@@ -306,7 +306,11 @@ func eventParts(ev a2atype.Event) a2atype.ContentParts {
 
 // renderAssembledText appends newly assembled text; the cumulative projection grows the block in place.
 func (m *chatModel) renderAssembledText() {
-	text := assembledText(m.assembler.Result())
+	text, err := assembledText(m.assembler.Result())
+	if err != nil {
+		m.appendTransportError(err)
+		return
+	}
 	if text == m.projected {
 		return
 	}
@@ -322,7 +326,7 @@ func (m *chatModel) renderAssembledText() {
 }
 
 // assembledText projects agent output; only artifacts carry it, status messages are control-plane.
-func assembledText(result a2atype.SendMessageResult) string {
+func assembledText(result a2atype.SendMessageResult) (string, error) {
 	switch result := result.(type) {
 	case *a2atype.Message:
 		return clia2a.PartsText(result.Parts)
@@ -332,13 +336,17 @@ func assembledText(result a2atype.SendMessageResult) string {
 			if artifact == nil {
 				continue
 			}
-			if text := clia2a.PartsText(artifact.Parts); text != "" {
+			text, err := clia2a.PartsText(artifact.Parts)
+			if err != nil {
+				return "", err
+			}
+			if text != "" {
 				groups = append(groups, text)
 			}
 		}
-		return strings.Join(groups, "\n")
+		return strings.Join(groups, "\n"), nil
 	default:
-		return ""
+		return "", nil
 	}
 }
 
@@ -363,7 +371,10 @@ func (m *chatModel) renderState() {
 	case a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateCanceled:
 		banner := fmt.Sprintf("✗ Task %s.", state)
 		if task.Status.Message != nil {
-			if detail := clia2a.PartsText(task.Status.Message.Parts); strings.TrimSpace(detail) != "" {
+			detail, err := clia2a.PartsText(task.Status.Message.Parts)
+			if err != nil {
+				m.appendTransportError(err)
+			} else if strings.TrimSpace(detail) != "" {
 				banner += " " + detail
 			}
 		}
@@ -386,11 +397,21 @@ func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 		if msg == nil || msg.Role != a2atype.MessageRoleUser {
 			continue
 		}
-		if text := clia2a.PartsText(msg.Parts); strings.TrimSpace(text) != "" {
+		text, err := clia2a.PartsText(msg.Parts)
+		if err != nil {
+			m.appendTransportError(err)
+			continue
+		}
+		if strings.TrimSpace(text) != "" {
 			m.appendUser(text)
 		}
 	}
-	if text := assembledText(task); strings.TrimSpace(text) != "" {
+	text, err := assembledText(task)
+	if err != nil {
+		m.appendTransportError(err)
+		return
+	}
+	if strings.TrimSpace(text) != "" {
 		m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
 	}
 }
@@ -427,34 +448,23 @@ func (m *chatModel) renderToolActivity(parts a2atype.ContentParts) {
 			}
 		}
 
-		if part.Metadata == nil {
-			continue
-		}
-		typeVal, found := utils.GetMetadataValue(part.Metadata, "type")
-		if !found {
-			continue
-		}
-		kagentType, ok := typeVal.(string)
-		if !ok {
-			continue
-		}
-		dataMap, ok := data.(map[string]any)
+		activity, ok := kagenta2a.ParseToolActivity(part)
 		if !ok {
 			continue
 		}
 
-		switch kagentType {
-		case "function_call":
+		switch activity.Kind {
+		case kagenta2a.ToolCallKind:
 			calls = append(calls, toolCall{
-				Name: getString(dataMap, "name"),
-				ID:   getString(dataMap, "id"),
-				Args: dataMap["args"],
+				Name: activity.Name,
+				ID:   activity.ID,
+				Args: activity.Args,
 			})
-		case "function_response":
+		case kagenta2a.ToolResultKind:
 			results = append(results, toolResult{
-				Name:     getString(dataMap, "name"),
-				ID:       getString(dataMap, "id"),
-				Response: dataMap["response"],
+				Name:     activity.Name,
+				ID:       activity.ID,
+				Response: activity.Response,
 			})
 		}
 	}
@@ -554,14 +564,4 @@ func (m *chatModel) updateStatus() {
 	} else {
 		m.statusText = ""
 	}
-}
-
-// getString safely extracts a string value from a map
-func getString(m map[string]any, key string) string {
-	if val, ok := m[key]; ok {
-		if str, ok := val.(string); ok {
-			return str
-		}
-	}
-	return ""
 }

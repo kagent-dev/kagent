@@ -10,6 +10,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"google.golang.org/adk/v2/server/adka2a/v2"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
@@ -20,7 +21,6 @@ const (
 	HITLTypeAskUserRequest       = apia2a.HITLTypeAskUserRequest
 	HITLTypeToolApprovalResponse = apia2a.HITLTypeToolApprovalResponse
 	HITLTypeAskUserResponse      = apia2a.HITLTypeAskUserResponse
-	KAgentMetadataKeyPrefix      = "kagent_"
 )
 
 var hitlAgentExtension = apia2a.HITLExtension()
@@ -138,11 +138,6 @@ func toJSONMap(payload any) (map[string]any, error) {
 		return nil, err
 	}
 	return out, nil
-}
-
-// GetKAgentMetadataKey returns a metadata key prefixed with the Kagent metadata key prefix.
-func GetKAgentMetadataKey(key string) string {
-	return KAgentMetadataKeyPrefix + key
 }
 
 // normalizeTools ensures that tools have non-nil Args.
@@ -404,8 +399,8 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		if data == nil || part.Metadata == nil {
 			continue
 		}
-		partType, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey)
-		isLongRunning, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataIsLongRunningKey)
+		partType := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey)]
+		isLongRunning := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataIsLongRunningKey)]
 		if partType != A2ADataPartMetadataTypeFunctionCall || isLongRunning != true || data["name"] != toolconfirmation.FunctionCallName {
 			continue
 		}
@@ -642,15 +637,7 @@ func processNestedApproval(req *apia2a.ToolApprovalRequest, message *a2atype.Mes
 func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[string]any) *a2atype.Part {
 	tc := toolconfirmation.ToolConfirmation{Confirmed: confirmed, Payload: payload}
 	serialized, _ := json.Marshal(tc)
-	p := a2atype.NewDataPart(map[string]any{
-		PartKeyName:     toolconfirmation.FunctionCallName,
-		PartKeyID:       fcID,
-		PartKeyResponse: map[string]any{"response": string(serialized)},
-	})
-	p.Metadata = map[string]any{
-		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
-	}
-	return p
+	return apia2a.NewToolResultPart(fcID, toolconfirmation.FunctionCallName, map[string]any{"response": string(serialized)})
 }
 
 func stringValue(value any) string {

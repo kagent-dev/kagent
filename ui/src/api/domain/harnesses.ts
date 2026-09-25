@@ -3,7 +3,7 @@
  *
  * An `AgentInstance` is created from a pair — a `Harness` and an `AgentTemplate`
  * — and this is the half that says *how* the agent runs: which runtime adapter
- * (`kagent`, `codex` or `claude`), which Substrate worker pool, which snapshot
+ * (`kagent`, `codex`, `claude` or `byo`), which Substrate worker pool, which snapshot
  * policy, and a digest-pinned workload image. The template is the other half and
  * says what the agent *is*: its model, its prompt, its tools.
  *
@@ -14,7 +14,7 @@
 import type { ResourceMetadata } from "./common";
 
 /** The runtime adapters a harness can select. */
-export type HarnessRuntime = "kagent" | "codex" | "claude";
+export type HarnessRuntime = "kagent" | "codex" | "claude" | "byo";
 
 export interface Harness {
   /** `namespace/name`. */
@@ -26,8 +26,8 @@ export interface Harness {
    * The adapter the spec selects.
    *
    * Denormalised by the controller because the CRD enforces an exactly-one-of
-   * across three spec fields, and every caller listing harnesses would otherwise
-   * reimplement that check. A value outside the three is passed through as it
+   * across four spec fields, and every caller listing harnesses would otherwise
+   * reimplement that check. A value outside the four is passed through as it
    * arrived rather than being folded into a plausible one.
    */
   runtime: string;
@@ -71,21 +71,51 @@ export interface HarnessResource {
 /**
  * What a harness is, in the shape the CRD accepts.
  *
- * Three constraints are enforced by CEL on the resource and so are worth stating where
+ * Four constraints are enforced by CEL on the resource and so are worth stating where
  * a form can see them:
  *
- * - exactly one of `kagent`, `codex` or `claude` picks the runtime adapter;
+ * - exactly one of `kagent`, `codex`, `claude` or `byo` picks the runtime adapter;
+ * - a `byo` harness must set `workload.command`;
  * - `workload.image` must be pinned by digest — a tag is rejected outright;
  * - `substrate.workerPoolRef.name` must not be empty.
  *
  * `allowedAgentTemplates` is optional and omitting it admits *no* templates, which is
  * a harness that runs nothing. That is legal and almost never intended.
  */
+/** `spec.kagent.compaction.summarizer`: the model and prompt that write the summaries. */
+export interface KagentHarnessSummarizer {
+  /** A ModelConfig in the harness namespace. Omitted summarizes with the agent's own model. */
+  modelConfigRef?: { name: string };
+  /** Must contain `{conversation_history}`. */
+  promptTemplate?: string;
+}
+
+/**
+ * `spec.kagent.compaction`: the sliding window (`compactionInterval`, `overlapSize`)
+ * and tail retention (`tokenThreshold`, `eventRetentionSize`) strategies. At least
+ * one strategy is required; `tokenThreshold` and `eventRetentionSize` go together.
+ */
+export interface KagentHarnessCompaction {
+  compactionInterval?: number;
+  overlapSize?: number;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+  summarizer?: KagentHarnessSummarizer;
+}
+
+/** `spec.kagent`: runtime policy of the kagent adapter. */
+export interface KagentHarnessSpec {
+  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
+  compaction?: KagentHarnessCompaction;
+}
+
 export interface HarnessSpec {
-  kagent?: Record<string, never>;
+  kagent?: KagentHarnessSpec;
   codex?: Record<string, never>;
   claude?: Record<string, never>;
-  workload: { image: string };
+  /** Bring your own: an image that serves kagent's A2A contract itself. */
+  byo?: Record<string, never>;
+  workload: { image: string; command?: string[]; args?: string[] };
   substrate: {
     workerPoolRef: { name: string };
     snapshotPolicy: { location: string };
@@ -95,7 +125,7 @@ export interface HarnessSpec {
 }
 
 /** The adapters a harness may select, exactly one of which is required. */
-export const HARNESS_ADAPTERS = ["kagent", "codex", "claude"] as const;
+export const HARNESS_ADAPTERS = ["kagent", "codex", "claude", "byo"] as const;
 export type HarnessAdapter = (typeof HARNESS_ADAPTERS)[number];
 
 /** The digest pin `workload.image` must satisfy, from the CRD's own pattern. */

@@ -208,3 +208,24 @@ docker run --rm \
   --net=host \
   localhost:5001/kebab:latest
 ```
+
+## Telemetry
+
+The telemetry contract is a Weaver registry in `telemetry/registry`. The Go
+constants in `go/pkg/telemetry/conv`, the Python constants in
+`kagent.core.telemetry.conv`, and `docs/architecture/telemetry-contract.md` are
+generated from it. Never edit them by hand. After a registry change, run:
+
+```bash
+make semconv-generate   # regenerate everything from the registry
+make semconv-verify     # what CI runs: check, policy tests, generate, drift check
+```
+
+These targets need either Docker or a local `weaver` of exactly the version in
+`telemetry/versions.env`. A different local version is refused, so a green run
+on a laptop means the same as in CI. See
+[docs/architecture/telemetry.md](docs/architecture/telemetry.md) for the contract.
+
+To look at traces locally, `make otel-local` starts Jaeger with an OTLP receiver
+on ports 4317 and 4318 and its UI on http://localhost:16686. Point an install
+at it with `--set otel.traces.enabled=true --set otel.exporter.otlp.endpoint=http://<host>:4317`.

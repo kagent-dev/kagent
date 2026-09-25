@@ -36,6 +36,7 @@ CREATE TABLE runtime_revision (
     harness_uid              TEXT        NOT NULL,
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
+    credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
@@ -87,7 +88,6 @@ CREATE TABLE agent_instance_checkpoint (
     data                   BYTEA       NOT NULL,
     source_history_id      UUID        NOT NULL REFERENCES a2a_context(id) ON DELETE RESTRICT,
     prepared_revision      TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
-    source_name            TEXT        NOT NULL DEFAULT '',
     CHECK (snapshot_content_scope IN ('FULL', 'DATA')),
     CHECK (state IN ('CREATING', 'READY', 'FAILED', 'DELETING')),
     UNIQUE (user_id, request_id)
@@ -107,7 +107,18 @@ CREATE TABLE agent_instance (
     data                 BYTEA       NOT NULL,
     operation            TEXT        NOT NULL DEFAULT 'AGENT_INSTANCE_OPERATION_UNSPECIFIED',
     context_id           UUID        NOT NULL,
-    source_checkpoint_id UUID        REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
+    -- Retain fork request identity after deletion without retaining the checkpoint.
+    source_checkpoint_id UUID,
+    pinned_checkpoint_id UUID GENERATED ALWAYS AS (
+        CASE WHEN state <> 'AGENT_INSTANCE_STATE_DELETED' THEN source_checkpoint_id END
+    ) STORED REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
+    operation_id         UUID,
+    executor_id          UUID,
+    CHECK (executor_id IS NULL OR (operation_id IS NOT NULL
+        AND operation <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
+        AND state <> 'AGENT_INSTANCE_STATE_DELETED')),
+    CHECK (state <> 'AGENT_INSTANCE_STATE_DELETED' OR
+        (prepared_revision IS NULL AND operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED')),
     history_id           UUID        NOT NULL,
     CONSTRAINT agent_instance_context_binding_fkey
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
@@ -116,11 +127,11 @@ CREATE TABLE agent_instance (
         CHECK (operation IN ('AGENT_INSTANCE_OPERATION_UNSPECIFIED', 'AGENT_INSTANCE_OPERATION_CREATE',
             'AGENT_INSTANCE_OPERATION_SUSPEND', 'AGENT_INSTANCE_OPERATION_RESUME', 'AGENT_INSTANCE_OPERATION_DELETE')),
     CHECK (state IN ('AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_STATE_READY',
-        'AGENT_INSTANCE_STATE_SUSPENDED', 'AGENT_INSTANCE_STATE_FAILED')),
+        'AGENT_INSTANCE_STATE_SUSPENDED', 'AGENT_INSTANCE_STATE_FAILED', 'AGENT_INSTANCE_STATE_DELETED')),
     UNIQUE (user_id, request_id)
 );
 CREATE INDEX agent_instance_user_id_id_idx
-    ON agent_instance (user_id, id);
+    ON agent_instance (user_id, id) WHERE state <> 'AGENT_INSTANCE_STATE_DELETED';
 
 CREATE TABLE agent_instance_share (
     id          UUID        PRIMARY KEY,

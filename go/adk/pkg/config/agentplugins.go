@@ -28,6 +28,9 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, 
 		if err != nil {
 			return fmt.Errorf("materialize agent plugins: %w", err)
 		}
+		if len(materialization.ClaudeFormatPluginRoots()) > 0 {
+			return fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
+		}
 		mcpConfig, err := agentplugins.LoadMCP(ctx, materialization, paths.Data)
 		if err != nil {
 			return fmt.Errorf("load agent plugin MCP configuration: %w", err)

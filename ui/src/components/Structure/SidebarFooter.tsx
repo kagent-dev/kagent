@@ -8,7 +8,7 @@ import {
   PanelLeftOpen,
   Sun,
 } from "lucide-react";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 
 /** Where the docs link points. The project's own documentation, not a deployment's. */
 const DOCS_URL = "https://kagent.dev/docs/kagent";

@@ -40,7 +40,7 @@ jobs:
   test-e2e:
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.2.0-beta2
+      SUBSTRATE_VERSION: 0.2.0-beta5
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
@@ -98,11 +98,14 @@ jobs:
           helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
           helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system \
             --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
-            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms'
+            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms' \
+            --set 'credentialProvider.namespacePolicies[0].atespace=kagent' \
+            --set 'credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent'
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
           ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
           actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
           kubectl create secret generic actor-id-ca-certs -n ate-system --from-literal=ca.crt="${actor_id_ca_root}"
           kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
@@ -125,8 +128,8 @@ jobs:
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
             --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
-            --set otel.tracing.enabled=true
-            --set-string otel.tracing.exporter.otlp.endpoint=http://172.17.0.1:14317
+            --set otel.traces.enabled=true
+            --set-string otel.exporter.otlp.endpoint=http://172.17.0.1:14317
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -176,7 +179,7 @@ jobs:
           export KAGENT_LOCAL_HOST=172.17.0.1
           # TestMain keeps the receiver alive for every runtime's response flush.
           export KAGENT_E2E_OTLP_LISTEN_ADDRESS=:14317
-          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on -parallel 4 -count=1
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel 4 -count=1 -timeout=30m
 
       - name: fail print info
         if: failure()
@@ -215,6 +218,20 @@ jobs:
         run: make proto-check
       - name: Check protobuf compatibility
         run: make proto-breaking
+
+  semconv-check:
+    name: Telemetry Contract Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: false
+      - name: Check the registry and generated conventions
+        run: make semconv-verify
 
   upgrade-tests:
     needs:
@@ -430,6 +447,7 @@ jobs:
           - golang-adk
           - claude-harness
           - codex-harness
+          - sandbox-guest
     runs-on: blacksmith-2vcpu-ubuntu-2404
     services:
       registry:

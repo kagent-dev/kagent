@@ -135,27 +135,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // looking for a mistake in their model or prompt.
     await expect(admission).toContainText("Nothing is wrong with the template itself");
 
-    // `spec.modelConfig` is the one field the CRD requires.
+    // Only the name is required: a BYO harness runs a template with no model.
     await expect(page.getByTestId("template-submit")).toBeDisabled();
-    await expect(page.getByTestId("template-form-problems")).toContainText(
-      "model configuration is required",
-    );
-
-    /*
-     * And the marks agree with that gate — which this form, of all of them, has to be
-     * checked for. antd draws the asterisk from `required` on a `Form.Item` while
-     * `draftProblems` refuses the submit in code, and the two came apart here first:
-     * the whole agent-template form carried no mark at all while refusing to save
-     * without a model configuration. That is one of the two regressions `expectRequired`
-     * was written for, so leaving this form the only one not using it would be the
-     * worst possible omission.
-     *
-     * Everything else here is genuinely optional, including the system prompt — a
-     * template may take one from its harness instead.
-     */
+    await expect(page.getByTestId("template-form-problems")).toContainText("A name is required");
     await expectRequired(page, {
-      marked: ["Name", "Model configuration"],
-      unmarked: ["Description", "System prompt"],
+      marked: ["Name"],
+      unmarked: ["Model configuration", "Description", "System prompt"],
     });
   });
 

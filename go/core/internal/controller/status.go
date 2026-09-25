@@ -36,12 +36,8 @@ func newAgentTemplateStatuses(templates krt.Collection[*kagentv1alpha3.AgentTemp
 }
 
 func statusForPair(state PairReconciliation, generation int64, latestSuccessful string) kagentv1alpha3.AgentTemplateHarnessStatus {
-	desired := state.RevisionID.String()
-	if state.RevisionID.IsZero() {
-		desired = requestedRevision(state.Pair.AgentTemplate, state.Pair.Harness.Name)
-	}
 	status := kagentv1alpha3.AgentTemplateHarnessStatus{
-		Harness: state.Pair.Harness.Name, DesiredRevision: desired, LatestSuccessfulRevision: latestSuccessful,
+		Harness: state.Pair.Harness.Name, DesiredRevision: state.desiredRevision(), LatestSuccessfulRevision: latestSuccessful,
 	}
 	status.Warnings = append([]string(nil), state.Warnings...)
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionAccepted, metav1.ConditionTrue, "Accepted", "Harness admission selector matches the AgentTemplate")
@@ -57,7 +53,7 @@ func statusForPair(state PairReconciliation, generation int64, latestSuccessful 
 	}
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All runtime references resolved")
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
-	if state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() == nil {
+	if state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil {
 		setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionReady, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
 		return status
 	}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestProductionRoundTrip(t *testing.T) {
@@ -69,5 +71,32 @@ func TestParseRejectsUnsafeConfiguration(t *testing.T) {
 	}
 	if _, err := Parse([]byte(`{"version":1,"unknown":true}`)); err == nil {
 		t.Fatal("Parse() accepted an unknown field")
+	}
+}
+
+func TestConfigValidatesRuntimeTelemetry(t *testing.T) {
+	base := Production("gpt-5.2-codex", "help")
+	base.Provider = Provider{Name: "openai"}
+	for _, test := range []struct {
+		name      string
+		telemetry tracing.RuntimeTelemetry
+		wantError bool
+	}{
+		{name: "absent"},
+		{name: "codex identity", telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeCodex, AgentName: "assistant-codex", AgentNamespace: "kagent",
+		}},
+		{name: "another runtime", telemetry: tracing.RuntimeTelemetry{Runtime: tracing.RuntimeClaude}, wantError: true},
+		{name: "capture above the ceiling", telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeCodex, CaptureContent: true, MaxCaptureBytes: tracing.MaxCaptureBytes + 1,
+		}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := base
+			config.RuntimeTelemetry = test.telemetry
+			if err := config.Validate(); (err != nil) != test.wantError {
+				t.Fatalf("Validate() error = %v, wantError = %v", err, test.wantError)
+			}
+		})
 	}
 }

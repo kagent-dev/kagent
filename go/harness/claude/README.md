@@ -20,7 +20,7 @@ harness.
 
 ## Working
 
-- [x] Anthropic, Amazon Bedrock, and Vertex AI model providers
+- [x] Anthropic API keys and Amazon Bedrock bearer tokens, injected by the gateway
 - [x] Streaming text, tool calls, and tool results over A2A
 - [x] Task cancellation
 - [x] Durable Claude session resume between turns
@@ -30,9 +30,13 @@ harness.
 - [x] Direct HTTP and SSE MCP servers with whole-server tool access
 - [x] Human-in-the-loop MCP tool approval
 
+Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
+AWS IAM keys and Vertex service-account keys require local signing and are rejected
+by the compiler. Arbitrary Harness `credentialRef` environment values are also unsupported.
+
 ## Human-in-the-loop approval flow
 
-Claude runs in `--bare` print mode with `permissions.ask` rules for MCP servers
+Claude runs in print mode with `permissions.ask` rules for MCP servers
 that require approval. Its native `--permission-prompt-tool` calls a private,
 authenticated loopback MCP tool before executing a protected call.
 

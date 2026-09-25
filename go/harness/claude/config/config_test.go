@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestOwnsEnvironment(t *testing.T) {
 	for _, name := range []string{
 		AnthropicAPIKeyEnvName,
 		ClaudeConfigDirEnvName,
-		PreResponseTraceFlushEnvName,
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
 		"OTEL_TRACES_EXPORTER",
 		"OTEL_LOG_RAW_API_BODIES",
@@ -82,7 +82,7 @@ func TestAgentsJSON(t *testing.T) {
 	if raw != want {
 		t.Fatalf("AgentsJSON() = %s, want %s", raw, want)
 	}
-	parsed, err := Parse([]byte(`{"version":4,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"agents":` + raw + `,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`))
+	parsed, err := Parse([]byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"agents":` + raw + `,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestConfigRejectsInvalidAgents(t *testing.T) {
 }
 
 func TestParseValidates(t *testing.T) {
-	contents := `{"version":4,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"model":"claude-test","append_system_prompt":"help","max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`
+	contents := `{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"model":"claude-test","append_system_prompt":"help","max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`
 	cfg, err := Parse([]byte(contents))
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestParseValidates(t *testing.T) {
 }
 
 func TestConfigRejectsUnknownFields(t *testing.T) {
-	if _, err := Parse([]byte(`{"version":4,"surprise":true}`)); err == nil {
+	if _, err := Parse([]byte(`{"version":5,"surprise":true}`)); err == nil {
 		t.Fatal("Parse() accepted an unknown field")
 	}
 }
@@ -130,8 +130,49 @@ func TestConfigRejectsTrailingValue(t *testing.T) {
 }
 
 func TestConfigRejectsMissingLimits(t *testing.T) {
-	_, err := Parse([]byte(`{"version":4,"claude_executable":"claude"}`))
+	_, err := Parse([]byte(`{"version":5,"claude_executable":"claude"}`))
 	if err == nil || !strings.Contains(err.Error(), "limits must be positive") {
 		t.Fatalf("Parse() error = %v", err)
+	}
+}
+
+func TestConfigValidatesRuntimeTelemetry(t *testing.T) {
+	base := Production("claude-sonnet-4-5", "help")
+	for _, test := range []struct {
+		name      string
+		telemetry tracing.RuntimeTelemetry
+		wantError bool
+	}{
+		{name: "absent"},
+		{name: "claude identity", telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeClaude, AgentName: "assistant-claude", AgentNamespace: "kagent",
+		}},
+		{name: "another runtime", telemetry: tracing.RuntimeTelemetry{Runtime: tracing.RuntimeCodex}, wantError: true},
+		{name: "capture above the ceiling", telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeClaude, CaptureContent: true, MaxCaptureBytes: tracing.MaxCaptureBytes + 1,
+		}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := base
+			config.RuntimeTelemetry = test.telemetry
+			if err := config.Validate(); (err != nil) != test.wantError {
+				t.Fatalf("Validate() error = %v, wantError = %v", err, test.wantError)
+			}
+		})
+	}
+}
+
+// A configuration without the telemetry section stays readable, which keeps
+// standalone harness validation working.
+func TestParseAcceptsConfigWithoutRuntimeTelemetry(t *testing.T) {
+	config, err := Parse([]byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.RuntimeTelemetry != (tracing.RuntimeTelemetry{}) {
+		t.Fatalf("runtime telemetry = %#v, want the zero value", config.RuntimeTelemetry)
+	}
+	if config.RuntimeTelemetry.CaptureLimit() != 0 {
+		t.Fatal("capture is enabled without a telemetry section")
 	}
 }

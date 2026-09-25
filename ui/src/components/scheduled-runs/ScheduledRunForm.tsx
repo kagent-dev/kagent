@@ -4,6 +4,7 @@ import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { agentPairsFrom, newConversationBlockedReason, useAgentTemplatesAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
+import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import type { ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 import { minuteIntervals, parseSchedule, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
@@ -37,7 +38,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   // Retain the key after a failed response: retrying must not create another schedule.
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
   const templates = useAgentTemplatesAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
   const agents = agentPairsFrom(templates.data?.templates ?? []);

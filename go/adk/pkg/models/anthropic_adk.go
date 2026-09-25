@@ -73,6 +73,12 @@ func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 
 		// Apply config options
 		applyAnthropicConfig(&params, m.Config)
+		if schema, err := structuredOutputSchema(req.Config); err != nil {
+			yield(nil, err)
+			return
+		} else if schema != nil {
+			params.OutputConfig.Format = anthropic.JSONOutputFormatParam{Schema: schema}
+		}
 
 		// Add tools if provided
 		if req.Config != nil && len(req.Config.Tools) > 0 {

@@ -174,13 +174,12 @@ func (f *deleteActorTemplateFake) DeleteActor(_ context.Context, in *ateapipb.De
 	return &ateapipb.Actor{}, nil
 }
 
-func TestDeleteActorTemplateAlsoDeletesGoldenActorOnRetry(t *testing.T) {
+func TestDeleteActorTemplateRetriesNotFound(t *testing.T) {
 	fake := &deleteActorTemplateFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "template-uid"))
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template"))
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
-	require.Equal(t, &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "template-uid"}, fake.actor.GetActor())
-	require.True(t, fake.actor.GetAnyState())
+	require.Nil(t, fake.actor, "Substrate owns golden Actor cleanup")
 }
 
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {

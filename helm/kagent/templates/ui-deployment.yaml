@@ -28,10 +28,7 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.ui.podLabels | default dict) (include "kagent.ui.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" .) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.ui.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -66,14 +63,21 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.ui.image.registry | default .Values.registry  }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
+          image: {{ include "kagent.uiImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.ui.image.pullPolicy) }}
           {{- /* The UI is a static bundle; these are read by init.sh, which
                  renders them into the config.json the browser fetches at
                  startup. Nothing here is consumed by a server process. */}}
           env:
             - name: KAGENT_API_BASE_URL
               value: {{ .Values.ui.publicBackendUrl | default "/api" | quote }}
+            {{- with .Values.ui.basePath }}
+            {{- /* Keep in sync with ui/scripts/init.sh. nginx strips the prefix, so it must not start with a path nginx serves. */}}
+            {{- if or (not (regexMatch "^(/[A-Za-z0-9._~-]+)*/?$" .)) (regexMatch "(^|/)\\.\\.?(/|$)" .) }}{{ fail "ui.basePath must be a path like /ui" }}{{ end }}
+            {{- if regexMatch "^/(api|a2a|assets|health|env-config\\.js|index\\.html|mockServiceWorker\\.js)(/|$)" . }}{{ fail "ui.basePath cannot start with a path nginx serves, such as /api or /assets" }}{{ end }}
+            - name: KAGENT_UI_BASE_PATH
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.ui.auth }}
             - name: SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}

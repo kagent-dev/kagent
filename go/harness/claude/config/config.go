@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version                             = 4
+	Version                             = 5
 	PinnedClaudeVersion                 = "2.1.260"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
@@ -34,7 +35,6 @@ const (
 	VertexProjectEnvName                = "ANTHROPIC_VERTEX_PROJECT_ID"
 	VertexRegionEnvName                 = "CLOUD_ML_REGION"
 	SandboxEnvName                      = "IS_SANDBOX"
-	PreResponseTraceFlushEnvName        = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
 	MCPCredentialEnvPrefix              = "KAGENT_CLAUDE_MCP_CREDENTIAL_"
 )
 
@@ -49,7 +49,7 @@ func OwnsEnvironment(name string) bool {
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
-		SandboxEnvName, PreResponseTraceFlushEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
+		SandboxEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER",
 		"OTEL_LOGS_EXPORTER", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT",
 		"OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES", "TRACEPARENT", "TRACESTATE",
@@ -70,9 +70,13 @@ type Config struct {
 	Agents                map[string]Agent       `json:"agents,omitempty"`
 	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
-	MaxEventBytes         int                    `json:"max_event_bytes"`
-	MaxStderrBytes        int                    `json:"max_stderr_bytes"`
-	InterruptGraceMillis  int                    `json:"interrupt_grace_millis"`
+	// RuntimeTelemetry carries the compiler-owned span identity and content
+	// capture policy. It is absent for standalone runs, which fall back to the
+	// environment for service identity and leave capture disabled.
+	RuntimeTelemetry     tracing.RuntimeTelemetry `json:"runtime_telemetry,omitzero"`
+	MaxEventBytes        int                      `json:"max_event_bytes"`
+	MaxStderrBytes       int                      `json:"max_stderr_bytes"`
+	InterruptGraceMillis int                      `json:"interrupt_grace_millis"`
 }
 
 // MCPServer is one compiler-owned direct remote server. Claude's strict MCP
@@ -132,6 +136,12 @@ func (c Config) Validate() error {
 	}
 	if c.MaxEventBytes <= 0 || c.MaxStderrBytes <= 0 || c.InterruptGraceMillis <= 0 {
 		return fmt.Errorf("event, stderr, and interrupt grace limits must be positive")
+	}
+	if err := c.RuntimeTelemetry.Validate(); err != nil {
+		return err
+	}
+	if runtime := c.RuntimeTelemetry.Runtime; runtime != "" && runtime != tracing.RuntimeClaude {
+		return fmt.Errorf("claude runtime telemetry names runtime %q", runtime)
 	}
 	for name, agent := range c.Agents {
 		if !agentNamePattern.MatchString(name) {

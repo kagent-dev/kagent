@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
 )
 
@@ -480,4 +481,30 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	// Reviving the pair must retain the last success, not a report made while retired.
 	require.NoError(t, c.UpsertAgentTemplateHarnessPair(ctx, pair))
 	assertAvailableRevision("second")
+}
+
+func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentTemplateName: "agent", AgentTemplateUID: "agent", HarnessName: "kagent", HarnessUID: "harness", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"}}}
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
+	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
+	require.NoError(t, err)
+	require.Equal(t, revision.Credentials, got.Credentials)
+	revision.Credentials[0].URI = "ate-secret://kubernetes.io/team/other/token"
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
+	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
+	require.NoError(t, err)
+	require.Equal(t, got.Credentials, unchanged.Credentials, "revision credentials are immutable")
+}
+
+func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
+	revision, err := toRuntimeRevision(runtimeRevisionRow{
+		Revision: "bad-revision",
+		Credentials: []egress.Credential{{
+			Hostname: "*", Header: "authorization", URI: "ate-secret://kubernetes.io/team/auth/token",
+		}},
+	})
+	require.ErrorContains(t, err, "decode runtime revision bad-revision credentials")
+	require.ErrorContains(t, err, "exact DNS hostname")
+	require.Nil(t, revision)
 }

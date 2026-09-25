@@ -198,6 +198,21 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 		}
 	})
 
+	t.Run("completed Task structured result", func(t *testing.T) {
+		part := apia2a.NewStructuredOutputPart(map[string]any{"answer": float64(4)}, "digest")
+		task := &a2atype.Task{
+			Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+			Artifacts: []*a2atype.Artifact{{Parts: a2atype.ContentParts{part}}},
+		}
+		resp, err := s.processResult(nil, contextID, task)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Result != `{"answer":4}` {
+			t.Fatalf("Result = %q, want structured JSON", resp.Result)
+		}
+	})
+
 	t.Run("unrecognised result type", func(t *testing.T) {
 		resp, err := s.processResult(nil, contextID, nil)
 		if err != nil {

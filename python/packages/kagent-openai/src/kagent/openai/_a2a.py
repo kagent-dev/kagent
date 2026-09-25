@@ -25,6 +25,7 @@ from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
+from kagent.core.tracing import signal_enabled
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from openai import AsyncOpenAI
@@ -179,8 +180,7 @@ class KAgentApp:
                 logger.error(f"Failed to configure tracing: {e}")
 
             try:
-                tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-                if tracing_enabled:
+                if signal_enabled("TRACES"):
                     logger.info("Enabling OpenAI Agents SDK tracing")
                     _configure_openai_agents_tracing()
                 else:

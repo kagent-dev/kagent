@@ -393,7 +393,7 @@ describe("the cluster", () => {
               metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
               status: {
                 goldenSnapshotStatus: {
-                  goldenSnapshot: { snapshotUri: "s3://golden" },
+                  goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
               sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
@@ -414,7 +414,7 @@ describe("the cluster", () => {
                 workerPodIp: "10.0.0.1",
               },
               externalSnapshot: { snapshotUri: "s3://snapshot" },
-              inProgressSnapshotName: "next-snapshot",
+              inProgressLocalSnapshotName: "next-snapshot",
             },
           }],
         }),
@@ -427,8 +427,7 @@ describe("the cluster", () => {
       atespace: "kagent",
       name: "tpl",
       phase: "Ready",
-      goldenActorId: "golden-actor",
-      goldenSnapshot: "s3://golden",
+      goldenTag: "ate-golden/golden",
       sandboxClass: "gvisor",
       workerSelector: "pool=agents,zone=east",
     });
@@ -457,7 +456,7 @@ describe("the cluster", () => {
     {
       goldenSnapshotStatus: {
         errorMessage: "warmup failed",
-        goldenSnapshot: { snapshotUri: "s3://golden" },
+        goldenTag: { atespace: "ate-golden", name: "golden" },
       },
       phase: "Failed",
     },
@@ -492,6 +491,7 @@ describe("the cluster", () => {
     [ActorState.PAUSED, "Paused"],
     [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
     [ActorState.DELETING, "ACTOR_STATE_DELETING"],
+    [ActorState.REVERTING, "Reverting"],
     [99 as ActorState, "99"],
   ])("preserves the actor status label for state %s", async (state, label) => {
     serve(({ service }) => {
@@ -564,7 +564,7 @@ describe("the cluster", () => {
               metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
               status: {
                 goldenSnapshotStatus: {
-                  goldenSnapshot: { snapshotUri: "s3://golden" },
+                  goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
               sandboxConfig: { sandboxClass: SandboxClass.GVISOR },

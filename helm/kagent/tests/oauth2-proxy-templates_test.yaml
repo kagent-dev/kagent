@@ -1,0 +1,23 @@
+suite: test oauth2-proxy sign-in template
+templates:
+  - oauth2-proxy-templates.yaml
+tests:
+  - it: should send the sign-in redirect under ui.basePath
+    set:
+      oauth2-proxy:
+        enabled: true
+      ui:
+        basePath: /ui/
+    asserts:
+      - matchRegex:
+          path: data["sign_in.html"]
+          pattern: 'url=/ui/login\?rd='
+
+  - it: should send the sign-in redirect to the root by default
+    set:
+      oauth2-proxy:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["sign_in.html"]
+          pattern: 'url=/login\?rd='

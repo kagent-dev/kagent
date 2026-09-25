@@ -12,7 +12,6 @@ import (
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
-	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
@@ -50,7 +49,7 @@ func runUsageAgent(
 		t.Fatalf("agent.New() error = %v", err)
 	}
 
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName:        appName,
 		SessionService: adksession.InMemoryService(),
 		Logger:         slog.New(slog.DiscardHandler),
@@ -59,6 +58,9 @@ func runUsageAgent(
 			Agent:   agent,
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 
 	reqCtx := &a2asrv.ExecutorContext{
 		TaskID:     "task-1",
@@ -172,14 +174,14 @@ func TestTurnUsageOmittedWhenNoUsageReported(t *testing.T) {
 }
 
 // TestTurnUsageShapeMatchesPerEventUsageMetadata pins the aggregate to the same
-// serialization as the per-event adk_usage_metadata entry, so consumers can
+// serialization as the per-event usage entry, so consumers can
 // share a single parser.
 func TestTurnUsageShapeMatchesPerEventUsageMetadata(t *testing.T) {
 	updates, terminal := runUsageAgent(t, nil, usageResponse("only", 10, 5, 15))
 
 	var perEvent map[string]any
 	for _, update := range updates {
-		if usage, ok := update.Artifact.Metadata[adka2a.ToA2AMetaKey("usage_metadata")].(map[string]any); ok {
+		if usage, ok := update.Artifact.Metadata[apia2a.UsageMetadataKey].(map[string]any); ok {
 			perEvent = usage
 		}
 	}
@@ -287,10 +289,13 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 		t.Fatalf("agent.New() error = %v", err)
 	}
 
-	executor := NewKAgentExecutor(KAgentExecutorConfig{
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName: appName, SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
 	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
 
 	var pause *a2atype.TaskStatusUpdateEvent
 	first := &a2asrv.ExecutorContext{

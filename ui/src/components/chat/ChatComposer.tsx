@@ -165,13 +165,13 @@ export function ChatComposer({
 
       <Space size={8}>
         {onCheckpoint ? (
-          <Tooltip title="Create a checkpoint. Checkpoints can be used to fork a chat from a previous point in the chat history.">
+          <Tooltip title="Take a snapshot. You can fork the chat from one later.">
             {/* Icon only: the box beside it is the point of this row, and a second
                 labelled button took enough width from it to wrap the placeholder and
                 grow the whole composer by a line. */}
             <Button
               data-testid="chat-checkpoint"
-              aria-label="Create a checkpoint. Checkpoints can be used to fork a chat from a previous point in the chat history."
+              aria-label="Take a snapshot. You can fork the chat from one later."
               icon={<Save size={14} />}
               loading={isCheckpointing}
               disabled={disabled || isStreaming || !canCheckpoint}

@@ -8,14 +8,14 @@ from google.adk.events import Event
 from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.runners import Runner
 from google.genai import types as genai_types
-from kagent.core.a2a import get_kagent_metadata_key
+from kagent.core.a2a import A2A_USAGE_TOTAL_METADATA_KEY
 
 from .converters.event_converter import serialize_metadata_value
 
 # Every terminal status update of a task carries the running task-lifetime
 # total, so consumers take the latest value rather than summing across
 # executions.
-USAGE_TOTAL_KEY = get_kagent_metadata_key("usage_total")
+USAGE_TOTAL_KEY = A2A_USAGE_TOTAL_METADATA_KEY
 
 TURN_USAGE_PLUGIN_NAME = "kagent_turn_usage"
 
@@ -88,8 +88,8 @@ class TurnUsage:
         return self.prompt_tokens == 0 and self.completion_tokens == 0 and self.total_tokens == 0
 
     def stamp(self, metadata: dict[str, Any]) -> None:
-        """Attach the aggregate to metadata under kagent_usage_total. The value
-        is serialized exactly like the per-event kagent_usage_metadata (same
+        """Attach the aggregate to metadata under USAGE_TOTAL_KEY. The value
+        is serialized exactly like the per-event usage metadata (same
         genai type, same serializer) plus modelVersion, so consumers can share
         one parser."""
         if self.empty():

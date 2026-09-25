@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"reflect"
+
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
@@ -35,14 +38,27 @@ type Collections struct {
 // PairRuntimeObservation records a pair's preparation. The revision prevents a
 // cached observation from making changed inputs ready before reconciliation.
 type PairRuntimeObservation struct {
+	Namespace         string
 	AgentTemplateName string
 	HarnessName       string
 	RevisionID        v2translator.RevisionID
 	Template          *ateapipb.ActorTemplate
+	Failure           *ReconciliationFailure
 }
 
 func (p PairRuntimeObservation) ResourceName() string {
-	return p.Template.GetMetadata().GetAtespace() + "/" + p.AgentTemplateName + "/" + p.HarnessName
+	return p.Namespace + "/" + p.AgentTemplateName + "/" + p.HarnessName
+}
+
+var _ krt.Equaler[PairRuntimeObservation] = PairRuntimeObservation{}
+
+// Equals compares runtime contents rather than protobuf's mutable caches.
+func (p PairRuntimeObservation) Equals(other PairRuntimeObservation) bool {
+	if !proto.Equal(p.Template, other.Template) {
+		return false
+	}
+	p.Template, other.Template = nil, nil
+	return reflect.DeepEqual(p, other)
 }
 
 // AgentTemplateHarnessPair is one same-namespace combination selected by a
