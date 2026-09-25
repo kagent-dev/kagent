@@ -1123,22 +1123,30 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 			t.Errorf("delete interaction ModelConfig: %v", err)
 		}
 	})
-	waitModelConfigAccepted(t, kube, model)
+	waitModelConfigReady(t, kube, model)
 	return model
 }
 
-// waitModelConfigAccepted blocks until the controller has seen model. The template compiler reads the
-// collection that writes this status, so a template created sooner can fail to resolve the model.
-func waitModelConfigAccepted(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig) {
+// waitModelConfigReady blocks until the controller has resolved model and its references;
+// templates compiled sooner fail on a missing ModelConfig or Secret.
+func waitModelConfigReady(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig) {
 	t.Helper()
 	if err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(model), model); err != nil {
 			return false, err
 		}
 		accepted := meta.FindStatusCondition(model.Status.Conditions, v1alpha3.ModelConfigConditionTypeAccepted)
-		return accepted != nil && accepted.Status == metav1.ConditionTrue && accepted.ObservedGeneration == model.Generation, nil
+		if accepted == nil || accepted.ObservedGeneration != model.Generation {
+			return false, nil
+		}
+		if accepted.Status != metav1.ConditionTrue {
+			return false, fmt.Errorf("not accepted: %s: %s", accepted.Reason, accepted.Message)
+		}
+		// ResolvedRefs stays False until the Secret reaches the controller's cache.
+		resolved := meta.FindStatusCondition(model.Status.Conditions, v1alpha3.ModelConfigConditionTypeResolvedRefs)
+		return resolved != nil && resolved.Status == metav1.ConditionTrue && resolved.ObservedGeneration == model.Generation, nil
 	}); err != nil {
-		t.Fatalf("wait for ModelConfig %s/%s to be accepted: %v", model.Namespace, model.Name, err)
+		t.Fatalf("wait for ModelConfig %s/%s to be ready: %v", model.Namespace, model.Name, err)
 	}
 }
 
