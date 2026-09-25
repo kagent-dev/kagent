@@ -140,13 +140,9 @@ function TextPart({ part, role }: ChatPartRendererProps<"text">) {
         borderRadius: theme.radius.md,
         background: isUser ? theme.color.primary : theme.color.bgElevated,
         border: isUser ? "none" : `1px solid ${theme.color.border}`,
-        // The user's bubble is a primary surface, so it takes the primary
-        // foreground. Using the page's `text` for both put near-black on
-        // deep purple on the light theme.
+        // A primary surface takes the primary foreground; the page's text was unreadable on it.
         color: isUser ? theme.color.textOnPrimary : theme.color.text,
-        // The user's own words are shown verbatim, newlines and all. The
-        // agent's reply is markdown, which brings its own line breaks and
-        // block spacing — so `pre-wrap` is only for the user's side.
+        // Only the user's words need pre-wrap; the agent's markdown brings its own breaks.
         whiteSpace: isUser ? "pre-wrap" : undefined,
         wordBreak: "break-word",
       }}
