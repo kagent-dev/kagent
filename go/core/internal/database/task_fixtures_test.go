@@ -86,7 +86,7 @@ func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.AgentInstanc
 	require.NoError(t, err)
 	instance, err = markAgentInstanceReady(t.Context(), client, instance.Id, "agent.example")
 	require.NoError(t, err)
-	task := newAgentInstanceTask("task", "initial")
+	task := newAgentInstanceTask(uuid.NewString(), "initial")
 	task.ContextID = instance.ContextId
 	_, err = client.CreateRuntimeTask(t.Context(), instance.Id, taskMutationHash("initial request"), task, "")
 	require.NoError(t, err)

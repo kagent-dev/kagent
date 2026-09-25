@@ -69,7 +69,7 @@ func workspaceInstance(id, template string, state apiv1alpha1.AgentInstanceState
 	return &apiv1alpha1.AgentInstance{
 		Id: id,
 
-		Agent: &apiv1alpha1.ResourceReference{Name: template},
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
 
 		State:     state,
 		CreatedAt: timestamppb.New(created),
@@ -189,7 +189,7 @@ func TestWorkspaceSelectInstance(t *testing.T) {
 
 			if tt.wantChat {
 				require.NotNil(t, m.chat)
-				assert.Equal(t, agentInstance.GetContextId(), m.chat.contextID)
+				assert.Equal(t, agentInstance.GetId(), m.chat.contextID)
 				assert.NotNil(t, cmd, "history loads for a READY instance")
 				return
 			}

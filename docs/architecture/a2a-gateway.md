@@ -2,20 +2,24 @@
 
 The public gateway implements the upstream A2A handler for message send/stream,
 task get/list/cancel, and subscription. It also serves the extended Agent Card
-compiled into the instance's prepared revision.
+compiled into the Agent's latest successful revision (or the pinned revision of a shared conversation).
 
 ## Routing and execution
 
-Authentication establishes AgentInstance authority. The gateway
-loads the instance and prepared revision, derives the private Actor route, and
-forwards upstream A2A requests. Actor addresses and runtime credentials remain
-internal.
+The public endpoint is a named `Agent`. HTTP selects it through
+`/agents/{namespace}/{name}`; gRPC uses the standard A2A `tenant` field,
+`namespace/name`. A nonempty HTTP request tenant must agree with its URL.
+Actor addresses and runtime credentials remain internal.
 
-The instance route (`x-kagent-agent-instance-id`) selects authorization and history.
-`AgentInstance.context_id` is the bound A2A context, not the instance ID. Sends
-may omit context to resolve that binding; a different nonempty context is rejected.
-ListTasks may omit the context filter. Forks retain protocol IDs under distinct
-instance routes, including for cancellation and subscription.
+`AgentInstance.id` is the public A2A `contextId`. A send with no context or task ID
+creates a conversation from that Agent. A context ID continues the corresponding
+instance. A task ID alone resolves its instance; if both IDs are present they must
+agree. Every operation verifies that the instance belongs to the endpoint's Agent
+and that the caller owns it or holds an appropriate instance share. A share cannot
+create conversations. Task-only get, cancel, and subscribe use globally unique task
+IDs. ListTasks without a context lists only authorized conversations of that Agent;
+a share restricts the list to its own conversation. Authorization precedes totals
+and pagination. Card discovery does not create an instance.
 
 The runtime owns execution and persists updates through the private gRPC
 `TaskStoreService`. The gateway owns each caller's observation connection.
@@ -131,10 +135,15 @@ task. An interrupted request with unfinished work
 still returns an error. Clients can replace their
 projection with that current task and apply subsequent upstream A2A updates.
 There is no event cursor or promise of replaying every previous token event.
-Public sends do not guarantee idempotency by message ID. Once a task ID is known,
-use GetTask or SubscribeToTask to reconnect. Do not automatically resend an
-ambiguous request: a second send may start another task or another turn. Storage
-RPC retries are internal to the runtime adapter and have a separate guarantee.
+For an initial send with neither context nor task ID, the authenticated creator,
+Agent, and message ID form the creation retry key. Repeating that request reuses
+the conversation. Dispatch checks its persisted input under the instance lock;
+an accepted message returns its task (or subscribes to ongoing work) without a
+second execution. A retry may still fail while creation or lifecycle work is in
+progress; keep the same message ID to retry it. A new message ID starts a new
+conversation. Continuation sends do not gain this guarantee: once context/task IDs
+are known, use GetTask or SubscribeToTask after an ambiguous response. Storage RPC
+retries remain internal to the runtime adapter and have a separate guarantee.
 
 The scheduler records its single dispatch attempt before sending. After an
 uncertain send it only looks for the task in stored history; it never sends again.

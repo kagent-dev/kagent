@@ -74,7 +74,7 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		f.assertCompletedTask(t, second)
 
 		// Continuing the conversation does not replace the original execution's task.
-		conversation := &interactionFixture{ctx: f.instanceContext(second), client: f.tasks, instances: f.instances, instanceID: second.GetAgentInstanceId()}
+		conversation := &interactionFixture{ctx: f.ctx, client: f.tasks, instances: f.instances, instanceID: second.GetAgentInstanceId(), contextID: second.GetAgentInstanceId(), tenant: f.schedule.GetAgent().GetNamespace() + "/" + f.schedule.GetAgent().GetName()}
 		_, _, continued := conversation.send(t, "What is 2+2?")
 		require.NotEqual(t, second.GetTaskId(), string(continued.ID))
 		retained, err := f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: second.GetId()})
@@ -244,15 +244,11 @@ func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1alph
 	return execution
 }
 
-func (f *scheduledFixture) instanceContext(execution *apiv1alpha1.ScheduledRunExecution) context.Context {
-	return metadata.AppendToOutgoingContext(f.ctx, "x-kagent-agent-instance-id", execution.GetAgentInstanceId())
-}
-
 func (f *scheduledFixture) task(t *testing.T, execution *apiv1alpha1.ScheduledRunExecution) *a2atype.Task {
 	t.Helper()
-	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
+	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: f.schedule.GetAgent().GetNamespace() + "/" + f.schedule.GetAgent().GetName(), ID: a2atype.TaskID(execution.GetTaskId())})
 	require.NoError(t, err)
-	result, err := f.tasks.GetTask(f.instanceContext(execution), request)
+	result, err := f.tasks.GetTask(f.ctx, request)
 	require.NoError(t, err)
 	task, err := pbconv.FromProtoTask(result)
 	require.NoError(t, err)

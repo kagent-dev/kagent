@@ -121,9 +121,16 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	fork, _, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
-	forked, err := client.GetAgentInstanceTask(ctx, fork.Id, "task", nil)
+	forkTasks, _, err := client.ListAgentInstanceTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
-	require.Equal(t, before, forked)
+	require.Len(t, forkTasks, 1)
+	forked := forkTasks[0]
+	require.NoError(t, err)
+	require.NotEqual(t, before.ID, forked.ID)
+	require.Equal(t, fork.Id, forked.ContextID)
+	require.Equal(t, before.Status.State, forked.Status.State)
+	require.Equal(t, before.Artifacts, forked.Artifacts)
+	require.Len(t, forked.History, len(before.History))
 	for _, row := range rows {
 		row.HistoryID = instanceRow.HistoryID
 		require.NoError(t, insertReplayedTask(ctx, q, row))

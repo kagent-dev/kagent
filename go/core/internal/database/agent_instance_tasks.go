@@ -21,14 +21,29 @@ import (
 // or idle lifecycle operation currently owns the instance.
 var ErrDispatchBusy = errors.New("instance temporarily unavailable for dispatch")
 
+// ErrMessageAccepted means an earlier dispatch already persisted this initial input.
+var ErrMessageAccepted = errors.New("message already accepted")
+
 // ReserveAgentInstanceDispatch prevents pause/suspend between routing a request
 // and its first persisted task. The attempt expires after two minutes; a late
 // first save must fail before native execution. This is not a native work lease.
-func (c *Client) ReserveAgentInstanceDispatch(ctx context.Context, instanceID string, dispatchID uuid.UUID) error {
+func (c *Client) ReserveAgentInstanceDispatch(ctx context.Context, instanceID string, dispatchID uuid.UUID, initialMessageID string) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		instance, err := lockAgentInstance(ctx, tx, instanceID)
 		if err != nil {
 			return notFoundOr(err)
+		}
+		if initialMessageID != "" {
+			accepted, err := queryOne(ctx, tx, `
+				SELECT EXISTS (SELECT 1 FROM agent_instance_task_event
+				    WHERE history_id = $1 AND message_id = $2)
+			`, pgx.RowTo[bool], instance.HistoryID, initialMessageID)
+			if err != nil {
+				return err
+			}
+			if accepted {
+				return ErrMessageAccepted
+			}
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return ErrConflict

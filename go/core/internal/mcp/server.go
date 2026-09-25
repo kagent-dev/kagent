@@ -11,14 +11,12 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -140,7 +138,12 @@ func (h *Handler) invoke(ctx context.Context, input InvokeAgentInstanceInput, as
 	if input.MessageID != "" {
 		message.ID = input.MessageID
 	}
-	routed := routeContext(ctx, input.AgentInstanceID)
+	instance, err := h.instances.Get(ctx, input.AgentInstanceID)
+	if err != nil {
+		return nil, err
+	}
+	message.ContextID = instance.GetId()
+	routed := routeContext(ctx, instance.GetAgent().GetNamespace()+"/"+instance.GetAgent().GetName())
 	var taskID a2atype.TaskID
 	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Message: message}) {
 		if err != nil {
@@ -161,10 +164,8 @@ func (h *Handler) invoke(ctx context.Context, input InvokeAgentInstanceInput, as
 	return h.gateway.GetTask(routed, &a2atype.GetTaskRequest{ID: taskID})
 }
 
-func routeContext(ctx context.Context, instanceID string) context.Context {
-	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		kagenta2a.AgentInstanceIDHeader, instanceID,
-	))
+func routeContext(ctx context.Context, agent string) context.Context {
+	ctx = a2atype.AttachTenant(ctx, agent)
 	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {adka2a.HITLExtensionURI},
 	}))

@@ -316,8 +316,9 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	gateway := a2agateway.New(store, authorizer, gatewayDialer,
-		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
+	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
+	gateway := a2agateway.New(a2agateway.Config{Store: store, Authorizer: authorizer, Dialer: gatewayDialer,
+		Agents: agents, Instances: instances, GatewayURL: env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083")})
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
@@ -357,7 +358,7 @@ func Run(ctx context.Context, opts Options) error {
 		AgentInstanceService:  instances,
 		ScheduledRunService:   schedules,
 		// Author Agents and their reusable configuration through the API.
-		AgentService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent"),
+		AgentService:         agents,
 		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		CheckpointService:    checkpoints,

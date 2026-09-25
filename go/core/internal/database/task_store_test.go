@@ -247,17 +247,48 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	require.NoError(t, err)
 	fork, err = markAgentInstanceReady(t.Context(), client, fork.Id, "fork.example")
 	require.NoError(t, err)
-	inherited, forkVersion, err := client.GetVersionedAgentInstanceTask(t.Context(), fork.Id, string(completed.ID))
+	forkTasks, _, err := client.ListAgentInstanceTasks(t.Context(), fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
-	require.Equal(t, completed.ContextID, inherited.ContextID)
-	require.Equal(t, completed.ID, inherited.ID)
+	require.Len(t, forkTasks, 1)
+	inherited, forkVersion, err := client.GetVersionedAgentInstanceTask(t.Context(), fork.Id, string(forkTasks[0].ID))
+	require.NoError(t, err)
+	require.Equal(t, fork.Id, inherited.ContextID)
+	require.NotEqual(t, completed.ID, inherited.ID)
 	require.Equal(t, a2a.TaskStateCompleted, inherited.Status.State)
 	require.NotEqual(t, version, forkVersion)
+	// Public task IDs resolve to exactly one conversation, including copies
+	// whose historical positions are equal to their source's positions.
+	for _, pair := range []struct{ taskID, instanceID string }{
+		{string(completed.ID), source.Id}, {string(inherited.ID), fork.Id},
+	} {
+		owner, err := client.AgentInstanceForTask(t.Context(), pair.taskID)
+		require.NoError(t, err)
+		require.Equal(t, pair.instanceID, owner)
+	}
+	seen := map[a2a.TaskID]bool{}
+	cursor := ""
+	for range 3 {
+		page, total, err := client.ListAgentTasks(t.Context(), []string{source.Id, fork.Id}, cursor, a2a.TaskStateUnspecified, nil, 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, 3, total)
+		require.Len(t, page, 1)
+		require.False(t, seen[page[0].ID])
+		seen[page[0].ID], cursor = true, string(page[0].ID)
+	}
+	page, total, err := client.ListAgentTasks(t.Context(), []string{fork.Id}, "", a2a.TaskStateUnspecified, nil, 10, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, inherited.ID, page[0].ID)
+	page, total, err = client.ListAgentTasks(t.Context(), nil, "", a2a.TaskStateUnspecified, nil, 10, nil)
+	require.NoError(t, err)
+	require.Empty(t, page)
+	require.Zero(t, total)
 	_, _, err = client.GetVersionedAgentInstanceTask(t.Context(), fork.Id, string(later.ID))
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = client.UpdateAgentInstanceTask(t.Context(), fork.Id, initialVersion, hash[:], completed, completed, "")
+	_, err = client.UpdateAgentInstanceTask(t.Context(), fork.Id, initialVersion, hash[:], inherited, inherited, "")
 	require.ErrorIs(t, err, ErrConflict, "source mutation receipts must not grant fork writes")
 	newInput.ID = "fork-input"
+	newInput.ContextID = fork.Id
 	newInput.Parts = a2a.ContentParts{a2a.NewTextPart("independent fork")}
 	forkInput := a2a.NewSubmittedTask(newInput, newInput)
 	_, err = client.CreateRuntimeTask(t.Context(), fork.Id, hash[:], forkInput, "")
@@ -289,12 +320,12 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 			claimed <- work
 			claimErrors <- err
 		}()
-		next := newAgentInstanceTask("next", "next-message")
+		next := newAgentInstanceTask(uuid.NewString(), "next-message")
 		next.ContextID = instance.ContextId
 		dispatchID := uuid.New()
 		go func() {
 			<-start
-			err := client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID)
+			err := client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID, "")
 			writeErrors <- err
 		}()
 		close(start)
@@ -302,7 +333,7 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		if claimErr == nil {
 			require.ErrorIs(t, writeErr, ErrDispatchBusy)
 			require.NoError(t, client.FinishInstanceQuiescence(ctx, work, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
-			require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID))
+			require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID, ""))
 		} else {
 			require.ErrorIs(t, claimErr, ErrNotFound)
 			require.NoError(t, writeErr)
@@ -349,10 +380,10 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, waiting := waitingTaskFixture(t, client)
 	dispatchID := uuid.New()
-	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID))
+	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID, ""))
 	_, err := client.ClaimInstanceQuiescence(ctx)
 	require.ErrorIs(t, err, ErrNotFound)
-	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New()), ErrDispatchBusy)
+	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New(), ""), ErrDispatchBusy)
 	revoked, err := client.RevokeAgentInstanceDispatch(ctx, instance.Id, dispatchID, "new-input")
 	require.NoError(t, err)
 	require.True(t, revoked)
@@ -364,7 +395,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	dispatchID = uuid.New()
-	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID))
+	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatchID, ""))
 	// SDKs may first append input while retaining the waiting state.
 	version, err = client.UpdateAgentInstanceTask(ctx, instance.Id, version, taskMutationHash("input-only"), waiting, waiting, dispatchID.String())
 	require.NoError(t, err)
@@ -375,7 +406,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	revoked, err = client.RevokeAgentInstanceDispatch(ctx, instance.Id, dispatchID, "new-input")
 	require.NoError(t, err)
 	require.False(t, revoked, "accepted work must never be reported retryable")
-	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New()), ErrConflict)
+	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New(), ""), ErrConflict)
 }
 
 func TestDispatchExpiryRejectsLateSave(t *testing.T) {
@@ -384,15 +415,15 @@ func TestDispatchExpiryRejectsLateSave(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, waiting := waitingTaskFixture(t, client)
 	id := uuid.New()
-	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, id))
+	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, id, ""))
 	_, err := client.db.Exec(ctx, `UPDATE agent_instance SET dispatch_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE id = $1`, instance.Id)
 	require.NoError(t, err)
-	next := newAgentInstanceTask("next", "next-message")
+	next := newAgentInstanceTask(uuid.NewString(), "next-message")
 	next.ContextID = instance.ContextId
 	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("expired"), next, id.String())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	newID := uuid.New()
-	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, newID))
+	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, newID, ""))
 	revoked, err := client.RevokeAgentInstanceDispatch(ctx, instance.Id, id, "next-message")
 	require.NoError(t, err)
 	require.False(t, revoked)
@@ -411,7 +442,7 @@ func TestRevokedContinuationWithSavedInputIsNotRetryable(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, waiting := waitingTaskFixture(t, client)
 	id := uuid.New()
-	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, id))
+	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, id, ""))
 	_, version, err := client.GetVersionedAgentInstanceTask(ctx, instance.Id, string(waiting.ID))
 	require.NoError(t, err)
 	input := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("continue"))
@@ -446,7 +477,7 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, saved.Id, "tag", "retained-snapshot", "")
 	require.NoError(t, err)
-	next := newAgentInstanceTask("next", "next-message")
+	next := newAgentInstanceTask(uuid.NewString(), "next-message")
 	next.ContextID = instance.ContextId
 	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("next"), next, "")
 	require.NoError(t, err)
@@ -458,4 +489,53 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	request.HeadTaskId = string(next.ID)
 	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, request, "alice", "saved")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
+}
+
+func TestInitialMessageReservationDeduplicatesAfterAcceptance(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	require.NoError(t, err)
+	instance, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime")
+	require.NoError(t, err)
+	dispatch := uuid.New()
+	require.NoError(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, dispatch, "first-message"))
+	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New(), "first-message"), ErrDispatchBusy)
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
+	message.ID, message.ContextID = "first-message", instance.Id
+	task := a2a.NewSubmittedTask(message, message)
+	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("first"), task, dispatch.String())
+	require.NoError(t, err)
+	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New(), "first-message"), ErrMessageAccepted)
+	require.ErrorIs(t, client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New(), "different-message"), ErrConflict)
+	recovered, err := client.GetAgentInstanceTaskByMessage(ctx, instance.Id, "", "first-message")
+	require.NoError(t, err)
+	require.Equal(t, task.ID, recovered.ID)
+	// Two concurrent retries both observe acceptance, never a new dispatch.
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- client.ReserveAgentInstanceDispatch(ctx, instance.Id, uuid.New(), "first-message") }()
+	}
+	for range 2 {
+		require.ErrorIs(t, <-results, ErrMessageAccepted)
+	}
+}
+
+func TestCheckpointRejectsOlderPendingTask(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, _ := waitingTaskFixture(t, client)
+	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("another task"))
+	message.ContextID = instance.Id
+	task := a2a.NewSubmittedTask(message, message)
+	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, nil))
+	task.Status.State = a2a.TaskStateCompleted
+	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+	_, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+		Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID),
+	}, "alice", uuid.NewString())
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	require.ErrorContains(t, err, "all tasks to be terminal")
 }

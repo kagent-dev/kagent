@@ -230,7 +230,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
-		gateway := a2agateway.New(store, &auth.NoopAuthorizer{}, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
+		gateway := a2agateway.New(a2agateway.Config{Store: store, Authorizer: &auth.NoopAuthorizer{}, Dialer: taskStoreRuntimeDialer{runtimeListener}, GatewayURL: "http://gateway.test"})
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
 			Authenticator: &authimpl.UnsecureAuthenticator{},
@@ -251,15 +251,15 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 				DialContext: func(context.Context, string, string) (net.Conn, error) { return publicListener.Dial() },
 			}}
 			t.Cleanup(httpClient.CloseIdleConnections)
-			httpTransport = a2aclient.NewJSONRPCTransport("http://gateway.test"+a2agateway.HTTPPathPrefix+id, httpClient)
+			httpTransport = a2aclient.NewJSONRPCTransport("http://gateway.test"+a2agateway.HTTPPathPrefix+"team-a/assistant", httpClient)
 			t.Cleanup(func() { require.NoError(t, httpTransport.Destroy()) })
 		}
 	}
-	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.AgentInstanceIDHeader, id, "x-user-id", "alice"))
+	publicCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
 	observer, stopObserver := context.WithTimeout(publicCtx, 10*time.Second)
 	defer stopObserver()
-	input := &a2apb.SendMessageRequest{Message: &a2apb.Message{
-		MessageId: "input-1", Role: a2apb.Role_ROLE_USER,
+	input := &a2apb.SendMessageRequest{Tenant: "team-a/assistant", Message: &a2apb.Message{
+		MessageId: "input-1", ContextId: id, Role: a2apb.Role_ROLE_USER,
 		Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "work"}}},
 	}}
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
@@ -281,10 +281,10 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	concurrent.Message.MessageId = "concurrent-input"
 	_, err = second.SendMessage(publicCtx, concurrent)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err), "active work returns a protocol-level busy response")
-	readActive, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
+	readActive, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	require.Equal(t, taskID, readActive.Id)
-	resumed, err := second.SubscribeToTask(publicCtx, &a2apb.SubscribeToTaskRequest{Id: taskID})
+	resumed, err := second.SubscribeToTask(publicCtx, &a2apb.SubscribeToTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	initial, err := resumed.Recv()
 	require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	}
 	require.Equal(t, "beforeafter", output)
 	require.EqualValues(t, 1, executions.Load())
-	readBack, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
+	readBack, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, readBack.Status.State)
 	require.True(t, store.lost.Load())
@@ -353,7 +353,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(publicCtx, 5*time.Second)
 		defer cancel()
-		_, err := second.CancelTask(ctx, &a2apb.CancelTaskRequest{Id: cancelID})
+		_, err := second.CancelTask(ctx, &a2apb.CancelTaskRequest{Tenant: "team-a/assistant", Id: cancelID})
 		result <- err
 	}()
 	select {
@@ -362,13 +362,13 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		t.Fatal("native cancellation cleanup did not run")
 	}
 	require.Never(t, func() bool {
-		visible, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: cancelID})
+		visible, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: cancelID})
 		require.NoError(t, err)
 		return visible.Status.State == a2apb.TaskState_TASK_STATE_CANCELED
 	}, 150*time.Millisecond, 10*time.Millisecond)
 	close(native.cleanupRelease)
 	require.NoError(t, <-result)
-	canceled, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: cancelID})
+	canceled, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: cancelID})
 	require.NoError(t, err)
 	require.Equal(t, a2apb.TaskState_TASK_STATE_CANCELED, canceled.Status.State)
 
@@ -394,7 +394,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(publicCtx, 5*time.Second)
 		defer cancel()
-		_, err := second.CancelTask(ctx, &a2apb.CancelTaskRequest{Id: lateID})
+		_, err := second.CancelTask(ctx, &a2apb.CancelTaskRequest{Tenant: "team-a/assistant", Id: lateID})
 		result <- err
 	}()
 	for canceled := range native.cancelStarted {
@@ -418,14 +418,14 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
-		result, err := httpTransport.SendMessage(ctx, params, &a2a.SendMessageRequest{
-			Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("work")),
-		})
+		message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("work"))
+		message.ContextID = id
+		result, err := httpTransport.SendMessage(ctx, params, &a2a.SendMessageRequest{Message: message})
 		require.NoError(t, err)
 		task, ok := result.(*a2a.Task)
 		require.True(t, ok)
 		require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
-		stored, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: string(task.ID)})
+		stored, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: string(task.ID)})
 		require.NoError(t, err)
 		expected, err := pbconv.ToProtoTask(task)
 		require.NoError(t, err)
@@ -443,7 +443,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		require.True(t, proto.Equal(response.GetTask(), actual))
 	})
 	runtimeServer.Stop()
-	_, err = second.GetTask(publicCtx, &a2apb.GetTaskRequest{Id: taskID})
+	_, err = second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	if python := os.Getenv("KAGENT_TEST_PYTHON"); python != "" {
 		t.Run("python SDK with PostgreSQL", func(t *testing.T) {

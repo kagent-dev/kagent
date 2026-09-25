@@ -100,7 +100,7 @@ CREATE TABLE agent_instance (
     state                TEXT        NOT NULL,
     data                 BYTEA       NOT NULL,
     operation            TEXT        NOT NULL DEFAULT 'AGENT_INSTANCE_OPERATION_UNSPECIFIED',
-    context_id           UUID        NOT NULL,
+    context_id           UUID        NOT NULL CHECK (context_id = id),
     -- Retain fork request identity after deletion without retaining the checkpoint.
     source_checkpoint_id UUID,
     pinned_checkpoint_id UUID GENERATED ALWAYS AS (
@@ -171,6 +171,7 @@ CREATE UNIQUE INDEX agent_instance_one_active_task_idx
     );
 CREATE UNIQUE INDEX agent_instance_task_list_idx
     ON agent_instance_task (history_id, position);
+CREATE UNIQUE INDEX agent_instance_task_id_idx ON agent_instance_task (id);
 
 CREATE TABLE agent_instance_task_event (
     sequence   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

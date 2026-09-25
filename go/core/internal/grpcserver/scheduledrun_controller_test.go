@@ -350,7 +350,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
-			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, "http://gateway.test"))
+			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(a2agateway.Config{Store: store, Authorizer: scheduledControllerAuthorizer{}, Dialer: dialer, GatewayURL: "http://gateway.test"}))
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
@@ -391,7 +391,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				ctx, cancel = context.WithCancel(t.Context())
 				defer cancel()
 				done = make(chan error, 1)
-				controller = scheduledrun.NewController(store, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, "http://gateway.test"))
+				controller = scheduledrun.NewController(store, workflow, a2agateway.New(a2agateway.Config{Store: store, Authorizer: scheduledControllerAuthorizer{}, Dialer: dialer, GatewayURL: "http://gateway.test"}))
 				go func() { done <- controller.Start(ctx) }()
 			}
 			var execution *apiv1alpha1.ScheduledRunExecution

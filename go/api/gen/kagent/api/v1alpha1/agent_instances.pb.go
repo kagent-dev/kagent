@@ -257,8 +257,8 @@ type AgentInstance struct {
 	// Reader-supplied display name for the conversation. Empty means unnamed,
 	// which is the state every instance created before this field existed is in.
 	Name string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
-	// Output only. Opaque A2A conversation ID within this instance's authority.
-	// Forks preserve this ID; route and authorize using the instance ID.
+	// Output only. A2A conversation ID, equal to this instance's ID.
+	// Forks receive a new conversation ID and new task IDs.
 	ContextId     string `protobuf:"bytes,14,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -244,6 +244,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 		sessionID := reqCtx.ContextID
 
+		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
 		// The invocation span started before this executor ran, so the request
@@ -491,4 +492,13 @@ func dropPreAppendedDecisionFromHistory(task *a2atype.Task, incoming *a2atype.Me
 		return
 	}
 	task.History = task.History[:len(task.History)-1]
+}
+
+type publicContextIDKey struct{}
+
+// ContextIDFromContext returns the public A2A conversation ID for this invocation.
+// Native ADK session keys can remain unchanged across a snapshot fork.
+func ContextIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(publicContextIDKey{}).(string)
+	return id
 }

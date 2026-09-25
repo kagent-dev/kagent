@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -377,4 +378,24 @@ func newMockEventWithFunctionCall(author, functionName string) *adksession.Event
 	event := newMockEvent(author, "")
 	event.Content = &genai.Content{Role: author, Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: functionName}}}}
 	return event
+}
+
+func TestMemoryUsesCallerInsteadOfPrivateSessionUser(t *testing.T) {
+	controller := newMemoryControllerClient(t, &memoryTestServer{
+		add: func(ctx context.Context, req *apiv1alpha1.MemoryServiceAddSessionRequest) (*apiv1alpha1.MemoryServiceAddSessionResponse, error) {
+			assert.Equal(t, "alice", req.Memory.UserId)
+			return &apiv1alpha1.MemoryServiceAddSessionResponse{}, nil
+		},
+		search: func(ctx context.Context, req *apiv1alpha1.MemoryServiceSearchRequest) (*apiv1alpha1.MemoryServiceSearchResponse, error) {
+			assert.Equal(t, "alice", req.UserId)
+			return &apiv1alpha1.MemoryServiceSearchResponse{}, nil
+		},
+	})
+	embeddings, server := newMockEmbeddingClient(t)
+	defer server.Close()
+	svc := &KagentMemoryService{agentName: "agent", controllerClient: controller, embeddingClient: embeddings}
+	ctx := auth.WithUserID(t.Context(), "alice")
+	require.NoError(t, svc.storeMemory(ctx, "conversation", "remember", []float32{1}))
+	_, err := svc.SearchMemory(ctx, &memory.SearchRequest{UserID: "conversation", Query: "remember"})
+	require.NoError(t, err)
 }

@@ -125,8 +125,8 @@ func insertAgentInstance(ctx context.Context, db pgx.Tx, request *apiv1alpha1.Ag
 		return agentInstanceRow{}, err
 	}
 	instance := proto.CloneOf(request)
-	contextID, historyID := uuid.New(), uuid.New()
-	instance.ContextId = contextID.String()
+	historyID := uuid.New()
+	instance.ContextId = instance.Id
 	instance.PreparedRevision = revision.Revision
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
 	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
