@@ -98,6 +98,7 @@ func createClaudeMockModel(t *testing.T, kube ctrlclient.Client, baseURL string)
 			t.Errorf("delete Claude mock ModelConfig: %v", err)
 		}
 	})
+	waitModelConfigAccepted(t, kube, model)
 	return model
 }
 

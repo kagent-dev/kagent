@@ -1123,8 +1123,14 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 			t.Errorf("delete interaction ModelConfig: %v", err)
 		}
 	})
-	// The template compiler reads the collection that writes this status, so a template created
-	// before Accepted can fail to resolve the ModelConfig.
+	waitModelConfigAccepted(t, kube, model)
+	return model
+}
+
+// waitModelConfigAccepted blocks until the controller has seen model. The template compiler reads the
+// collection that writes this status, so a template created sooner can fail to resolve the model.
+func waitModelConfigAccepted(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig) {
+	t.Helper()
 	if err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(model), model); err != nil {
 			return false, err
@@ -1132,9 +1138,8 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 		accepted := meta.FindStatusCondition(model.Status.Conditions, v1alpha3.ModelConfigConditionTypeAccepted)
 		return accepted != nil && accepted.Status == metav1.ConditionTrue && accepted.ObservedGeneration == model.Generation, nil
 	}); err != nil {
-		t.Fatalf("wait for interaction ModelConfig %s/%s to be accepted: %v", model.Namespace, model.Name, err)
+		t.Fatalf("wait for ModelConfig %s/%s to be accepted: %v", model.Namespace, model.Name, err)
 	}
-	return model
 }
 
 func createAndWaitInteractionTemplate(t *testing.T, harness testHarness, kube ctrlclient.Client, template *v1alpha3.AgentTemplate) {
