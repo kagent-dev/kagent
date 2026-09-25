@@ -432,7 +432,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 		Spec: kagentv1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{SubAgent: &kagentv1alpha3.SubAgentToolBinding{
-				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}

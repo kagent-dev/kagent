@@ -532,8 +532,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 	}
 	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 		Name: "specialist", Description: "Handles specialist requests",
-		TemplateRef: corev1.LocalObjectReference{Name: child.Template.Name},
-		Isolation:   v1alpha3.SubAgentToolIsolationShared,
+		TemplateRef: &corev1.LocalObjectReference{Name: child.Template.Name},
 	}}}
 	input.Root.Shared = []v2translator.AgentInputBinding{{
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,

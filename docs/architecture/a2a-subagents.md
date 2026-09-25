@@ -8,13 +8,13 @@ flowchart TB
     PARENT -->|Shared binding compiled into one runtime| LOCAL[Native in-process subagent]
     PARENT -->|remote A2A tool call| REMOTE[Addressable A2A agent]
     REMOTE -->|task + context IDs retained| CONTINUE[input-required continuation]
-    DEDICATED[Dedicated binding] -. deferred .-> SEPARATE[separate AgentInstance]
+    DEDICATED[agentRef: Dedicated binding] -. deferred .-> SEPARATE[separate AgentInstance]
     PUBLIC[Public cross-instance delegation] -. deferred .-> POLICY[credential and lineage policy]
 ```
 
 ## Shared agent tools
 
-An `AgentTemplate` can bind another template as a `Shared` tool through `spec.tools[].subAgent.templateRef`. The
+An `AgentTemplate` can bind another template as a Shared tool through `spec.tools[].subAgent.templateRef`. The
 translator resolves the referenced template in the same compilation tree and
 the selected harness compiler emits its native, in-process representation.
 Kagent, Codex, and Claude support Shared bindings according to their runtime
@@ -32,8 +32,27 @@ tools:
 ```
 
 Tree resolution detects missing references and cycles before compilation.
-`Dedicated` bindings are represented in the API but are currently rejected;
-they do not create a separate AgentInstance today.
+
+## Dedicated agent tools
+
+Each subagent binding selects exactly one of `templateRef` or `agentRef`, both
+in the parent's namespace. `templateRef` shares the parent's runtime and Harness;
+`agentRef` selects an independently configured Agent with its own Harness and
+AgentInstance, invoked over A2A. There is no `isolation` field; the reference
+determines the execution mode.
+
+The API accepts this Dedicated binding, but compilation currently rejects it with
+an explicit unsupported-execution error. It does not create or invoke an
+AgentInstance yet:
+
+```yaml
+tools:
+  - subAgent:
+      name: reviewer
+      description: Review proposed changes before applying them.
+      agentRef:
+        name: reviewer
+```
 
 ## Runtime remote A2A tools
 

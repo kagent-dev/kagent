@@ -357,7 +357,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
 			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
-				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
@@ -685,7 +685,7 @@ func TestCompileAgentSharedAgent(t *testing.T) {
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "coordinate",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
-				Name: "web_researcher", Description: "research the web", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				Name: "web_researcher", Description: "research the web", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
@@ -709,7 +709,7 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 		Kagent: &v1alpha3.KagentHarness{},
 	}}
 	binding := func(name, target string) v1alpha3.ToolBinding {
-		return v1alpha3.ToolBinding{SubAgent: &v1alpha3.SubAgentToolBinding{Name: name, Description: name, TemplateRef: corev1.LocalObjectReference{Name: target}}}
+		return v1alpha3.ToolBinding{SubAgent: &v1alpha3.SubAgentToolBinding{Name: name, Description: name, TemplateRef: &corev1.LocalObjectReference{Name: target}}}
 	}
 	template := func(name string, tools ...v1alpha3.ToolBinding) *v1alpha3.AgentTemplate {
 		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, Tools: tools}}
@@ -734,18 +734,50 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 		_, err := compiler(t, child, grandchild).CompileAgent(context.Background(), inlineAgent(harness, root))
 		require.ErrorContains(t, err, "consecutive Shared")
 	})
-	t.Run("dedicated", func(t *testing.T) {
-		root := template("root", binding("child", "child"))
-		root.Spec.Tools[0].SubAgent.Isolation = v1alpha3.SubAgentToolIsolationDedicated
-		_, err := compiler(t).CompileAgent(context.Background(), inlineAgent(harness, root))
-		require.ErrorContains(t, err, "Dedicated")
-	})
+}
+
+func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
+	harness := &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
+	for _, tt := range []struct {
+		name      string
+		binding   v1alpha3.SubAgentToolBinding
+		wantError string
+	}{
+		{
+			name:      "missing reference",
+			wantError: "requires exactly one of templateRef or agentRef",
+		},
+		{
+			name: "both references",
+			binding: v1alpha3.SubAgentToolBinding{
+				TemplateRef: &corev1.LocalObjectReference{Name: "context"},
+				AgentRef:    &corev1.LocalObjectReference{Name: "reviewer"},
+			},
+			wantError: "requires exactly one of templateRef or agentRef",
+		},
+		{
+			name:      "dedicated execution unsupported",
+			binding:   v1alpha3.SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{Name: "reviewer"}},
+			wantError: `Dedicated subagent "review" (agentRef) is not supported yet`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.binding.Name, tt.binding.Description = "review", "Review code"
+			template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{
+				Tools: []v1alpha3.ToolBinding{{SubAgent: &tt.binding}},
+			}}
+			_, err := compiler(t).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.ErrorContains(t, err, tt.wantError)
+			var validationError *v2translator.ValidationError
+			require.ErrorAs(t, err, &validationError)
+		})
+	}
 }
 
 func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review code",
-		Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "reviewer", Description: "delegate review", TemplateRef: corev1.LocalObjectReference{Name: "child"}}}},
+		Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "reviewer", Description: "delegate review", TemplateRef: &corev1.LocalObjectReference{Name: "child"}}}},
 	}}
 	child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "child"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review security"}}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runtime", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{

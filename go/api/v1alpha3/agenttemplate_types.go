@@ -65,16 +65,8 @@ type MCPToolBinding struct {
 	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
-// SubAgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.
-// +kubebuilder:validation:Enum=Shared;Dedicated
-type SubAgentToolIsolation string
-
-const (
-	SubAgentToolIsolationShared    SubAgentToolIsolation = "Shared"
-	SubAgentToolIsolationDedicated SubAgentToolIsolation = "Dedicated"
-)
-
-// SubAgentToolBinding exposes another same-namespace AgentTemplate as a logical tool.
+// SubAgentToolBinding exposes a same-namespace AgentTemplate or Agent as a logical tool.
+// +kubebuilder:validation:XValidation:rule="has(self.templateRef) != has(self.agentRef)",message="exactly one of templateRef or agentRef must be specified"
 type SubAgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -83,15 +75,18 @@ type SubAgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Description string `json:"description"`
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
-	// +required
-	TemplateRef corev1.LocalObjectReference `json:"templateRef"`
-	// +kubebuilder:default=Shared
+	// TemplateRef selects a Shared subagent compiled into the parent's runtime using its Harness.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
 	// +optional
-	Isolation SubAgentToolIsolation `json:"isolation,omitempty"`
+	TemplateRef *corev1.LocalObjectReference `json:"templateRef,omitempty"`
+	// AgentRef selects a Dedicated subagent with its own Harness and AgentInstance, invoked over A2A.
+	// Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="agentRef.name must not be empty"
+	// +optional
+	AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
 }
 
-// ToolBinding selects exactly one MCP or AgentTemplate-backed tool source.
+// ToolBinding selects exactly one MCP or subagent tool source.
 // +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.subAgent)",message="exactly one of mcp or subAgent must be specified"
 type ToolBinding struct {
 	// +optional
