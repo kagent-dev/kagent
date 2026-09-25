@@ -55,6 +55,12 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # The same sticky disk `test-e2e` uses on main, so this job stops rebuilding
+          # every image from nothing each run.
+          cache-key: kagent-e2e
+          platforms: linux/amd64
+          nofallback: true
 
       - name: Set up Helm
         uses: azure/setup-helm@v5.0.1
@@ -75,17 +81,27 @@ jobs:
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
-          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
             --push
         run: |
-          echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          make helm-install
+          # Build on Blacksmith's own persistent builder, whose layer cache is a sticky
+          # disk that survives between runs. The Makefile otherwise creates a builder of
+          # its own, which cannot see that cache — which is why this step used to carry a
+          # GitHub Actions cache instead, paying an import and a `mode=max` export around
+          # every build. Those flags are gone with it.
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
+          make buildx-create
+          # `-j`, because `build` names seven images and most of them are independent.
+          # The ones that are not stay ordered: the controller embeds the digests of the
+          # runtimes it ships with, and says so as ordinary make prerequisites, so make
+          # still builds those first. `buildx-create` is idempotent, so the several
+          # branches of the graph that depend on it can run it at once.
+          make -j4 build
+          make helm-install-provider
           make push-test-agent push-test-skill
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
@@ -190,18 +206,27 @@ jobs:
         uses: ./.github/actions/upgrade-test-setup
         with:
           upgrade-from: ${{ matrix.upgrade-from }}
+      # Its own sticky disk, like every other build on this workflow. It used to read a
+      # GitHub Actions cache written by `test-e2e`, which no longer writes one — and on
+      # main that `cache-from` has already been dead for some time, unnoticed because
+      # these jobs skip there.
+      - name: Setup Blacksmith Builder
+        if: steps.prep.outputs.skip != 'true'
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: kagent-upgrade
       - name: Run upgrade tests
         if: steps.prep.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: fake
-          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --platform=linux/amd64
             --push
         run: |
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
           make run-upgrade-tests UPGRADE_FROM_VERSION="${{ steps.prep.outputs.version }}"
       - name: fail print info
         if: failure() && steps.prep.outputs.skip != 'true'
@@ -238,18 +263,27 @@ jobs:
         uses: ./.github/actions/upgrade-test-setup
         with:
           upgrade-from: ${{ matrix.upgrade-from }}
+      # Its own sticky disk, like every other build on this workflow. It used to read a
+      # GitHub Actions cache written by `test-e2e`, which no longer writes one — and on
+      # main that `cache-from` has already been dead for some time, unnoticed because
+      # these jobs skip there.
+      - name: Setup Blacksmith Builder
+        if: steps.prep.outputs.skip != 'true'
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: kagent-rolling-upgrade
       - name: Run rolling upgrade tests
         if: steps.prep.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: fake
-          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --platform=linux/amd64
             --push
         run: |
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
           make run-rolling-upgrade-tests UPGRADE_FROM_VERSION="${{ steps.prep.outputs.version }}"
       - name: fail print info
         if: failure() && steps.prep.outputs.skip != 'true'
@@ -377,18 +411,30 @@ jobs:
           platforms: linux/amd64,linux/arm64
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # One sticky disk per image, which is the layer cache this job used to ask
+          # GitHub for. A sticky disk is mounted, not fetched and unpacked, so it costs
+          # nothing to read and nothing to write back — where `mode=max` exported every
+          # layer of every stage over the network at the end of each build.
+          cache-key: kagent-build-${{ matrix.image }}
       - name: Run make build
         env:
-          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
             --platform=linux/amd64,linux/arm64
             --push
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx build"
-        run: make build-${{ matrix.image }}
+        run: |
+          # Build on the builder Blacksmith just set up rather than one of the Makefile's
+          # own, which would not see that cache.
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
+          # `-j`, for the one image in this matrix that is not a single build: the
+          # controller embeds the digests of the six runtimes it ships with, so
+          # `build-controller` has them as prerequisites and built them one after another.
+          # They are independent of each other, and make knows it.
+          make -j4 build-${{ matrix.image }}
         working-directory: ./
 
   go-lint:
