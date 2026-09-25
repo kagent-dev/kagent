@@ -21,9 +21,15 @@ type session struct{}
 
 func (session) Principal() auth.Principal { return auth.Principal{User: auth.User{ID: "alice"}} }
 
-type authorizer struct{ deny string }
+type authorizer struct {
+	deny  string
+	check func(auth.Resource)
+}
 
 func (a authorizer) Check(_ context.Context, _ auth.Principal, _ auth.Verb, r auth.Resource) error {
+	if a.check != nil {
+		a.check(r)
+	}
 	if r.Type == a.deny {
 		return errors.New("denied")
 	}
@@ -62,13 +68,18 @@ func TestTargetPermissionAndExistence(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).Build()
-	request := scheduledrun.CreateRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "harness"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "template"}, RequestID: "id", Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "run"}}
-	for _, denied := range []string{"Harness", "AgentTemplate", "AgentInstance"} {
+	request := scheduledrun.CreateRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "template"}, RequestID: "id", Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "run"}}
+	for _, denied := range []string{"Agent", "AgentInstance"} {
 		svc := scheduledrun.NewService(missingRequestStore{}, kube, authorizer{deny: denied})
 		_, err := svc.Create(owner, request)
 		require.Equal(t, serviceerrors.CodePermissionDenied, serviceerrors.CodeOf(err))
 	}
-	svc := scheduledrun.NewService(missingRequestStore{}, kube, authorizer{})
+	svc := scheduledrun.NewService(missingRequestStore{}, kube, authorizer{check: func(resource auth.Resource) {
+		if resource.Type == "Agent" {
+			require.Equal(t, "team", resource.Namespace)
+			require.Equal(t, "template", resource.Name)
+		}
+	}})
 	_, err := svc.Create(owner, request)
 	require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(err))
 }

@@ -13,7 +13,7 @@ type agentInstanceServer struct {
 }
 
 func (s *agentInstanceServer) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error) {
-	instance, err := s.service.Create(ctx, request.GetHarness(), request.GetAgentTemplate(), request.GetRequestId(), request.GetName())
+	instance, err := s.service.Create(ctx, request.GetAgent(), request.GetRequestId(), request.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -30,9 +30,9 @@ func (s *agentInstanceServer) GetAgentInstance(ctx context.Context, request *api
 
 func (s *agentInstanceServer) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
 	result, err := s.service.List(ctx, agentinstance.ListRequest{
-		AllCreators:   request.GetAllCreators(),
-		AgentTemplate: request.GetAgentTemplate(), Harness: request.GetHarness(),
-		PageSize: int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
+		AllCreators: request.GetAllCreators(),
+		Agent:       request.GetAgent(),
+		PageSize:    int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
 	})
 	if err != nil {
 		return nil, err

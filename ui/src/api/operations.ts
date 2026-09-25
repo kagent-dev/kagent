@@ -1,3 +1,4 @@
+import type { Agent, AgentResource } from "./domain/agents";
 import type { Client } from "@connectrpc/connect";
 import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
@@ -113,6 +114,12 @@ type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
  * positional signature cannot be inspected by any of them.
  */
 export interface OperationMap {
+ "agents.list": { input: { namespace?: string }; output: Agent[] };
+ "agents.get": { input: ResourceRefInput; output: Agent };
+ "agents.create": { input: ResourceRefInput & {resource: AgentResource}; output: Agent };
+ "agents.update": { input: ResourceRefInput & {resource: AgentResource}; output: Agent };
+ "agents.delete": { input: ResourceRefInput; output: void };
+
   "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
   "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
   "scheduledRuns.create": ScheduledRunRpc<"createScheduledRun">;
@@ -156,8 +163,7 @@ export interface OperationMap {
     input: {
       allCreators?: boolean;
 
-      agentTemplate?: ResourceRefInput;
-      harness?: ResourceRefInput;
+      agent?: ResourceRefInput;
     };
     output: AgentInstance[];
   };
@@ -165,8 +171,7 @@ export interface OperationMap {
 
   "agentInstances.create": {
     input: {
-      harness: ResourceRefInput;
-      agentTemplate: ResourceRefInput;
+      agent: ResourceRefInput;
       requestId: string;
 
       /**
@@ -303,14 +308,7 @@ export interface OperationMap {
   /** The agent templates in one namespace, or in every observed namespace. */
   "agentTemplates.list": { input: { namespace?: string }; output: AgentTemplate[] };
   "agentTemplates.get": { input: ResourceRefInput; output: AgentTemplate };
-  /**
-   * Creates an agent template from a whole custom resource.
-   *
-   * The resource carries `metadata.labels`, and they are not decoration: a
-   * `Harness` admits templates through a label selector, and the CRD says a harness
-   * with no selector admits none. A template whose labels match nothing reaches no
-   * prepared revision and can never become an agent.
-   */
+
   "agentTemplates.create": {
     input: { namespace: string; name: string; resource: AgentTemplateResource };
     output: AgentTemplate;

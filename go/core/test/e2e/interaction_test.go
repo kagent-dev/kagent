@@ -441,7 +441,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 			t.Fatalf("list AgentInstances: %v", err)
 		}
 		for _, instance := range instances.GetAgentInstances() {
-			if instance.GetAgentTemplate().GetName() == fixture.childTemplate {
+			if instance.GetAgent().GetName() == fixture.childTemplate {
 				t.Fatalf("Shared child created AgentInstance %q", instance.GetId())
 			}
 		}
@@ -666,7 +666,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(cancel)
 	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 	request := &apiv1alpha1.CreateAgentInstanceRequest{
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: templateName}, Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: harnessName}, RequestId: uuid.NewString(),
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: templateName}, RequestId: uuid.NewString(),
 	}
 	var created *apiv1alpha1.CreateAgentInstanceResponse
 	err = wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
@@ -1071,7 +1071,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			SystemPrompt: "Answer as the shared specialist.",
 		},
 	}
-	createAndWaitInteractionTemplate(t, harness, kube, child)
+	createSharedTemplate(t, kube, child)
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-root-", Namespace: "kagent",
@@ -1090,6 +1090,20 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 	}
 	createAndWaitInteractionTemplate(t, harness, kube, root)
 	return root.Name, child.Name
+}
+
+// Shared children are reusable context: no Agent or Harness binding is needed.
+func createSharedTemplate(t *testing.T, kube ctrlclient.Client, template *v1alpha3.AgentTemplate) {
+	t.Helper()
+	template.Labels = nil
+	if err := kube.Create(t.Context(), template); err != nil {
+		t.Fatalf("create shared template: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), template); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete shared template: %v", err)
+		}
+	})
 }
 
 func interactionKubeClient(t *testing.T) ctrlclient.Client {
@@ -1167,38 +1181,42 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 		}
 	})
 
+	agent := &v1alpha3.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: template.Name, Namespace: template.Namespace},
+		Spec: v1alpha3.AgentSpec{
+			TemplateRef: &corev1.LocalObjectReference{Name: template.Name},
+			HarnessRef:  &corev1.LocalObjectReference{Name: harnessName},
+		},
+	}
+	if err := kube.Create(t.Context(), agent); err != nil {
+		t.Fatalf("create Agent: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), agent); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete Agent: %v", err)
+		}
+	})
 	var lastReady *metav1.Condition
 	err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
-		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), template); err != nil {
+		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent); err != nil {
 			return false, err
 		}
-		for _, harness := range template.Status.Harnesses {
-			if harness.Harness != harnessName {
-				continue
+		for index := range agent.Status.Conditions {
+			condition := &agent.Status.Conditions[index]
+			if condition.Status == metav1.ConditionFalse && (condition.Type != v1alpha3.AgentConditionReady || condition.Reason != "ActorTemplatePending") {
+				return false, fmt.Errorf("Agent %s/%s condition %s failed: %s: %s", agent.Namespace, agent.Name, condition.Type, condition.Reason, condition.Message)
 			}
-			for index := range harness.Conditions {
-				condition := &harness.Conditions[index]
-				if condition.Status == metav1.ConditionFalse &&
-					(condition.Type != v1alpha3.AgentTemplateConditionReady || condition.Reason != "ActorTemplatePending") {
-					return false, fmt.Errorf("AgentTemplate %s/%s harness %q condition %s failed: %s: %s",
-						template.Namespace, template.Name, harnessName, condition.Type, condition.Reason, condition.Message)
-				}
-				if condition.Type == v1alpha3.AgentTemplateConditionReady {
-					lastReady = condition.DeepCopy()
-					if condition.Status == metav1.ConditionTrue {
-						return true, nil
-					}
+			if condition.Type == v1alpha3.AgentConditionReady {
+				lastReady = condition.DeepCopy()
+				if condition.Status == metav1.ConditionTrue {
+					return true, nil
 				}
 			}
 		}
 		return false, nil
 	})
 	if err != nil {
-		if lastReady != nil {
-			t.Fatalf("wait for interaction AgentTemplate %s/%s on harness %q: %v; last Ready condition: status=%s reason=%s message=%q",
-				template.Namespace, template.Name, harnessName, err, lastReady.Status, lastReady.Reason, lastReady.Message)
-		}
-		t.Fatalf("wait for interaction AgentTemplate: %v", err)
+		t.Fatalf("wait for Agent %s/%s: %v; last Ready: %+v", agent.Namespace, agent.Name, err, lastReady)
 	}
 }
 

@@ -498,8 +498,7 @@ func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string) (*ap
 func (*fakeInstanceStore) ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	return []*apiv1alpha1.AgentInstance{{
 		Id: testInstanceID, State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
-		AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"},
-		Harness:       &apiv1alpha1.ResourceReference{Name: "kagent"},
+		Agent: &apiv1alpha1.ResourceReference{Name: "assistant"},
 	}}, nil
 }
 

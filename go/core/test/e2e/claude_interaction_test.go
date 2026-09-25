@@ -130,7 +130,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			SystemPrompt: childPrompt,
 		},
 	}
-	createAndWaitInteractionTemplateForHarness(t, kube, child, claudeE2EHarness)
+	createSharedTemplate(t, kube, child)
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "claude-local-root-", Namespace: "kagent",
@@ -158,7 +158,7 @@ func assertNoClaudeChildInstance(t *testing.T, fixture *interactionFixture, chil
 		t.Fatalf("list Claude AgentInstances: %v", err)
 	}
 	for _, instance := range instances.GetAgentInstances() {
-		if instance.GetAgentTemplate().GetName() == childTemplate {
+		if instance.GetAgent().GetName() == childTemplate {
 			t.Fatalf("Claude local child created AgentInstance %q", instance.GetId())
 		}
 	}

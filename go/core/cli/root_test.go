@@ -113,7 +113,7 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	createInstanceCmd, _, err := rootCmd.Find([]string{"create", "agent-instance"})
 	require.NoError(t, err)
 	assert.Equal(t, "agent-instance", createInstanceCmd.Use)
-	for _, flag := range []string{"harness", "agent-template", "request-id"} {
+	for _, flag := range []string{"agent", "request-id"} {
 		assert.NotNil(t, createInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 
@@ -155,7 +155,7 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range getCmd.Commands() {
 		getCommands = append(getCommands, command.Name())
 	}
-	for _, command := range []string{"agent", "session", "tool"} {
+	for _, command := range []string{"session", "tool"} {
 		assert.NotContains(t, getCommands, command)
 	}
 }
@@ -179,7 +179,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	for name, args := range map[string][]string{
 		"get agent-instance":    {"get", "agent-instance"},
 		"get agent-template":    {"get", "agent-template"},
-		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
+		"create agent-instance": {"create", "agent-instance", "--agent", "example"},
 		"apply agent-template":  {"apply", "--file", "template.yaml"},
 		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
 		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
@@ -200,7 +200,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 
 func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
 	for name, want := range map[string]string{
-		"get":    "agent-instance, agent-template",
+		"get":    "agent, agent-instance, agent-template",
 		"create": "agent-instance",
 		"delete": "agent-instance",
 	} {

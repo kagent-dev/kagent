@@ -28,7 +28,6 @@ function templateWithExtras(): AgentTemplate {
     name: "rich",
     modelConfigRef: "kagent/gpt",
     description: "A template with fields no form shows.",
-    admittingHarnesses: ["runner"],
     resource: {
       metadata: {
         name: "rich",

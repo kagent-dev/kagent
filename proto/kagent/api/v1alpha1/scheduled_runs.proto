@@ -52,8 +52,9 @@ message ScheduledRun {
   string id = 1;
   // Human owner; this does not select credentials for execution or tool calls.
   string creator = 2;
-  ResourceReference harness = 3;
-  ResourceReference agent_template = 4;
+  reserved 3, 4;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 11;
   ScheduledRunConfig config = 5;
   string etag = 6;
   google.protobuf.Timestamp next_execution_time = 7;
@@ -64,13 +65,9 @@ message ScheduledRun {
 }
 
 message CreateScheduledRunRequest {
-  option (buf.validate.message).cel = {
-    id: "same_target_namespace"
-    message: "Harness and AgentTemplate must be in the same namespace"
-    expression: "this.harness.namespace == this.agent_template.namespace"
-  };
-  ResourceReference harness = 1 [(buf.validate.field).required = true];
-  ResourceReference agent_template = 2 [(buf.validate.field).required = true];
+  reserved 1, 2;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 5 [(buf.validate.field).required = true];
   string request_id = 3 [(buf.validate.field).string = {
     min_len: 1
     max_len: 128

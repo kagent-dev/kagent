@@ -334,7 +334,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
 			created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
-				Harness: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
+				Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
 				Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},
 			})
 			require.NoError(t, err)

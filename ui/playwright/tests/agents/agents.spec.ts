@@ -27,24 +27,8 @@ import { background, settledPaint } from "../../helpers/style";
  *
  * The properties a page cannot show you it got wrong:
  *
- * - **A row is a pair.** One template admitted by two harnesses is two agents, and
- *   the fixtures carry exactly that case. A page keyed on the template would render
- *   one row, look entirely correct, and merge two agents' conversations.
- * - **A template nothing admits is no agent.** It reaches no prepared revision and
- *   every `CreateAgentInstance` naming it is refused, so listing it as a runnable
- *   agent would be listing something that cannot run.
- * - **Selecting no namespace means all of them**, which is one state rather than two
- *   controls that could disagree — the toggle-beside-a-single-select this replaced.
- * - **The revision state is three answers, not two.** "Preparing" is not a failure
- *   and "not reported" is not one either.
- *
- * ## Why the assertions read the state and not the wording
- *
- * The revision tag carries its state in `data-revision-state` beside its label. The
- * wording is a product decision and may change; the state is derived from the
- * controller's status and may not. Asserting the value means a rename is a
- * deliberate edit here rather than a broken suite, while a row showing the wrong
- * state still fails.
+ * Each row is an explicit Agent. Two Agents can reuse a template while retaining
+ * independent revisions and conversations. Templates alone do not appear here.
  */
 
 test("agents: the list is agents, and an agent is a template paired with a harness", async ({
@@ -62,15 +46,13 @@ test("agents: the list is agents, and an agent is a template paired with a harne
     // exists and those are gathered under a stand-in row — see the dedicated test
     // below for why that row is there and when it is not.
     await expect(dataRows(page)).toHaveCount(6);
+    await expect(page.getByTestId("agents-summary")).toHaveText("5 of 5 agents");
+    await expect(page.getByTestId("agent-conversations-__unmapped__")).toHaveText("1 conversation");
     await expect(page.getByTestId("agents-table")).toContainText("analytics");
     await expect(page.getByTestId("instances-all-namespaces")).toHaveCount(0);
   });
 
-  await test.step("2. a template two harnesses admit is two agents, told apart by the harness", async () => {
-    // The load-bearing assertion of this whole page. `shared-brain` carries one
-    // label each of two harnesses selects on, so the controller materialises two
-    // pairs with two revisions — and they share a name, which is exactly why the
-    // harness is a column rather than a detail.
+  await test.step("2. two explicit Agents reuse a template with different Harnesses", async () => {
     const shared = rowNamed(page, "shared-brain");
     await expect(shared).toHaveCount(2);
 
@@ -91,27 +73,24 @@ test("agents: the list is agents, and an agent is a template paired with a harne
       page.getByTestId("agent-link-kagent-shared-brain-k8s-agent"),
     ).toHaveAttribute("href", agentNewChat(agents.sharedOnK8s));
     await expect(
-      page.getByTestId("agent-link-kagent-shared-brain-fast-lane"),
+      page.getByTestId("agent-link-kagent-shared-brain-fast-fast-lane"),
     ).toHaveAttribute("href", agentNewChat(agents.sharedOnFastLane));
   });
 
-  await test.step("4. a template no harness admits is not listed as an agent", async () => {
-    // `note-taker` has no labels, so nothing admits it, so it reaches no prepared
-    // revision and cannot be run. It is a template, and the templates page is where
-    // that is said — listing it here would offer a "New chat" that cannot succeed.
+  await test.step("4. a template without an Agent is not listed as an agent", async () => {
     await expect(rowNamed(page, "note-taker")).toHaveCount(0);
   });
 
   await test.step("5. the revision state is three answers, and 'preparing' is not a failure", async () => {
     await expect(
-      page.getByTestId(`agent-revision-kagent/${agents.k8s.template}/${agents.k8s.harness}`),
+      page.getByTestId(`agent-revision-kagent/${agents.k8s.name}`),
     ).toHaveAttribute("data-revision-state", "ready");
 
-    // Admitted, with a desired revision and none successful yet, because its harness
+    // Defined, with a desired revision and none successful yet, because its harness
     // has not reported ready. A page that rendered this the same as a failure would
     // send a reader looking for a broken template.
     const preparing = page.getByTestId(
-      `agent-revision-kagent/${agents.preparing.template}/${agents.preparing.harness}`,
+      `agent-revision-kagent/${agents.preparing.name}`,
     );
     await expect(preparing).toHaveAttribute("data-revision-state", "preparing");
     await expect(preparing).toHaveText("Preparing");
@@ -123,19 +102,19 @@ test("agents: the list is agents, and an agent is a template paired with a harne
     // and two of somebody else's.
     await expect(
       page.getByTestId(
-        `agent-conversations-kagent/${agents.k8s.template}/${agents.k8s.harness}`,
+        `agent-conversations-kagent/${agents.k8s.name}`,
       ),
     ).toHaveText("4 conversations");
     // One each for the two agents `shared-brain` is — which is the count being per
     // *pair* rather than per template. Split the other way it would read 2 and 0.
     await expect(
       page.getByTestId(
-        `agent-conversations-kagent/${agents.sharedOnK8s.template}/${agents.sharedOnK8s.harness}`,
+        `agent-conversations-kagent/${agents.sharedOnK8s.name}`,
       ),
     ).toHaveText("1 conversation");
     await expect(
       page.getByTestId(
-        `agent-conversations-kagent/${agents.sharedOnFastLane.template}/${agents.sharedOnFastLane.harness}`,
+        `agent-conversations-kagent/${agents.sharedOnFastLane.name}`,
       ),
     ).toHaveText("1 conversation");
   });
@@ -181,11 +160,10 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
     await page.keyboard.press("Escape");
 
     await expect(page.getByTestId("agents-filters-pill-ns-analytics")).toBeVisible();
-    // One agent in that namespace, plus the stand-in row — which survives every filter
-    // deliberately: it belongs to no namespace in the sense the filter means, and
-    // hiding it because a namespace was chosen would take away the only way to reach
-    // the conversations it stands for.
+    // The unknown-Agent fixture remains visible, but conversations belonging to
+    // known Agents in other namespaces must not be counted as orphaned.
     await expect(dataRows(page)).toHaveCount(2);
+    await expect(page.getByTestId("agent-conversations-__unmapped__")).toHaveText("1 conversation");
     // In the address, so a narrowed view can be linked to and survives a reload.
     await expect(page).toHaveURL(/ns=analytics/);
   });
@@ -244,12 +222,11 @@ test("agents: conversations with no agent are gathered rather than only counted"
   await test.step("3. it opens the conversations rather than offering a new one", async () => {
     // There is no agent to start a conversation with — that is the condition the row
     // describes — so the name goes to the list of what it stands for.
-    await page.getByTestId("agent-link-kagent-unmapped-agentinstances-—").click();
+    await page.getByRole("link", { name: "unmapped-agentinstances", exact: true }).click();
     await page.waitForURL(/\/agents\/unmapped$/, { timeout: 30_000 });
     await expect(page.getByTestId("unmapped-table")).toBeVisible();
-    // Each row says which pair it *was* built from, which is the only clue to why it
-    // is here — a reader recognising a template they deleted has their answer.
-    await expect(page.getByTestId("unmapped-table")).toContainText("on");
+    // This fixture has no Agent reference; the page must report that absence.
+    await expect(page.getByTestId("unmapped-table").locator("tbody tr").first().locator("td").nth(1)).toHaveText("not reported");
   });
 });
 
@@ -271,13 +248,12 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
   await loadPage(page, routes.agents, { title: "Agents" });
 
   await test.step("1. the concepts are stated before the list", async () => {
-    // The model is not guessable from the nouns: "Agents" reads like a list of things
-    // somebody made, and there is no Agent CRD at all.
+    // The overview explains what each resource owns.
     const concepts = page.getByTestId("agent-concepts");
     await expect(concepts).toBeVisible();
     await expect(concepts).toContainText("AgentTemplate");
     await expect(concepts).toContainText("Harness");
-    await expect(concepts, "the derived one has to say that it is").toContainText("derived");
+    await expect(concepts).toContainText("each referenced or inline");
   });
 
   await test.step("2. each tab is reachable and shows its own list", async () => {
@@ -380,20 +356,8 @@ test("agents: the list is ordered by name, with the stand-in row last", async ({
  * and that it does not quietly report "there are no agents" when the truth is that
  * it could not find out.
  *
- * The list is `AgentTemplateService/ListAgentTemplates` now, because an agent is a
- * template paired with a harness and `status.harnesses[]` carries every pair. That
- * is asserted below rather than assumed: naming the failing call is what makes the
- * message actionable, and it also pins which service this page reads — which changed
- * with the model.
- *
- * **It reads two services, and the order matters when both fail.** Templates are read
- * one namespace at a time, because `ListAgentTemplates` validates its namespace first
- * and refuses an empty one rather than treating it as a wildcard. So `ListNamespaces`
- * is an *input* to the template read, not a nicety beside it: when it fails there are
- * no namespaces to iterate, the template read never runs, and a page that reported only
- * `templates.error` would sit at "no agents" — an empty state describing a backend that
- * was never asked. This scenario fails everything, so the alert correctly names the call
- * that actually failed, which is the namespace one. Step 5 covers the other order.
+ * AgentService lists one namespace at a time. A failed namespace discovery must
+ * report its error because the Agent read cannot run without those namespaces.
  */
 
 test("agents: a failed load is reported, not disguised as an empty list", async ({

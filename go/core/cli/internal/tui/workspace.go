@@ -78,12 +78,11 @@ type instanceHistoryLoadedMsg struct {
 
 // catalogLoadedMsg carries Kubernetes names; on error the cascade falls back to instance-derived ones.
 type catalogLoadedMsg struct {
-	harnesses []string
-	templates []string
-	err       error
+	agents []string
+	err    error
 }
 
-// namespacesLoadedMsg carries namespaces holding AgentTemplates; a forbidden list leaves the current one.
+// namespacesLoadedMsg carries namespaces holding Agents; a forbidden list leaves the current one.
 type namespacesLoadedMsg struct {
 	namespaces []namespaceCount
 	err        error
@@ -104,24 +103,21 @@ type workspaceModel struct {
 
 	// panels
 	namespaces  list.Model
-	harnesses   list.Model
-	templates   list.Model
+	agents      list.Model
 	instances   list.Model
 	chat        *chatModel
 	details     string
 	showDetails bool
 
 	// all holds every fetched AgentInstance; the cascade panels above narrow it.
-	all              []*apiv1alpha1.AgentInstance
-	catalogHarnesses []string
-	catalogTemplates []string
-	current          *apiv1alpha1.AgentInstance
-	status           string
+	all           []*apiv1alpha1.AgentInstance
+	catalogAgents []string
+	current       *apiv1alpha1.AgentInstance
+	status        string
 
-	// Empty harness or template means no filter; namespace is always set.
+	// Empty harness or agent means no filter; namespace is always set.
 	namespace string
-	harness   string
-	template  string
+	agent     string
 
 	focus panelID
 }
@@ -143,8 +139,7 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 		verbose:    verbose,
 		// Seed the delegates so rows render sanely before the first resize.
 		namespaces: newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
-		harnesses:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
-		templates:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
+		agents:     newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
 		instances:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: instanceRow}),
 		namespace:  cfg.Namespace,
 		focus:      panelInstances,
@@ -155,7 +150,7 @@ func (m *workspaceModel) Init() tea.Cmd {
 	return tea.Batch(m.loadInstances(), m.loadCatalog(), m.loadNamespaces())
 }
 
-// loadNamespaces lists the namespaces that hold AgentTemplates.
+// loadNamespaces lists the namespaces that hold Agents.
 func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
@@ -166,22 +161,18 @@ func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	}
 }
 
-// loadCatalog reads the Harness and AgentTemplate names from Kubernetes.
+// loadCatalog reads the Agent names from Kubernetes.
 func (m *workspaceModel) loadCatalog() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
 			return catalogLoadedMsg{err: m.noCatalogErr()}
 		}
 
-		harnesses, err := m.catalog.Harnesses(m.ctx, m.namespace)
+		agents, err := m.catalog.Agents(m.ctx, m.namespace)
 		if err != nil {
 			return catalogLoadedMsg{err: err}
 		}
-		templates, err := m.catalog.AgentTemplates(m.ctx, m.namespace)
-		if err != nil {
-			return catalogLoadedMsg{err: err}
-		}
-		return catalogLoadedMsg{harnesses: harnesses, templates: templates}
+		return catalogLoadedMsg{agents: agents}
 	}
 }
 
@@ -248,10 +239,10 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case catalogLoadedMsg:
 		// Without a catalog the panels still work, so this only warns.
 		if msg.err != nil {
-			m.status = fmt.Sprintf("Listing only AgentTemplates that have instances: %v", msg.err)
+			m.status = fmt.Sprintf("Listing only Agents that have instances: %v", msg.err)
 			return m, nil
 		}
-		m.catalogHarnesses, m.catalogTemplates = msg.harnesses, msg.templates
+		m.catalogAgents = msg.agents
 		m.rebuildPanels()
 		return m, m.resize()
 
@@ -339,13 +330,11 @@ type sidebarPanel struct {
 // sidebarPanels is the single source of sidebar geometry; the instance panel takes what is left.
 func (m *workspaceModel) sidebarPanels() []sidebarPanel {
 	namespaces := filterPanelHeight(m.namespaces)
-	harnesses := filterPanelHeight(m.harnesses)
-	templates := filterPanelHeight(m.templates)
+	agents := filterPanelHeight(m.agents)
 	return []sidebarPanel{
 		{panelNamespaces, &m.namespaces, namespaces, nameRow},
-		{panelHarnesses, &m.harnesses, harnesses, nameRow},
-		{panelTemplates, &m.templates, templates, nameRow},
-		{panelInstances, &m.instances, max(m.bodyHeight()-namespaces-harnesses-templates, 3), instanceRow},
+		{panelAgents, &m.agents, agents, nameRow},
+		{panelInstances, &m.instances, max(m.bodyHeight()-namespaces-agents, 3), instanceRow},
 	}
 }
 
@@ -396,7 +385,7 @@ func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
 
 	// The API lists all instances; this panel browses Kubernetes targets.
 	m.all = slices.DeleteFunc(msg.instances, func(instance *apiv1alpha1.AgentInstance) bool {
-		targetNamespace := instance.GetAgentTemplate().GetNamespace()
+		targetNamespace := instance.GetAgent().GetNamespace()
 		return targetNamespace != "" && targetNamespace != m.namespace
 	})
 	slices.SortStableFunc(m.all, func(a, b *apiv1alpha1.AgentInstance) int {
@@ -426,18 +415,15 @@ func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
 
 // rebuildPanels derives the cascade from fetched instances, then narrows by the current selections.
 func (m *workspaceModel) rebuildPanels() {
-	m.harnesses.SetItems(countedNames(m.catalogHarnesses, m.all, func(i *apiv1alpha1.AgentInstance) string {
-		return i.GetHarness().GetName()
-	}))
-	m.rebuildTemplates()
+	m.rebuildAgents()
 }
 
-// rebuildTemplates also rebuilds the instances below it, since SetItems resets this panel's cursor.
-func (m *workspaceModel) rebuildTemplates() {
-	m.templates.SetItems(countedNames(m.catalogTemplates, m.filterByHarness(), func(i *apiv1alpha1.AgentInstance) string {
-		return i.GetAgentTemplate().GetName()
+// rebuildAgents also rebuilds the instances below it, since SetItems resets this panel's cursor.
+func (m *workspaceModel) rebuildAgents() {
+	m.agents.SetItems(countedNames(m.catalogAgents, m.all, func(i *apiv1alpha1.AgentInstance) string {
+		return i.GetAgent().GetName()
 	}))
-	m.template = ""
+	m.agent = ""
 	m.rebuildInstances()
 }
 
@@ -464,7 +450,7 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 
 	items := make([]list.Item, 0, len(namespaces))
 	for _, namespace := range namespaces {
-		items = append(items, nameItem{name: namespace.Name, count: namespace.Templates})
+		items = append(items, nameItem{name: namespace.Name, count: namespace.Agents})
 	}
 	m.namespaces.SetItems(items)
 	for i, namespace := range namespaces {
@@ -478,19 +464,14 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 func (m *workspaceModel) syncCascade() tea.Cmd {
 	if namespace := selectedNamespace(m.namespaces); namespace != "" && namespace != m.namespace {
 		m.namespace = namespace
-		m.harness, m.template = "", ""
-		m.all, m.catalogHarnesses, m.catalogTemplates = nil, nil, nil
+		m.agent = ""
+		m.all, m.catalogAgents = nil, nil
 		m.current, m.chat = nil, nil
 		m.rebuildPanels()
 		return tea.Batch(m.loadInstances(), m.loadCatalog())
 	}
-	if harness := selectedName(m.harnesses); harness != m.harness {
-		m.harness = harness
-		m.rebuildTemplates() // a different harness invalidates the template below
-		return nil
-	}
-	if template := selectedName(m.templates); template != m.template {
-		m.template = template
+	if agent := selectedName(m.agents); agent != m.agent {
+		m.agent = agent
 		m.rebuildInstances()
 	}
 	return nil
@@ -533,24 +514,11 @@ func countedNames(catalogNames []string, instances []*apiv1alpha1.AgentInstance,
 	return items
 }
 
-func (m *workspaceModel) filterByHarness() []*apiv1alpha1.AgentInstance {
-	if m.harness == "" {
-		return m.all
-	}
-	var kept []*apiv1alpha1.AgentInstance
-	for _, agentInstance := range m.all {
-		if agentInstance.GetHarness().GetName() == m.harness {
-			kept = append(kept, agentInstance)
-		}
-	}
-	return kept
-}
-
 // visibleInstances applies both cascade filters.
 func (m *workspaceModel) visibleInstances() []*apiv1alpha1.AgentInstance {
 	var kept []*apiv1alpha1.AgentInstance
-	for _, agentInstance := range m.filterByHarness() {
-		if m.template == "" || agentInstance.GetAgentTemplate().GetName() == m.template {
+	for _, agentInstance := range m.all {
+		if m.agent == "" || agentInstance.GetAgent().GetName() == m.agent {
 			kept = append(kept, agentInstance)
 		}
 	}
@@ -593,7 +561,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(m.ctx, agentInstance.GetAgentTemplate().GetName(), agentInstance.GetContextId(), send, m.verbose)
+	m.chat = newChatModel(m.ctx, agentInstance.GetAgent().GetName(), agentInstance.GetContextId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(agentInstance.GetState()), agentInstance.GetUpdatedAt().AsTime())
 	// Bubble Tea calls Init only on the root model, so start the chat's here.
 	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(agentInstance))
@@ -631,7 +599,7 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // activateFocused narrows the cascade, or opens a chat from the instance panel.
 func (m *workspaceModel) activateFocused() (tea.Cmd, bool) {
 	switch m.focus {
-	case panelNamespaces, panelHarnesses, panelTemplates:
+	case panelNamespaces, panelAgents:
 		// The cursor already applied the filter, so enter just drills down.
 		m.focus = m.focus.next()
 		return m.resize(), true
@@ -665,11 +633,8 @@ func (m *workspaceModel) forward(msg tea.Msg) tea.Cmd {
 	case panelNamespaces:
 		m.namespaces, cmd = m.namespaces.Update(msg)
 		cmd = tea.Batch(cmd, m.syncCascade())
-	case panelHarnesses:
-		m.harnesses, cmd = m.harnesses.Update(msg)
-		cmd = tea.Batch(cmd, m.syncCascade())
-	case panelTemplates:
-		m.templates, cmd = m.templates.Update(msg)
+	case panelAgents:
+		m.agents, cmd = m.agents.Update(msg)
 		cmd = tea.Batch(cmd, m.syncCascade())
 	case panelInstances:
 		m.instances, cmd = m.instances.Update(msg)
@@ -731,8 +696,7 @@ func (m *workspaceModel) renderDetails() {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "ID\n%s\n\n", m.current.GetId())
-	fmt.Fprintf(&b, "AgentTemplate\n%s\n\n", m.current.GetAgentTemplate().GetName())
-	fmt.Fprintf(&b, "Harness\n%s\n\n", m.current.GetHarness().GetName())
+	fmt.Fprintf(&b, "Agent\n%s\n\n", m.current.GetAgent().GetName())
 	fmt.Fprintf(&b, "State\n%s\n\n", instance.StateLabel(m.current.GetState()))
 
 	if failure := m.current.GetFailure(); failure != nil {
@@ -771,7 +735,7 @@ func (m *workspaceModel) centerView() string {
 		return m.chat.View()
 	}
 	if len(m.all) == 0 {
-		return "No AgentInstances.\n\nCreate one with:\nkagent create agent-instance --harness H --agent-template T"
+		return "No AgentInstances.\n\nCreate one with:\nkagent create agent-instance --agent A"
 	}
 	if m.current != nil {
 		return fmt.Sprintf("AgentInstance is %s.\n\nIt cannot accept messages right now.\nPress ctrl+r to refresh, or pick another in panel [3].",

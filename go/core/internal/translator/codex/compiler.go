@@ -306,7 +306,11 @@ type provenanceEntry struct {
 }
 
 func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec)}
+	var entries []provenanceEntry
+	// Inline configuration is recorded by the enclosing Agent provenance.
+	if input.Harness.Kind != "Agent" {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec))
+	}
 	seenObjects := map[string]struct{}{}
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)
@@ -321,6 +325,9 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 			{"AgentTemplate", agent.Template.Name, agent.Template.UID, agent.Template.Generation, agent.Template.Spec},
 			{"ModelConfig", model.Name, model.UID, model.Generation, model.Spec},
 		} {
+			if object.kind == "AgentTemplate" && agent.Template.Kind == "Agent" {
+				continue
+			}
 			identity := object.kind + "\x00" + object.name
 			if _, ok := seenObjects[identity]; !ok {
 				seenObjects[identity] = struct{}{}

@@ -67,14 +67,7 @@ export interface AgentTemplateDraft {
   outputSchemaKey: string;
   mcpTools: McpToolDraft[];
   agentTools: AgentToolDraft[];
-  /**
-   * The labels admission is decided by.
-   *
-   * Not decoration: a `Harness` admits templates through a label selector, and the
-   * CRD says a harness with no selector admits none. A template whose labels match
-   * nothing reaches no prepared revision and can never become an agent — so this is
-   * the field that decides whether the template is usable at all.
-   */
+
   labels: { key: string; value: string }[];
 }
 
@@ -214,13 +207,7 @@ export function specFromDraft(
     setOrDelete(spec, "systemPrompt", draft.systemPrompt.trim());
   }
 
-  /*
-   * Output sources have the same exactly-one shape as prompt sources, with one
-   * additional state: ordinary text output means neither schema field is present.
-   * Parsing happens here only after `draftProblems` has admitted the value. Keeping
-   * invalid JSON out of the resource also makes this function safe for callers that
-   * build a preview before enabling Save.
-   */
+
   if (draft.outputSource === "configMap") {
     delete spec.outputSchema;
     const name = draft.outputSchemaConfigMap.trim();

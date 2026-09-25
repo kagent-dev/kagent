@@ -50,6 +50,7 @@ type Config struct {
 	Authenticator         auth.AuthProvider
 	RuntimeAuthenticator  auth.AuthProvider
 	ShareStore            agentinstance.ShareStore
+	AgentService          *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
 	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
@@ -124,6 +125,9 @@ func New(config Config) (*Server, error) {
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
+	if config.AgentService != nil {
+		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
+	}
 	if config.AgentTemplateService != nil {
 		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
 	}

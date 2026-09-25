@@ -28,9 +28,9 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			harness := &v1alpha3.Harness{
 				ObjectMeta: metav1.ObjectMeta{Name: "harness", Namespace: "test"},
 				Spec: v1alpha3.HarnessSpec{
-					Kagent:                &v1alpha3.KagentHarness{},
-					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
-					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
+					Kagent: &v1alpha3.KagentHarness{},
+
+					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
 					Substrate: v1alpha3.HarnessSubstratePolicy{
 						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
 					},

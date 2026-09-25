@@ -43,10 +43,9 @@ type ListRequest struct {
 	AllCreators bool
 	// AgentTemplate and Harness narrow the page to one agent's conversations.
 	// Either may be given alone.
-	AgentTemplate *apiv1alpha1.ResourceReference
-	Harness       *apiv1alpha1.ResourceReference
-	PageSize      int
-	PageToken     string
+	Agent     *apiv1alpha1.ResourceReference
+	PageSize  int
+	PageToken string
 }
 
 type ListResult struct {
@@ -72,8 +71,8 @@ func NewService(store store, authorizer auth.Authorizer, workflow instanceWorkfl
 // Create reserves and converges a new conversation. name is optional; an empty
 // name leaves the conversation identified by its id, which is how every instance
 // created before names existed behaves.
-func (s *Service) Create(ctx context.Context, harness, template *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateCreate(harness, template, requestID); err != nil {
+func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateCreate(agent, requestID); err != nil {
 		return nil, err
 	}
 	creator, err := s.authorize(ctx, auth.VerbCreate, "")
@@ -86,8 +85,7 @@ func (s *Service) Create(ctx context.Context, harness, template *apiv1alpha1.Res
 	}
 	instance, _, err := s.store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
 		Id: id.String(), Creator: creator, Name: name,
-		Harness:       harness,
-		AgentTemplate: template,
+		Agent: agent,
 	}, requestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
@@ -96,7 +94,7 @@ func (s *Service) Create(ctx context.Context, harness, template *apiv1alpha1.Res
 		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted AgentInstance", err)
 	}
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewFailedPrecondition("AgentTemplate and Harness do not have a ready prepared revision", err)
+		return nil, serviceerrors.NewFailedPrecondition("Agent does not have a ready prepared revision", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve AgentInstance", err)
@@ -173,7 +171,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 	instances, err := s.store.ListAgentInstances(ctx, database.AgentInstanceQuery{
 		UserID: userID, AllUsers: request.AllCreators,
-		AgentTemplate: request.AgentTemplate, Harness: request.Harness,
+		Agent:   request.Agent,
 		AfterID: afterID, Limit: pageSize + 1,
 	})
 	if err != nil {
@@ -390,17 +388,14 @@ func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceTyp
 	return principal.User.ID, nil
 }
 
-func validateCreate(harness, template *apiv1alpha1.ResourceReference, requestID string) error {
-	for _, ref := range []*apiv1alpha1.ResourceReference{harness, template} {
+func validateCreate(agent *apiv1alpha1.ResourceReference, requestID string) error {
+	for _, ref := range []*apiv1alpha1.ResourceReference{agent} {
 		if problems := utilvalidation.IsDNS1123Label(ref.GetNamespace()); len(problems) > 0 {
 			return serviceerrors.NewInvalidArgument("target namespace is invalid: "+strings.Join(problems, "; "), nil)
 		}
 		if problems := utilvalidation.IsDNS1123Subdomain(ref.GetName()); len(problems) > 0 {
 			return serviceerrors.NewInvalidArgument("target name is invalid: "+strings.Join(problems, "; "), nil)
 		}
-	}
-	if harness.GetNamespace() != template.GetNamespace() {
-		return serviceerrors.NewInvalidArgument("Harness and AgentTemplate must be in the same namespace", nil)
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
 		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)

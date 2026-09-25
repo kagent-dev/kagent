@@ -140,7 +140,7 @@ export interface AgentRailProps {
    * current agent out of its own list, so a surface that knows it says so rather than
    * having it inferred from a title string.
    */
-  agentPair?: { namespace: string; agentTemplate?: string; harness?: string };
+  agentPair?: { namespace: string; name?: string };
   /**
    * Controls the surface wants in the rail's gutter, under the collapse toggle.
    *
@@ -230,7 +230,7 @@ export function AgentRail({
    * nothing to keep in step.
    */
   const [switcherFor, setSwitcherFor] = useState<string>();
-  const agentKey = ref.id ?? agentPair?.agentTemplate ?? "new";
+  const agentKey = ref.id ?? agentPair?.name ?? "new";
   const isSwitcherOpen = switcherFor === agentKey;
 
   /**
@@ -271,11 +271,10 @@ export function AgentRail({
    */
   const agentPageHref =
     agentHrefFromCaller ??
-    (instance?.harness && instance.agentTemplate
+    (instance?.agent
       ? agentPageUrl({
-        namespace: instance.agentTemplate.split("/")[0],
-          agentTemplate: bareName(instance.agentTemplate),
-          harness: bareName(instance.harness),
+        namespace: instance.agent.split("/")[0],
+          name: bareName(instance.agent),
         })
       : undefined);
 
@@ -285,11 +284,10 @@ export function AgentRail({
    * instance — the pages with no conversation open have only the first.
    */
   const pair = agentPair ?? {
-    namespace: instance?.agentTemplate?.split("/")[0] ?? "",
-    agentTemplate: instance?.agentTemplate
-      ? bareName(instance.agentTemplate)
+    namespace: instance?.agent?.split("/")[0] ?? "",
+    name: instance?.agent
+      ? bareName(instance.agent)
       : agentTitle?.primary,
-    harness: instance?.harness ? bareName(instance.harness) : undefined,
   };
 
   /*
@@ -370,8 +368,7 @@ export function AgentRail({
     const siblings = instance
       ? (conversations.data ?? []).filter(
           (candidate) =>
-            candidate.harness === instance.harness &&
-            candidate.agentTemplate === instance.agentTemplate,
+            candidate.agent === instance.agent,
         )
       : (conversations.data ?? []);
     const needle = query.trim().toLowerCase();
@@ -830,7 +827,7 @@ export function AgentRail({
               being switched. It took them from the instance id, which meant the badge
               changed every time a reader opened a different conversation with the same
               agent — while the menu behind it listed agents that never changed. */}
-          {(instance?.agentTemplate ? bareName(instance.agentTemplate) : (agentTitle?.primary ?? ref.id ?? ""))
+          {(instance?.agent ? bareName(instance.agent) : (agentTitle?.primary ?? ref.id ?? ""))
             .slice(0, 2)
             .toUpperCase()}
         </span>
@@ -843,8 +840,8 @@ export function AgentRail({
               recognises the agent by; the id distinguishes this conversation from
               the others with it. Until the instance loads there is only the id. */}
           <Text ellipsis css={{ fontSize: 14, color: theme.color.text }}>
-            {instance?.agentTemplate
-              ? bareName(instance.agentTemplate)
+            {instance?.agent
+              ? bareName(instance.agent)
               : (agentTitle?.primary ?? shortInstanceId(ref.id ?? ""))}
           </Text>
           {/* Which conversation, under which agent. Named the way the reader named
@@ -866,9 +863,7 @@ export function AgentRail({
                 template paired with a harness. The conversation is named in the list
                 below, where it is one row among its siblings; naming it here made the
                 card describe a conversation while the menu it opens describes agents. */}
-            {instance?.harness
-              ? `on ${bareName(instance.harness)}`
-                  : (agentTitle?.secondary ?? agentPair?.namespace ?? instance?.agentTemplate?.split("/")[0] ?? "")}
+            { (agentTitle?.secondary ?? agentPair?.namespace ?? instance?.agent?.split("/")[0] ?? "")}
           </Text>
         </span>
         <ChevronsUpDown size={14} color={theme.color.textMuted} aria-hidden />

@@ -81,8 +81,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		instance := &apiv1alpha1.AgentInstance{
 			Id: instanceID, Creator: userID, ContextId: sourceContextID.String(),
 			Name:             source.GetName(),
-			Harness:          &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.HarnessName},
-			AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentTemplateName},
+			Agent:            &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
 			PreparedRevision: *checkpoint.PreparedRevision,
 			State:            apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 			Operation:        apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,

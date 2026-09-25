@@ -356,8 +356,8 @@ func Run(ctx context.Context, opts Options) error {
 		TaskStoreService:      runtimeTasks,
 		AgentInstanceService:  instances,
 		ScheduledRunService:   schedules,
-		// Both halves of the pair CreateAgentInstance names. Without these two
-		// the only way to author a Harness or an AgentTemplate is kubectl.
+		// Author Agents and their reusable configuration through the API.
+		AgentService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent"),
 		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		CheckpointService:    checkpoints,

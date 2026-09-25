@@ -257,3 +257,77 @@ func TestListOrdersAcrossNamespaces(t *testing.T) {
 		}
 	}
 }
+func TestAgentServiceFiltersAndAuthorizesStoredObjects(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{
+		Kind: apiauthorization.ScopeAnyOf,
+		AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{
+			Attribute: apiauthorization.AttributeName,
+			Operator:  apiauthorization.ScopeIn,
+			Values:    []string{"a", "b"},
+		}}}},
+	}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "b"}},
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "denied"}},
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "a"}},
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "mutable"}},
+	).Build()
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent")
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+	listed, err := service.List(ctx, "team")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(listed) != 2 || listed[0].Name != "a" || listed[1].Name != "b" {
+		t.Fatalf("List() names = %v, want [a b]", []string{listed[0].Name, listed[1].Name})
+	}
+	if authorizer.scopeVerb != auth.VerbList || authorizer.scopeType != "Agent" {
+		t.Fatalf("Scope() = (%q, %q), want (list, Agent)", authorizer.scopeVerb, authorizer.scopeType)
+	}
+
+	if _, err := service.Get(ctx, types.NamespacedName{Namespace: "team", Name: "a"}); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if _, err := service.Create(ctx, &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "created"}}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	mutableRef := types.NamespacedName{Namespace: "team", Name: "mutable"}
+	mutable, err := service.GetForUpdate(ctx, mutableRef)
+	if err != nil {
+		t.Fatalf("GetForUpdate() error = %v", err)
+	}
+	mutable.Spec.Template = &v1alpha3.AgentTemplateSpec{Description: "updated"}
+	if _, err := service.SaveUpdate(ctx, mutable); err != nil {
+		t.Fatalf("SaveUpdate() error = %v", err)
+	}
+	if err := service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "b"}); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
+	if _, err := service.List(ctx, "team"); !serviceerrors.IsCode(err, serviceerrors.CodeInternal) {
+		t.Fatalf("malformed Agent scope must fail closed: %v", err)
+	}
+
+	wantVerbs := []auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbUpdate, auth.VerbDelete}
+	wantNames := []string{"a", "created", "mutable", "b"}
+	if len(authorizer.checkCalls) != len(wantVerbs) {
+		t.Fatalf("Check() calls = %d, want %d", len(authorizer.checkCalls), len(wantVerbs))
+	}
+	for index, call := range authorizer.checkCalls {
+		if call.verb != wantVerbs[index] {
+			t.Errorf("Check() call %d verb = %q, want %q", index, call.verb, wantVerbs[index])
+		}
+		if call.resource.Type != "Agent" || call.resource.Namespace != "team" {
+			t.Errorf("Check() call %d resource = %+v", index, call.resource)
+		}
+		if got := call.resource.Name; got != wantNames[index] {
+			t.Errorf("Check() call %d name = %v, want %q", index, got, wantNames[index])
+		}
+	}
+}

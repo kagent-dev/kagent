@@ -12,10 +12,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: kagent
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: Harness
@@ -31,10 +27,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: codex
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: Harness
@@ -51,10 +43,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: byo
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: Harness
@@ -74,10 +62,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: byo-adk
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: Harness
@@ -93,10 +77,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: claude
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -120,3 +100,25 @@ metadata:
     kagent.dev/e2e-runtime: byo
 spec:
   description: Opaque BYO A2A fixture without managed configuration
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: smoke
+  namespace: kagent
+spec:
+  templateRef:
+    name: smoke
+  harnessRef:
+    name: kagent
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: byo-smoke
+  namespace: kagent
+spec:
+  templateRef:
+    name: byo-smoke
+  harnessRef:
+    name: byo-e2e

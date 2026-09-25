@@ -45,6 +45,7 @@ export const rpc = {
   substrateSummary: "kagent.api.v1alpha1.SystemService/GetSubstrateSummary",
   substrateActors: "kagent.api.v1alpha1.SystemService/ListSubstrateActors",
   substrateWorkers: "kagent.api.v1alpha1.SystemService/ListSubstrateWorkers",
+  listAgents: "kagent.api.v1alpha1.AgentService/ListAgents",
   listAgentTemplates: "kagent.api.v1alpha1.AgentTemplateService/ListAgentTemplates",
   listAgentInstances: "kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances",
   getAgentInstance: "kagent.api.v1alpha1.AgentInstanceService/GetAgentInstance",

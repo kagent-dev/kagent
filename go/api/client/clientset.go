@@ -14,6 +14,7 @@ type APIClientSet struct {
 	Version       Version
 	AgentInstance *AgentInstanceClient
 	AgentTemplate *AgentTemplateClient
+	Agent         *AgentClient
 }
 
 // NewAPI creates a control-plane API client set.
@@ -27,6 +28,7 @@ func NewAPI(apiURL string, options ...ClientOption) (*APIClientSet, error) {
 		Version:       newVersionClient(client),
 		AgentInstance: newAgentInstanceClient(client),
 		AgentTemplate: newAgentTemplateClient(client),
+		Agent:         newAgentClient(client),
 	}, nil
 }
 

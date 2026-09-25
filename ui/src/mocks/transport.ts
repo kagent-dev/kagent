@@ -1,3 +1,5 @@
+import { AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
 import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
@@ -133,6 +135,8 @@ import {
   agentInstanceRef,
   allAgentInstances,
   allAgentTemplates,
+  allAgents,
+  saveAgent,
   allModels,
   allPromptDetails,
   allPromptSummaries,
@@ -633,8 +637,7 @@ function agentInstanceMessage(
     // turns it into a title rather than treating it as a gap.
     name: row.name,
     creator: row.creator,
-    harness: row.harness ? splitRef(row.harness) : undefined,
-    agentTemplate: row.agentTemplate ? splitRef(row.agentTemplate) : undefined,
+    agent: row.agent ? splitRef(row.agent) : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".
@@ -836,8 +839,7 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
     );
   }
 
-  const templateFilter = input.agentTemplate ? `${requireNamespace(input.agentTemplate.namespace)}/${requireOptionalName("agent_template", input.agentTemplate.name)}` : "";
-  const harnessFilter = input.harness ? `${requireNamespace(input.harness.namespace)}/${requireOptionalName("harness", input.harness.name)}` : "";
+  const agentFilter = input.agent ? `${requireNamespace(input.agent.namespace)}/${requireOptionalName("agent", input.agent.name)}` : "";
 
   const matching = allAgentInstances().filter((row) => {
     // Somebody else's instances are excluded unless asked for, which is what the
@@ -845,10 +847,9 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
     // so every caller is treated as one fixed person — see `MOCK_INSTANCE_CREATOR`.
     if (!input.allCreators && row.creator !== MOCK_INSTANCE_CREATOR) return false;
 
-    if (templateFilter && row.agentTemplate !== templateFilter) {
+    if (agentFilter && row.agent !== agentFilter) {
       return false;
     }
-    if (harnessFilter && row.harness !== harnessFilter) return false;
     return true;
   });
 
@@ -888,15 +889,8 @@ on(AgentInstanceService.method.resumeAgentInstance, (input, call) => ({
 }));
 
 on(AgentInstanceService.method.createAgentInstance, (input, call) => {
-  const namespace = requireNamespace(input.harness?.namespace ?? "");
-  if (namespace !== requireNamespace(input.agentTemplate?.namespace ?? "")) throw new ConnectError("Harness and AgentTemplate must be in the same namespace", Code.InvalidArgument);
-  if (!input.harness?.name.trim() || !input.agentTemplate?.name.trim()) {
-    throw new ConnectError(
-      "a harness and an agent template are both required",
-      Code.InvalidArgument,
-    );
-  }
-
+  const namespace = requireNamespace(input.agent?.namespace ?? "");
+  if (!input.agent?.name.trim()) throw new ConnectError("an Agent is required", Code.InvalidArgument);
   const requestId = input.requestId;
   if (
     requestId === "" ||
@@ -916,7 +910,7 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     // The controller's own refusal for a pair whose prepared revision is not ready,
     // which is the failure a reader is most likely to meet.
     throw new ConnectError(
-      `no ready prepared revision for ${input.harness?.name}/${input.agentTemplate?.name}`,
+      `no ready prepared revision for ${input.agent?.name}`,
       Code.FailedPrecondition,
     );
   }
@@ -928,10 +922,9 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     id: randomId(),
     name,
     creator: MOCK_INSTANCE_CREATOR,
-    harness: `${namespace}/${input.harness?.name}`,
-    agentTemplate: `${namespace}/${input.agentTemplate?.name}`,
+    agent: `${namespace}/${input.agent?.name}`,
     preparedRevision: "rev-mock",
-    a2aAuthority: `${input.agentTemplate?.name}.${namespace}.svc.cluster.local:8080`,
+    a2aAuthority: `${input.agent?.name}.${namespace}.svc.cluster.local:8080`,
     state: "ready" as const,
     operation: "unspecified" as const,
     createdAt: new Date().toISOString(),
@@ -1109,7 +1102,6 @@ const agentTemplateMessage = (template: AgentTemplate) => ({
   resource: structured("AgentTemplate", template.resource as unknown as JsonObject),
   modelConfigRef: refPair(template.modelConfigRef),
   description: template.description,
-  admittingHarnesses: template.admittingHarnesses,
 });
 
 /** The template at this ref, or the controller's own `NotFound`. */
@@ -1185,7 +1177,6 @@ function templateFromResource(
     description: spec.description ?? "",
     // Recomputed by `saveAgentTemplate` from the labels; whatever is passed here is
     // replaced.
-    admittingHarnesses: [],
     resource: {
       ...(resource as unknown as AgentTemplate["resource"]),
       metadata: {
@@ -1593,8 +1584,7 @@ const scheduledRuns = [1, 2, 3].map((n) => create(ScheduledRunSchema, {
   id: `c686bd1d-9124-4e96-8df7-00000000000${n}`,
   etag: `d686bd1d-9124-4e96-8df7-00000000000${n}`,
   creator: MOCK_INSTANCE_CREATOR,
-  harness: { namespace: "kagent", name: "k8s-agent" },
-  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
   config: { name: n === 1 ? "Daily cluster report" : `Schedule ${n}`, schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
   createdAt: stamp("2026-09-01T09:00:00Z"),
 }));
@@ -1607,8 +1597,7 @@ scheduledRuns.push(create(ScheduledRunSchema, {
   id: "c686bd1d-9124-4e96-8df7-000000000004",
   etag: "d686bd1d-9124-4e96-8df7-000000000004",
   creator: MOCK_INSTANCE_CREATOR,
-  harness: { namespace: "kagent", name: "k8s-agent" },
-  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
   config: { name: "Retired sweep", schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
   createdAt: stamp("2026-09-01T09:00:00Z"),
   deletedAt: stamp("2026-09-02T09:00:00Z"),
@@ -1644,12 +1633,12 @@ on(ScheduledRunService.method.getScheduledRun, (input, call) => ({ scheduledRun:
 on(ScheduledRunService.method.createScheduledRun, (input) => {
   const prior = scheduleRequests.get(input.requestId);
   if (prior) return { scheduledRun: prior };
-  if (!input.requestId || !input.config?.prompt.trim() || !input.harness?.name || !input.agentTemplate?.name || input.harness.namespace !== input.agentTemplate.namespace) {
+  if (!input.requestId || !input.config?.prompt.trim() || !input.agent?.name || !input.agent.namespace) {
     throw new ConnectError("A prompt, request ID and an agent in one namespace are required", Code.InvalidArgument);
   }
   const schedule = create(ScheduledRunSchema, {
     id: randomId(), etag: randomId(), creator: MOCK_INSTANCE_CREATOR,
-    harness: input.harness, agentTemplate: input.agentTemplate, config: input.config,
+    agent: input.agent, config: input.config,
     createdAt: timestampFromDate(new Date()),
   });
   scheduledRuns.unshift(schedule);
@@ -1686,4 +1675,38 @@ on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
 on(ScheduledRunService.method.listScheduledRunExecutions, (input, call) => {
   const page = schedulePage(call.scenario === "empty" ? [] : scheduleExecutions.filter((row) => row.scheduledRunId === input.scheduledRunId), input.page);
   return { executions: page.rows, page: page.page };
+});
+
+const agentMessage = (agent: Agent) => ({ ref: { namespace: agent.namespace, name: agent.name }, resource: structured("Agent", agent.resource) });
+function agentFor(namespace: string, name: string): Agent {
+  const found = allAgents().find(agent => agent.namespace === namespace && agent.name === name);
+  if (!found) throw notFound("Agent");
+  return found;
+}
+on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
+on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
+function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined): Agent {
+  const namespace = requireNamespace(ref?.namespace ?? "");
+  const name = requireOptionalName("agent", ref?.name);
+  const resource = value as unknown as Agent["resource"];
+  const spec = resource?.spec;
+  if (!name || !spec || Number(spec.template !== undefined) + Number(spec.templateRef !== undefined) !== 1 || Number(spec.harness !== undefined) + Number(spec.harnessRef !== undefined) !== 1 || (spec.templateRef && !spec.templateRef.name) || (spec.harnessRef && !spec.harnessRef.name)) {
+    throw new ConnectError("Choose exactly one template or templateRef and one harness or harnessRef", Code.InvalidArgument);
+  }
+  return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name}, spec}};
+}
+on(AgentService.method.createAgent, input => {
+  const agent = writeAgent(input.ref, input.resource?.value);
+  if (allAgents().some(row => row.ref === agent.ref)) throw new ConnectError("Agent already exists", Code.AlreadyExists);
+  return {agent: agentMessage(saveAgent(agent))};
+});
+on(AgentService.method.updateAgent, input => {
+  const agent = writeAgent(input.ref, input.resource?.value);
+  agentFor(agent.namespace, agent.name);
+  return {agent: agentMessage(saveAgent(agent))};
+});
+on(AgentService.method.deleteAgent, input => {
+  const agent = agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
+  markDeleted(`Agent:${agent.ref}`);
+  return {};
 });

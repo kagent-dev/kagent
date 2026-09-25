@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AgentDefinitionEditor } from "@/components/agent/AgentDefinitionEditor";
+import { agentPageUrl } from "@/components/agent/agentUrl";
 import { Button, Space, Tabs } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
@@ -28,6 +32,8 @@ type TabKey = (typeof TABS)[number];
  */
 export function AgentsLandingPage() {
   const theme = useTheme();
+  const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
 
   /*
@@ -64,6 +70,7 @@ export function AgentsLandingPage() {
           {/* The point the agents list has always offered, kept where the controls
               now are rather than left behind in the tab they moved out of. */}
           <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
+          <Button type="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>New Agent</Button>
           <Link to={paths.agentTemplateNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
               New Template
@@ -84,6 +91,7 @@ export function AgentsLandingPage() {
       </div>
 
 
+      {creating && <AgentDefinitionEditor onClose={() => setCreating(false)} onSaved={agent => { setCreating(false); navigate(agentPageUrl(agent)!); }} />}
       <Tabs
         activeKey={active}
         data-testid="agents-tabs"

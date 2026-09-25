@@ -23,6 +23,19 @@ func RegisterTypes() {
 
 func registerTypes() {
 	kubeclient.Register(
+		kagentv1alpha3.GroupVersion.WithResource("agents"),
+		kagentv1alpha3.GroupVersion.WithKind("Agent"),
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
+			return c.(Client).Kagent().ApiV1alpha3().Agents(namespace).List(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
+			return c.(Client).Kagent().ApiV1alpha3().Agents(namespace).Watch(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*kagentv1alpha3.Agent] {
+			return c.(Client).Kagent().ApiV1alpha3().Agents(namespace)
+		},
+	)
+	kubeclient.Register(
 		kagentv1alpha3.GroupVersion.WithResource("agenttemplates"),
 		kagentv1alpha3.GroupVersion.WithKind("AgentTemplate"),
 		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {

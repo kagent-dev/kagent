@@ -31,39 +31,12 @@ export const agentUrl = {
   chat: (ref: Partial<AgentRef>) => fill(paths.agentChat, ref),
 };
 
-/** How an agent is addressed: a namespace and the two halves of its pair. */
-export interface AgentPairRef {
-  namespace: string;
-  agentTemplate: string;
-  harness: string;
-}
-
-/**
- * The agent one conversation belongs to.
- *
- * `undefined` when the record names no pair, which is a real state rather than a
- * missing value: an instance with no prepared revision belongs to no pair, and the
- * controller's own list query joins it as `NULL`. A caller renders no link at all
- * in that case, rather than one that leads to an agent that does not exist.
- */
+export interface AgentPairRef { namespace: string; name: string; }
 export function agentPageUrl(ref: Partial<AgentPairRef>): string | undefined {
-  if (!ref.namespace || !ref.agentTemplate || !ref.harness) return undefined;
-  return paths.agent
-    .replace(":namespace", encodeURIComponent(ref.namespace))
-    .replace(":agentTemplate", encodeURIComponent(ref.agentTemplate))
-    .replace(":harness", encodeURIComponent(ref.harness));
+ if (!ref.namespace || !ref.name) return undefined;
+ return paths.agent.replace(":namespace", encodeURIComponent(ref.namespace)).replace(":name", encodeURIComponent(ref.name));
 }
-
-/**
- * Where "start talking to this agent" goes.
- *
- * A conversation that does not exist yet, addressed by the agent. Nothing is created
- * until the first message is sent — see `AgentNewChatPage` for why that matters.
- */
 export function agentNewChatUrl(ref: Partial<AgentPairRef>): string | undefined {
-  if (!ref.namespace || !ref.agentTemplate || !ref.harness) return undefined;
-  return paths.agentNewChat
-    .replace(":namespace", encodeURIComponent(ref.namespace))
-    .replace(":agentTemplate", encodeURIComponent(ref.agentTemplate))
-    .replace(":harness", encodeURIComponent(ref.harness));
+ const base = agentPageUrl(ref);
+ return base ? `${base}/new` : undefined;
 }

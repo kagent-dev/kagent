@@ -15,7 +15,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
+func TestE2ECLIAgentCatalogAndInstanceLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
@@ -31,20 +31,20 @@ func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
 			return runKagentCLI(t, ctx, binary, append(append([]string{}, baseArgs...), args...)...)
 		}
 
-		listedTemplates := run(t.Context(), "get", "agent-template")
+		listedTemplates := run(t.Context(), "get", "agent")
 		if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "TRUE") {
-			t.Fatalf("list AgentTemplates stdout = %q, want ready template %s", listedTemplates, templateName)
+			t.Fatalf("list Agents stdout = %q, want ready template %s", listedTemplates, templateName)
 		}
-		templateJSON := run(t.Context(), "--output-format", "json", "get", "agent-template", templateName)
+		templateJSON := run(t.Context(), "--output-format", "json", "get", "agent", templateName)
 		if !json.Valid([]byte(templateJSON)) || !strings.Contains(templateJSON, `"name":"`+templateName+`"`) ||
 			!strings.Contains(templateJSON, `"status":"True"`) {
-			t.Fatalf("get AgentTemplate stdout = %q, want ready template %s as JSON", templateJSON, templateName)
+			t.Fatalf("get Agent stdout = %q, want ready template %s as JSON", templateJSON, templateName)
 		}
 
 		requestID := uuid.NewString()
 		createArgs := []string{
 			"--output-format", "json", "create", "agent-instance",
-			"--harness", harness.name, "--agent-template", templateName, "--request-id", requestID,
+			"--agent", templateName, "--request-id", requestID,
 		}
 		createdJSON := run(t.Context(), createArgs...)
 		var created apiv1alpha1.CreateAgentInstanceResponse

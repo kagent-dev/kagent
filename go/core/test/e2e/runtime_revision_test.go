@@ -44,8 +44,8 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		system := apiv1alpha1.NewSystemServiceClient(conn)
 		request := func(name string) *apiv1alpha1.CreateAgentInstanceRequest {
 			return &apiv1alpha1.CreateAgentInstanceRequest{
-				AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
-				Harness:       &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: harness.name}, RequestId: uuid.NewString(),
+				Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
+				RequestId: uuid.NewString(),
 			}
 		}
 		deleteInstance := func(id string) {
@@ -97,18 +97,13 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		template.Spec.ModelConfig.Name = "missing-" + uuid.NewString()
 		require.NoError(t, kube.Update(ctx, template))
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-			current := &v1alpha3.AgentTemplate{}
+			current := &v1alpha3.Agent{}
 			if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), current); err != nil {
 				return false, err
 			}
-			for _, prepared := range current.Status.Harnesses {
-				if prepared.Harness != harness.name {
-					continue
-				}
-				for _, condition := range prepared.Conditions {
-					if condition.Type == v1alpha3.AgentTemplateConditionReady && condition.ObservedGeneration == template.Generation {
-						return condition.Status == metav1.ConditionFalse, nil
-					}
+			for _, condition := range current.Status.Conditions {
+				if condition.Type == v1alpha3.AgentConditionReady {
+					return condition.Status == metav1.ConditionFalse, nil
 				}
 			}
 			return false, nil
@@ -132,6 +127,9 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		})
 		deleteInstance(source.GetId())
 		require.NoError(t, kube.Delete(ctx, template))
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name}}
+		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent))
+		require.NoError(t, kube.Delete(ctx, agent))
 		// Wait for the controller to retire the pair, using the same public create
 		// path as a client. Dispose of any instance created before retirement wins.
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {

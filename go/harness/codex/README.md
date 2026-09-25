@@ -54,7 +54,7 @@ Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 An MCP binding with `requireApproval: true` is emitted with Codex's default
 tool approval mode set to `prompt`; other configured MCP servers use `approve`.
 The driver exposes only approval requests for the configured protected servers.
-Although Codex transports these requests using the `mcpServer/elicitation/request` 
+Although Codex transports these requests using the `mcpServer/elicitation/request`
 App Server method, the external MCP server is not performing MCP elicitation.
 
 ```mermaid
@@ -124,10 +124,6 @@ spec:
       name: kagent-default
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: codex
 ---
 apiVersion: kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -154,4 +150,15 @@ spec:
           commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
       skills:
         - migrate-agent-plugin
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: kagent-codex
+  namespace: kagent
+spec:
+  templateRef:
+    name: kagent-codex
+  harnessRef:
+    name: codex-harness
 ```

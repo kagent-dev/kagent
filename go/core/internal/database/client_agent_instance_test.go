@@ -385,17 +385,17 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	fork2ID := "88888888-8888-4888-8888-888888888888"
 	revision := RuntimeRevision{
 		Revision: "revision-1", Namespace: "team-a",
-		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid",
+		AgentName: "assistant", AgentUID: "template-uid",
+
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
-	pair := AgentTemplateHarnessPair{
-		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
+	pair := AgentDefinition{
+		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		DesiredRevision: revision.Revision,
 	}
-	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
@@ -404,8 +404,8 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 
 	source, _, err := client.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
 		Id: sourceID, Creator: "alice", Name: "Namespace explanation",
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}, "source-request")
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +472,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
 		fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING ||
-		fork.GetHarness().GetName() != "kagent" || fork.GetAgentTemplate().GetName() != "assistant" {
+		fork.GetAgent().GetName() != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
 	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{
@@ -544,17 +544,17 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	ctx := context.Background()
 	revision := RuntimeRevision{
 		Revision: "revision-1", Namespace: "team-a",
-		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid",
+		AgentName: "assistant", AgentUID: "template-uid",
+
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
-	pair := AgentTemplateHarnessPair{
-		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
-		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
+	pair := AgentDefinition{
+		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		DesiredRevision: revision.Revision,
 	}
-	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
@@ -571,8 +571,8 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 
 	request := &apiv1alpha1.AgentInstance{
 		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice",
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}
 	created, wasCreated, err := client.CreateAgentInstance(ctx, request, "request-1")
 	if err != nil || !wasCreated {
@@ -608,7 +608,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED, suspended.State)
 
-	request.AgentTemplate.Name = "different"
+	request.Agent.Name = "different"
 	if _, _, err := client.CreateAgentInstance(ctx, request, "request-1"); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting request error = %v", err)
 	}
@@ -629,17 +629,17 @@ func agentInstanceFixture(t *testing.T, client *Client, ctx context.Context, nam
 	t.Helper()
 	revision := RuntimeRevision{
 		Revision: revisionID, Namespace: namespace,
-		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
-		HarnessName: harness, HarnessUID: harness + "-uid",
+		AgentName: template, AgentUID: template + "-uid",
+
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template",
 		ActorTemplateUID: revisionID + "-actor-uid",
 	}
-	pair := AgentTemplateHarnessPair{
-		Namespace: namespace, AgentTemplateName: template, AgentTemplateUID: template + "-uid",
-		HarnessName: harness, HarnessUID: harness + "-uid", DesiredRevision: revisionID,
+	pair := AgentDefinition{
+		Namespace: namespace, AgentName: template, AgentUID: template + "-uid",
+		DesiredRevision: revisionID,
 	}
-	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
@@ -650,8 +650,8 @@ func agentInstanceFixture(t *testing.T, client *Client, ctx context.Context, nam
 func newAgentInstanceRequest(id, template, harness, name string) *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
 		Id: id, Creator: "alice", Name: name,
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: harness},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
+
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
 	}
 }
 
@@ -666,7 +666,7 @@ func TestAgentInstancesUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	second := proto.CloneOf(first)
 	second.Id = uuid.NewString()
-	second.Harness.Namespace, second.AgentTemplate.Namespace = "team-b", "team-b"
+	second.Agent.Namespace = "team-b"
 	_, _, err = c.CreateAgentInstance(ctx, second, "request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict, "request IDs belong to the caller, across targets")
 	other, _, err := c.CreateAgentInstance(ctx, second, "other-request")
@@ -674,19 +674,15 @@ func TestAgentInstancesUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 	rows, err := c.ListAgentInstances(ctx, AgentInstanceQuery{UserID: "alice", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	filtered, err := c.ListAgentInstances(ctx, AgentInstanceQuery{UserID: "alice", Limit: 10, AgentTemplate: second.AgentTemplate})
+	filtered, err := c.ListAgentInstances(ctx, AgentInstanceQuery{UserID: "alice", Limit: 10, Agent: second.Agent})
 	require.NoError(t, err)
 	require.Len(t, filtered, 1)
 	require.Equal(t, other.Id, filtered[0].Id)
 	loaded, err := c.GetAgentInstance(ctx, created.Id, "alice")
 	require.NoError(t, err)
-	require.Equal(t, "team-a", loaded.AgentTemplate.Namespace)
+	require.Equal(t, "team-a", loaded.Agent.Namespace)
 	_, err = c.GetAgentInstance(ctx, created.Id, "bob")
 	require.ErrorIs(t, err, ErrNotFound)
-	second.Id = uuid.NewString()
-	second.Harness.Namespace = "team-a"
-	_, _, err = c.CreateAgentInstance(ctx, second, "mixed-targets")
-	require.ErrorIs(t, err, ErrNotFound, "never silently resolve the template in the harness's namespace")
 }
 
 func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
@@ -747,77 +743,23 @@ func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 	}
 }
 
-// TestListAgentInstancesFiltersByAgentPair covers the server-side filter behind
-// "this agent's conversations". The pair is resolved through the instance's
-// prepared revision, distinguishing harnesses that admit the same template.
-func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
-	client := NewClient(setupTestDB(t))
-	ctx := context.Background()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
-	agentInstanceFixture(t, client, ctx, "team-a", "revision-2", "assistant", "claude")
-	agentInstanceFixture(t, client, ctx, "team-a", "revision-3", "researcher", "kagent")
-
-	for id, pair := range map[string][2]string{
-		"11111111-1111-4111-8111-111111111111": {"assistant", "kagent"},
-		"22222222-2222-4222-8222-222222222222": {"assistant", "claude"},
-		"33333333-3333-4333-8333-333333333333": {"researcher", "kagent"},
-	} {
-		if _, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(id, pair[0], pair[1], ""), id); err != nil {
-			t.Fatalf("CreateAgentInstance(%s) error %v", id, err)
-		}
+func TestListAgentInstancesFiltersByAgent(t *testing.T) {
+	c := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	for _, name := range []string{"reviewer", "researcher"} {
+		agentInstanceFixture(t, c, ctx, "team-a", name+"-revision", name, "")
+		_, _, err := c.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), name, "", ""), name)
+		require.NoError(t, err)
 	}
-
-	for _, test := range []struct {
-		name  string
-		query AgentInstanceQuery
-		want  []string
-	}{
-		{
-			name:  "no filter lists every conversation",
-			query: AgentInstanceQuery{},
-			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"},
-		},
-		{
-			name:  "one agent, which is one pair",
-			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
-			want:  []string{"11111111-1111-4111-8111-111111111111"},
-		},
-		{
-			name:  "the same template on a different harness is a different agent",
-			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "claude"}},
-			want:  []string{"22222222-2222-4222-8222-222222222222"},
-		},
-		{
-			name:  "template alone spans its harnesses",
-			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
-			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"},
-		},
-		{
-			name:  "harness alone spans its templates",
-			query: AgentInstanceQuery{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
-			want:  []string{"11111111-1111-4111-8111-111111111111", "33333333-3333-4333-8333-333333333333"},
-		},
-		{
-			name:  "an unknown agent matches nothing rather than everything",
-			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "absent"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
-			want:  []string{},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			query := test.query
-			query.UserID, query.Limit = "alice", 10
-			instances, err := client.ListAgentInstances(ctx, query)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := make([]string, 0, len(instances))
-			for _, instance := range instances {
-				got = append(got, instance.GetId())
-			}
-			if strings.Join(got, ",") != strings.Join(test.want, ",") {
-				t.Fatalf("ListAgentInstances() = %v, want %v", got, test.want)
-			}
-		})
+	for _, name := range []string{"reviewer", "researcher", "missing"} {
+		got, err := c.ListAgentInstances(ctx, AgentInstanceQuery{UserID: "alice", Limit: 10, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: name}})
+		require.NoError(t, err)
+		if name == "missing" {
+			require.Empty(t, got)
+		} else {
+			require.Len(t, got, 1)
+			require.Equal(t, name+"-revision", got[0].PreparedRevision)
+		}
 	}
 }
 
@@ -975,11 +917,11 @@ func TestDeletedInstancePreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	_, created, err := client.CreateAgentInstance(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.False(t, created)
-	request.AgentTemplate.Name = "different"
+	request.Agent.Name = "different"
 	_, _, err = client.CreateAgentInstance(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	// Tombstones release the revision FK and no longer block runtime cleanup.
-	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)

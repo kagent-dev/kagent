@@ -16,7 +16,7 @@ import (
 )
 
 func TestCreateAgentInstanceGeneratedRequestIDIsStable(t *testing.T) {
-	cfg := &CreateCfg{Harness: "kagent", AgentTemplate: "smoke"}
+	cfg := &CreateCfg{Agent: "smoke"}
 	ensureRequestID(cfg)
 	requestID := cfg.RequestID
 	require.NoError(t, uuid.Validate(requestID))
@@ -40,13 +40,13 @@ func TestCreateAgentInstanceExplicitReplayIDAndOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &lifecycleAgentInstanceClient{createInstance: testInstance()}
 			cfg := &CreateCfg{
-				Harness: "kagent", AgentTemplate: "smoke", RequestID: "replay-1",
+				Agent: "smoke", RequestID: "replay-1",
 			}
 			var output bytes.Buffer
 
 			require.NoError(t, create(t.Context(), client, "kagent", cfg, tt.format, &output))
 			assert.Equal(t, &apiv1alpha1.CreateAgentInstanceRequest{
-				Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"}, RequestId: "replay-1",
+				Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"}, RequestId: "replay-1",
 			}, client.createRequest)
 			assert.Contains(t, output.String(), testInstanceID)
 			if tt.format == clioutput.FormatJSON {

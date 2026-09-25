@@ -9,8 +9,7 @@ import {
   useNamespaces,
   type Harness,
 } from "@/api";
-import { admitsLabels, harnessSelector } from "@/api/domain/harnesses";
-import { apiClient, useAgentTemplatesAcrossNamespaces } from "@/api";
+import { apiClient, useAgentsAcrossNamespaces } from "@/api";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { matchesQuery } from "@/components/table/listTable";
@@ -19,36 +18,14 @@ import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 /** The filters this tab offers, which `useListView` keeps in the URL. */
 const FILTER_IDS = ["ns"] as const;
 
-/**
- * What deleting a harness costs, counted rather than described in general terms.
- *
- * Every template admitted only by this harness stops being admitted by anything, and
- * every agent built on it stops existing — an agent is the pair, so removing one half
- * removes the agent. Saying how many makes that concrete instead of leaving the reader
- * to work out whether it applies to them.
- */
-function describeLoss(admitted: number): string {
-  if (admitted === 0) {
-    return "No agent template is admitted by this harness, so no agent depends on it.";
-  }
-  return `${admitted} agent ${admitted === 1 ? "template is" : "templates are"} admitted by this harness. Every agent built on it stops existing — an agent is a template paired with a harness, so removing the harness removes the agent. The templates themselves are untouched.`;
+
+function describeLoss(count: number): string {
+  return `${count} Agent(s) directly reference this Harness. They cannot prepare updated configuration until it is restored or replaced. Their last successful revisions and existing conversations are retained.`;
 }
 
 const { Text } = Typography;
 
-/**
- * The harnesses on the cluster.
- *
- * This tab was read-only, on a note in the codebase saying `HarnessService` was
- * read-only in this build. That was wrong: the service implements create, update and
- * delete and always did — what was read-only was this application, which only ever
- * called `list`. Harnesses are usually installed with the chart, but nothing stops one
- * being made here, and "you cannot" was a claim about the wrong thing.
- *
- * What a reader comes here for is the runtime half of an agent: which runtimes exist,
- * whether they are ready, and — the part that decides whether a template ever becomes
- * an agent — which labels each admits templates on.
- */
+
 export function HarnessesTab() {
   const theme = useTheme();
   /*
@@ -83,28 +60,15 @@ export function HarnessesTab() {
             row.namespace,
             row.runtime,
             row.workloadImage,
-            // Searchable by what it admits, because that is how somebody looks for the
-            // harness that will run a template they are holding.
-            ...Object.entries(harnessSelector(row)).map(([key, value]) => `${key}=${value}`),
           ]),
         ),
     [rows, selectedNamespaces, view.query],
   );
 
-  /*
-   * How many templates each harness admits, for the delete confirmation.
-   *
-   * Read here rather than counted from the harness, because admission is a property of
-   * the *template's* labels: the harness carries the selector, and only the templates
-   * know whether they match it.
-   */
-  const templates = useAgentTemplatesAcrossNamespaces(
-    namespaces.data?.map((row) => row.name),
-  );
-  const admitted = (harness: Harness) =>
-    (templates.data?.templates ?? []).filter((template) =>
-      admitsLabels(harness, template.resource.metadata.labels ?? {}),
-    ).length;
+
+  const agents = useAgentsAcrossNamespaces(namespaces.data?.map(row => row.name));
+  const referenced = (harness: Harness) => (agents.data?.agents ?? []).filter(agent =>
+    agent.namespace === harness.namespace && agent.resource.spec.harnessRef?.name === harness.name);
 
   const [deleting, setDeleting] = useState<string>();
   const [failure, setFailure] = useState<string>();
@@ -161,29 +125,6 @@ export function HarnessesTab() {
       ),
     },
     {
-      title: "Admits templates labelled",
-      key: "selector",
-      render: (_: unknown, row: Harness) => {
-        const pairs = Object.entries(harnessSelector(row));
-        return pairs.length > 0 ? (
-          <Space size={4} wrap data-testid="harness-selector">
-            {pairs.map(([key, value]) => (
-              <Tag key={key} css={{ fontFamily: theme.font.mono, fontSize: 11 }}>
-                {key}={value}
-              </Tag>
-            ))}
-          </Space>
-        ) : (
-          /* A harness with no selector admits nothing at all — the CRD says so. Worth
-             stating, because a template will simply never become an agent under it and
-             nothing else on the page would explain why. */
-          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-            No selector, so it admits no templates
-          </Text>
-        );
-      },
-    },
-    {
       title: "Workload image",
       dataIndex: "workloadImage",
       key: "workloadImage",
@@ -202,20 +143,14 @@ export function HarnessesTab() {
       key: "actions",
       width: 56,
       render: (_: unknown, row: Harness) => (
-        /*
-         * Deleting a harness is not deleting a runtime nobody is using.
-         *
-         * Every template admitted only by this one stops being admitted by anything,
-         * so every agent built on it stops existing — which is why the confirmation
-         * counts them rather than asking a generic question.
-         */
+
         <DeleteResourceButton
           kind="harness"
           name={row.name}
           disabled={deleting === row.ref}
           onDelete={() => remove(row)}
           onDeleted={() => undefined}
-          description={describeLoss(admitted(row))}
+          description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
         />
       ),
     },
@@ -231,7 +166,7 @@ export function HarnessesTab() {
         view={view}
         search={{
           label: "Search harnesses",
-          placeholder: "Search names, runtimes, images and admission labels",
+          placeholder: "Search names, runtimes and images",
         }}
         filters={[
           {

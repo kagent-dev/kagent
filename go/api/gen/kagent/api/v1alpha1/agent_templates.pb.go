@@ -33,13 +33,8 @@ type AgentTemplate struct {
 	// needs to render a list without parsing each spec.
 	ModelConfigRef *ResourceReference `protobuf:"bytes,3,opt,name=model_config_ref,json=modelConfigRef,proto3" json:"model_config_ref,omitempty"`
 	Description    string             `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	// AdmittingHarnesses names the same-namespace Harnesses whose admission
-	// selector matches this template, as reported in status. It is the set a
-	// caller may legally pair with this template in CreateAgentInstance, and it
-	// is derivable only from the Harness side, so a caller cannot compute it.
-	AdmittingHarnesses []string `protobuf:"bytes,5,rep,name=admitting_harnesses,json=admittingHarnesses,proto3" json:"admitting_harnesses,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AgentTemplate) Reset() {
@@ -98,13 +93,6 @@ func (x *AgentTemplate) GetDescription() string {
 		return x.Description
 	}
 	return ""
-}
-
-func (x *AgentTemplate) GetAdmittingHarnesses() []string {
-	if x != nil {
-		return x.AdmittingHarnesses
-	}
-	return nil
 }
 
 type ListAgentTemplatesRequest struct {
@@ -559,13 +547,12 @@ var File_kagent_api_v1alpha1_agent_templates_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_agent_templates_proto_rawDesc = "" +
 	"\n" +
-	")kagent/api/v1alpha1/agent_templates.proto\x12\x13kagent.api.v1alpha1\x1a kagent/api/v1alpha1/common.proto\"\xb1\x02\n" +
+	")kagent/api/v1alpha1/agent_templates.proto\x12\x13kagent.api.v1alpha1\x1a kagent/api/v1alpha1/common.proto\"\x9b\x02\n" +
 	"\rAgentTemplate\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
 	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\x12P\n" +
 	"\x10model_config_ref\x18\x03 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x0emodelConfigRef\x12 \n" +
-	"\vdescription\x18\x04 \x01(\tR\vdescription\x12/\n" +
-	"\x13admitting_harnesses\x18\x05 \x03(\tR\x12admittingHarnesses\"9\n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescriptionJ\x04\b\x05\x10\x06R\x13admitting_harnesses\"9\n" +
 	"\x19ListAgentTemplatesRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"i\n" +
 	"\x1aListAgentTemplatesResponse\x12K\n" +

@@ -112,9 +112,9 @@ func (c *fakeAgentInstanceClient) ListAgentInstances(
 func testInstance() *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
 		Id: testInstanceID, Creator: "e2e",
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"},
-		State:         apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
-		CreatedAt:     timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)),
+
+		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"},
+		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		CreatedAt: timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)),
 	}
 }

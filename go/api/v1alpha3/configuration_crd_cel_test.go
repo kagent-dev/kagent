@@ -18,6 +18,8 @@ package v1alpha3
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -214,6 +216,58 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				},
 			}),
 		},
+	}
+
+	for _, inlineTemplate := range []bool{false, true} {
+		for _, inlineHarness := range []bool{false, true} {
+			name := fmt.Sprintf("agent-%t-%t", inlineTemplate, inlineHarness)
+			spec := AgentSpec{}
+			if inlineTemplate {
+				spec.Template = &AgentTemplateSpec{}
+			} else {
+				spec.TemplateRef = &corev1.LocalObjectReference{Name: "behavior"}
+			}
+			if inlineHarness {
+				spec.Harness = &validHarness(namespace, "runner", HarnessSpec{Kagent: &KagentHarness{}}).Spec
+			} else {
+				spec.HarnessRef = &corev1.LocalObjectReference{Name: "runner"}
+			}
+			t.Run(name, func(t *testing.T) {
+				agent := &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Spec: spec}
+				require.NoError(t, cl.Create(ctx, agent))
+				for _, field := range []string{"template", "harness"} {
+					invalid := agent.DeepCopy()
+					invalid.Name += "-both-" + field
+					invalid.ResourceVersion, invalid.UID = "", ""
+					if field == "template" {
+						invalid.Spec.Template = &AgentTemplateSpec{}
+						invalid.Spec.TemplateRef = &corev1.LocalObjectReference{Name: "behavior"}
+					} else {
+						invalid.Spec.Harness = &validHarness(namespace, "runner", HarnessSpec{Kagent: &KagentHarness{}}).Spec
+						invalid.Spec.HarnessRef = &corev1.LocalObjectReference{Name: "runner"}
+					}
+					require.ErrorContains(t, cl.Create(ctx, invalid), "exactly one of "+field)
+					invalid.Name = name + "-neither-" + field
+					if field == "template" {
+						invalid.Spec.Template = nil
+						invalid.Spec.TemplateRef = nil
+					} else {
+						invalid.Spec.Harness = nil
+						invalid.Spec.HarnessRef = nil
+					}
+					require.ErrorContains(t, cl.Create(ctx, invalid), "exactly one of "+field)
+				}
+			})
+		}
+	}
+	for _, field := range []string{"templateRef", "harnessRef"} {
+		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"}}
+		if field == "templateRef" {
+			spec.TemplateRef.Name = ""
+		} else {
+			spec.HarnessRef.Name = ""
+		}
+		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "empty-" + strings.ToLower(field)}, Spec: spec}), field+".name must not be empty")
 	}
 
 	for _, tc := range cases {

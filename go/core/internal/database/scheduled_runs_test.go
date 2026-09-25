@@ -21,10 +21,10 @@ func createTestSchedule(t *testing.T, c *Client) (*apiv1alpha1.ScheduledRun, []b
 	agentInstanceFixture(t, c, t.Context(), "team-a", "scheduled-revision", "report", "runtime")
 	hash := sha256.Sum256([]byte("original request"))
 	request := &apiv1alpha1.ScheduledRun{
-		Creator:       "alice",
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "runtime"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "report"},
-		Config:        scheduledrun.Normalize(&apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original prompt"}),
+		Creator: "alice",
+
+		Agent:  &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "report"},
+		Config: scheduledrun.Normalize(&apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original prompt"}),
 	}
 	result, err := c.CreateScheduledRun(t.Context(), request, "create", hash[:])
 	require.NoError(t, err)
@@ -392,7 +392,7 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
 	schedule, _ := createTestSchedule(t, c)
-	require.NoError(t, c.RetirePairIdentities(t.Context(), "team-a", "report", "runtime", nil))
+	require.NoError(t, c.RetireAgentIdentities(t.Context(), "team-a", "report", nil))
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
 	_, err = c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")

@@ -23,10 +23,9 @@ type lifecycleClient interface {
 
 // CreateCfg configures AgentInstance creation.
 type CreateCfg struct {
-	OutputFormat  string
-	Harness       string
-	AgentTemplate string
-	RequestID     string
+	OutputFormat string
+	Agent        string
+	RequestID    string
 }
 
 // DeleteCfg configures AgentInstance deletion.
@@ -94,8 +93,7 @@ func create(
 	out io.Writer,
 ) error {
 	response, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Harness},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.AgentTemplate}, RequestId: cfg.RequestID,
+		Agent: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Agent}, RequestId: cfg.RequestID,
 	})
 	if err != nil {
 		return fmt.Errorf("create AgentInstance: %w", err)
@@ -160,11 +158,9 @@ func NewCreateCmd() *cobra.Command {
 			return runCreate(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().StringVar(&cfg.Harness, "harness", "", "Harness name")
-	cmd.Flags().StringVar(&cfg.AgentTemplate, "agent-template", "", "AgentTemplate name")
+	cmd.Flags().StringVar(&cfg.Agent, "agent", "", "Agent name")
 	cmd.Flags().StringVar(&cfg.RequestID, "request-id", "", "Idempotency key (generated when omitted)")
-	_ = cmd.MarkFlagRequired("harness")
-	_ = cmd.MarkFlagRequired("agent-template")
+	_ = cmd.MarkFlagRequired("agent")
 	return cmd
 }
 

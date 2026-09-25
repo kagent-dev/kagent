@@ -133,8 +133,8 @@ func checkpointSummary(value *apiv1alpha1.Checkpoint) CheckpointSummary {
 
 func agentInstanceSummary(instance *apiv1alpha1.AgentInstance) AgentInstanceSummary {
 	return AgentInstanceSummary{
-		ID:            instance.GetId(),
-		AgentTemplate: instance.GetAgentTemplate().GetName(), Harness: instance.GetHarness().GetName(),
+		ID:    instance.GetId(),
+		Agent: instance.GetAgent().GetName(),
 		State: instance.GetState().String(),
 	}
 }

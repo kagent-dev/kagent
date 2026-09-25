@@ -50,13 +50,12 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 		request proto.Message
 		valid   bool
 	}{
-		{"ordinary name", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "Deploy 🚀"}, true},
-		{"different target namespaces", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-b", Name: "assistant"}, RequestId: "request-1"}, false},
+		{"ordinary name", &apiv1alpha1.CreateAgentInstanceRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "Deploy 🚀"}, true},
 		{"list without namespace", &apiv1alpha1.ListAgentInstancesRequest{}, true},
-		{"missing target namespace", &apiv1alpha1.ListAgentInstancesRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"}}, false},
-		{"leading whitespace", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
-		{"control character", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
-		{"invalid template filter", &apiv1alpha1.ListAgentInstancesRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
+		{"missing target namespace", &apiv1alpha1.ListAgentInstancesRequest{Agent: &apiv1alpha1.ResourceReference{Name: "assistant"}}, false},
+		{"leading whitespace", &apiv1alpha1.CreateAgentInstanceRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
+		{"control character", &apiv1alpha1.CreateAgentInstanceRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
+		{"invalid template filter", &apiv1alpha1.ListAgentInstancesRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
 		{"valid rename", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
 		{"invalid rename id", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
 		{"valid checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},
@@ -106,6 +105,56 @@ func TestInvalidInstanceAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 			)
 			if status.Code(err) != codes.InvalidArgument {
 				t.Fatalf("validation code = %v, want %v", status.Code(err), codes.InvalidArgument)
+			}
+		})
+	}
+}
+
+func TestAgentRequestValidation(t *testing.T) {
+	validator, err := protovalidate.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
+	resource := &apiv1alpha1.StructuredObject{}
+	for _, test := range []struct {
+		name    string
+		request proto.Message
+		valid   bool
+	}{
+		{"list", &apiv1alpha1.ListAgentsRequest{Namespace: "team-a"}, true},
+		{"list missing namespace", &apiv1alpha1.ListAgentsRequest{}, false},
+		{"list invalid namespace", &apiv1alpha1.ListAgentsRequest{Namespace: "team/a"}, false},
+		{"get", &apiv1alpha1.GetAgentRequest{Ref: ref}, true},
+		{"get missing ref", &apiv1alpha1.GetAgentRequest{}, false},
+		{"get invalid ref", &apiv1alpha1.GetAgentRequest{Ref: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "INVALID"}}, false},
+		{"create", &apiv1alpha1.CreateAgentRequest{Ref: ref, Resource: resource}, true},
+		{"create missing ref", &apiv1alpha1.CreateAgentRequest{Resource: resource}, false},
+		{"create missing resource", &apiv1alpha1.CreateAgentRequest{Ref: ref}, false},
+		{"update", &apiv1alpha1.UpdateAgentRequest{Ref: ref, Resource: resource}, true},
+		{"update missing ref", &apiv1alpha1.UpdateAgentRequest{Resource: resource}, false},
+		{"update missing resource", &apiv1alpha1.UpdateAgentRequest{Ref: ref}, false},
+		{"delete", &apiv1alpha1.DeleteAgentRequest{Ref: ref}, true},
+		{"delete missing ref", &apiv1alpha1.DeleteAgentRequest{}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handled := false
+			_, err := protovalidatemiddleware.UnaryServerInterceptor(validator)(
+				t.Context(), test.request, &grpc.UnaryServerInfo{},
+				func(context.Context, any) (any, error) {
+					handled = true
+					return nil, nil
+				},
+			)
+			if handled != test.valid {
+				t.Fatalf("handler called = %t, want %t", handled, test.valid)
+			}
+			want := codes.InvalidArgument
+			if test.valid {
+				want = codes.OK
+			}
+			if status.Code(err) != want {
+				t.Fatalf("validation code = %v, want %v", status.Code(err), want)
 			}
 		})
 	}

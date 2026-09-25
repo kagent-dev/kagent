@@ -439,8 +439,7 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 		}
 		instance, err := insertAgentInstance(ctx, tx, &apiv1alpha1.AgentInstance{
 			Id: instanceID.String(), Creator: creator,
-			Harness:       proto.CloneOf(schedule.Harness),
-			AgentTemplate: proto.CloneOf(schedule.AgentTemplate),
+			Agent: proto.CloneOf(schedule.Agent),
 		}, "scheduled-run/"+id.String())
 		if errors.Is(err, ErrNotFound) {
 			return fmt.Errorf("ScheduledRun %s target has no ready prepared revision: %w", result.ScheduledRunID, ErrFailedPrecondition)
@@ -636,8 +635,7 @@ func toScheduledRun(row scheduledRunRow) (*apiv1alpha1.ScheduledRun, error) {
 	schedule.CreatedAt, schedule.UpdatedAt = timestamppb.New(row.CreatedAt), timestamppb.New(row.UpdatedAt)
 	if schedule.GetConfig() == nil || schedule.Config.ExecutionTimeout == nil ||
 		schedule.CreatedAt.CheckValid() != nil || schedule.UpdatedAt.CheckValid() != nil ||
-		schedule.Etag == "" || schedule.GetHarness().GetNamespace() == "" || schedule.GetHarness().GetName() == "" || schedule.GetAgentTemplate().GetName() == "" ||
-		schedule.GetHarness().GetNamespace() != schedule.GetAgentTemplate().GetNamespace() {
+		schedule.Etag == "" || schedule.GetAgent().GetNamespace() == "" || schedule.GetAgent().GetName() == "" {
 		return nil, fmt.Errorf("invalid schedule payload %s", row.ID)
 	}
 	if err := protovalidate.Validate(schedule.Config); err != nil {

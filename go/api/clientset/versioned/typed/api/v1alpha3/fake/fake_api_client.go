@@ -12,6 +12,10 @@ type FakeApiV1alpha3 struct {
 	*testing.Fake
 }
 
+func (c *FakeApiV1alpha3) Agents(namespace string) v1alpha3.AgentInterface {
+	return newFakeAgents(c, namespace)
+}
+
 func (c *FakeApiV1alpha3) AgentTemplates(namespace string) v1alpha3.AgentTemplateInterface {
 	return newFakeAgentTemplates(c, namespace)
 }

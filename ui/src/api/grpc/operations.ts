@@ -1,3 +1,5 @@
+import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import type { Agent, AgentResource } from "../domain/agents";
 import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
@@ -583,8 +585,7 @@ function toAgentInstance(instance: PbAgentInstance): AgentInstance {
     // spellings of the same fact.
     name: instance.name,
     creator: instance.creator,
-    harness: orUndefined(refToString(instance.harness)),
-    agentTemplate: orUndefined(refToString(instance.agentTemplate)),
+    agent: orUndefined(refToString(instance.agent)),
     preparedRevision: orUndefined(instance.preparedRevision),
     a2aAuthority: orUndefined(instance.a2aAuthority),
     state: INSTANCE_STATE_BY_ENUM[instance.state] ?? "unknown",
@@ -715,8 +716,7 @@ const agentInstances: Pick<
              * page is cut. Filtering a page after fetching it searches only what
              * was fetched: a match on page nine reads as "no conversations".
              */
-            agentTemplate: input.agentTemplate,
-            harness: input.harness,
+            agent: input.agent,
             // No `limit`: the controller's own default (50) is a better answer than
             // a number invented here, and it rejects anything over 100 outright.
             page: { pageToken },
@@ -752,8 +752,7 @@ const agentInstances: Pick<
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).createAgentInstance(
         {
-          harness: input.harness,
-          agentTemplate: input.agentTemplate,
+          agent: input.agent,
           requestId: input.requestId,
           // Optional, and empty means unnamed rather than untitled-by-mistake: a
           // conversation started from a "New chat" button has nothing to be called
@@ -1040,10 +1039,7 @@ function toAgentTemplate(template: PbAgentTemplate): AgentTemplate {
     name: template.ref?.name ?? "",
     modelConfigRef: refToString(template.modelConfigRef),
     description: template.description,
-    // Reported in status and derivable only from the harness side — a harness
-    // admits templates through a label selector, so nothing on a template says
-    // which ones match it.
-    admittingHarnesses: list(template.admittingHarnesses),
+
     resource: templateResource(template, "AgentTemplateService/ListAgentTemplates"),
   };
 }
@@ -1056,6 +1052,77 @@ function templateResource(template: PbAgentTemplate, rpc: string): AgentTemplate
     `agent template ${template.ref?.name ?? ""}`,
   );
 }
+
+function toAgent(agent: PbAgent): Agent {
+ return {ref: refToString(agent.ref), namespace: agent.ref?.namespace ?? "", name: agent.ref?.name ?? "", resource: unwrap<AgentResource>(agent.resource, "AgentService", "Agent")};
+}
+const agents: Pick<ApiOperations, "agents.list" | "agents.get" | "agents.create" | "agents.update" | "agents.delete"> = {
+  "agents.list": async (input, options) => {
+    const response = await rpc(
+      "AgentService/ListAgents",
+      options.signal,
+      () =>
+        serviceClient(AgentService).listAgents(
+          { namespace: input.namespace ?? "" },
+          call("agents.list", options),
+        ),
+    );
+    return list(response.agents).map(toAgent);
+  },
+
+  "agents.get": async (input, options) => {
+    const name = "AgentService/GetAgent";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(AgentService).getAgent(
+        { ref: { namespace: input.namespace, name: input.name } },
+        call("agents.get", options),
+      ),
+    );
+    return toAgent(
+      required(response.agent, name, `agent template ${input.name}`),
+    );
+  },
+
+
+  "agents.create": async (input, options) => {
+    const name = "AgentService/CreateAgent";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(AgentService).createAgent(
+        {
+          ref: { namespace: input.namespace, name: input.name },
+          resource: wrap("Agent", input.resource),
+        },
+        call("agents.create", options),
+      ),
+    );
+    return toAgent(required(response.agent, name, "created agent template"));
+  },
+
+  "agents.update": async (input, options) => {
+    const name = "AgentService/UpdateAgent";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(AgentService).updateAgent(
+        {
+          ref: { namespace: input.namespace, name: input.name },
+          resource: wrap("Agent", input.resource),
+        },
+        call("agents.update", options),
+      ),
+    );
+    return toAgent(
+      required(response.agent, name, `agent template ${input.name}`),
+    );
+  },
+
+  "agents.delete": async (input, options) => {
+    await rpc("AgentService/DeleteAgent", options.signal, () =>
+      serviceClient(AgentService).deleteAgent(
+        { ref: { namespace: input.namespace, name: input.name } },
+        call("agents.delete", options),
+      ),
+    );
+  },
+};
 
 const agentBuildingBlocks: Pick<
   ApiOperations,
@@ -1127,17 +1194,7 @@ const agentBuildingBlocks: Pick<
     );
   },
 
-  /*
-   * Create and update both send the whole custom resource.
-   *
-   * `metadata.labels` ride with it, and they decide whether the template can be
-   * used at all: a Harness admits templates through a label selector, and the CRD
-   * says one with no selector admits none.
-   *
-   * The controller forces `metadata.name` and `metadata.namespace` to agree with
-   * the ref — `decodeResource` rejects a payload naming a different object — so the
-   * ref is the address and the resource is the content.
-   */
+
   "agentTemplates.create": async (input, options) => {
     const name = "AgentTemplateService/CreateAgentTemplate";
     const response = await rpc(name, options.signal, () =>
@@ -1375,6 +1432,7 @@ function required<T>(value: T | undefined, rpcName: string, what: string): T {
  * declared in `OperationMap` without appearing here — the compiler insists.
  */
 export const defaultOperations: ApiOperations = {
+ ...agents,
   ...agentBuildingBlocks,
   ...models,
   ...toolServers,

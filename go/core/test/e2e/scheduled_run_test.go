@@ -178,9 +178,9 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 	t.Cleanup(cancel)
 	f := &scheduledFixture{ctx: ctx, schedules: apiv1alpha1.NewScheduledRunServiceClient(conn), instances: apiv1alpha1.NewAgentInstanceServiceClient(conn), system: apiv1alpha1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
 	created, err := f.schedules.CreateScheduledRun(ctx, &apiv1alpha1.CreateScheduledRunRequest{
-		RequestId: uuid.NewString(), Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: harness.name},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
-		Config:        &apiv1alpha1.ScheduledRunConfig{Name: t.Name(), Schedule: "* * * * *", TimeZone: "UTC", Prompt: "What is 2+2?", Paused: paused, ExecutionTimeout: durationpb.New(timeout)},
+		RequestId: uuid.NewString(),
+		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
+		Config:    &apiv1alpha1.ScheduledRunConfig{Name: t.Name(), Schedule: "* * * * *", TimeZone: "UTC", Prompt: "What is 2+2?", Paused: paused, ExecutionTimeout: durationpb.New(timeout)},
 	})
 	require.NoError(t, err)
 	f.schedule = created.GetScheduledRun()
