@@ -28,6 +28,9 @@ const (
 const egressTrustVolume = "egress-trust"
 const egressTrustMount = "/run/kagent/egress"
 
+const actorIdentityVolume = "actor-identity"
+const actorIdentityMount = "/run/kagent/identity"
+
 var egressTrustEnvironment = map[string]struct{}{
 	"SSL_CERT_FILE": {}, "SSL_CERT_DIR": {}, "REQUESTS_CA_BUNDLE": {}, "AWS_CA_BUNDLE": {},
 	"NODE_EXTRA_CA_CERTS": {}, "CURL_CA_BUNDLE": {}, "GIT_SSL_CAINFO": {},
@@ -94,7 +97,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
-			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}, {Name: egressTrustVolume, MountPath: egressTrustMount}},
+			VolumeMounts: []*ateapipb.VolumeMount{
+				{Name: durableDataVolume, MountPath: durableDataMount},
+				{Name: egressTrustVolume, MountPath: egressTrustMount},
+				{Name: actorIdentityVolume, MountPath: actorIdentityMount},
+			},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotsConfig: &ateapipb.SnapshotsConfig{
@@ -105,6 +112,15 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
+			// Substrate regenerates this projection on Run and Restore. A fork
+			// therefore routes storage calls as its own actor, never its source.
+			{Name: actorIdentityVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
+				{ActorMetadata: &ateapipb.ActorMetadataDataSource{Items: []*ateapipb.ActorMetadataItem{
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME, Path: "name"},
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_ATESPACE, Path: "atespace"},
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID, Path: "uid"},
+				}}},
+			}}},
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
 				{TrustBundle: &ateapipb.TrustBundleDataSource{Name: "egress-mitm.ate.dev", Path: "trust-bundle.pem"}},
 			}}},

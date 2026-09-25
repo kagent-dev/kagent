@@ -17,6 +17,7 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    SendMessageRequest,
     Task,
     TaskArtifactUpdateEvent,
     TaskState,
@@ -25,6 +26,8 @@ from a2a.types import (
 )
 from google.adk.a2a.converters.part_converter import (
     A2APartToGenAIPartConverter,
+)
+from google.adk.a2a.converters.part_converter import (
     convert_a2a_part_to_genai_part as convert_upstream_a2a_part_to_genai_part,
 )
 from google.adk.a2a.converters.request_converter import (
@@ -193,7 +196,7 @@ class A2aAgentExecutor(AgentExecutor):
         runner: Runner | None = None
         context_token = None
         try:
-            self._translate_hitl_response(context)
+            context = self._translate_hitl_response(context)
             runner = await self._resolve_runner()
 
             run_request = self._convert_request(context, _convert_public_a2a_part_to_genai_part)
@@ -254,17 +257,31 @@ class A2aAgentExecutor(AgentExecutor):
             if runner is not None:
                 await self._safe_close_runner(runner)
 
-    def _translate_hitl_response(self, context: RequestContext) -> None:
+    def _translate_hitl_response(self, context: RequestContext) -> RequestContext:
         payload = get_hitl_payload(context.message)
         if not payload or payload.get("type") not in {
             HITL_TYPE_TOOL_APPROVAL_RESPONSE,
             HITL_TYPE_ASK_USER_RESPONSE,
         }:
-            return
+            return context
         if context.current_task is None:
             raise ValueError("HITL decision requires a stored current task")
         resume_message = build_resume_hitl_message(context.current_task, context.message)
-        context.message.CopyFrom(resume_message)
+        # The SDK's event consumer retains the public request while native work
+        # runs. Keep the translated native request separate so persistence
+        # retains the caller's original message.
+        return RequestContext(
+            call_context=context.call_context,
+            request=SendMessageRequest(
+                message=resume_message,
+                configuration=context.configuration,
+                metadata=context.metadata,
+            ),
+            task_id=context.task_id,
+            context_id=context.context_id,
+            task=context.current_task,
+            related_tasks=context.related_tasks,
+        )
 
     def _convert_request(
         self,

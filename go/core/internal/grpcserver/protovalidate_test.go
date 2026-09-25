@@ -61,6 +61,8 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 		{"invalid rename id", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
 		{"valid checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},
 		{"empty checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111"}, true},
+		{"checkpoint without selected task", &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
+		{"checkpoint selected task", &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: "11111111-1111-4111-8111-111111111111", RequestId: "request", ExpectedHeadTaskId: "task"}, true},
 		{"checkpoint rename control character", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

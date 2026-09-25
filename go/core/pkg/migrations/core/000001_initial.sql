@@ -67,8 +67,6 @@ CREATE INDEX agent_template_harness_pair_name_idx
 
 CREATE TABLE a2a_context (
     id         UUID        PRIMARY KEY,
-    user_id    TEXT        NOT NULL CHECK (user_id <> ''),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     context_id UUID        NOT NULL,
     CONSTRAINT a2a_context_binding_key UNIQUE (id, context_id)
 );
@@ -112,8 +110,15 @@ CREATE TABLE agent_instance (
     pinned_checkpoint_id UUID GENERATED ALWAYS AS (
         CASE WHEN state <> 'AGENT_INSTANCE_STATE_DELETED' THEN source_checkpoint_id END
     ) STORED REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
+    -- Immutable identity of the actor created for this instance.
+    actor_uid            TEXT CHECK (actor_uid IS NULL OR actor_uid <> ''),
     operation_id         UUID,
     executor_id          UUID,
+    -- Fences gateway dispatch until its first active task save. Expiry only
+    -- revokes unaccepted work; it never transfers native execution ownership.
+    dispatch_id          UUID,
+    dispatch_expires_at  TIMESTAMPTZ,
+    CHECK ((dispatch_id IS NULL) = (dispatch_expires_at IS NULL)),
     CHECK (executor_id IS NULL OR (operation_id IS NOT NULL
         AND operation <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
         AND state <> 'AGENT_INSTANCE_STATE_DELETED')),
@@ -151,9 +156,6 @@ CREATE TABLE agent_instance_task (
     status_timestamp       TIMESTAMPTZ,
     data                   BYTEA       NOT NULL,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    initial_message_id     TEXT,
-    request_hash           BYTEA,
     snapshot_atespace      TEXT,
     snapshot_uri           TEXT,
     snapshot_content_scope TEXT,
@@ -173,29 +175,35 @@ CREATE UNIQUE INDEX agent_instance_one_active_task_idx
     );
 CREATE UNIQUE INDEX agent_instance_task_list_idx
     ON agent_instance_task (history_id, position);
-CREATE UNIQUE INDEX agent_instance_task_message_idx
-    ON agent_instance_task (history_id, initial_message_id)
-    WHERE initial_message_id IS NOT NULL;
 
 CREATE TABLE agent_instance_task_event (
     sequence   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     history_id UUID        CONSTRAINT agent_instance_task_event_instance_id_not_null NOT NULL REFERENCES a2a_context(id) ON DELETE CASCADE,
-    task_id    TEXT,
+    task_id    TEXT        NOT NULL,
     data       BYTEA       NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     message_id TEXT,
-    -- Creation events retain task indexes; admitted reply messages retain retry hashes.
+    -- Creation events retain task ordering across checkpoint reconstruction.
     task_position BIGINT,
-    initial_message_id TEXT,
-    request_hash BYTEA,
+    -- A runtime save consumes one version. Retain its digest so a lost RPC
+    -- response can be retried without applying the same update twice.
+    -- Runtime boundaries become public after native cleanup, independently of snapshots.
+    published BOOLEAN NOT NULL DEFAULT TRUE,
+    -- NULL for ordinary events; TRUE until idle work finishes or a new turn supersedes it.
+    quiescence_pending BOOLEAN,
+    quiescence_executor_id UUID,
+    CHECK (quiescence_executor_id IS NULL OR (quiescence_pending IS NOT NULL AND published)),
+    expected_version BIGINT,
+    mutation_hash BYTEA,
     snapshot_atespace TEXT,
     snapshot_uri TEXT,
     snapshot_content_scope TEXT,
+    CHECK ((expected_version IS NULL AND mutation_hash IS NULL)
+        OR (expected_version IS NOT NULL AND expected_version >= 0
+            AND mutation_hash IS NOT NULL AND octet_length(mutation_hash) = 32)),
     CHECK ((snapshot_atespace IS NULL AND snapshot_uri IS NULL AND snapshot_content_scope IS NULL)
         OR (snapshot_atespace IS NOT NULL AND snapshot_uri IS NOT NULL AND snapshot_content_scope IS NOT NULL)),
-    CHECK (task_position IS NULL OR (task_position > 0 AND task_id IS NOT NULL AND message_id IS NULL)),
-    CHECK (task_position IS NOT NULL OR initial_message_id IS NULL),
-    CHECK (request_hash IS NULL OR task_position IS NOT NULL OR message_id IS NOT NULL)
+    CHECK (task_position IS NULL OR (task_position > 0 AND message_id IS NULL))
 );
 CREATE UNIQUE INDEX agent_instance_task_event_creation_idx
     ON agent_instance_task_event (history_id, task_id) WHERE task_position IS NOT NULL;
@@ -203,6 +211,15 @@ CREATE UNIQUE INDEX agent_instance_task_event_position_idx
     ON agent_instance_task_event (history_id, task_position) WHERE task_position IS NOT NULL;
 CREATE INDEX agent_instance_task_event_instance_sequence_idx
     ON agent_instance_task_event (history_id, sequence);
+CREATE INDEX agent_instance_task_event_version_idx
+    ON agent_instance_task_event (history_id, task_id, sequence DESC);
+CREATE INDEX agent_instance_task_event_unpublished_idx
+    ON agent_instance_task_event (history_id, sequence) WHERE NOT published;
+CREATE UNIQUE INDEX agent_instance_task_event_quiescence_idx
+    ON agent_instance_task_event (history_id) WHERE quiescence_pending;
+CREATE UNIQUE INDEX agent_instance_task_event_mutation_idx
+    ON agent_instance_task_event (history_id, task_id, expected_version)
+    WHERE expected_version IS NOT NULL;
 CREATE UNIQUE INDEX agent_instance_task_event_message_idx
     ON agent_instance_task_event (history_id, task_id, message_id)
     WHERE message_id IS NOT NULL;

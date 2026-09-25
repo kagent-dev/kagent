@@ -12,10 +12,13 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -29,6 +32,9 @@ const (
 
 // AppConfig holds configuration for a KAgent A2A application.
 type AppConfig struct {
+	// ControllerClient shares the existing controller channel with the TaskStore.
+	// When nil, KAGENT_API_URL must configure a channel owned by this app.
+	ControllerClient *controllerclient.Client
 	// AgentCard describes the agent's capabilities for A2A discovery.
 	AgentCard a2atype.AgentCard
 
@@ -70,39 +76,9 @@ type AppConfig struct {
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
 type KAgentApp struct {
-	server *server.A2AServer
-	logger *slog.Logger
-}
-
-type seedTaskInterceptor struct {
-	a2asrv.PassthroughCallInterceptor
-	store a2ataskstore.Store
-}
-
-func (i seedTaskInterceptor) Before(ctx context.Context, _ *a2asrv.CallContext, req *a2asrv.Request) (context.Context, any, error) {
-	if req == nil {
-		return ctx, nil, nil
-	}
-	send, ok := req.Payload.(*a2atype.SendMessageRequest)
-	if !ok || send.Message == nil || send.Message.TaskID == "" {
-		return ctx, nil, nil
-	}
-	storedTask, err := apia2a.TakeStoredTask(send.Message)
-	if err != nil {
-		return ctx, nil, err
-	}
-	if _, err := i.store.Get(ctx, send.Message.TaskID); err == nil {
-		return ctx, nil, nil
-	} else if !errors.Is(err, a2atype.ErrTaskNotFound) {
-		return ctx, nil, fmt.Errorf("load actor task: %w", err)
-	}
-	if storedTask == nil {
-		storedTask = a2atype.NewSubmittedTask(send.Message, send.Message)
-	}
-	if _, err := i.store.Create(ctx, storedTask); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
-		return ctx, nil, fmt.Errorf("seed actor task: %w", err)
-	}
-	return ctx, nil, nil
+	server          *server.A2AServer
+	logger          *slog.Logger
+	ownedController *controllerclient.Client
 }
 
 // New creates a KAgentApp by wiring the provided executor with kagent
@@ -124,15 +100,32 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	log := cfg.Logger
 
 	app := &KAgentApp{logger: log}
-	tasks := a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
-	handlerOpts := []a2asrv.RequestHandlerOption{a2asrv.WithTaskStore(tasks)}
+	controller := cfg.ControllerClient
+	if controller == nil {
+		apiURL := env.KagentAPIURL.Get()
+		if apiURL == "" {
+			return nil, fmt.Errorf("ControllerClient or %s is required", env.KagentAPIURL.Name())
+		}
+		var err error
+		controller, err = controllerclient.New(controllerclient.Config{APIURL: apiURL, AgentName: cfg.AppName})
+		if err != nil {
+			return nil, err
+		}
+		app.ownedController = controller
+	}
+	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
+	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
+	executor = runtimeExecutor
+	handlerOpts := []a2asrv.RequestHandlerOption{
+		a2asrv.WithTaskStore(tasks),
+		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}),
+	}
 
-	// The private runtime receives a gateway-assigned ID for a new task. Seed it
-	// locally so upstream A2A does not mistake that ID for a continuation.
+	// Coordinate native execution with ordinary SDK persistence and cleanup.
 	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
 		a2a.HITLActivationInterceptor(),
 		a2a.UserIDCallInterceptor(),
-		seedTaskInterceptor{store: tasks},
+		runtimeExecutor,
 	))
 
 	// Append any caller-supplied handler options.
@@ -150,6 +143,9 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 
 	a2aServer, err := server.NewA2AServer(buildAgentCard(cfg), executor, log, serverConfig, handlerOpts...)
 	if err != nil {
+		if app.ownedController != nil {
+			err = errors.Join(err, app.ownedController.Close())
+		}
 		return nil, fmt.Errorf("failed to create A2A server: %w", err)
 	}
 	app.server = a2aServer
@@ -170,7 +166,11 @@ func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
 
 // Run starts the A2A server and blocks until a shutdown signal is received.
 func (a *KAgentApp) Run() error {
-	return a.server.Run()
+	err := a.server.Run()
+	if a.ownedController != nil {
+		err = errors.Join(err, a.ownedController.Close())
+	}
+	return err
 }
 
 // Logger returns the logger used by this app.

@@ -13,7 +13,7 @@ type checkpointServer struct {
 }
 
 func (s *checkpointServer) CreateCheckpoint(ctx context.Context, request *apiv1alpha1.CreateCheckpointRequest) (*apiv1alpha1.CreateCheckpointResponse, error) {
-	checkpoint, err := s.service.Create(ctx, request.GetAgentInstanceId(), request.GetRequestId())
+	checkpoint, err := s.service.Create(ctx, request.GetAgentInstanceId(), request.GetRequestId(), request.GetExpectedHeadTaskId())
 	return &apiv1alpha1.CreateCheckpointResponse{Checkpoint: checkpoint}, err
 }
 

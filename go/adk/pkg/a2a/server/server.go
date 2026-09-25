@@ -241,14 +241,25 @@ func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handle
 func (s *A2AServer) Start() error {
 	s.logger.Info("starting Go ADK server!", "addr", s.httpServer.Addr)
 
-	s.listenErr = make(chan error, 1)
+	// Substrate may snapshot immediately after /readyz succeeds. Bind A2A
+	// before exposing readiness so that snapshot always contains its listener.
+	listener, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return fmt.Errorf("listen for A2A: %w", err)
+	}
+	ready, err := net.Listen("tcp", s.readyServer.Addr)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("listen for readiness: %w", err)
+	}
+	s.listenErr = make(chan error, 2)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.listenErr <- err
 		}
 	}()
 	go func() {
-		if err := s.readyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.readyServer.Serve(ready); err != nil && err != http.ErrServerClosed {
 			s.listenErr <- err
 		}
 	}()

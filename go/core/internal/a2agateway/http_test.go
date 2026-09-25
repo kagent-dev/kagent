@@ -17,7 +17,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -29,8 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/proto"
 )
 
 type httpTestAuthenticator struct {
@@ -58,15 +55,16 @@ func (s *httpTestShares) GetAgentInstanceShareByTokenHash(_ context.Context, dig
 	return &apiv1alpha1.AgentInstanceShare{AgentInstanceId: s.instanceID, Permission: s.permission}, "owner", s.err
 }
 
-func newHTTPTestServer(t *testing.T, store *gatewayTestStore, authorizer auth.Authorizer, shares *httpTestShares) *httptest.Server {
+func newHTTPTestServer(t *testing.T, store *gatewayTestStore, authorizer auth.Authorizer, shares *httpTestShares) (*httptest.Server, *gatewayTestRuntime) {
 	t.Helper()
 	server := httptest.NewUnstartedServer(nil)
-	runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
-	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, "http://"+server.Listener.Addr().String()+"/")
+	store.task = &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	runtime := &gatewayTestRuntime{task: store.task}
+	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "http://"+server.Listener.Addr().String()+"/")
 	server.Config.Handler = NewHTTPHandler(gateway, httpTestAuthenticator{}, shares)
 	server.Start()
 	t.Cleanup(server.Close)
-	return server
+	return server, runtime
 }
 
 func httpTestContext(t *testing.T) context.Context {
@@ -86,7 +84,7 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 			DefaultInputModes:   []string{"text/plain"}, DefaultOutputModes: []string{"text/plain"},
 		}},
 	}
-	server := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
+	server, _ := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
 	endpoint := server.URL + HTTPPathPrefix + gatewayTestID
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint+a2asrv.WellKnownAgentCardPath, nil)
 	require.NoError(t, err)
@@ -136,7 +134,7 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 
 func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
-	server := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
+	server, runtime := newHTTPTestServer(t, store, &gatewayTestAuthorizer{}, nil)
 	client, err := a2aclient.NewFromEndpoints(t.Context(), []*a2atype.AgentInterface{
 		a2atype.NewAgentInterface(server.URL+HTTPPathPrefix+gatewayTestID, a2atype.TransportProtocolJSONRPC),
 	})
@@ -165,6 +163,11 @@ func TestHTTPGatewayStreamingAndCancellation(t *testing.T) {
 
 	// Cancel a quiescent task awaiting input and read the persisted cancellation.
 	store.task = &a2atype.Task{ID: "awaiting-input", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}
+	runtime.task = &a2atype.Task{ID: store.task.ID, ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled}}
+	store.settledRead = func() error {
+		store.task = runtime.task
+		return nil
+	}
 	canceled, err := client.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: store.task.ID})
 	require.NoError(t, err)
 	require.Equal(t, a2atype.TaskStateCanceled, canceled.Status.State)
@@ -196,7 +199,7 @@ func TestHTTPGatewayRejectsInvalidAccess(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &gatewayTestStore{instance: gatewayTestInstance(), err: test.storeErr}
-			handler := NewHTTPHandler(New(store, &gatewayTestAuthorizer{err: test.authzErr}, nil, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
+			handler := NewHTTPHandler(New(store, &gatewayTestAuthorizer{err: test.authzErr}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
 			request := httptest.NewRequest(test.method, HTTPPathPrefix+test.path, nil)
 			if test.authorized {
 				request.Header.Set("Authorization", "Bearer valid")
@@ -228,10 +231,10 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 				{name: "store unavailable", storeErr: errors.New("database credentials"), wantStatus: 500},
 			} {
 				t.Run(test.name, func(t *testing.T) {
-					store := &gatewayTestStore{instance: gatewayTestInstance(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}}
+					store := &gatewayTestStore{instance: gatewayTestInstance(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 					shares := &httpTestShares{permission: test.permission, instanceID: test.instanceID, err: test.storeErr}
 					runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
-					gateway := New(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+					gateway := New(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					address := startCoreTestServer(t, gateway, shares)
 					var transport a2aclient.Transport
 					params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}, "x-share-token": {"share"}}
@@ -287,7 +290,7 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 
 func TestHTTPGatewayMalformedJSONRPC(t *testing.T) {
 	store := &gatewayTestStore{}
-	handler := NewHTTPHandler(New(store, &gatewayTestAuthorizer{}, nil, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
+	handler := NewHTTPHandler(New(store, &gatewayTestAuthorizer{}, nil, gatewayTestURL), httpTestAuthenticator{}, nil)
 	request := httptest.NewRequest(http.MethodPost, HTTPPathPrefix+gatewayTestID, strings.NewReader(`{"jsonrpc":`))
 	request.Header.Set("Authorization", "Bearer valid")
 	response := httptest.NewRecorder()
@@ -295,59 +298,6 @@ func TestHTTPGatewayMalformedJSONRPC(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), `"code":-32700`)
 	require.Empty(t, store.id)
-}
-
-func TestHTTPAndGRPCShareDurableTasks(t *testing.T) {
-	store, instance := gatewayPostgresFixture(t)
-	runtime := &gatewayTestRuntime{}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
-	address := startCoreTestServer(t, gateway, store)
-	ctx := t.Context()
-
-	httpClient := a2aclient.NewJSONRPCTransport("http://"+address+HTTPPathPrefix+instance.GetId(), http.DefaultClient)
-	params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
-	result, err := httpClient.SendMessage(ctx, params, gatewayTestRequest())
-	require.NoError(t, err)
-	task, ok := result.(*a2atype.Task)
-	require.True(t, ok)
-	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
-	require.Equal(t, instance.GetContextId(), task.ContextID)
-
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	grpcClient := a2apb.NewA2AServiceClient(connection)
-	grpcContext := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer valid", apia2a.AgentInstanceIDHeader, instance.GetId())
-	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
-	require.NoError(t, err)
-	storedProto, err := grpcClient.GetTask(grpcContext, getRequest)
-	require.NoError(t, err)
-	stored, err := pbconv.FromProtoTask(storedProto)
-	require.NoError(t, err)
-	requireSameTask(t, task, stored)
-
-	sendRequest, err := pbconv.ToProtoSendMessageRequest(gatewayTestRequest())
-	require.NoError(t, err)
-	response, err := grpcClient.SendMessage(grpcContext, sendRequest)
-	require.NoError(t, err)
-	grpcResult, err := pbconv.FromProtoSendMessageResponse(response)
-	require.NoError(t, err)
-	grpcTask, ok := grpcResult.(*a2atype.Task)
-	require.True(t, ok)
-	stored, err = httpClient.GetTask(ctx, params, &a2atype.GetTaskRequest{ID: grpcTask.ID})
-	require.NoError(t, err)
-	requireSameTask(t, grpcTask, stored)
-}
-
-func requireSameTask(t *testing.T, expected, actual *a2atype.Task) {
-	t.Helper()
-	// Protobuf and JSON decode empty collections differently. Compare their
-	// canonical protocol representation, including history and timestamps.
-	expectedProto, err := pbconv.ToProtoTask(expected)
-	require.NoError(t, err)
-	actualProto, err := pbconv.ToProtoTask(actual)
-	require.NoError(t, err)
-	require.True(t, proto.Equal(expectedProto, actualProto), "tasks differ: expected %v, actual %v", expectedProto, actualProto)
 }
 
 func startCoreTestServer(t *testing.T, gateway a2asrv.RequestHandler, shares agentinstance.ShareStore) string {

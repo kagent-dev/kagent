@@ -69,8 +69,7 @@ The repository [style guide](../../../../STYLE.md) also applies.
   result is already in memory, a conditional `Exec` and `RowsAffected` check may
   suffice. Preserve the distinction between a successful no-op and a conflict.
 - Consider joins that remove preliminary reads, but preserve missing-record
-  semantics. Missing instance and missing active task are equivalent for lookup;
-  interruption distinguishes them.
+  semantics.
 - Match predicates to existing indexes before adding indexes. Use a stable
   timestamp such as `statement_timestamp()` when eligibility is defined at query
   start; retain `clock_timestamp()` when lease expiry requires actual elapsed

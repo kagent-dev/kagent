@@ -112,7 +112,10 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 				ModelConfigRef: corev1.LocalObjectReference{Name: embeddingModel.Name}, TTLDays: 7,
 			}},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
-			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Workload: v1alpha3.HarnessWorkload{
+				Image:   "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Command: []string{"kagent-adk", "static"}, Args: []string{"--host", "0.0.0.0"},
+			},
 			Substrate: v1alpha3.HarnessSubstratePolicy{
 				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
 			},
@@ -147,6 +150,8 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.Equal(t, harness.Spec.Workload.Command, spec.Command)
+	require.Equal(t, harness.Spec.Workload.Args, spec.Args)
 	var config adk.AgentConfig
 	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
@@ -592,7 +597,7 @@ func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 	nextDigest, err := next.Digest()
 	require.NoError(t, err)
 	require.Equal(t, firstDigest, nextDigest, "gateway credential rotation must not change runtime revision")
-	if len(spec.EgressDestinations) != 3 || spec.EgressDestinations[0] != "api.openai.com" || spec.EgressDestinations[1] != "mcp.example.com" || spec.EgressDestinations[2] != "second-mcp.example.com" {
+	if !slices.Equal(spec.EgressDestinations, []string{"api.openai.com", "kagent-controller.kagent", "mcp.example.com", "second-mcp.example.com"}) {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
 	}
 }

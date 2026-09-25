@@ -210,6 +210,7 @@ const INPUTS = {
   "agentInstances.checkpoints.create": {
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
     requestId: "fixture-suite-checkpoint",
+    expectedHeadTaskId: SEEDED_CHECKPOINT.headTaskId,
   },
   "agentInstances.checkpoints.list": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
   "agentInstances.checkpoints.fork": {

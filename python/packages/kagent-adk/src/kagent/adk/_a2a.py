@@ -31,6 +31,7 @@ from kagent.core.a2a import (
     attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
@@ -144,7 +145,7 @@ class KAgentApp:
                 memory_service=memory_service,
             )
 
-        task_store = InMemoryTaskStore()
+        task_store = KAgentTaskStore(controller_client) if controller_client else InMemoryTaskStore()
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
@@ -152,7 +153,8 @@ class KAgentApp:
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandlerV2(
+        handler_type = KAgentRequestHandler if controller_client else DefaultRequestHandlerV2
+        request_handler = handler_type(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,

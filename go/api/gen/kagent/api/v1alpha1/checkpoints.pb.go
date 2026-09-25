@@ -185,8 +185,11 @@ type CreateCheckpointRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	RequestId       string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The terminal turn the caller intends to save. Creation fails if a newer
+	// turn has started; retrying while its snapshot is pending keeps this value.
+	ExpectedHeadTaskId string `protobuf:"bytes,3,opt,name=expected_head_task_id,json=expectedHeadTaskId,proto3" json:"expected_head_task_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CreateCheckpointRequest) Reset() {
@@ -229,6 +232,13 @@ func (x *CreateCheckpointRequest) GetAgentInstanceId() string {
 func (x *CreateCheckpointRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateCheckpointRequest) GetExpectedHeadTaskId() string {
+	if x != nil {
+		return x.ExpectedHeadTaskId
 	}
 	return ""
 }
@@ -759,12 +769,13 @@ const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
 	"\afailure\x18\a \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\x12\x12\n" +
-	"\x04name\x18\b \x01(\tR\x04name\"z\n" +
+	"\x04name\x18\b \x01(\tR\x04name\"\xb6\x01\n" +
 	"\x17CreateCheckpointRequest\x124\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12)\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"[\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12:\n" +
+	"\x15expected_head_task_id\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x12expectedHeadTaskId\"[\n" +
 	"\x18CreateCheckpointResponse\x12?\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.CheckpointR\n" +

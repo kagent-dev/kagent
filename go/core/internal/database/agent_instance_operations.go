@@ -86,6 +86,9 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 		if !canStart {
 			return fmt.Errorf("AgentInstance cannot start %s from %s with operation %s: %w", kind, instance.State, instance.Operation, ErrConflict)
 		}
+		if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
+			return err
+		}
 		instance.Operation, instance.UpdatedAt = kind, timestamppb.Now()
 		data, err := marshalAgentInstance(instance)
 		if err != nil {
@@ -136,7 +139,7 @@ func (c *Client) ClaimAgentInstanceOperation(ctx context.Context, instanceID str
 // its generation. Uncertain issued work must remain pending. Stale completion or
 // release returns ErrConflict. Deletion retains a tombstone and revokes shares;
 // PostgreSQL releases its resource pins atomically with the state change.
-func (c *Client) FinishAgentInstanceOperation(ctx context.Context, instanceID string, id, executorID uuid.UUID, authority, failure string) (*apiv1alpha1.AgentInstance, error) {
+func (c *Client) FinishAgentInstanceOperation(ctx context.Context, instanceID string, id, executorID uuid.UUID, authority, actorUID, failure string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockAgentInstance(ctx, tx, instanceID)
@@ -162,8 +165,8 @@ func (c *Client) FinishAgentInstanceOperation(ctx context.Context, instanceID st
 		if successfulExecution {
 			switch kind {
 			case apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE:
-				if authority == "" {
-					return fmt.Errorf("created AgentInstance requires runtime authority")
+				if authority == "" || actorUID == "" {
+					return fmt.Errorf("created AgentInstance requires runtime authority and actor UID")
 				}
 				result.State, result.A2AAuthority, result.Failure = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY, authority, nil
 			case apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME:
@@ -171,6 +174,15 @@ func (c *Client) FinishAgentInstanceOperation(ctx context.Context, instanceID st
 			case apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND:
 				result.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
 			case apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE:
+				if actorUID != "" {
+					matches, err := queryOne(ctx, tx, `SELECT actor_uid = $2 FROM agent_instance WHERE id = $1`, pgx.RowTo[bool], instanceID, actorUID)
+					if err != nil {
+						return err
+					}
+					if !matches {
+						return fmt.Errorf("runtime actor UID changed: %w", ErrConflict)
+					}
+				}
 				return tombstoneAgentInstance(ctx, tx, result, row.OperationID)
 			}
 		} else if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
@@ -180,12 +192,20 @@ func (c *Client) FinishAgentInstanceOperation(ctx context.Context, instanceID st
 		if err != nil {
 			return err
 		}
-		return execSQL(ctx, tx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance SET state = $2, operation = $3, data = $4,
 			    operation_id = CASE WHEN $5 THEN NULL ELSE operation_id END,
-			    executor_id = NULL
-			WHERE id = $1
-		`, instanceID, result.State.String(), result.Operation.String(), data, failedPreparation)
+			    executor_id = NULL, actor_uid = CASE WHEN $7 THEN $6 ELSE actor_uid END
+			WHERE id = $1 AND ($6::text = '' OR actor_uid = $6 OR (actor_uid IS NULL AND $7))
+		`, instanceID, result.State.String(), result.Operation.String(), data, failedPreparation, actorUID,
+			successfulExecution && kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return fmt.Errorf("runtime actor UID changed: %w", ErrConflict)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finish AgentInstance operation: %w", err)
