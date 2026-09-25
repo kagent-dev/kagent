@@ -55,6 +55,7 @@ import {
 import {
   applyAgentRailOverrides,
   ExtensionSlot,
+  type ExtensionAgentPair,
   isRailEntryHidden,
 } from "@/appExtensions";
 import {
@@ -140,7 +141,7 @@ export interface AgentRailProps {
    * current agent out of its own list, so a surface that knows it says so rather than
    * having it inferred from a title string.
    */
-  agentPair?: { namespace: string; name?: string };
+  agentPair?: ExtensionAgentPair;
   /**
    * Controls the surface wants in the rail's gutter, under the collapse toggle.
    *
@@ -279,7 +280,7 @@ export function AgentRail({
       : undefined);
 
   /*
-   * The agent as a pair, for everything that is about the agent rather than the
+   * The Agent identity, for everything that is about the agent rather than the
    * conversation open within it. From the surface when it knows, otherwise read off the
    * instance — the pages with no conversation open have only the first.
    */

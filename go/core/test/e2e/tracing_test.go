@@ -313,7 +313,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			// missing an attribute fails the test rather than going unseen. The
 			// compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
-			agentName := template + "-" + test.harness
+			agentName := template
 			spans := receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent})
 			if len(spans) != 1 {
 				t.Fatalf("invoke_agent spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))

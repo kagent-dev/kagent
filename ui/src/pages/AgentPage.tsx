@@ -312,7 +312,16 @@ export function AgentPage() {
     // now: a reason attached to a control the reader may never hover is a reason they
     // never read.
     <PageFrame>
-      {editing && definition.data && <AgentDefinitionEditor agent={definition.data} onClose={() => setEditing(false)} onSaved={() => {setEditing(false); void definition.refresh();}} />}
+      {editing && definition.data && (
+        <AgentDefinitionEditor
+          agent={definition.data}
+          onClose={() => setEditing(false)}
+          onSaved={async () => {
+            await definition.refresh();
+            setEditing(false);
+          }}
+        />
+      )}
       {/*
         The same rail as the conversation surfaces.
 

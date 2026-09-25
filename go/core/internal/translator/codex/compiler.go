@@ -66,7 +66,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
-		tracing.RuntimeCodex, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
+		tracing.RuntimeCodex, input.AgentName, template.Namespace, model.Spec)
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
 	if err != nil {
@@ -102,7 +102,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		environment = append(environment, envVar)
 	}
 	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
@@ -133,7 +133,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}

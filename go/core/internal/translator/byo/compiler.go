@@ -38,7 +38,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(template))
+	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
@@ -48,7 +48,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if telemetryConfig.Enabled() {
 		environment = append(environment, v2translator.DefaultsEnvironment()...)
 		environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
-			AgentName: template.Name + "-" + harness.Name, AgentNamespace: template.Namespace,
+			AgentName: input.AgentName, AgentNamespace: template.Namespace,
 		}, "")...)
 		compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
 	}
@@ -76,9 +76,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}}, nil
 }
 
-func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
+func agentTemplateCard(agentName string, template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
 	return &a2atype.AgentCard{
-		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
+		Name: strings.ReplaceAll(agentName, "-", "_"), Description: template.Spec.Description, Version: "v1",
 		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
 		Capabilities:        a2atype.AgentCapabilities{Streaming: true}, Skills: []a2atype.AgentSkill{},
 		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},

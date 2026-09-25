@@ -9,7 +9,7 @@ import (
 )
 
 func TestManagedAgentCardDeclaresHITL(t *testing.T) {
-	card := ManagedAgentCard(&v1alpha3.AgentTemplate{
+	card := ManagedAgentCard("managed-agent", &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "managed-agent"},
 	})
 	if !card.Capabilities.Streaming || len(card.Capabilities.Extensions) != 1 {

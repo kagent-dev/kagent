@@ -181,6 +181,11 @@ on the agent's own page and on a new conversation, so an entry that needs an add
 should derive it and render nothing when it cannot — which is what the application's
 own entries do when their destination cannot be derived.
 
+`pair` carries the runnable Agent's `namespace` and optional `name`, including on
+Agent and new-chat pages with no conversation open. An entry that links to the
+Agent definition should check `pair?.name`; template and Harness choices do not
+change that identity.
+
 An override's `path` lands on the entry's `to`; the rail renders its links itself, so
 that is the same idea under the name the rail uses for it. `hidden` also suppresses
 the button "New chat" falls back to where an agent has no address, so hiding it is

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -65,7 +66,7 @@ func TestCompileAgentTemplatePreservesWorkloadOverrides(t *testing.T) {
 				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
 			}
 			original := harness.DeepCopy()
-			result, err := compiler(t, modelConfig()).CompileAgentTemplate(t.Context(), harness, template)
+			result, err := compiler(t, modelConfig()).CompileAgentTemplate(t.Context(), "runnable-agent", harness, template)
 			require.NoError(t, err)
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
@@ -146,7 +147,7 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 			},
 		},
 	}
-	spec, err := compiler(t, modelConfig(), embeddingModel).CompileAgentTemplate(context.Background(), harness, template)
+	spec, err := compiler(t, modelConfig(), embeddingModel).CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,6 +249,7 @@ func TestCompileAgentTemplateResolvesWorkerPoolSandboxClass(t *testing.T) {
 				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
 			case v2translator.HarnessTypeCodex:
 				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
 				responses := v1alpha3.OpenAIAPIFormatResponses
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: &responses}
 			case v2translator.HarnessTypeClaude:
@@ -288,7 +290,7 @@ func TestCompileAgentTemplateResolvesWorkerPoolSandboxClass(t *testing.T) {
 					if !tt.missing {
 						objects = append(objects, pool)
 					}
-					result, err := compiler(t, objects...).CompileAgentTemplate(t.Context(), harness, template)
+					result, err := compiler(t, objects...).CompileAgentTemplate(t.Context(), "runnable-agent", harness, template)
 					require.Equal(t, originalHarness, harness)
 					require.Equal(t, originalTemplate, template)
 					require.Equal(t, originalPool, pool)
@@ -360,7 +362,7 @@ func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
 		},
 	}
 
-	revision, err := compiler(t, modelConfig(), configMap, child).CompileAgentTemplate(t.Context(), harness, root)
+	revision, err := compiler(t, modelConfig(), configMap, child).CompileAgentTemplate(t.Context(), "runnable-agent", harness, root)
 	require.NoError(t, err)
 	var config adk.AgentConfig
 	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
@@ -444,7 +446,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 
 	revision, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
-	}).CompileAgentTemplate(context.Background(), harness, template)
+	}).CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	require.NoError(t, err)
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
@@ -468,7 +470,7 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 
 	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
-	}).CompileAgentTemplate(context.Background(), harness, template)
+	}).CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	require.ErrorContains(t, err, `Harness "codex" does not support structured output`)
 	require.Nil(t, adapter.input)
 }
@@ -487,7 +489,7 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 
 	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
-	}).CompileAgentTemplate(context.Background(), harness, template)
+	}).CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
 	require.Nil(t, adapter.input)
 }
@@ -502,7 +504,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 
 	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeBYO: adapter,
-	}).CompileAgentTemplate(context.Background(), harness, template)
+	}).CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	require.NoError(t, err)
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
 }
@@ -557,7 +559,7 @@ func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 		},
 	}
 	compiler := compiler(t, modelConfig(), server, secondServer, secret, secondSecret)
-	spec, err := compiler.CompileAgentTemplate(context.Background(), harness, template)
+	spec, err := compiler.CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +592,7 @@ func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
 	})
-	next, err := rotatedCompiler.CompileAgentTemplate(t.Context(), harness, template)
+	next, err := rotatedCompiler.CompileAgentTemplate(t.Context(), "runnable-agent", harness, template)
 	require.NoError(t, err)
 	nextDigest, err := next.Digest()
 	require.NoError(t, err)
@@ -628,7 +630,7 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 			SystemPrompt: "help",
 		},
 	}
-	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), "runnable-agent", harness, template)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -640,8 +642,8 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "otlp",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
 		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
-		"OTEL_SERVICE_NAME":        "helper-kagent",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/helper-kagent,gen_ai.agent.name=helper-kagent,service.namespace=test",
+		"OTEL_SERVICE_NAME":        "runnable-agent",
+		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,service.namespace=test",
 	} {
 		if found[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)
@@ -687,7 +689,7 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 			}}},
 		},
 	}
-	revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgentTemplate(context.Background(), harness, root)
+	revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgentTemplate(context.Background(), "runnable-agent", harness, root)
 	require.NoError(t, err)
 	var config adk.AgentConfig
 	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
@@ -716,26 +718,26 @@ func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {
 	t.Run("shared DAG", func(t *testing.T) {
 		child := template("child")
 		root := template("root", binding("first", child.Name), binding("second", child.Name))
-		_, err := compiler(t, child).CompileAgentTemplate(context.Background(), harness, root)
+		_, err := compiler(t, child).CompileAgentTemplate(context.Background(), "runnable-agent", harness, root)
 		require.ErrorContains(t, err, "referenced more than once")
 	})
 	t.Run("cycle", func(t *testing.T) {
 		root := template("root", binding("child", "child"))
 		child := template("child", binding("root", root.Name))
-		_, err := compiler(t, root, child).CompileAgentTemplate(context.Background(), harness, root)
+		_, err := compiler(t, root, child).CompileAgentTemplate(context.Background(), "runnable-agent", harness, root)
 		require.ErrorContains(t, err, "cycle")
 	})
 	t.Run("consecutive shared depth", func(t *testing.T) {
 		root := template("root", binding("child", "child"))
 		child := template("child", binding("grandchild", "grandchild"))
 		grandchild := template("grandchild")
-		_, err := compiler(t, child, grandchild).CompileAgentTemplate(context.Background(), harness, root)
+		_, err := compiler(t, child, grandchild).CompileAgentTemplate(context.Background(), "runnable-agent", harness, root)
 		require.ErrorContains(t, err, "consecutive Shared")
 	})
 	t.Run("dedicated", func(t *testing.T) {
 		root := template("root", binding("child", "child"))
 		root.Spec.Tools[0].Agent.Isolation = v1alpha3.AgentToolIsolationDedicated
-		_, err := compiler(t).CompileAgentTemplate(context.Background(), harness, root)
+		_, err := compiler(t).CompileAgentTemplate(context.Background(), "runnable-agent", harness, root)
 		require.ErrorContains(t, err, "Dedicated")
 	})
 }
@@ -791,4 +793,84 @@ func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 		_, err := compiler(t, template, harness).CompileAgent(t.Context(), agent)
 		require.ErrorContains(t, err, "not found")
 	})
+}
+
+// Runtime identity also selects the ADK memory namespace. Reusing configuration
+// must not merge Agents' memories or change an Agent's namespace when inlined.
+func TestCompileAgentRuntimeIdentity(t *testing.T) {
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
+	for _, kind := range []v2translator.HarnessType{
+		v2translator.HarnessTypeKagent, v2translator.HarnessTypeCodex,
+		v2translator.HarnessTypeClaude, v2translator.HarnessTypeBYO,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("test-key")}}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-context"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+			}
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-runtime"},
+				Spec: v1alpha3.HarnessSpec{
+					Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+				},
+			}
+			switch kind {
+			case v2translator.HarnessTypeKagent:
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}}
+			case v2translator.HarnessTypeCodex:
+				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
+			case v2translator.HarnessTypeClaude:
+				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
+			case v2translator.HarnessTypeBYO:
+				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+			}
+			c := compiler(t, model, template, harness, secret)
+			for _, name := range []string{"finance-reviewer", "support-reviewer"} {
+				for _, source := range []struct {
+					name              string
+					template, harness bool
+				}{
+					{"references", false, false}, {"inline-template", true, false},
+					{"inline-harness", false, true}, {"inline-both", true, true},
+				} {
+					t.Run(name+"/"+source.name, func(t *testing.T) {
+						agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: name}, Spec: v1alpha3.AgentSpec{
+							TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name},
+						}}
+						if source.template {
+							agent.Spec.TemplateRef, agent.Spec.Template = nil, template.Spec.DeepCopy()
+						}
+						if source.harness {
+							agent.Spec.HarnessRef, agent.Spec.Harness = nil, harness.Spec.DeepCopy()
+						}
+						result, err := c.CompileAgent(t.Context(), agent)
+						require.NoError(t, err)
+						environment := map[string]string{}
+						for _, variable := range result.Environment {
+							environment[variable.Name] = variable.Value
+						}
+						if kind != v2translator.HarnessTypeBYO {
+							require.Equal(t, name, environment["KAGENT_NAME"])
+							require.Equal(t, agent.Namespace, environment["KAGENT_NAMESPACE"])
+						}
+						require.Equal(t, name, environment["OTEL_SERVICE_NAME"])
+						require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.agent.id=test/"+name)
+						require.Equal(t, strings.ReplaceAll(name, "-", "_"), result.AgentCard.Name)
+						if kind == v2translator.HarnessTypeKagent {
+							var config adk.AgentConfig
+							require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
+							require.NotNil(t, config.Memory)
+						}
+					})
+				}
+			}
+		})
+	}
 }

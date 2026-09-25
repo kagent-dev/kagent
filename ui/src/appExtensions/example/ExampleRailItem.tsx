@@ -18,9 +18,13 @@ import { EXAMPLE_PATH } from "./paths";
  * The agent it was handed is used rather than ignored, because an entry beneath a
  * conversation usually wants to be about that conversation.
  */
-export function ExampleRailItem({ isActive, agent }: ExtensionAgentRailItemProps) {
+export function ExampleRailItem({ isActive, agent, pair }: ExtensionAgentRailItemProps) {
   const theme = useTheme();
-  const to = agent ? `${EXAMPLE_PATH}?agent=${agent.id}` : EXAMPLE_PATH;
+  const to = agent
+    ? `${EXAMPLE_PATH}?agent=${agent.id}`
+    : pair?.name
+      ? `${EXAMPLE_PATH}?definition=${encodeURIComponent(`${pair.namespace}/${pair.name}`)}`
+      : EXAMPLE_PATH;
 
   return (
     <Link

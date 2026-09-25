@@ -164,7 +164,7 @@ jobs:
           export KAGENT_E2E_CODEX_IMAGE="localhost:5001/kagent-dev/kagent/codex-harness@${CODEX_DIGEST}"
           envsubst < core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
           for _ in $(seq 1 60); do
-            READY=$(kubectl get agenttemplate smoke -n kagent -o jsonpath='{.status.harnesses[?(@.harness=="kagent")].conditions[?(@.type=="Ready")].status}')
+            READY=$(kubectl get agent smoke -n kagent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
             if [ "$READY" = True ]; then break; fi
             sleep 5
           done

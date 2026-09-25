@@ -50,7 +50,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
-		tracing.RuntimeClaude, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
+		tracing.RuntimeClaude, input.AgentName, template.Namespace, model.Spec)
 
 	providerEnvironment, egress, err := c.provider(ctx, model)
 	if err != nil {
@@ -89,7 +89,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
 	environment = append(environment,
 		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
@@ -118,7 +118,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Claude config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}

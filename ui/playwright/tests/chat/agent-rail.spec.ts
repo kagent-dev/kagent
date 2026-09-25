@@ -141,7 +141,7 @@ test("chat agent rail: the identity card switches agent", async ({ page }) => {
   // agent left behind, and not a new instance either.
   await switcher.getByTestId("agent-switcher-filter").fill("");
   await options.first().click();
-  await expect(page).toHaveURL(/\/agents\/[^/]+\/[^/]+\/on\/[^/]+\/new$/);
+  await expect(page).toHaveURL(/\/agents\/[^/]+\/[^/]+\/new$/);
 });
 
 /**
