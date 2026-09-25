@@ -1167,9 +1167,11 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 			}
 			for index := range harness.Conditions {
 				condition := &harness.Conditions[index]
-				// A just-created ModelConfig may not have reached the controller's cache yet.
+				// A just-created ModelConfig may not have reached the controller's cache yet. Later stages
+				// read "Blocked" behind it; any real root failure comes first and still fails fast.
 				pending := (condition.Type == v1alpha3.AgentTemplateConditionReady && condition.Reason == "ActorTemplatePending") ||
-					(condition.Type == v1alpha3.AgentTemplateConditionResolvedRefs && condition.Reason == "ReferenceResolutionFailed")
+					(condition.Type == v1alpha3.AgentTemplateConditionResolvedRefs && condition.Reason == "ReferenceResolutionFailed") ||
+					condition.Reason == "Blocked"
 				if condition.Status == metav1.ConditionFalse && pending {
 					lastPending = condition.DeepCopy()
 				} else if condition.Status == metav1.ConditionFalse {
