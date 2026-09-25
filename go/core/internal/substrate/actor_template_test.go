@@ -8,11 +8,53 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 )
+
+func TestActorTemplateSandboxClass(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		class      atev1alpha1.SandboxClass
+		wantClass  ateapipb.SandboxClass
+		wantConfig string
+		wantError  string
+	}{
+		{name: "default", wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
+		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
+		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, wantConfig: "microvm"},
+		{name: "unsupported", class: "unsupported", wantError: `unsupported sandbox class "unsupported"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &translator.Revision{
+				Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+				WorkerPoolName: "pool",
+				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
+				},
+			}
+			// Exercise builder validation independently of Digest's validation.
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			spec.SandboxClass = tt.class
+			template, err := ActorTemplateForRevision(spec, id)
+			if tt.wantError != "" {
+				require.EqualError(t, err, tt.wantError)
+				require.Nil(t, template)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
+			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
+			require.Equal(t, map[string]string{workerPoolLabelKey: "pool"}, template.GetWorkerSelector().GetMatchLabels())
+		})
+	}
+}
 
 func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
@@ -58,9 +100,13 @@ func TestActorTemplateForRevision(t *testing.T) {
 			t.Fatalf("missing gateway trust for %s", name)
 		}
 	}
-	trust := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
+	trust := template.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
 	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
 		t.Fatal("gateway trust bundle was not projected")
+	}
+	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
+	if len(identity) != 3 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
+		t.Fatal("actor routing identity was not projected")
 	}
 	var rendered a2atype.AgentCard
 	if err := json.Unmarshal([]byte(environment["KAGENT_AGENT_CARD_JSON"].Value), &rendered); err != nil {
@@ -72,6 +118,36 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
 		t.Fatal("config was not embedded as a non-secret literal")
 	}
+}
+
+func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
+	spec := &translator.Revision{
+		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", WorkerPoolName: "default",
+		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+		Environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.agent.name=helper-kagent,service.version=forged"}},
+	}
+	revisionID, err := spec.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := ActorTemplateForRevision(spec, revisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variable := range template.GetContainers()[0].Env {
+		if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+			if want := "gen_ai.agent.name=helper-kagent,service.version=" + revisionID.Short(); variable.Value != want {
+				t.Fatalf("resource attributes = %q, want %q", variable.Value, want)
+			}
+			if spec.Environment[0].Value != "gen_ai.agent.name=helper-kagent,service.version=forged" {
+				t.Fatal("stamping the revision changed the compiled revision")
+			}
+			return
+		}
+	}
+	t.Fatal("resource attributes missing from the actor")
 }
 
 func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {

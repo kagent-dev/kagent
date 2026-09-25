@@ -18,7 +18,6 @@ import (
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -287,7 +286,6 @@ func newToolGRPCClient(t *testing.T, service *toolservice.Service) (apiv1alpha1.
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:      listener,
-		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
 		SystemService: testSystemService(),
 		ToolService:   service,

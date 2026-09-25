@@ -5,6 +5,7 @@ import { paths } from "@/router/routes";
 import { sanitizeRedirect } from "@/auth/loginRedirect";
 import { reauthenticationUrl, ssoStartUrl } from "@/auth/reauthenticate";
 import { useAuth } from "@/auth";
+import { withBasePath } from "@/env";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -42,7 +43,7 @@ export function LoginPage() {
     //    all: oauth2-proxy answered with its `sign_in.html`, which forwards to
     //    `/login?rd=%2Fagents%2Ffoo`.
     window.location.assign(
-      rd === null ? reauthenticationUrl(window.location) : ssoStartUrl(sanitizeRedirect(rd)),
+      rd === null ? reauthenticationUrl(window.location) : ssoStartUrl(withBasePath(sanitizeRedirect(rd))),
     );
   };
 

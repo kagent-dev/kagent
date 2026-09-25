@@ -55,3 +55,157 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 		})
 	}
 }
+
+// The Ollama key reaches the agent as an environment variable read from a
+// Secret, never serialized into the agent config, and the host is written only
+// when the operator set one — an empty value lets the runtime apply its own
+// cloud/local routing instead of looking like a chosen endpoint.
+func TestTranslateOllamaEnvironment(t *testing.T) {
+	tests := []struct {
+		name      string
+		spec      v1alpha3.ModelConfigSpec
+		wantNames []string
+		noEnv     string
+	}{
+		{
+			name: "cloud model mounts the key from a Secret",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+			wantNames: []string{env.OllamaAPIKey.Name()},
+			noEnv:     env.OllamaAPIBase.Name(),
+		},
+		{
+			name: "an explicit host is passed through",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name()},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			name: "local model with no credential sets neither",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+			wantNames: []string{},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			// Passthrough carries the caller's own token, so a stale secret must
+			// not be mounted alongside it.
+			name: "passthrough does not mount a key",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				APIKeyPassthrough: true,
+				Ollama:            &v1alpha3.OllamaConfig{},
+			},
+			wantNames: []string{},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			// The chart ships a default host, so this is the ordinary case for
+			// an operator who follows the values.yaml comment introducing
+			// apiKeySecretRef. The request goes to that host, so no credential
+			// binding exists, and mounting the key made CompileCredentials
+			// reject the whole revision ("cannot use gateway header injection")
+			// instead of simply using the daemon.
+			name: "an explicit host does not mount the key even for a cloud model",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name()},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			// The cloud endpoint written out longhand is the cloud route, not an
+			// operator host: the runtime takes its bearer token from
+			// IsOllamaCloudEndpoint, so the key has to be mounted here or the
+			// request goes out unauthenticated.
+			name: "a host that is the cloud endpoint mounts the key",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "api.ollama.com"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name(), env.OllamaAPIKey.Name()},
+		},
+		{
+			// ...but it must not promote a local model to the cloud.
+			name: "the cloud endpoint does not mount the key for a local model",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "api.ollama.com"},
+			},
+			wantNames: []string{env.OllamaAPIBase.Name()},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			// Same problem without a host: a local model has no cloud binding,
+			// so mounting the Secret breaks compilation for a config that was
+			// previously fine.
+			name: "a local model with a secret does not mount the key",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+			wantNames: []string{},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := &v2translator.ResolvedModelConfig{
+				Config: &v1alpha3.ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+					Spec:       tt.spec,
+				},
+			}
+			_, data, err := translateModel(resolved)
+			require.NoError(t, err)
+			names := make([]string, 0, len(data.EnvVars))
+			for _, variable := range data.EnvVars {
+				names = append(names, variable.Name)
+			}
+			require.ElementsMatch(t, tt.wantNames, names)
+			require.NotContains(t, names, tt.noEnv)
+		})
+	}
+}
+
+// A bare host defaults to http, which is right for a daemon but wrong for
+// ollama.com's API: it serves HTTPS only, an http request is answered with a
+// redirect, and Go turns a 301 into a GET, so POST /api/chat came back
+// 405 Method Not Allowed. The runtime's own copy of this already preferred
+// https for the cloud endpoint; this is the compiler agreeing with it.
+func TestWithDefaultScheme(t *testing.T) {
+	tests := []struct {
+		host string
+		want string
+	}{
+		// The cloud endpoint is HTTPS-only, and a bare host is how it is written.
+		{host: "api.ollama.com", want: "https://api.ollama.com"},
+		{host: "ollama.com", want: "https://ollama.com"},
+		// An explicit scheme is never rewritten, including http, which is a
+		// deliberate choice by the operator rather than a default.
+		{host: "https://api.ollama.com", want: "https://api.ollama.com"},
+		{host: "http://api.ollama.com", want: "http://api.ollama.com"},
+		// A daemon is plain http on a private address, and keeps that.
+		{host: "host.docker.internal:11434", want: "http://host.docker.internal:11434"},
+		{host: "gpu-box.lan:11434", want: "http://gpu-box.lan:11434"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			require.Equal(t, tt.want, withDefaultScheme(tt.host))
+		})
+	}
+}

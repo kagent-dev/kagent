@@ -53,7 +53,10 @@ flowchart TD
 
 ## Checkpoint creation
 
-A checkpoint names a durable terminal boundary already recorded by the gateway.
+A checkpoint names a durable terminal boundary with a matching native snapshot.
+TaskStore publishes task completion after native cleanup; the independent
+AgentInstance lifecycle worker records its snapshot later. Creating a checkpoint
+returns FailedPrecondition until that snapshot is ready.
 Input-required and auth-required tasks are paused on their current node and are
 not checkpointable or forkable; callers must resolve the interaction first.
 Creating a checkpoint does not suspend the Actor again:
@@ -63,11 +66,11 @@ Creating a checkpoint does not suspend the Actor again:
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
-The `CREATING` reservation blocks task admission and lifecycle changes until the
+The `CREATING` reservation blocks task writes and idle or explicit lifecycle changes until the
 copy completes or cleanup finishes. A lost response can reuse a completed Tag;
 an incomplete copy is deleted before the failed reservation is released. A
 failed database finalization leaves the reservation and completed Tag for retry.
-The gateway records boundaries without retaining every turn: only explicit
+Idle lifecycle work records snapshots without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
 
 The checkpoint retains source-instance provenance, source history, prepared
@@ -105,14 +108,18 @@ Tasks have an immutable `position` independent of their opaque IDs and mutable
 status timestamps. Listing and pagination use this position; forks preserve it.
 New tasks append after inherited tasks, including through repeated forks.
 
-Task creation records a full A2A Task event, its position, and request deduplication
-metadata. Later events carry task snapshots or incremental status/artifact changes;
+Task creation records a full A2A Task event and its position. Later events carry
+task snapshots or incremental status/artifact changes;
 message-only replies also record their explicit status transition. Live persistence
 and replay use the same protobuf reducer, preserving opaque fields in unchanged
 subtrees. Event writes and task-view updates commit atomically. Runtime boundaries
 are retained on their final task events so the task's snapshot index is rebuildable.
 
-Forks copy the event payloads unchanged. Their final boundary references the retained
+Forks copy public event payloads unchanged. Private mutation receipts, settlement acknowledgements, and idle lifecycle claims are not
+inherited. Fork task versions belong to the fork's new event sequence, even when
+public task IDs match the source. The new actor's projected identity and JWT
+select its own history authority on every request.
+ Their final boundary references the retained
 snapshot Tag, and event sequence references are rebound to the fork's event rows.
 Checkpoint creation does not copy task views. Fork reconstruction costs a traversal
 of the saved event history; malformed or incomplete history fails the fork transaction.

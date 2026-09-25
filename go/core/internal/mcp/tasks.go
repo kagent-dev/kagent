@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -183,10 +182,16 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	events := h.gateway.SendStreamingMessage(
-		context.WithoutCancel(routeContext(ctx, ref.InstanceID)),
+		routeContext(ctx, ref.InstanceID),
 		&a2atype.SendMessageRequest{Message: message},
 	)
-	go drain(events)
+	// Wait for admission to reach the runtime, then release this observer.
+	for _, err := range events {
+		if err != nil {
+			return nil, err
+		}
+		break
+	}
 	return &completeTaskResult{ResultType: "complete"}, nil
 }
 
@@ -312,10 +317,8 @@ func taskStatus(task *a2atype.Task) string {
 }
 
 func taskCreatedAt(task *a2atype.Task) time.Time {
-	if value, ok := task.Metadata[a2agateway.TaskCreatedAtMetadataKey].(string); ok {
-		if created, err := time.Parse(time.RFC3339Nano, value); err == nil {
-			return created
-		}
+	if created, ok := apia2a.TaskCreatedAt(task); ok {
+		return created
 	}
 	if task.Status.Timestamp != nil {
 		return task.Status.Timestamp.UTC()

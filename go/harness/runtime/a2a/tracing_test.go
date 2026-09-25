@@ -33,7 +33,7 @@ func newTraceRecorder(t *testing.T) *traceRecorder {
 }
 
 func (r *traceRecorder) segment(ctx context.Context) context.Context {
-	ctx, _ = tracing.StartInvocation(ctx, r.tracer, "invoke_agent", false)
+	ctx, _ = tracing.StartInvocation(ctx, r.tracer, "invoke_agent", nil)
 	return ctx
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -23,22 +24,20 @@ import (
 )
 
 const (
-	codexHomeEnv             = "CODEX_HOME"
-	openAIAPIKeyEnv          = "OPENAI_API_KEY"
-	awsRegionEnv             = "AWS_REGION"
-	awsBedrockTokenEnv       = "AWS_BEARER_TOKEN_BEDROCK"
-	awsAccessKeyEnv          = "AWS_ACCESS_KEY_ID"
-	awsSecretKeyEnv          = "AWS_SECRET_ACCESS_KEY"
-	awsSessionTokenEnv       = "AWS_SESSION_TOKEN"
-	mcpCredentialPrefix      = "KAGENT_CODEX_MCP_CREDENTIAL_"
-	preResponseTraceFlushEnv = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
+	codexHomeEnv        = "CODEX_HOME"
+	openAIAPIKeyEnv     = "OPENAI_API_KEY"
+	awsRegionEnv        = "AWS_REGION"
+	awsBedrockTokenEnv  = "AWS_BEARER_TOKEN_BEDROCK"
+	awsAccessKeyEnv     = "AWS_ACCESS_KEY_ID"
+	awsSecretKeyEnv     = "AWS_SECRET_ACCESS_KEY"
+	awsSessionTokenEnv  = "AWS_SESSION_TOKEN"
+	mcpCredentialPrefix = "KAGENT_CODEX_MCP_CREDENTIAL_"
 )
 
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	preResponseTraceFlushEnv: {},
-	"KAGENT_NAME":            {}, "KAGENT_NAMESPACE": {},
+	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
 }
 
 type Compiler struct {
@@ -63,6 +62,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
+	template, harness := input.Root.Template, input.Harness
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeCodex, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
 	if err != nil {
@@ -77,7 +81,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	environment := append(providerEnvironment, mcp.environment...)
+	harnessAttributes, err := v2translator.HarnessResourceAttributes(input.Harness)
+	if err != nil {
+		return nil, err
+	}
 	for _, variable := range input.Harness.Spec.Env {
+		if v2translator.IsResourceAttributesVariable(variable.Name) {
+			continue
+		}
 		_, reserved := ownedEnvironment[variable.Name]
 		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
@@ -90,25 +101,19 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		}
 		environment = append(environment, envVar)
 	}
-	template, harness := input.Root.Template, input.Harness
 	environment = append(environment,
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: preResponseTraceFlushEnv, Value: "true"},
+		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
-	environment = append(environment, telemetryConfig.TraceEnvironment()...)
-	environment = append(environment, telemetryConfig.LogEnvironment()...)
-	environment = append(environment, telemetryConfig.CaptureEnvironment())
+	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
 	}
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
-	// The runtime reports this identity on every invocation span and on its
-	// resource, so a user-supplied resource marker is never required.
-	cfg.RuntimeTelemetry = telemetryConfig.RuntimeTelemetry(
-		tracing.RuntimeCodex, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
+	cfg.RuntimeTelemetry = runtimeTelemetry
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
 		if traceConfig.Enabled {
@@ -142,12 +147,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
-	if traceConfig.Enabled {
-		egress = append(egress, traceConfig.Hostname)
-	}
-	if logConfig.Enabled {
-		egress = append(egress, logConfig.Hostname)
-	}
+	egress = append(egress, telemetryConfig.Destinations()...)
+	egress = append(egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{

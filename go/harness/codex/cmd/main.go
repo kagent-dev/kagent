@@ -15,7 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/executor"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
 
 const (
@@ -62,18 +62,19 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if err != nil {
 		return err
 	}
-	shutdownTelemetry, telemetryEnabled, telemetryErr := tracing.Init(ctx, card.Name, cfg.RuntimeTelemetry)
-	if telemetryErr != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", telemetryErr)
-	} else if telemetryEnabled {
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := shutdownTelemetry(shutdownCtx); err != nil {
-				logging.FromContext(ctx).ErrorContext(ctx, "failed to shutdown harness telemetry", "error", err)
-			}
-		}()
+	providers, err := telemetry.Init(ctx, telemetry.Options{
+		Runtime: string(cfg.RuntimeTelemetry.Runtime), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
+	})
+	if err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", err)
 	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := providers.Shutdown(shutdownCtx); err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to shutdown harness telemetry", "error", err)
+		}
+	}()
 	exec, err := executor.New(ctx, executor.Config{ConfigJSON: configJSON, DataDir: dataDir, Environment: environment})
 	if err != nil {
 		return err
@@ -83,7 +84,7 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	}
 	application, err := app.New(app.AppConfig{
 		AgentCard: card, Port: privatePort, AppName: card.Name,
-		Logger: logging.FromContext(ctx), Telemetry: cfg.RuntimeTelemetry,
+		Logger: logging.FromContext(ctx), Telemetry: cfg.RuntimeTelemetry, Flush: providers.ForceFlush,
 	}, exec)
 	if err != nil {
 		return fmt.Errorf("construct private A2A app: %w", err)

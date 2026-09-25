@@ -392,11 +392,13 @@ oauth2-proxy to evaluate, instead of trying to evaluate it itself). It is
 forwarded to kagent's branded /login page.
 */}}
 {{- define "kagent.oauth2ProxySignInHTML" -}}
+{{- /* The oauth2-proxy checksum renders this without `ui`, so a basePath change alone doesn't roll the pod. */ -}}
+{{- $base := trimSuffix "/" ((.Values.ui | default dict).basePath | default "") -}}
 <!DOCTYPE html>
 <html>
 <head>
-  <meta http-equiv="refresh" content="0;url=/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}">
-  <script>window.location.href = "/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}";</script>
+  <meta http-equiv="refresh" content="0;url={{ $base }}/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}">
+  <script>window.location.href = "{{ $base }}/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}";</script>
 </head>
 <body>Redirecting to login...</body>
 </html>
@@ -461,3 +463,18 @@ tag wins over the component tag.
 {{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
+
+{{/*
+Operator resource attributes as an OTEL_RESOURCE_ATTRIBUTES value.
+*/}}
+{{- define "kagent.otel.resourceAttributes" -}}
+{{- $entries := list -}}
+{{- range $key, $value := .Values.otel.resourceAttributes -}}
+{{- if or (contains "," $key) (contains "=" $key) -}}
+{{- fail (printf "otel.resourceAttributes key %q must not contain ',' or '='" $key) -}}
+{{- end -}}
+{{- $encoded := toString $value | replace "%" "%25" | replace "," "%2C" | replace "=" "%3D" -}}
+{{- $entries = append $entries (printf "%s=%s" $key $encoded) -}}
+{{- end -}}
+{{- join "," $entries -}}
+{{- end }}

@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -118,7 +117,8 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	linked, err := store.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(reserved.Execution.Id), "alice")
 	require.NoError(t, err)
 	require.NotEmpty(t, linked.AgentInstanceId)
-	require.NoError(t, store.DeleteAgentInstance(t.Context(), linked.AgentInstanceId))
+	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.AgentInstanceId, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE, "")
+	require.NoError(t, err)
 	_, err = instances.GetAgentInstance(owner, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: linked.AgentInstanceId})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	loaded, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: linked.Id})
@@ -191,7 +191,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(harness, testAgentTemplate("team", "report", "model")).Build()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
-		Listener: listener, Registerer: prometheus.NewRegistry(), Authenticator: &authimpl.UnsecureAuthenticator{},
+		Listener: listener, Authenticator: &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
 		ScheduledRunService:  scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
 		AgentInstanceService: agentinstance.NewService(store, &pkgauth.NoopAuthorizer{}, nil),

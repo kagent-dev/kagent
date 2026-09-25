@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "a2a.proto";
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// TaskStoreService is the private persistence API for agent runtimes. Every call
+// requires workload authority for the requested instance. Public user and share
+// credentials do not grant access to this service.
+service TaskStoreService {
+  // CreateTask persists a new SDK task. Retrying the same task and payload
+  // returns its original version; a different creation with that ID conflicts.
+  rpc CreateTask(TaskStoreServiceCreateTaskRequest) returns (TaskStoreServiceCreateTaskResponse);
+  rpc GetTask(TaskStoreServiceGetTaskRequest) returns (TaskStoreServiceGetTaskResponse);
+  rpc UpdateTask(TaskStoreServiceUpdateTaskRequest) returns (TaskStoreServiceUpdateTaskResponse);
+  rpc ListTasks(TaskStoreServiceListTasksRequest) returns (TaskStoreServiceListTasksResponse);
+  // SettleTask acknowledges that native execution and SDK cleanup have stopped
+  // at this saved version and publishes its task state and history atomically.
+  // Runtime pause/suspend and checkpoint snapshot readiness are independent.
+  rpc SettleTask(TaskStoreServiceSettleTaskRequest) returns (TaskStoreServiceSettleTaskResponse);
+}
+
+message StoredTask {
+  lf.a2a.v1.Task task = 1;
+  // Opaque, increasing within an instance. Reload after restoring a fork; A2A
+  // task IDs are inherited by forks, but storage versions are instance-scoped.
+  int64 version = 2;
+}
+
+message TaskStoreServiceCreateTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  lf.a2a.v1.Task task = 2 [(buf.validate.field).required = true];
+  // Gateway attempt fence, consumed by the first active save before native work.
+  optional string dispatch_id = 3 [(buf.validate.field).string.uuid = true];
+  option (buf.validate.message).cel = {
+    id: "task_store.create_identity"
+    message: "task and context IDs are required"
+    expression: "this.task.id != '' && this.task.context_id != ''"
+  };
+}
+
+message TaskStoreServiceCreateTaskResponse {
+  int64 version = 1;
+}
+
+message TaskStoreServiceGetTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string task_id = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message TaskStoreServiceGetTaskResponse {
+  StoredTask stored = 1;
+}
+
+message TaskStoreServiceUpdateTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  lf.a2a.v1.Task task = 2 [(buf.validate.field).required = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+  // Go's SDK supplies the triggering event. Snapshot-only SDKs omit it; the
+  // task then describes the complete update. History is archived separately.
+  lf.a2a.v1.StreamResponse event = 4;
+  optional string dispatch_id = 5 [(buf.validate.field).string.uuid = true];
+  option (buf.validate.message).cel = {
+    id: "task_store.task_identity"
+    message: "task and context IDs are required"
+    expression: "this.task.id != '' && this.task.context_id != ''"
+  };
+}
+
+message TaskStoreServiceUpdateTaskResponse {
+  // Retrying the same expected version and payload returns the original
+  // committed version, including after subsequent updates have committed.
+  int64 version = 1;
+}
+
+message TaskStoreServiceListTasksRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  lf.a2a.v1.ListTasksRequest request = 2 [(buf.validate.field).required = true];
+}
+
+message TaskStoreServiceListTasksResponse {
+  lf.a2a.v1.ListTasksResponse result = 1;
+}
+
+message TaskStoreServiceSettleTaskRequest {
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string task_id = 2 [(buf.validate.field).string.min_len = 1];
+  int64 version = 3 [(buf.validate.field).int64.gt = 0];
+}
+
+message TaskStoreServiceSettleTaskResponse {}

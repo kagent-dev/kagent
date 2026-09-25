@@ -247,7 +247,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				return runtime.Outcome{}, err
 			}
 			if done {
-				if err := rejectBufferedPostTerminalActivity(client.frames); err != nil {
+				if err := translator.rejectBufferedPostTerminalActivity(client.frames); err != nil {
 					return runtime.Outcome{}, err
 				}
 				return outcome, nil

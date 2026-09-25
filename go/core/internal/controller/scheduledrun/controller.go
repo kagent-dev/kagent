@@ -21,6 +21,7 @@ import (
 
 type controllerStore interface {
 	ReserveScheduledRunExecutionInstance(context.Context, uuid.UUID, string) (*apiv1alpha1.ScheduledRunExecution, error)
+	ClaimScheduledRunDispatch(context.Context, database.ScheduledRunExecutionLease) error
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
 	UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -33,7 +34,7 @@ type controllerWorkflow interface {
 }
 
 // Controller reconciles executions on every replica. SQL leases fence status
-// writes; A2A's initial-message uniqueness fences dispatch across replicas.
+// writes; a durable dispatch claim prevents resending after an uncertain result.
 type Controller struct {
 	store    controllerStore
 	workflow controllerWorkflow
@@ -148,12 +149,11 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 		return nil
 	}
-	if execution.GetTaskId() != "" {
-		// Attach to or recover the live ingester. It persists updates independently
-		// of this observer; subsequent reconciliations read those durable updates.
-		for _, err := range c.gateway.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())}) {
-			return err
-		}
+	if execution.GetTaskId() != "" || execution.GetState() == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING {
+		// The runtime persists independently. Reconciliation only needs the
+		// stored outcome and never opens a stream to keep execution alive. A
+		// claimed send without a task ID remains uncertain until history appears
+		// or the deadline expires; sending again could duplicate native work.
 		return nil
 	}
 	dispatchCtx, cancel := context.WithDeadline(ctx, execution.GetDeadline().AsTime())
@@ -167,15 +167,20 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		return fmt.Errorf("scheduled instance %s is not ready for dispatch", instance.GetId())
 	}
+	if err := c.store.ClaimScheduledRunDispatch(ctx, leased.Lease); err != nil {
+		return err
+	}
+	execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
 	message.ID = "scheduled-run/" + execution.GetId()
 	events := c.gateway.SendStreamingMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message})
-	// Like the MCP boundary, retain the ID assigned when the gateway accepted
-	// the message, even if the runtime response was lost.
-	execution.TaskId = string(message.TaskID)
-	// The gateway ingests the runtime stream independently of this observer.
-	// Return after acceptance so reconciliation does not wait for completion.
+	// The runtime assigns the task ID. Return after its first event; a lost
+	// response is recovered by the original message on the next reconciliation.
 	for event, err := range events {
+		if event != nil && event.TaskInfo().TaskID != "" {
+			execution.TaskId = string(event.TaskInfo().TaskID)
+			execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
+		}
 		if task, ok := event.(*a2atype.Task); ok {
 			observeTask(execution, task)
 		}
@@ -184,8 +189,8 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	return nil
 }
 
-// executionTask only reads persisted history; the live subscription ingests
-// running work. Once linked, the stored task ID is the sole execution identity.
+// executionTask only reads persisted history. Once linked, the stored task ID
+// is the sole execution identity.
 // Unlinked executions are recovered by finding their original message in history.
 func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
 	if taskID := execution.GetTaskId(); taskID != "" {

@@ -23,11 +23,12 @@ import (
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -47,8 +48,8 @@ type Config struct {
 	TLSCertFile           string
 	TLSKeyFile            string
 	Authenticator         auth.AuthProvider
-	ShareStore            ShareStore
-	Registerer            prometheus.Registerer
+	RuntimeAuthenticator  auth.AuthProvider
+	ShareStore            agentinstance.ShareStore
 	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
@@ -56,6 +57,7 @@ type Config struct {
 	PromptTemplateService *prompttemplateservice.Service
 	SystemService         *systemservice.Service
 	MemoryService         *memoryservice.Service
+	TaskStoreService      *taskstore.Service
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
 	ScheduledRunService   *scheduledrun.Service
@@ -89,10 +91,6 @@ func New(config Config) (*Server, error) {
 		config.MethodPolicies = DefaultMethodPolicies()
 	}
 
-	metrics, err := newServerMetrics(config.Registerer)
-	if err != nil {
-		return nil, fmt.Errorf("create gRPC metrics: %w", err)
-	}
 	validator, err := protovalidate.New()
 	if err != nil {
 		return nil, fmt.Errorf("create protobuf validator: %w", err)
@@ -101,20 +99,18 @@ func New(config Config) (*Server, error) {
 	serverOptions := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(config.MaxMessageBytes),
 		grpc.MaxSendMsgSize(config.MaxMessageBytes),
-		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))),
 		grpc.ChainUnaryInterceptor(
 			loggingUnaryInterceptor,
-			metrics.unaryInterceptor,
 			recoverUnaryInterceptor,
-			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationUnaryInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
 			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			loggingStreamInterceptor,
-			metrics.streamInterceptor,
 			recoverStreamInterceptor,
-			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationStreamInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
 			errorMappingStreamInterceptor,
 		),
 	}
@@ -146,6 +142,9 @@ func New(config Config) (*Server, error) {
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
 	}
+	if config.TaskStoreService != nil {
+		apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
+	}
 	if config.AgentInstanceService != nil {
 		apiv1alpha1.RegisterAgentInstanceServiceServer(grpcServer, &agentInstanceServer{service: config.AgentInstanceService})
 	}
@@ -173,10 +172,6 @@ func New(config Config) (*Server, error) {
 		healthServer: healthServer,
 		tlsConfig:    tlsConfig,
 	}, nil
-}
-
-type ShareStore interface {
-	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {

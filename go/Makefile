@@ -141,8 +141,11 @@ e2e: core/bin/kagent-local ## Run end-to-end tests.
 	  echo "Error: kind cluster '$(KIND_CLUSTER_NAME)' not found. Run 'make create-kind-cluster' first." >&2; \
 	  exit 1; \
 	}
-	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
-	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -parallel 2
+	@set -eu; \
+	  kubeconfig=$$(mktemp); \
+	  trap 'rm -f "$$kubeconfig"' EXIT; \
+	  kind get kubeconfig --name $(KIND_CLUSTER_NAME) > "$$kubeconfig"; \
+	  KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG="$$kubeconfig" go test -v github.com/kagent-dev/kagent/go/core/test/e2e -parallel 2 -count=1 -timeout=30m
 
 ##@ Dependencies
 

@@ -7,27 +7,27 @@ the agent processes.
 
 ## Resource ownership
 
-| Resource | Owner | Purpose |
-| --- | --- | --- |
-| `Harness` | Kubernetes (`kagent.dev/v1alpha3`) | Runtime implementation, workload, credentials, capacity, and admission policy |
-| `AgentTemplate` | Kubernetes (`kagent.dev/v1alpha3`) | Portable agent behavior: model, prompt, tools, skills, and plugins |
-| prepared revision | PostgreSQL and ate-api | Immutable compiled runtime input and its Substrate ActorTemplate |
-| `AgentInstance` | PostgreSQL, exposed by gRPC | Ephemeral compute identity and lifecycle |
-| A2A context, task, and events | PostgreSQL, exposed by A2A | Durable interaction and audit history |
-| checkpoint | PostgreSQL plus a Substrate snapshot tag | Immutable, named restart boundary |
-| Actor and durable directory | Substrate | Process lifecycle and private runtime state |
+| Resource                      | Owner                                    | Purpose                                                                       |
+| ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `Harness`                     | Kubernetes (`kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and admission policy |
+| `AgentTemplate`               | Kubernetes (`kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
+| prepared revision             | PostgreSQL and ate-api                   | Immutable compiled runtime input and its Substrate ActorTemplate              |
+| `AgentInstance`               | PostgreSQL, exposed by gRPC              | Ephemeral compute identity and lifecycle                                      |
+| A2A context, task, and events | PostgreSQL, exposed by A2A               | Durable interaction and audit history                                         |
+| checkpoint                    | PostgreSQL plus a Substrate snapshot tag | Immutable, named restart boundary                                             |
+| Actor and durable directory   | Substrate                                | Process lifecycle and private runtime state                                   |
 
 `AgentInstance` is not a Kubernetes resource. A2A owns public interaction
 semantics; kagent does not maintain a parallel session or task API.
 
 ## Public surfaces
 
-| Surface | Role |
-| --- | --- |
-| Kubernetes API | Author Harnesses, AgentTemplates, models, prompts, and remote MCP servers |
-| gRPC / gRPC-Web | Manage AgentInstances, sharing, checkpoints, and control-plane reads |
-| A2A | Invoke agents and manage durable tasks and streams |
-| MCP | Discover, invoke, checkpoint, and fork AgentInstances through A2A semantics |
+| Surface         | Role                                                                        |
+| --------------- | --------------------------------------------------------------------------- |
+| Kubernetes API  | Author Harnesses, AgentTemplates, models, prompts, and remote MCP servers   |
+| gRPC / gRPC-Web | Manage AgentInstances, sharing, checkpoints, and control-plane reads        |
+| A2A             | Invoke agents and manage durable tasks and streams                          |
+| MCP             | Discover, invoke, checkpoint, and fork AgentInstances through A2A semantics |
 
 ## End-to-end flow
 
@@ -44,16 +44,18 @@ flowchart LR
     AI --> ACTOR[Substrate Actor]
     CLIENT[A2A client] --> GW[public A2A gateway]
     GW --> ACTOR
-    GW --> DB[(tasks and events)]
-    GW --> QUIESCE[auto-suspend at quiescence]
+    ACTOR --> STORE[private gRPC TaskStore]
+    STORE --> DB[(tasks and events)]
+    DB --> QUIESCE[AgentInstance idle lifecycle]
     QUIESCE --> CKPT[checkpoint tag]
     CKPT --> FORK[forked AgentInstance]
 ```
 
 Compilation and application are separate. The translator produces an immutable
 revision; the controller applies it through ate-api. At runtime, the public A2A
-gateway is the sole owner of task ingestion, durable event ordering, and
-quiescence. It reaches Actors through the private runtime network.
+gateway routes authorized callers to Actors through the private runtime network.
+Runtimes persist A2A state through TaskStore and publish completion after native
+cleanup. AgentInstance lifecycle workers independently pause/suspend idle Actors.
 
 ## Component boundaries
 
@@ -61,8 +63,8 @@ quiescence. It reaches Actors through the private runtime network.
 - The v2 translator resolves references and compiles explicit runtime inputs.
 - The controller reconciles compiled revisions to ate-api ActorTemplates.
 - AgentInstance services and workflows own lifecycle orchestration.
-- The A2A gateway owns public task routing, persistence, streaming, and
-  auto-suspend boundaries.
+- The A2A gateway owns public authorization, task routing, and observation streams.
+- Runtime SDKs own execution and task saves; TaskStore owns durable publication.
 - The store owns transactional invariants and never performs network work.
 - Substrate adapters own Actor, snapshot, and private-network operations.
 
@@ -71,16 +73,17 @@ quiescence. It reaches Actors through the private runtime network.
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [A2A gateway](a2a-gateway.md)
+- [A2A metadata](a2a-metadata.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)
 - [MCP](mcp.md)
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
+- [Structured output](structured-output.md)
 
-The documents describe implemented behavior. Deferred work, including full
-cross-AgentInstance delegation and Dedicated agents, belongs in the
-[API v2 execution plan](../plans/api-v2-execution-plan.md).
+The documents describe implemented behavior. Full cross-AgentInstance delegation
+and Dedicated agents remain deferred.
 
 ## Current boundaries
 

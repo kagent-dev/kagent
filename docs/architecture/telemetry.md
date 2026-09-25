@@ -4,54 +4,125 @@ Kagent exports OpenTelemetry traces from agent runtimes when a user enables
 them. This document describes what a runtime produces, so consumers can rely on
 it without reading runtime internals.
 
+## Contract
+
+The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/registry).
+It defines every `kagent.*` and `a2a.*` attribute, and it references each
+upstream attribute kagent writes, with kagent's requirement level and notes.
+Everything else is generated from it:
+
+- [Telemetry contract reference](telemetry-contract.md), the attribute, span and
+  resource tables
+- `go/pkg/telemetry/conv`, the Go constants
+- `kagent.core.telemetry.conv`, the Python constants
+- `telemetry/resolved.yaml`, the resolved registry, so a contract change shows up
+  in review
+
+| Concept | Attributes | Where |
+| --- | --- | --- |
+| Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime emits none of its own |
+| Runtime | `kagent.runtime` | Resource |
+| Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | Resource and invoke_agent span |
+| Provider and model | `gen_ai.provider.name`, `gen_ai.request.model` | Resource and invoke_agent span, for harnesses compiled against one model |
+| Conversation, task, user | `gen_ai.conversation.id`, `a2a.task.id`, `enduser.id` | Request spans. Never on a resource or a metric |
+| Segment | `kagent.invocation.segment`, `kagent.invocation.disposition`, link `kagent.invocation.relationship` | Request spans |
+| Outcome | status, `error.type`, `a2a.task.state` | Request spans |
+| Content | `gen_ai.input.messages`, `gen_ai.output.messages`, `kagent.capture.*_truncated` | invoke_agent and inference spans, under the capture opt-in |
+| Usage | `gen_ai.usage.*` | Inference spans, from the runtime's own instrumentation |
+
+The registry describes the contract the runtimes are moving to. The next section
+says what each runtime emits today, and [Blind spots](#blind-spots) lists where
+the two still differ.
+
+## Who emits what
+
+| Runtime | `kagent.runtime` | Request span | `invoke_agent` | Inference spans | Keys outside the contract |
+| --- | --- | --- | --- | --- | --- |
+| Go ADK | `adk-go` | `otelgrpc` or `otelhttp` SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's own | `gcp.vertex.agent.*`, written by the ADK itself |
+| Claude Code, Codex | `claude`, `codex` | `otelgrpc` or `otelhttp` SERVER span | kagent's wrapper, `invoke_agent <agent>` | The native runtime's own | None |
+| Python ADK | absent | FastAPI SERVER span | The ADK's own | The ADK's `generate_content`, plus OpenLLMetry client spans | `kagent.user_id`, `gen_ai.task.id` |
+| LangGraph | absent | FastAPI SERVER span | None | OpenLLMetry | `kagent.user_id`, `gen_ai.task.id` |
+| CrewAI | absent | FastAPI SERVER span | OpenLLMetry CrewAI | OpenLLMetry | `kagent.user_id`, `gen_ai.task.id` |
+| OpenAI Agents | absent | FastAPI SERVER span | OpenLLMetry OpenAI Agents | OpenLLMetry OpenAI Agents | None |
+
 ## Enabling export
 
-The controller resolves telemetry from its own process environment and compiles
-the result into each runtime revision.
+Configuration uses the OpenTelemetry SDK variables only. The chart renders them
+into the controller from `otel.*`, the controller exports with them, and it
+compiles the same settings into every runtime revision.
 
-| Variable | Effect |
+| Chart value | Variable |
 | --- | --- |
-| `OTEL_TRACING_ENABLED` | Enables trace export for compiled runtimes |
-| `OTEL_LOGGING_ENABLED` | Enables log export for compiled runtimes |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Destination, with the usual signal-specific overrides |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` or `http/protobuf`, with signal-specific overrides |
-| `KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT` | Enables bounded prompt and response capture. Off by default |
-| `KAGENT_OTEL_CAPTURE_RAW_API_BODIES` | Enables native raw provider body logging. Off by default |
-| `KAGENT_OTEL_MAX_CAPTURE_BYTES` | Bytes retained per captured prompt and per captured response. Defaults to 16 KiB, ceiling 64 KiB |
+| `otel.traces.enabled`, `otel.metrics.enabled`, `otel.logs.enabled` | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `otlp` or `none`. `OTEL_SDK_DISABLED=true` when all are off and the controller `/metrics` is off |
+| `otel.exporter.otlp.endpoint`, `.protocol`, `.timeout` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL` (`grpc` or `http/protobuf`), `OTEL_EXPORTER_OTLP_TIMEOUT` in milliseconds |
+| `otel.<signal>.endpoint`, `.protocol` | `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` and `_PROTOCOL`, a full URL used as given |
+| `otel.capture.messageContent` | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, `SPAN_ONLY` or `NO_CONTENT` |
+| `otel.capture.maxBytes` | `KAGENT_OTEL_MAX_CAPTURE_BYTES`, bytes kept per captured prompt and response. 16 KiB by default, 64 KiB at most |
+| `otel.capture.rawApiBodies` | `KAGENT_OTEL_CAPTURE_RAW_API_BODIES`, native raw provider body logging in Claude |
+| `otel.resourceAttributes` | `KAGENT_OTEL_RESOURCE_ATTRIBUTES`, added to the controller and every runtime |
 
-An unusable capture budget is reported as a compilation warning and replaced by
-the default, so an observability setting cannot invalidate an AgentTemplate.
+The chart has no sampler setting. Runtimes stay parent-based AlwaysOn and
+sampling belongs in the collector. An invalid value is reported as a warning and
+turns its signal off, so an observability setting cannot invalidate an
+AgentTemplate.
 
-The capture decision reaches every runtime as the standard GenAI instrumentation
-variable, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, rendered
-`SPAN_ONLY` when capture is on and `false` when it is off. It is rendered
-whether or not the controller exports traces, so a runtime that reaches a
-collector through settings the controller did not render still follows it. The
-ADK runtimes read the variable as a mode and treat a plain `true` as log records
-only, so the span form is what puts `gen_ai.input.messages` and
-`gen_ai.output.messages` on their model spans; the ADK Go runtime's older
-`gcp.vertex.agent.llm_request` and `llm_response` payload attributes follow the
-same value. The harness runtimes carry the same decision in their compiled
-configuration. The variable is controller-owned: the Claude and Codex compilers
-reject a `Harness.spec.env` entry with that name, and the kagent compiler
-replaces one with the controller's value. One setting decides whether prompts
-enter traces, and no runtime can be talked into recording them by a
-user-supplied variable.
+Each runtime receives `OTEL_SERVICE_NAME=<template>-<harness>` and an
+`OTEL_RESOURCE_ATTRIBUTES` that carries `service.namespace`, `gen_ai.agent.name`,
+`gen_ai.agent.id`, the provider and model for a harness, the operator's
+attributes, and `service.version`, the short revision id added when the
+ActorTemplate is built. A `Harness.spec.env` `OTEL_RESOURCE_ATTRIBUTES` is kept,
+with the agent identity winning. The controller reports itself as
+`kagent-controller` with `service.instance.id` and `k8s.*` from the downward API.
 
-Other `OTEL_*` variables remain available for per-Harness tuning through
-`Harness.spec.env`, including `OTEL_RESOURCE_ATTRIBUTES`.
+kagent runtimes apply three defaults when the environment leaves them unset:
+`OTEL_PROPAGATORS=tracecontext`, so a caller's baggage never reaches tools or
+model providers, `OTEL_EXPORTER_OTLP_COMPRESSION=gzip`, and base-2 exponential
+histograms. The Go runtimes set them in `go/pkg/telemetry`, which also hands
+them to the Claude and Codex processes. The Python runtimes set them in
+`kagent.core`. A BYO image gets them compiled in, together with the rest of the
+kagent telemetry, only while kagent telemetry is on, and its own `Harness.spec.env`
+values win, so an image that exports to its own backend keeps doing so. The Python ADK also defaults
+`ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2`, `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`,
+and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` from the capture setting.
 
-## Conventions
+Defaults live in the runtimes because a Substrate Actor holds at most 32
+environment variables, and the ActorTemplate itself uses nine. The controller
+renders only what differs by installation, and
+`TestCompiledTelemetryFitsTheActorEnvironmentBudget` pins the worst case.
 
-Attribute names follow the OpenTelemetry GenAI semantic conventions at version
-1.41.0, and every tracer kagent creates declares that schema URL. The pin is
-deliberate: 1.41.0 is the last release of the main conventions to carry the
-GenAI registry, so it is the last one with a Go package of typed keys. The GenAI
-conventions now live in their own repository, and the pin moves when that
-repository publishes a release with a Go package. Names the conventions define
-are taken from that package rather than spelled out, so the constants in
-`go/pkg/tracing` cannot drift from the declared version. Only the `kagent.*` and
-`a2a.*` names are kagent's own, and they are listed below.
+The capture variable is rendered whether or not the controller exports, so a
+runtime that reaches a collector through settings the controller did not render
+still follows it. It is controller-owned: the Claude and Codex compilers reject
+a `Harness.spec.env` entry with that name, and the kagent compiler replaces one.
+The harness runtimes carry the same decision in their compiled configuration.
+Other `OTEL_*` variables, such as `OTEL_BSP_*`, remain available for per-Harness
+tuning through `Harness.spec.env`. `OTEL_EXPORTER_OTLP_HEADERS` is not
+forwarded, because an Actor environment holds no secrets. Export to an
+in-cluster collector that adds them.
+
+## Metrics and logs
+
+kagent defines no metrics of its own. It exports otelgrpc's
+`rpc.server.call.duration` and `rpc.client.call.duration` and otelhttp's
+`http.*.request.duration`, in seconds, over OTLP. The controller also serves
+them on `/metrics` when `controller.metrics.enabled` is on, so ingest one path
+per backend. `rpc_server_call_duration_seconds` replaces the removed
+`kagent_grpc_server_*` metrics.
+
+Go logs are single-line JSON. Records inside a span carry `trace_id`, `span_id`
+and `trace_flags`.
+
+## Conventions and versioning
+
+The registry depends on the core semantic conventions at v1.44.0 and on the
+GenAI conventions, which live in their own repository and have no release yet,
+pinned by commit in `telemetry/registry/manifest.yaml`. The `gen_ai.*` names in
+the generated constants come from that pin. Core names such as `service.*`,
+`enduser.id` and `error.type` come from the newest core Go package,
+`semconv/v1.43.0`, which is also the version the OpenTelemetry SDK uses, and
+every tracer kagent creates declares its schema URL. Only the `kagent.*` and
+`a2a.*` names are kagent's own. All of them are `development` until the v1.x
+contract is declared stable.
 
 ## The invocation span
 
@@ -72,27 +143,15 @@ invocation. The request span stays a transport span named `a2a.request` with
 the same identity attributes and no `gen_ai.operation.name`, so the wrapper
 never adds an invocation of its own to what the ADK reports. A consumer that
 counts turns rather than agent invocations counts `kagent.invocation.segment`,
-which only the request span carries, whichever runtime produced the trace. The
-ADK also keeps an `invocation` span of its own beneath the request span.
+which only the request span carries, whichever runtime produced the trace.
 
-| Attribute | Meaning |
-| --- | --- |
-| `gen_ai.operation.name` | `invoke_agent` on a native harness request span. Absent on an ADK request span |
-| `kagent.runtime` | `adk-go`, `claude`, or `codex`: the runtime that produced the spans beneath this one. The Go ADK also carries it on its resource, so its own `invoke_agent` reports it |
-| `gen_ai.agent.name` | The compiled agent identity, `<template>-<harness>` |
-| `gen_ai.agent.id` | The same identity qualified by namespace, `<namespace>/<template>-<harness>` |
-| `gen_ai.provider.name` | The model provider the agent is compiled against, in the conventions' vocabulary. Harness runtimes only |
-| `gen_ai.request.model` | The model the agent is compiled against. Harness runtimes only; the ADK reports the model on each model span |
-| `gen_ai.conversation.id` | The A2A context ID the gateway assigned |
-| `a2a.task.id` | The A2A task ID the gateway assigned |
-| `enduser.id` | The authenticated user, when the gateway forwarded one |
-| `a2a.method` | `SendMessage` or `SendStreamingMessage` |
-| `a2a.task.state` | The state execution actually reported. Its absence does not mean success |
-| `kagent.invocation.segment` | `initial` or `resumed` |
-| `kagent.invocation.disposition` | `canceled`, `abandoned`, or `interrupted`, when the task state does not say it. See below |
-| `error.type` | A safe failure category. Never a provider response, credential, or captured content |
-| `gen_ai.input.messages`, `gen_ai.output.messages` | Bounded turn content in the conventions' message shape, present only under the capture opt-in. Each output message carries the `finish_reason` the conventions require |
-| `kagent.capture.input_truncated`, `kagent.capture.output_truncated` | Whether that content was shortened |
+`a2a.request` stays separate from the SERVER span because it can end and export
+before a quiescent event leaves the process. The gateway may suspend the Actor
+on that event while the SERVER span is still open.
+
+The attributes, their values and their requirement levels are in the
+[contract reference](telemetry-contract.md). Today the request span also carries
+`kagent.runtime`, which the contract keeps on the resource only.
 
 The provider and model on this span stand in for what a native runtime does not
 report. Codex records token usage on a span that names no model, so without the
@@ -108,27 +167,36 @@ harness adapters merge those, with `service.namespace`, into
 same agent, model and namespace while keeping its own `service.name`. Conversation, task, and user identity never appear on a
 resource, since one runtime process serves many of each.
 
-The ADK runtime additionally stamps `kagent.user_id`, `gen_ai.task.id`,
-`gen_ai.conversation.id` and `kagent.app_name` on the spans beneath the
-invocation, as it always has; the Python runtimes stamp the same keys. Those
-descendant keys move to the names above together with a Python invocation span,
-so the two runtimes change in one step rather than diverging further.
+The Go ADK stamps `gen_ai.conversation.id`, `a2a.task.id` and a trusted
+`enduser.id` on the spans beneath the request span. The Python runtimes still
+use `kagent.user_id` and `gen_ai.task.id`.
 
 ## Completion and ownership
 
 The transport interceptor opens the span with the identity the runtime knows
 before execution begins, so a request rejected during validation still reports
-which agent rejected it. The harness executor then takes ownership, because
+which agent rejected it. For native harnesses, the task-store wrapper takes
+ownership and records task identity before the initial save can block, because
 a2a-go runs an executor detached from the caller and a unary response can be
-delivered while the turn is still working. The ADK executor does not: its
+delivered while the turn is still working. The wrapper finishes the span if
+execution never starts; otherwise the native executor completes it. The ADK
+executor does not take ownership: its
 request span is a transport span, completed when the response it describes is
 delivered, and the ADK's own `invoke_agent` describes the turn. Completion runs
 exactly once.
 
-For runtimes whose Actor may be suspended as soon as a quiescent event leaves
-the process, completion exports before that event is yielded. The export is
-bounded by `KAGENT_TRACE_FLUSH_TIMEOUT_MS`, three seconds by default, so an
-unreachable collector costs at most that budget once per segment.
+An Actor becomes eligible for automatic suspension after native cleanup and
+task settlement, so completion exports spans and metrics before yielding the
+quiescent event. The task-store wrapper flushes again before settlement to
+export the final save, and after the settlement attempt to export that RPC.
+The latter is best effort because suspension can race the RPC response.
+Flush failures are logged and do not prevent settlement.
+On a terminal event the gateway drains the runtime stream,
+for up to two seconds, before closing its observation connection. Suspension
+runs independently in the lifecycle workflow. The export
+waits at most three seconds, so an unreachable collector costs at most that
+once per segment: after a failed flush, later flushes in the same request are
+skipped. It does nothing when traces are off.
 
 A segment records `abandoned` when the A2A event consumer stopped accepting
 events before execution finished, and `interrupted` when the execution context
@@ -146,7 +214,8 @@ process. A panic in a harness runner is recorded as `error.type=runtime_panic`
 without the panic value and then propagates.
 
 Cancellation completes and exports the segment before the canceled event is
-published, since that event is what releases the gateway to suspend the Actor.
+published. Native cleanup and task settlement must still finish before the
+lifecycle workflow can suspend the Actor.
 
 ## Approvals and resumed turns
 
@@ -208,8 +277,55 @@ way to ask the pinned image which version it understands.
 Publish the controller image and the harness images from the same commit, and
 when one digest moves, move the others in the same change.
 
-## Known limitations
+## Changing the contract
 
+Edit the registry, then regenerate and commit the result:
+
+```bash
+make semconv-check      # Weaver validation, shared and kagent policies
+make semconv-generate   # constants, reference, resolved snapshot
+make semconv-verify     # both, plus the policy tests and a drift check (CI)
+```
+
+The kagent policies in `telemetry/policies` enforce that kagent defines
+attributes only in the `kagent.` and `a2a.` namespaces, that request identity
+never reaches a resource or a metric, that every kagent span references
+`error.type`, and that no metric name carries a unit or `_total` suffix. Each
+policy has a fixture under `telemetry/policies/testdata` that it must reject.
+Weaver runs from the version pinned in `telemetry/versions.env`, through a local
+binary of exactly that version or the pinned image.
+
+A rename or removal shows up as a diff in `telemetry/resolved.yaml` and the
+generated files. Once an attribute is declared stable, the check also runs the
+upstream backwards-compatibility policy against the last release.
+
+## Lint exceptions
+
+- `a2a.*` is not a registered OpenTelemetry namespace. kagent owns it until the
+  conventions define A2A attributes.
+- `gen_ai.provider.name` takes `ollama` and `sap.ai_core`, which the conventions
+  do not list. The attribute is an open enum.
+- `error.type` uses a bounded kagent vocabulary, listed in the reference.
+
+## Blind spots
+
+- The runtimes still emit the keys listed under
+  [Who emits what](#who-emits-what) that are outside the contract. The Python
+  ones are removed when the Python runtimes move to the contract.
+- The Go ADK writes tool arguments and results
+  (`gcp.vertex.agent.tool_call_args`, `gcp.vertex.agent.tool_response`)
+  whatever the capture setting, fixed upstream by
+  [google/adk-go#1634](https://github.com/google/adk-go/issues/1634). Until
+  then, drop them in a Collector if needed.
+- A turn that pauses for input still ends its gateway CLIENT span as canceled.
+- The Python runtimes declare no `kagent.runtime` and open no `invoke_agent`
+  span, and the Python ADK counts model usage twice.
+- Nothing yet compares emitted telemetry with the registry. The registry checks
+  names, the Go and Python code uses the generated constants, and a live check
+  against end-to-end telemetry is planned.
+- Runtimes on Substrate set no `service.instance.id`. An Actor can be restored
+  from a snapshot, so an identity generated in the process would be wrong or
+  shared.
 - Native span export completeness at process shutdown is a separate concern from
   the Go wrapper's export, and is tracked against the native runtimes.
 - Ownership of native work started after an approval is ambiguous by

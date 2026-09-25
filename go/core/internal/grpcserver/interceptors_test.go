@@ -7,12 +7,14 @@ import (
 	"net/url"
 	"testing"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -72,7 +74,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("public method bypasses authentication", func(t *testing.T) {
 		called := false
-		_, err := authenticationUnaryInterceptor(nil, nil, policies)(
+		_, err := authenticationUnaryInterceptor(nil, nil, nil, policies)(
 			t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Public"},
 			func(context.Context, any) (any, error) {
 				called = true
@@ -85,7 +87,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	})
 
 	t.Run("unconfigured policy is denied", func(t *testing.T) {
-		_, err := authenticationUnaryInterceptor(nil, nil, policies)(
+		_, err := authenticationUnaryInterceptor(nil, nil, nil, policies)(
 			t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Missing"},
 			func(context.Context, any) (any, error) { return nil, nil },
 		)
@@ -102,7 +104,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			"x-agent-name", "default/agent",
 			"x-unapproved", "do-not-forward",
 		))
-		_, err := authenticationUnaryInterceptor(authenticator, nil, policies)(
+		_, err := authenticationUnaryInterceptor(authenticator, nil, nil, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				gotSession, ok := pkgauth.AuthSessionFrom(ctx)
@@ -131,7 +133,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				share, ok := pkgauth.ShareContextFrom(ctx)
@@ -157,12 +159,12 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
+	t.Run("a read-only AgentInstance share cannot create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod},
 			func(context.Context, any) (any, error) {
 				t.Fatal("handler should not run")
@@ -174,13 +176,13 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
+	t.Run("a READ_WRITE AgentInstance share may create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		ran := false
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				ran = true
@@ -202,7 +204,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("invalid share token is denied", func(t *testing.T) {
 		store := &testShareStore{instanceShareErr: database.ErrNotFound}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "missing"))
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(context.Context, any) (any, error) { return nil, nil },
 		)
@@ -210,6 +212,59 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 			t.Fatalf("code = %v, want PermissionDenied", got)
 		}
 	})
+}
+
+func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
+	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
+	store := &testShareStore{
+		instanceShare: &apiv1alpha1.AgentInstanceShare{
+			AgentInstanceId: testInstanceID.String(),
+			Permission:      apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY,
+		},
+		ownerUserID: "owner",
+	}
+	for _, method := range []string{
+		a2apb.A2AService_SendMessage_FullMethodName,
+		a2apb.A2AService_SendStreamingMessage_FullMethodName,
+		a2apb.A2AService_CancelTask_FullMethodName,
+	} {
+		t.Run(method, func(t *testing.T) {
+			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
+			ctx, err := authenticate(ctx, method, &testAuthenticator{session: session}, nil, store, DefaultMethodPolicies())
+			if err != nil {
+				t.Fatalf("A2A authorization must reach the gateway: %v", err)
+			}
+			share, ok := pkgauth.ShareContextFrom(ctx)
+			if !ok || !share.ReadOnly || !share.IsForAgentInstance(testInstanceID.String()) || share.UserID != "owner" {
+				t.Fatalf("validated share = %#v, want read-only authority for its owner and instance", share)
+			}
+			gotSession, ok := pkgauth.AuthSessionFrom(ctx)
+			if !ok || gotSession.Principal().User.ID != "visitor" {
+				t.Fatalf("authenticated session = %#v, want the visitor's identity", gotSession)
+			}
+		})
+	}
+}
+
+func TestInsecureRuntimeIdentityDoesNotAuthorizePublicAPI(t *testing.T) {
+	const runtimeMethod = "/test.TaskStore/Get"
+	policies := MethodPolicies{runtimeMethod: pkgauth.AccessRuntime, readMethod: pkgauth.AccessRead}
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/ai-"+uuid.NewString()+"/actor-uid"))
+	public := &testAuthenticator{err: errors.New("public credentials required")}
+	for _, method := range []string{runtimeMethod, readMethod} {
+		_, err := authenticate(ctx, method, public, nil, nil, policies)
+		if status.Code(err) != codes.Unauthenticated {
+			t.Fatalf("default %s: %v", method, err)
+		}
+	}
+	_, err := authenticate(ctx, readMethod, public, &taskstore.Authenticator{}, nil, policies)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("runtime test mode authorized public API: %v", err)
+	}
+	_, err = authenticate(ctx, runtimeMethod, public, &taskstore.Authenticator{}, nil, policies)
+	if err != nil {
+		t.Fatalf("explicit runtime test mode rejected identity: %v", err)
+	}
 }
 
 func TestMapError(t *testing.T) {
@@ -255,55 +310,4 @@ func TestRecoverUnaryInterceptor(t *testing.T) {
 	if got := status.Convert(err).Message(); got != "internal server error" {
 		t.Fatalf("message = %q", got)
 	}
-}
-
-// A nil Registerer is the trap this documents: newServerMetrics still returns
-// working counters, the interceptors still record every call, and nothing is
-// registered anywhere, so no scrape ever sees them. app.Run therefore passes
-// controller-runtime's registry, the one the manager's metrics server serves.
-func TestServerMetricsWithoutARegistererRecordsButExposesNothing(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	metrics, err := newServerMetrics(nil)
-	if err != nil {
-		t.Fatalf("newServerMetrics(nil) error = %v", err)
-	}
-	if _, err := metrics.unaryInterceptor(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: readMethod}, func(context.Context, any) (any, error) {
-		return nil, nil
-	}); err != nil {
-		t.Fatalf("call error = %v", err)
-	}
-	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("registry.Gather() error = %v", err)
-	}
-	if len(families) != 0 {
-		t.Fatalf("a registry the metrics were not registered with gathered %d families, want 0", len(families))
-	}
-}
-
-func TestServerMetricsUnaryInterceptor(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	metrics, err := newServerMetrics(registry)
-	if err != nil {
-		t.Fatalf("newServerMetrics() error = %v", err)
-	}
-	_, callErr := metrics.unaryInterceptor(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: readMethod}, func(context.Context, any) (any, error) {
-		return nil, status.Error(codes.NotFound, "missing")
-	})
-	if status.Code(callErr) != codes.NotFound {
-		t.Fatalf("call code = %v", status.Code(callErr))
-	}
-	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("registry.Gather() error = %v", err)
-	}
-	for _, family := range families {
-		if family.GetName() == "kagent_grpc_server_requests_total" {
-			if got := family.GetMetric()[0].GetCounter().GetValue(); got != 1 {
-				t.Fatalf("request counter = %v, want 1", got)
-			}
-			return
-		}
-	}
-	t.Fatal("request counter metric was not gathered")
 }

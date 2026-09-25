@@ -200,7 +200,14 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			instance, _, err := store.CreateAgentInstance(ctx, request, "instance")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), instance.GetPreparedRevision())
-			require.NoError(t, store.DeleteAgentInstance(ctx, instance.GetId()))
+			operation, err := store.BeginAgentInstanceOperation(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
+			require.NoError(t, err)
+			executor := uuid.New()
+			claimed, err := store.ClaimAgentInstanceOperation(ctx, instance.Id, operation.ID, executor)
+			require.NoError(t, err)
+			require.True(t, claimed)
+			_, err = store.FinishAgentInstanceOperation(ctx, instance.Id, operation.ID, executor, "", "", "")
+			require.NoError(t, err)
 			require.NotNil(t, templates.template)
 
 			// An invalid replacement UID still revokes the old identity. Failed or
@@ -254,13 +261,19 @@ func (s *failingFinalizationStore) DeleteRuntimeRevision(ctx context.Context, re
 
 type fakeActorTemplates struct {
 	template           *ateapipb.ActorTemplate
+	ensureErr          error
+	getErr             error
+	createErr          error
 	deleteErr          error
 	deletedBeforeError bool
 }
 
-func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return nil }
+func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return f.ensureErr }
 
 func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	if f.template == nil {
 		return nil, status.Error(codes.NotFound, "not found")
 	}
@@ -268,7 +281,10 @@ func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (
 }
 
 func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
-	f.template = template
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	f.template = proto.CloneOf(template)
 	f.template.Metadata.Uid = "actor-uid"
 	return f.template, nil
 }

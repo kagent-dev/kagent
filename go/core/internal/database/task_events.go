@@ -171,7 +171,7 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 	var rows []agentInstanceTaskRow
 	var sequence int64
 	for _, source := range events {
-		if source.Sequence <= sequence || source.TaskID == nil {
+		if source.Sequence <= sequence || source.TaskID == "" {
 			return nil, fmt.Errorf("invalid task event sequence or identity at %d", source.Sequence)
 		}
 		sequence = source.Sequence
@@ -184,7 +184,7 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 			return nil, err
 		}
 		info := decoded.TaskInfo()
-		if string(info.TaskID) != *source.TaskID || info.ContextID != contextID {
+		if string(info.TaskID) != source.TaskID || info.ContextID != contextID {
 			return nil, fmt.Errorf("event %d has inconsistent protocol identity", sequence)
 		}
 		if message := event.GetMessage(); message != nil {
@@ -194,7 +194,7 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 		} else if source.MessageID != nil {
 			return nil, fmt.Errorf("task transition %d has a message index", sequence)
 		}
-		id := *source.TaskID
+		id := source.TaskID
 		if source.TaskPosition != nil {
 			if tasks[id] != nil || event.GetTask() == nil {
 				return nil, fmt.Errorf("invalid creation event for task %s", id)
@@ -202,7 +202,6 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 			indexes[id] = len(rows)
 			rows = append(rows, agentInstanceTaskRow{
 				ID: id, Position: *source.TaskPosition, CreatedAt: source.CreatedAt,
-				InitialMessageID: source.InitialMessageID, RequestHash: source.RequestHash,
 			})
 		} else if tasks[id] == nil {
 			return nil, fmt.Errorf("task %s has no creation event", id)
@@ -213,9 +212,6 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 		}
 		tasks[id] = task
 		row := &rows[indexes[id]]
-		if event.GetMessage() == nil {
-			row.UpdatedAt = source.CreatedAt
-		}
 		decodedTask, err := pbconv.FromProtoTask(task)
 		if err != nil {
 			return nil, err

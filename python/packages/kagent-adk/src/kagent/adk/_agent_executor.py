@@ -12,8 +12,24 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events import Event as A2AEvent
 from a2a.server.events.event_queue_v2 import EventQueue
-from a2a.types import Message, Part, Role, TaskState, TaskStatus, TaskStatusUpdateEvent
-from google.adk.a2a.converters.part_converter import A2APartToGenAIPartConverter
+from a2a.types import (
+    Artifact,
+    Message,
+    Part,
+    Role,
+    SendMessageRequest,
+    Task,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+)
+from google.adk.a2a.converters.part_converter import (
+    A2APartToGenAIPartConverter,
+)
+from google.adk.a2a.converters.part_converter import (
+    convert_a2a_part_to_genai_part as convert_upstream_a2a_part_to_genai_part,
+)
 from google.adk.a2a.converters.request_converter import (
     AgentRunRequest,
     convert_a2a_request_to_agent_run_request,
@@ -26,11 +42,13 @@ from google.adk.agents.run_config import StreamingMode
 from google.adk.events import Event
 from google.adk.runners import Runner
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
+    A2A_PART_TYPE_METADATA_KEY,
+    A2A_USAGE_METADATA_KEY,
     HITL_TYPE_ASK_USER_RESPONSE,
     HITL_TYPE_TOOL_APPROVAL_RESPONSE,
     get_hitl_payload,
-    get_kagent_metadata_key,
     hitl_activated,
     now_timestamp,
 )
@@ -41,8 +59,13 @@ from ._bearer_token import bearer_token, extract_bearer_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import serialize_metadata_value
+from .converters.part_converter import convert_a2a_part_to_genai_part as convert_kagent_a2a_part_to_genai_part
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+_ADK_METADATA_PREFIX = "adk_"
+_ADK_PART_TYPE_METADATA_KEY = "adk_type"
+_ADK_USAGE_METADATA_KEY = "adk_usage_metadata"
 
 
 class A2aAgentExecutorConfig(BaseModel):
@@ -54,7 +77,6 @@ class A2aAgentExecutorConfig(BaseModel):
 @dataclass
 class _ExecutionState:
     request_context: RequestContext
-    invocation_id: str | None = None
     last_usage_metadata: Any = None
 
 
@@ -77,6 +99,60 @@ def _friendly_error_message(error_message: str) -> str:
             "2. Use a model that supports function calling (e.g., OpenAI, Anthropic, or Gemini models)."
         )
     return error_message
+
+
+def _canonicalize_adk_metadata(metadata: Any, *, part: bool = False) -> None:
+    """Translate public ADK semantics and discard the remaining SDK metadata."""
+    if not metadata:
+        return
+    values = MessageToDict(metadata) if hasattr(metadata, "DESCRIPTOR") else dict(metadata)
+    if part and _ADK_PART_TYPE_METADATA_KEY in values:
+        metadata.update({A2A_PART_TYPE_METADATA_KEY: values[_ADK_PART_TYPE_METADATA_KEY]})
+    if _ADK_USAGE_METADATA_KEY in values:
+        metadata.update({A2A_USAGE_METADATA_KEY: values[_ADK_USAGE_METADATA_KEY]})
+    for key in list(metadata):
+        if key.startswith(_ADK_METADATA_PREFIX):
+            del metadata[key]
+
+
+def _canonicalize_adk_message(message: Message | None) -> None:
+    if message is None:
+        return
+    _canonicalize_adk_metadata(message.metadata)
+    for part in message.parts:
+        _canonicalize_adk_metadata(part.metadata, part=True)
+
+
+def _canonicalize_adk_artifact(artifact: Artifact | None) -> None:
+    if artifact is None:
+        return
+    _canonicalize_adk_metadata(artifact.metadata)
+    for part in artifact.parts:
+        _canonicalize_adk_metadata(part.metadata, part=True)
+
+
+def _canonicalize_adk_event(event: A2AEvent) -> None:
+    _canonicalize_adk_metadata(event.metadata)
+    if isinstance(event, TaskArtifactUpdateEvent):
+        _canonicalize_adk_artifact(event.artifact)
+    elif isinstance(event, TaskStatusUpdateEvent):
+        _canonicalize_adk_message(event.status.message if event.status else None)
+    elif isinstance(event, Message):
+        _canonicalize_adk_message(event)
+    elif isinstance(event, Task):
+        _canonicalize_adk_message(event.status.message if event.status else None)
+        for message in event.history:
+            _canonicalize_adk_message(message)
+        for artifact in event.artifacts:
+            _canonicalize_adk_artifact(artifact)
+
+
+def _convert_public_a2a_part_to_genai_part(part: Part) -> genai_types.Part | list[genai_types.Part] | None:
+    """Convert canonical typed data locally and delegate all other parts to ADK."""
+    metadata = MessageToDict(part.metadata) if part.metadata else {}
+    if part.HasField("data") and A2A_PART_TYPE_METADATA_KEY in metadata:
+        return convert_kagent_a2a_part_to_genai_part(part)
+    return convert_upstream_a2a_part_to_genai_part(part)
 
 
 class A2aAgentExecutor(AgentExecutor):
@@ -120,10 +196,10 @@ class A2aAgentExecutor(AgentExecutor):
         runner: Runner | None = None
         context_token = None
         try:
-            self._translate_hitl_response(context)
+            context = self._translate_hitl_response(context)
             runner = await self._resolve_runner()
 
-            run_request = self._convert_request(context, None)
+            run_request = self._convert_request(context, _convert_public_a2a_part_to_genai_part)
             await self._prepare_session(context, run_request, runner)
 
             span_attributes = {
@@ -137,6 +213,7 @@ class A2aAgentExecutor(AgentExecutor):
 
             execution_state = _ExecutionState(request_context=context)
             upstream_config = UpstreamA2aAgentExecutorConfig(
+                a2a_part_converter=_convert_public_a2a_part_to_genai_part,
                 request_converter=self._convert_request,
                 execute_interceptors=[
                     ExecuteInterceptor(
@@ -180,17 +257,31 @@ class A2aAgentExecutor(AgentExecutor):
             if runner is not None:
                 await self._safe_close_runner(runner)
 
-    def _translate_hitl_response(self, context: RequestContext) -> None:
+    def _translate_hitl_response(self, context: RequestContext) -> RequestContext:
         payload = get_hitl_payload(context.message)
         if not payload or payload.get("type") not in {
             HITL_TYPE_TOOL_APPROVAL_RESPONSE,
             HITL_TYPE_ASK_USER_RESPONSE,
         }:
-            return
+            return context
         if context.current_task is None:
             raise ValueError("HITL decision requires a stored current task")
         resume_message = build_resume_hitl_message(context.current_task, context.message)
-        context.message.CopyFrom(resume_message)
+        # The SDK's event consumer retains the public request while native work
+        # runs. Keep the translated native request separate so persistence
+        # retains the caller's original message.
+        return RequestContext(
+            call_context=context.call_context,
+            request=SendMessageRequest(
+                message=resume_message,
+                configuration=context.configuration,
+                metadata=context.metadata,
+            ),
+            task_id=context.task_id,
+            context_id=context.context_id,
+            task=context.current_task,
+            related_tasks=context.related_tasks,
+        )
 
     def _convert_request(
         self,
@@ -259,10 +350,9 @@ class A2aAgentExecutor(AgentExecutor):
         adk_event: Event,
     ) -> A2AEvent:
         del executor_context
-        if adk_event.invocation_id:
-            state.invocation_id = adk_event.invocation_id
         if adk_event.usage_metadata is not None:
             state.last_usage_metadata = adk_event.usage_metadata
+        _canonicalize_adk_event(event)
         return event
 
     async def _after_agent(
@@ -271,15 +361,10 @@ class A2aAgentExecutor(AgentExecutor):
         executor_context: ExecutorContext,
         event: TaskStatusUpdateEvent,
     ) -> TaskStatusUpdateEvent:
-        metadata: dict[str, Any] = {
-            get_kagent_metadata_key("app_name"): executor_context.app_name,
-            get_kagent_metadata_key("user_id"): executor_context.user_id,
-            get_kagent_metadata_key("session_id"): executor_context.session_id,
-        }
-        if state.invocation_id:
-            metadata[get_kagent_metadata_key("invocation_id")] = state.invocation_id
+        del executor_context
+        metadata: dict[str, Any] = {}
         if state.last_usage_metadata is not None:
-            metadata[get_kagent_metadata_key("usage_metadata")] = serialize_metadata_value(state.last_usage_metadata)
+            metadata[A2A_USAGE_METADATA_KEY] = serialize_metadata_value(state.last_usage_metadata)
         event.metadata.update(metadata)
 
         if event.status.state == TaskState.TASK_STATE_INPUT_REQUIRED and event.status.message:
@@ -295,6 +380,7 @@ class A2aAgentExecutor(AgentExecutor):
             for part in event.status.message.parts:
                 if part.HasField("text") and part.text:
                     part.text = _friendly_error_message(part.text)
+        _canonicalize_adk_event(event)
         return event
 
     async def _safe_close_runner(self, runner: Runner) -> None:

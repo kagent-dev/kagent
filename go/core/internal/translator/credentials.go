@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -152,6 +153,27 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		if spec.Bedrock != nil {
 			endpoint = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", spec.Bedrock.Region)
 		}
+	case v1alpha3.ModelProviderOllama:
+		// Ollama Cloud is the only keyed Ollama endpoint, so a binding is
+		// declared exactly when the model reaches it. That condition lives in
+		// models.OllamaReachesCloud, which the compiler's Secret reference and
+		// the egress list also use: a cloud model picked from the catalog, an
+		// explicit host, and a missing key were each judged differently in each
+		// place, so a valid configuration could compile with an env var that had
+		// no binding to match, or with an egress list that omitted the host it
+		// was about to call.
+		//
+		// Without a binding this leaves the name empty, and the env var is
+		// treated as a plain secret reference, which is correct — no request
+		// leaves for api.ollama.com.
+		if spec.Ollama == nil {
+			break
+		}
+		hasCredential := spec.APIKeySecret != "" || spec.APIKeyPassthrough
+		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
+			break
+		}
+		name, endpoint, header, prefix = env.OllamaAPIKey.Name(), "https://api.ollama.com", "authorization", "Bearer "
 	case v1alpha3.ModelProviderFoundry:
 		name, endpoint, header = env.FoundryAPIKey.Name(), resolved.FoundryEndpoint, "api-key"
 		if spec.Foundry != nil && spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {

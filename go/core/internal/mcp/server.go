@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"iter"
 	"net/http"
 	"slices"
 	"strings"
@@ -33,11 +32,6 @@ type Handler struct {
 	checkpoints *checkpoint.Service
 	gateway     a2asrv.RequestHandler
 	http        http.Handler
-}
-
-type invocationStart struct {
-	task *a2atype.Task
-	err  error
 }
 
 type ListAgentInstancesInput struct {
@@ -148,46 +142,24 @@ func (h *Handler) invoke(ctx context.Context, input InvokeAgentInstanceInput, as
 		message.ID = input.MessageID
 	}
 	routed := routeContext(ctx, input.AgentInstanceID)
-	if async {
-		routed = context.WithoutCancel(routed)
-	}
-	events := h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Message: message})
-	if async && message.TaskID == "" {
-		started := make(chan invocationStart, 1)
-		go func() {
-			sent := false
-			for event, err := range events {
-				if !sent && err != nil {
-					started <- invocationStart{err: err}
-					sent = true
-				}
-				if !sent {
-					if task, ok := event.(*a2atype.Task); ok {
-						started <- invocationStart{task: task}
-						sent = true
-					}
-				}
-			}
-			if !sent {
-				started <- invocationStart{err: fmt.Errorf("A2A gateway did not create a task")}
-			}
-		}()
-		result := <-started
-		return result.task, result.err
-	}
-	if async {
-		go drain(events)
-	} else {
-		for _, err := range events {
-			if err != nil {
-				return nil, err
+	var taskID a2atype.TaskID
+	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Message: message}) {
+		if err != nil {
+			return nil, err
+		}
+		if event != nil && event.TaskInfo().TaskID != "" {
+			taskID = event.TaskInfo().TaskID
+			if async {
+				break
 			}
 		}
 	}
-	if message.TaskID == "" {
-		return nil, fmt.Errorf("A2A gateway did not create a task")
+	if taskID == "" {
+		return nil, fmt.Errorf("A2A runtime did not return a task")
 	}
-	return h.gateway.GetTask(routeContext(ctx, input.AgentInstanceID), &a2atype.GetTaskRequest{ID: message.TaskID})
+	// The runtime continues after this observer leaves. Public responses use
+	// the persisted task, including the lifecycle publication boundary.
+	return h.gateway.GetTask(routed, &a2atype.GetTaskRequest{ID: taskID})
 }
 
 func routeContext(ctx context.Context, instanceID string) context.Context {
@@ -198,11 +170,6 @@ func routeContext(ctx context.Context, instanceID string) context.Context {
 		a2atype.SvcParamExtensions: {adka2a.HITLExtensionURI},
 	}))
 	return ctx
-}
-
-func drain(events iter.Seq2[a2atype.Event, error]) {
-	for range events {
-	}
 }
 
 func invocationResult(input InvokeAgentInstanceInput, task *a2atype.Task) (*mcp.CallToolResult, InvokeAgentInstanceOutput) {

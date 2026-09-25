@@ -16,18 +16,14 @@
 // Required environment variables:
 //
 //   - OPENAI_API_KEY: your OpenAI API key.
+//   - KAGENT_API_URL: the kagent API endpoint, supplied by the Harness compiler.
 //
 // Optional environment variables:
 //
 //   - MODEL_NAME: the OpenAI model to use (default "gpt-4o-mini").
 //
-// Run locally (standalone, no kagent):
-//
-//	OPENAI_API_KEY=sk-... go run ./examples/byo/
-//
-// Test with curl:
-//
-//	curl -s http://localhost:8082/.well-known/agent.json | jq .
+// Deploy through a BYO Harness so the runtime receives its API endpoint and
+// projected actor identity. The app requires the central TaskStore for A2A work.
 package main
 
 import (

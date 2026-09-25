@@ -18,15 +18,20 @@ import (
 )
 
 func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
-	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
-	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
-	_, _, waiting := fixture.send(t, "Which database should we use for storage?")
-	require.Equal(t, a2atype.TaskStateInputRequired, waiting.Status.State)
-	require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		switch harness.name {
+		case codexE2EHarness, claudeE2EHarness:
+			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
+		}
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+		fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
+		_, _, waiting := fixture.send(t, "Which database should we use for storage?")
+		require.Equal(t, a2atype.TaskStateInputRequired, waiting.Status.State)
+		require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
 
-	_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
-		AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
+			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
+		})
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	require.ErrorContains(t, err, "no quiescent turn boundary")
 }

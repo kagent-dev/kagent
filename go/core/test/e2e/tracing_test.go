@@ -19,9 +19,10 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -108,23 +109,26 @@ func TestOTLPTraceReceiverFlush(t *testing.T) {
 	require.NoError(t, err)
 	receiver, stop := serveOTLPTraceReceiver(listener)
 	t.Cleanup(func() { require.NoError(t, stop()) })
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://"+listener.Addr().String())
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
 	// Only an explicit flush can deliver the span during this test.
 	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
-	provider, err := tracing.NewTracerProvider(t.Context(), resource.Empty())
+	previous := otel.GetTracerProvider()
+	providers, err := telemetry.Init(t.Context(), telemetry.Options{})
 	require.NoError(t, err)
 	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		require.NoError(t, provider.Shutdown(ctx))
+		require.NoError(t, providers.Shutdown(ctx))
 	})
-	_, span := provider.Tracer("receiver-test").Start(t.Context(), "response")
+	_, span := otel.Tracer("receiver-test").Start(t.Context(), "response")
 	span.End()
-	// A missing receiver would consume the runtime's three-second flush timeout.
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	require.NoError(t, provider.ForceFlush(ctx))
+	require.NoError(t, providers.ForceFlush(t.Context()))
 	traceID := span.SpanContext().TraceID()
 	require.Len(t, receiver.selectSpans(traceID[:], "", "receiver-test", "response", nil), 1)
 }
@@ -250,12 +254,12 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			name: "claude", harness: claudeTracingE2EHarness, templateLabel: "claude-tracing",
 			runtime: tracing.RuntimeClaude, provider: "anthropic",
 			modelURL: func(t *testing.T) string {
-				return reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
+				return reachableServerURL(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), "")
 			},
 			createModel: func(t *testing.T, baseURL string) *v1alpha3.ModelConfig {
 				return createClaudeMockModel(t, interactionKubeClient(t), baseURL)
 			},
-			prompt: "Return exactly CLAUDE_MOCK_FIRST.",
+			prompt: "What is 2+2?",
 			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
 				t.Helper()
 				for _, captured := range receiver.selectSpans(traceID, "", "", "", nil) {
@@ -270,12 +274,12 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			name: "codex", harness: codexTracingE2EHarness, templateLabel: "codex-tracing",
 			runtime: tracing.RuntimeCodex, provider: "openai",
 			modelURL: func(t *testing.T) string {
-				return reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
+				return startInteractionMock(t)
 			},
 			createModel: func(t *testing.T, baseURL string) *v1alpha3.ModelConfig {
 				return createCodexMockModel(t, interactionKubeClient(t), baseURL)
 			},
-			prompt: "Return exactly CODEX_MOCK_FIRST.",
+			prompt: "What is 2+2?",
 			assertNative: func(t *testing.T, receiver *otlpTraceReceiver, traceID []byte) {
 				t.Helper()
 				for _, captured := range receiver.selectSpans(traceID, "", "", "", nil) {
@@ -345,14 +349,35 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 					t.Errorf("%s = %q with capture disabled", key, value)
 				}
 			}
+			for _, key := range []string{"kagent.user_id", "gen_ai.task.id", "kagent.app_name"} {
+				if value := stringAttribute(invocation.span.GetAttributes(), key); value != "" {
+					t.Errorf("removed attribute %s = %q", key, value)
+				}
+			}
+			// The gateway drains the runtime stream before suspending the Actor,
+			// so the SERVER span the invocation runs under is exported too.
+			parentFound := false
+			for _, candidate := range receiver.selectSpans(traceID, agentName, "", "", nil) {
+				if bytes.Equal(candidate.span.GetSpanId(), invocation.span.GetParentSpanId()) {
+					parentFound = candidate.span.GetKind() == tracepb.Span_SPAN_KIND_SERVER
+				}
+			}
+			if !parentFound {
+				t.Errorf("invocation has no exported SERVER parent: %s", receiver.diagnostic(traceID))
+			}
 			for key, want := range map[string]string{
+				"service.name":             agentName,
 				"service.namespace":        "kagent",
 				tracing.AttributeRuntime:   string(test.runtime),
 				tracing.AttributeAgentName: agentName,
+				tracing.AttributeAgentID:   "kagent/" + agentName,
 			} {
 				if got := stringAttribute(invocation.resource.GetAttributes(), key); got != want {
 					t.Errorf("resource %s = %q, want %q", key, got, want)
 				}
+			}
+			if version := stringAttribute(invocation.resource.GetAttributes(), "service.version"); len(version) != 12 {
+				t.Errorf("resource service.version = %q, want the short revision id", version)
 			}
 			test.assertNative(t, receiver, traceID)
 		})

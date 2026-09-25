@@ -8,7 +8,7 @@ description: >
 
 # kagent user guide
 
-kagent is moving to a Substrate-backed API. Do not reuse commands, manifests, or concepts from earlier releases. The implementation roadmap is `docs/plans/api-v2-execution-plan.md`.
+kagent uses a Substrate-backed API. Do not reuse commands, manifests, or concepts from earlier releases. Current architecture is documented in `docs/architecture`.
 
 ## Target API
 
@@ -20,9 +20,9 @@ kagent is moving to a Substrate-backed API. Do not reuse commands, manifests, or
 
 ## Guidance rules
 
-1. Check the roadmap milestone and repository implementation before answering with exact syntax.
+1. Check the current architecture and repository implementation before answering with exact syntax.
 2. Verify CRDs from `go/api/v1alpha3` and generated manifests, protobuf APIs from `proto`, and CLI behavior from command help or source.
-3. Describe planned behavior as planned until its roadmap PR has landed.
+3. Describe planned behavior as planned until its implementation has landed.
 4. Do not invent compatibility paths, migration procedures, fields, commands, or endpoints that are absent from the new API.
 5. Prefer upstream A2A operations for interaction and history. Use AgentInstance APIs for create, get, list, suspend, resume, delete, checkpoint, fork, and sharing as those services land.
 

@@ -51,14 +51,6 @@ func notFoundOr(err error) error {
 	return err
 }
 
-// strPtrIfNotEmpty returns nil for an empty string and a pointer to a copy otherwise.
-func strPtrIfNotEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 // derefStr returns the pointed-to string, or an empty string for nil.
 func derefStr(s *string) string {
 	if s != nil {

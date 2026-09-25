@@ -299,7 +299,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_error"}
 			endInvocation()
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
-			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
+			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
@@ -326,7 +326,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
 			endInvocation()
-			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
+			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
 			return
 		}
@@ -345,7 +345,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
 		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
-		message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
+		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 	}
 }
@@ -412,7 +412,7 @@ func (s *executionSink) TextDelta(event runtime.TextDelta) error {
 	if s.textArtifactID == "" {
 		update = a2atype.NewArtifactEvent(s.reqCtx, a2atype.NewTextPart(event.Text))
 		s.textArtifactID = update.Artifact.ID
-		update.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, s.nextTimelinePosition())
+		apia2a.SetTimelinePosition(update.Artifact, s.nextTimelinePosition())
 	} else {
 		update = a2atype.NewArtifactUpdateEvent(s.reqCtx, s.textArtifactID, a2atype.NewTextPart(event.Text))
 	}
@@ -445,20 +445,20 @@ func (s *executionSink) emitToolArtifact(part *a2atype.Part) error {
 	s.textArtifactID = ""
 	update := a2atype.NewArtifactEvent(s.reqCtx, part)
 	update.LastChunk = true
-	update.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, s.nextTimelinePosition())
+	apia2a.SetTimelinePosition(update.Artifact, s.nextTimelinePosition())
 	if !s.yield(update, nil) {
 		return errYieldStopped
 	}
 	return nil
 }
 
-func (s *executionSink) nextTimelinePosition() string {
+func (s *executionSink) nextTimelinePosition() time.Time {
 	position := time.Now().UTC()
 	if !position.After(s.lastPosition) {
 		position = s.lastPosition.Add(time.Nanosecond)
 	}
 	s.lastPosition = position
-	return position.Format(time.RFC3339Nano)
+	return position
 }
 
 func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {
@@ -469,9 +469,7 @@ func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
-	return toolActivityPart("function_call", map[string]any{
-		"id": event.ID, "name": event.Name, "args": args,
-	}), nil
+	return apia2a.NewToolCallPart(event.ID, event.Name, args), nil
 }
 
 func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
@@ -482,15 +480,7 @@ func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	if event.IsError {
 		response["isError"] = true
 	}
-	return toolActivityPart("function_response", map[string]any{
-		"id": event.ID, "name": event.Name, "response": response,
-	}), nil
-}
-
-func toolActivityPart(partType string, data map[string]any) *a2atype.Part {
-	part := a2atype.NewDataPart(data)
-	part.Metadata = map[string]any{"kagent_type": partType}
-	return part
+	return apia2a.NewToolResultPart(event.ID, event.Name, response), nil
 }
 
 func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {
@@ -622,6 +612,18 @@ func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done
 
 func (r taskRef) matches(other taskRef) bool {
 	return r.taskID == other.taskID && r.contextID == other.contextID
+}
+
+// ReservedTaskID identifies the approval that holds this native session. The
+// runtime TaskStore uses it to reject unrelated input before committing history.
+// Active work is independently serialized by durable admission and activate.
+func (e *Executor) ReservedTaskID() a2atype.TaskID {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if task, ok := e.state.(*parkedTask); ok {
+		return task.taskID
+	}
+	return ""
 }
 
 // activate claims the Actor for task. It returns a continued turn only when

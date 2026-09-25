@@ -123,12 +123,19 @@ export interface AgentTemplatePromptSpec {
  * the existing spec rather than replacing it.
  */
 export interface AgentTemplateSpec {
-  /** Required. A ModelConfig in the template's own namespace. */
-  modelConfig: AgentTemplateLocalRef;
+  /** A ModelConfig in the template's own namespace. Only BYO harnesses run without one. */
+  modelConfig?: AgentTemplateLocalRef;
   description?: string;
   /** Mutually exclusive with `systemPromptFrom` — the CRD rejects both. */
   systemPrompt?: string;
   systemPromptFrom?: ConfigMapKeyRef;
+  /**
+   * The JSON Schema for a successful terminal response from this template when it
+   * runs as the root agent. Mutually exclusive with `outputSchemaFrom`.
+   */
+  outputSchema?: Record<string, unknown>;
+  /** A same-namespace ConfigMap key containing the output schema as JSON. */
+  outputSchemaFrom?: ConfigMapKeyRef;
   promptTemplate?: AgentTemplatePromptSpec;
   tools?: ToolBinding[];
   skills?: AgentTemplateSkill[];

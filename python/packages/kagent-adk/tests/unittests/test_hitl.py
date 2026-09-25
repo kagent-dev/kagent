@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from a2a.types import Message, Role, Task, TaskState, TaskStatus
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.context import ServerCallContext
+from a2a.types import Message, Part, Role, SendMessageRequest, Task, TaskState, TaskStatus
 from google.adk.a2a.converters.part_converter import (
     convert_a2a_part_to_genai_part,
     convert_genai_part_to_a2a_part,
@@ -21,8 +23,10 @@ from kagent.core.a2a import (
     ToolApprovalResponse,
     attach_hitl_extension,
     get_ask_user_request,
+    get_tool_approval_request,
 )
 
+from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._hitl import (
     RemoteHitlState,
@@ -182,6 +186,26 @@ def test_direct_ask_user_response():
 
     assert confirmation.confirmed is True
     assert confirmation.payload == {"answers": [{"answer": ["default"]}]}
+
+
+def test_executor_hitl_translation_preserves_the_admitted_public_input():
+    incoming = _incoming(AskUserResponse(id="ask-confirm", answers=[{"answer": ["default"]}]))
+    task = _stored_task(AskUserRequest(id="ask-confirm", questions=[{"question": "Which namespace?"}]))
+    request = SendMessageRequest(message=incoming, metadata={"source": "test"})
+    request.configuration.history_length = 3
+    context = RequestContext(ServerCallContext(), request, task_id=task.id, context_id=task.context_id, task=task)
+    admitted_input = context.message.SerializeToString(deterministic=True)
+
+    translated = A2aAgentExecutor(runner=lambda: None)._translate_hitl_response(context)
+
+    assert context.message.SerializeToString(deterministic=True) == admitted_input
+    confirmation = _confirmations(translated.message)["ask-confirm"]
+    assert confirmation.confirmed is True
+    assert confirmation.payload == {"answers": [{"answer": ["default"]}]}
+    assert translated.call_context is context.call_context
+    assert translated.current_task is task
+    assert translated.configuration == context.configuration
+    assert translated.metadata == context.metadata
 
 
 def test_nested_tool_approvals_restore_remote_state():
@@ -352,3 +376,124 @@ def test_resume_rejects_input_required_task_without_public_hitl_request():
             task,
             _incoming(ToolApprovalResponse(approvals=[ToolApproval(id="confirm-1", approved=True)])),
         )
+
+
+def _confirmation_part(confirmation_id: str, tool_name: str, args: dict, hint: str | None = None) -> Part:
+    function_call = genai_types.Part(
+        function_call=genai_types.FunctionCall(
+            id=confirmation_id,
+            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+            args={
+                "originalFunctionCall": {"id": f"call-{confirmation_id}", "name": tool_name, "args": args},
+                "toolConfirmation": {"hint": hint} if hint else {},
+            },
+        )
+    )
+    converted = convert_genai_part_to_a2a_part(function_call)
+    assert converted is not None and not isinstance(converted, list)
+    return converted
+
+
+def _status_text(message: Message) -> str:
+    return "".join(part.text for part in message.parts if part.HasField("text"))
+
+
+def test_status_message_without_activation_names_the_tool():
+    part = _confirmation_part("confirm-1", "delete_file", {"path": "/tmp/x"})
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=False)
+
+    assert get_tool_approval_request(status_message) is None
+    assert _status_text(status_message) == "Approval is required for tool(s): delete_file"
+
+
+def test_status_message_keeps_the_hint_and_the_tool_name():
+    part = _confirmation_part("confirm-1", "delete_file", {"path": "/tmp/x"}, hint="Deleting this file is permanent")
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=False)
+
+    assert _status_text(status_message) == "Deleting this file is permanent (delete_file)"
+
+
+def test_status_message_keeps_every_hint_across_tools():
+    parts = [
+        _confirmation_part("confirm-1", "delete_file", {"path": "/tmp/x"}, hint="Deleting is permanent"),
+        _confirmation_part("confirm-2", "restart_pod", {"name": "api"}),
+    ]
+
+    status_message = build_hitl_status_message(parts, "task-1", "context-1", activated=False)
+
+    assert _status_text(status_message) == "Deleting is permanent (delete_file, restart_pod)"
+
+
+def test_status_message_skips_a_confirmation_part_without_a_call():
+    unusable = convert_genai_part_to_a2a_part(
+        genai_types.Part(function_call=genai_types.FunctionCall(name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, args={}))
+    )
+    assert unusable is not None and not isinstance(unusable, list)
+
+    status_message = build_hitl_status_message([unusable], "task-1", "context-1", activated=False)
+
+    assert _status_text(status_message) == "Human input is required before the agent can continue."
+
+
+def test_status_message_without_activation_carries_the_question():
+    part = _confirmation_part(
+        "confirm-1",
+        "ask_user",
+        {"questions": [{"question": "Which namespace?"}]},
+        hint="Which namespace?",
+    )
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=False)
+
+    assert get_ask_user_request(status_message) is None
+    assert _status_text(status_message) == "Which namespace?"
+
+
+def test_status_message_with_activation_keeps_the_same_text():
+    part = _confirmation_part("confirm-1", "delete_file", {"path": "/tmp/x"})
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=True)
+    request = get_tool_approval_request(status_message)
+
+    assert request is not None
+    assert request.tools[0].name == "delete_file"
+    assert _status_text(status_message) == "Approval is required for tool(s): delete_file"
+    assert request.hint == _status_text(status_message)
+
+
+def test_status_message_without_confirmation_parts_stays_generic():
+    status_message = build_hitl_status_message(
+        [Part(text="waiting on authorization")], "task-1", "context-1", activated=True
+    )
+
+    assert get_tool_approval_request(status_message) is None
+    assert _status_text(status_message) == "Human input is required before the agent can continue."
+
+
+def test_status_message_ask_user_without_questions_asks_for_approval():
+    part = _confirmation_part("confirm-1", "ask_user", {"questions": []})
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=True)
+    request = get_tool_approval_request(status_message)
+
+    assert get_ask_user_request(status_message) is None
+    assert request is not None
+    assert request.tools[0].name == "ask_user"
+    assert _status_text(status_message) == "Approval is required for tool(s): ask_user"
+
+
+def test_status_message_ask_user_drops_questions_without_text():
+    part = _confirmation_part(
+        "confirm-1",
+        "ask_user",
+        {"questions": [{"question": ""}, {"question": "Which cluster?"}]},
+    )
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=True)
+    request = get_ask_user_request(status_message)
+
+    assert request is not None
+    assert request.questions == [{"question": "Which cluster?"}]
+    assert _status_text(status_message) == "Which cluster?"

@@ -329,7 +329,7 @@ For production use, configure:
 - LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
-- OpenTelemetry endpoints (`otel.tracing.enabled`, `otel.tracing.exporter.otlp.endpoint`)
+- OpenTelemetry endpoints (`otel.traces.enabled`, `otel.exporter.otlp.endpoint`)
 - Network policies for pod isolation
 - RBAC policies per agent based on required permissions
 

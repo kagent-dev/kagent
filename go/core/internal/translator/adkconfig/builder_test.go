@@ -102,6 +102,93 @@ func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {
 	}
 }
 
+// TestOllamaEgressDestination covers the one provider whose endpoint is not
+// reachable through the serialized model: it lives on the ModelConfig's own
+// Ollama field, so the generic walk over the model never sees it. Without an
+// explicit case the allowlist came back empty, which compiles into a deny-all
+// Actor egress policy and fails the model call with a 403.
+func TestOllamaEgressDestination(t *testing.T) {
+	for _, host := range []string{"http://host.docker.internal:11434", "host.docker.internal:11434"} {
+		t.Run(host, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+					Ollama: &v1alpha3.OllamaConfig{Host: host},
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&v2translator.AgentInput{
+					Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+				})
+			require.NoError(t, err)
+			require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+		})
+	}
+
+	t.Run("no host configured", func(t *testing.T) {
+		model := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+		}
+		collections := contextTestCollections(t, model)
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+			&v2translator.AgentInput{
+				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+			})
+		require.NoError(t, err)
+		require.Empty(t, result.Egress)
+	})
+
+	// A cloud-tagged model with a key bypasses the operator's host, so the cloud
+	// host has to be allowed as well or egress policy denies the call.
+	t.Run("cloud model with a secret allows api.ollama.com", func(t *testing.T) {
+		model := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+		}
+		collections := contextTestCollections(t, model)
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+			&v2translator.AgentInput{
+				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+			})
+		require.NoError(t, err)
+		require.Contains(t, result.Egress, "api.ollama.com")
+	})
+
+	// A local model must never pick up the cloud host, even with a key present:
+	// that is the rerouting regression the routing rules exist to prevent.
+	t.Run("local model with a key does not allow the cloud host", func(t *testing.T) {
+		model := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
+			},
+		}
+		collections := contextTestCollections(t, model)
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+			&v2translator.AgentInput{
+				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+			})
+		require.NoError(t, err)
+		require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+	})
+}
+
 func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) v2translator.Collections {
 	t.Helper()
 	objects := make([]any, 0, 2*len(models))

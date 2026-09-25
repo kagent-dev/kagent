@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/packages/respjson"
@@ -142,7 +141,6 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		if m.IsAzure && m.Config.Model != "" {
 			modelName = m.Config.Model
 		}
-		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		switch m.apiFormat() {
 		case OpenAIAPIFormatResponses:
@@ -172,6 +170,16 @@ func generateContentChatCompletions(
 		}, params.Messages...)
 	}
 	applyOpenAIConfig(&params, m.Config)
+	if schema, err := structuredOutputSchema(req.Config); err != nil {
+		yield(nil, err)
+		return
+	} else if schema != nil {
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name: structuredOutputName, Schema: schema,
+			}},
+		}
+	}
 
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToOpenAITools(req.Config.Tools)
@@ -477,7 +485,6 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, resp)
 	_ = yield(resp, nil)
 }
 
@@ -492,7 +499,6 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 		return
 	}
 	resp := chatCompletionToLLMResponse(completion)
-	telemetry.SetLLMResponseAttributes(ctx, resp)
 	yield(resp, nil)
 }
 

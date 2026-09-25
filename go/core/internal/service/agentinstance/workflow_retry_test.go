@@ -267,11 +267,11 @@ func (s *completionTestStore) ClaimAgentInstanceOperation(ctx context.Context, i
 	return claimed, err
 }
 
-func (s *completionTestStore) FinishAgentInstanceOperation(ctx context.Context, instanceID string, id, executor uuid.UUID, authority, failure string) (*apiv1alpha1.AgentInstance, error) {
+func (s *completionTestStore) FinishAgentInstanceOperation(ctx context.Context, instanceID string, id, executor uuid.UUID, authority, actorUID, failure string) (*apiv1alpha1.AgentInstance, error) {
 	if s.finishErr != nil {
 		return nil, s.finishErr
 	}
-	return s.Client.FinishAgentInstanceOperation(ctx, instanceID, id, executor, authority, failure)
+	return s.Client.FinishAgentInstanceOperation(ctx, instanceID, id, executor, authority, actorUID, failure)
 }
 
 func TestLifecycleCompletionFailureDoesNotRepeatRuntime(t *testing.T) {
@@ -286,7 +286,7 @@ func TestLifecycleCompletionFailureDoesNotRepeatRuntime(t *testing.T) {
 	operation, err := store.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
 	require.NoError(t, err)
 	// Only the original executor with its known successful response may finish.
-	_, err = store.FinishAgentInstanceOperation(t.Context(), instance.Id, operation.ID, operation.ExecutorID, substrate.ActorHost("team-a", substrate.ActorName(instance.Id), ""), "")
+	_, err = store.FinishAgentInstanceOperation(t.Context(), instance.Id, operation.ID, operation.ExecutorID, substrate.ActorHost("team-a", substrate.ActorName(instance.Id), ""), "actor-uid", "")
 	require.NoError(t, err)
 	ready, err := NewActorWorkflow(store, actors).Create(t.Context(), instance)
 	require.NoError(t, err)

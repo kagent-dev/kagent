@@ -38,4 +38,4 @@ Implementations:
 
 This runtime helper is not public cross-AgentInstance delegation. Gateway-level
 delegation still requires scoped credentials, lineage/depth/cycle enforcement,
-and streamed child execution; that work is deferred in the execution plan.
+and streamed child execution; that work remains deferred.
