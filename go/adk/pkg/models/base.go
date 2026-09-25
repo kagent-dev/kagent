@@ -27,6 +27,10 @@ type TransportConfig struct {
 	APIKeyPassthrough     bool
 	Timeout               *int // seconds; nil = defaultTimeout. Bounds the whole request (connect + write + read).
 	ConnectTimeout        *int // seconds; nil = Go transport default. Bounds connection establishment only.
+	// ExchangedTokens resolves the STS-exchanged token for a request. It is nil
+	// when STS is not configured. One object for the process, so it is a
+	// dependency of the model rather than something carried per request.
+	ExchangedTokens ExchangedTokenProvider
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
@@ -85,7 +89,21 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 }
 
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
-var BearerTokenKey = &contextKey{}
+var BearerTokenKey = &contextKey{name: "bearer-token"}
+
+// SessionIDKey is the context key for the ADK session ID. The A2A executor
+// stamps it on the request context so downstream code can recover the session
+// from a derived context, where ADK's ToolContext.SessionID method is no longer
+// reachable.
+var SessionIDKey = &contextKey{name: "session-id"}
+
+// ExchangedTokenProvider resolves the STS-exchanged token for one request. The
+// implementation owns mode handling, session recovery, caller identity and
+// expiry, so the LLM and MCP paths read the same lookup instead of the cache.
+// It is an interface because the sts package imports this one.
+type ExchangedTokenProvider interface {
+	ExchangedToken(ctx context.Context) (string, bool)
+}
 
 // PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
 // is enabled, so every model/embedding provider resolves passthrough the same way.
@@ -95,7 +113,14 @@ var BearerTokenKey = &contextKey{}
 // It reads BearerTokenKey alone and takes no call-context fallback, unlike
 // BearerTokenFromContext: passthrough sends the credential to a third-party model
 // provider, so it is limited to the contexts the executor threaded it through.
-func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
+//
+// The STS-exchanged token for this request wins over the caller's own bearer
+// token: it names the user delegated to this agent, which is the identity the
+// backend should see. Without STS configured no provider is stamped and the
+// caller's token is returned, as before.
+// A request presenting no caller token gets none: the exchanged token replaces
+// the caller's, it never stands in for its absence.
+func PassthroughToken(ctx context.Context, apiKeyPassthrough bool, exchanged ExchangedTokenProvider) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
 	}
@@ -103,10 +128,20 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 	if !ok || token == "" {
 		return "", false
 	}
+	if exchanged != nil {
+		if delegated, found := exchanged.ExchangedToken(ctx); found && delegated != "" {
+			return delegated, true
+		}
+	}
 	return token, true
 }
 
-type contextKey struct{}
+// contextKey is named so every key is a distinct, non-zero-size allocation:
+// pointers to zero-size structs may share an address, which would make two keys
+// compare equal and let one value silently overwrite another.
+type contextKey struct{ name string }
+
+func (k *contextKey) String() string { return "kagent context key " + k.name }
 
 // BearerFromCallContext returns the bearer token carried by the A2A call
 // context's Authorization header, or "" when there is none.

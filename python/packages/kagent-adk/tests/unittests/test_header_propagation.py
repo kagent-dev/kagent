@@ -195,3 +195,55 @@ class TestMcpServerConfigAllowedHeaders:
             params=SseConnectionParams(url="http://localhost:8080"),
         )
         assert config.allowed_headers is None
+
+
+class _InvocationContext:
+    def __init__(self, session_id: str, state: dict):
+        self.session = type("_Session", (), {"id": session_id, "state": state})()
+
+
+class _StsReadonlyContext:
+    """A ReadonlyContext as the STS plugin sees it: the invocation context is
+    what carries the request's headers."""
+
+    def __init__(self, session_id: str, state: dict):
+        self._invocation_context = _InvocationContext(session_id, state)
+
+    @property
+    def state(self):
+        return self._invocation_context.session.state
+
+
+class TestPropagateOnlyMcpAuthorization:
+    """The production wiring for an MCP tool with no allowed_headers configured.
+
+    create_header_provider forwards Authorization only when it is allowlisted,
+    and KAGENT_PROPAGATE_TOKEN does not reach MCP toolsets at all, so the STS
+    header provider is the only thing that authenticates these calls.
+    """
+
+    def _provider(self):
+        from agentsts.adk import ADKTokenPropagationPlugin
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        return create_header_provider(allowed_headers=None, sts_header_provider=plugin.header_provider)
+
+    def test_forwards_the_callers_own_token(self):
+        provider = self._provider()
+        assert provider is not None
+
+        headers = provider(_StsReadonlyContext("sess-1", {"headers": {"Authorization": "Bearer CALLER-ONE"}}))
+        assert headers == {"Authorization": "Bearer CALLER-ONE"}
+
+    def test_each_turn_carries_its_own_token(self):
+        provider = self._provider()
+
+        first = provider(_StsReadonlyContext("sess-1", {"headers": {"Authorization": "Bearer CALLER-ONE"}}))
+        second = provider(_StsReadonlyContext("sess-1", {"headers": {"Authorization": "Bearer CALLER-TWO"}}))
+
+        assert first == {"Authorization": "Bearer CALLER-ONE"}
+        assert second == {"Authorization": "Bearer CALLER-TWO"}
+
+    def test_no_caller_token_injects_nothing(self):
+        provider = self._provider()
+        assert provider(_StsReadonlyContext("sess-1", {"headers": {}})) == {}

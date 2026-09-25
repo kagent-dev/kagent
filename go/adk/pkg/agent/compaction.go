@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/session/compaction"
@@ -32,7 +33,7 @@ const toolNameInstruction = "\n\nIMPORTANT: When referencing any tools or agents
 // A dedicated summarizer model or a custom prompt template yields an LLM
 // summarizer built here; otherwise the runner summarizes with the agent's own
 // model and ADK's default prompt, which is what the Python runtime does too.
-func CompactionConfig(ctx context.Context, agentConfig *adk.AgentConfig) (*compaction.Config, error) {
+func CompactionConfig(ctx context.Context, agentConfig *adk.AgentConfig, exchanged models.ExchangedTokenProvider) (*compaction.Config, error) {
 	log := logging.FromContext(ctx)
 	if agentConfig == nil || agentConfig.ContextConfig == nil || agentConfig.ContextConfig.Compaction == nil {
 		log.InfoContext(ctx, "context compaction not configured")
@@ -48,7 +49,7 @@ func CompactionConfig(ctx context.Context, agentConfig *adk.AgentConfig) (*compa
 		log.WarnContext(ctx, "ignoring part of the context compaction configuration", "reason", reason)
 	}
 
-	summarizer, err := compactionSummarizer(ctx, settings, agentConfig.Model)
+	summarizer, err := compactionSummarizer(ctx, settings, agentConfig.Model, exchanged)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +105,7 @@ func compactionStrategies(settings *adk.AgentCompressionConfig) (compaction.Conf
 // model or a custom prompt template. It returns nil when neither is set, which
 // leaves the runner to summarize with the agent's own model and ADK's default
 // prompt.
-func compactionSummarizer(ctx context.Context, settings *adk.AgentCompressionConfig, agentModel adk.Model) (compaction.Summarizer, error) {
+func compactionSummarizer(ctx context.Context, settings *adk.AgentCompressionConfig, agentModel adk.Model, exchanged models.ExchangedTokenProvider) (compaction.Summarizer, error) {
 	modelConfig := settings.SummarizerModel
 	if modelConfig == nil {
 		if settings.PromptTemplate == "" {
@@ -116,7 +117,7 @@ func compactionSummarizer(ctx context.Context, settings *adk.AgentCompressionCon
 	if modelConfig == nil {
 		return nil, fmt.Errorf("context compaction prompt template needs a model to run on")
 	}
-	llm, err := CreateLLM(ctx, modelConfig)
+	llm, err := CreateLLM(ctx, modelConfig, exchanged)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create context compaction summarizer model: %w", err)
 	}

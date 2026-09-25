@@ -45,6 +45,9 @@ type Client struct {
 // Config for creating an embedding client.
 type Config struct {
 	EmbeddingConfig *adk.EmbeddingConfig
+	// ExchangedTokens resolves the STS-exchanged token for a request, nil when
+	// STS is not configured.
+	ExchangedTokens models.ExchangedTokenProvider
 }
 
 // New creates a new embedding client.
@@ -55,7 +58,7 @@ func New(cfg Config) (*Client, error) {
 	if cfg.EmbeddingConfig.Model == "" {
 		return nil, fmt.Errorf("embedding model is required")
 	}
-	p, err := newProvider(cfg.EmbeddingConfig)
+	p, err := newProvider(cfg.EmbeddingConfig, cfg.ExchangedTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -65,10 +68,10 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
-func newProvider(cfg *adk.EmbeddingConfig) (provider, error) {
+func newProvider(cfg *adk.EmbeddingConfig, exchanged models.ExchangedTokenProvider) (provider, error) {
 	switch cfg.Provider {
 	case "azure_openai":
-		return newAzureOpenAIProvider(cfg, nil)
+		return newAzureOpenAIProvider(cfg, nil, exchanged)
 	case "ollama":
 		return newOllamaProvider(cfg)
 	case "gemini", "vertex_ai":
@@ -76,9 +79,9 @@ func newProvider(cfg *adk.EmbeddingConfig) (provider, error) {
 	case "bedrock":
 		return &bedrockProvider{config: cfg}, nil
 	case "foundry":
-		return newFoundryProvider(cfg, nil)
+		return newFoundryProvider(cfg, nil, exchanged)
 	default: // "openai", "", and unknown providers
-		return newOpenAIProvider(cfg)
+		return newOpenAIProvider(cfg, exchanged)
 	}
 }
 
@@ -94,11 +97,12 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 }
 
 type openAIProvider struct {
-	config *adk.EmbeddingConfig
-	client openai.Client
+	config    *adk.EmbeddingConfig
+	client    openai.Client
+	exchanged models.ExchangedTokenProvider
 }
 
-func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
+func newOpenAIProvider(cfg *adk.EmbeddingConfig, exchanged models.ExchangedTokenProvider) (*openAIProvider, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	httpClient, err := embeddingHTTPClient(cfg)
 	if err != nil {
@@ -112,19 +116,20 @@ func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
 		opts = append(opts, option.WithBaseURL(cfg.BaseUrl))
 	}
 	return &openAIProvider{
-		config: cfg,
-		client: openai.NewClient(opts...),
+		config:    cfg,
+		client:    openai.NewClient(opts...),
+		exchanged: exchanged,
 	}, nil
 }
 
-func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.EmbeddingConfig, provider string, isAzureFamily bool, texts []string) ([][]float32, error) {
+func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.EmbeddingConfig, provider string, isAzureFamily bool, exchanged models.ExchangedTokenProvider, texts []string) ([][]float32, error) {
 	log := logging.FromContext(ctx)
 
 	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model:      openai.EmbeddingModel(cfg.Model),
 		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
 		Dimensions: openai.Int(int64(TargetDimension)),
-	}, embeddingPassthroughOpts(ctx, cfg, isAzureFamily)...)
+	}, embeddingPassthroughOpts(ctx, cfg, isAzureFamily, exchanged)...)
 	if err != nil {
 		return nil, fmt.Errorf("%s embeddings request failed: %w", provider, err)
 	}
@@ -139,11 +144,11 @@ func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.Embe
 // embeddingPassthroughOpts uses models.PassthroughToken so the embedding client
 // resolves API key passthrough the same way as the chat/completions clients in
 // go/adk/pkg/models.
-func embeddingPassthroughOpts(ctx context.Context, cfg *adk.EmbeddingConfig, isAzureFamily bool) []option.RequestOption {
+func embeddingPassthroughOpts(ctx context.Context, cfg *adk.EmbeddingConfig, isAzureFamily bool, exchanged models.ExchangedTokenProvider) []option.RequestOption {
 	if cfg == nil {
 		return nil
 	}
-	token, ok := models.PassthroughToken(ctx, cfg.APIKeyPassthrough)
+	token, ok := models.PassthroughToken(ctx, cfg.APIKeyPassthrough, exchanged)
 	if !ok {
 		return nil
 	}
@@ -154,17 +159,18 @@ func embeddingPassthroughOpts(ctx context.Context, cfg *adk.EmbeddingConfig, isA
 }
 
 func (p *openAIProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	return generateEmbeddings(ctx, p.client, p.config, "openai", false, texts)
+	return generateEmbeddings(ctx, p.client, p.config, "openai", false, p.exchanged, texts)
 }
 
 type azureOpenAIProvider struct {
-	config *adk.EmbeddingConfig
-	client openai.Client
+	config    *adk.EmbeddingConfig
+	client    openai.Client
+	exchanged models.ExchangedTokenProvider
 }
 
 // newAzureOpenAIProvider builds an Azure OpenAI embedding provider. Tests can
 // inject a credential with cred; a nil cred uses the default Azure credential.
-func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*azureOpenAIProvider, error) {
+func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential, exchanged models.ExchangedTokenProvider) (*azureOpenAIProvider, error) {
 	apiVersion := cfg.APIVersion
 	if apiVersion == "" {
 		apiVersion = os.Getenv("OPENAI_API_VERSION")
@@ -219,13 +225,14 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 		return nil, err
 	}
 	return &azureOpenAIProvider{
-		config: cfg,
-		client: client,
+		config:    cfg,
+		client:    client,
+		exchanged: exchanged,
 	}, nil
 }
 
 func (p *azureOpenAIProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	return generateEmbeddings(ctx, p.client, p.config, "azure_openai", true, texts)
+	return generateEmbeddings(ctx, p.client, p.config, "azure_openai", true, p.exchanged, texts)
 }
 
 type ollamaProvider struct {
@@ -429,13 +436,14 @@ func normalizeL2(vec []float32) []float32 {
 // set, otherwise the provider authenticates with DefaultAzureCredential (Azure
 // Workload Identity in-cluster).
 type foundryProvider struct {
-	config *adk.EmbeddingConfig
-	client openai.Client
+	config    *adk.EmbeddingConfig
+	client    openai.Client
+	exchanged models.ExchangedTokenProvider
 }
 
 // newFoundryProvider builds a Foundry embedding provider. Tests can inject a
 // credential with cred; a nil cred uses the default Azure credential.
-func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*foundryProvider, error) {
+func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential, exchanged models.ExchangedTokenProvider) (*foundryProvider, error) {
 	deployment := cfg.Deployment
 	if deployment == "" {
 		deployment = cfg.Model
@@ -475,9 +483,9 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 	if err != nil {
 		return nil, err
 	}
-	return &foundryProvider{config: cfg, client: client}, nil
+	return &foundryProvider{config: cfg, client: client, exchanged: exchanged}, nil
 }
 
 func (p *foundryProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	return generateEmbeddings(ctx, p.client, p.config, "foundry", true, texts)
+	return generateEmbeddings(ctx, p.client, p.config, "foundry", true, p.exchanged, texts)
 }

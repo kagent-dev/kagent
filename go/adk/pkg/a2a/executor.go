@@ -245,6 +245,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		sessionID := reqCtx.ContextID
 
 		ctx = withBearerToken(ctx)
+		ctx = withSessionID(ctx, sessionID)
 		ctx = auth.WithUserID(ctx, userID)
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
@@ -475,6 +476,15 @@ func withBearerToken(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, models.BearerTokenKey, token)
+}
+
+// withSessionID stores the ADK session ID as a context value, so the outbound
+// MCP path can still recover it. See models.SessionIDKey.
+func withSessionID(ctx context.Context, sessionID string) context.Context {
+	if sessionID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, models.SessionIDKey, sessionID)
 }
 
 // dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision

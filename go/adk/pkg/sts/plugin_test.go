@@ -65,9 +65,25 @@ func (f fakeSession) State() session.State      { return nil }
 func (f fakeSession) Events() session.Events    { return nil }
 func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 
+// exchangingPlugin builds a plugin in exchange mode, for tests that seed the
+// cache directly. The STS endpoint is never contacted. Exchange mode is what
+// these tests need because the plugin serves no cached credential in
+// propagate-only mode, where the registry forwards the caller's own token.
+func exchangingPlugin(t *testing.T) *TokenPropagationPlugin {
+	t.Helper()
+	integration, err := NewSTSIntegration(
+		"https://sts.example/.well-known/oauth-authorization-server",
+		"", nil, nil, 5, true, false,
+	)
+	if err != nil {
+		t.Fatalf("NewSTSIntegration() error = %v", err)
+	}
+	return NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+}
+
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	bearer := signedTokenWithSub(t, "alice")
 	plugin.setCachedToken("sess-123", subjectKey(bearer), "token-abc", 0)
 
@@ -341,15 +357,12 @@ func TestSharedSessionKeepsPerSubjectTokens(t *testing.T) {
 func TestHeaderProviderRecoversSubjectFromCallContext(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	const sessionID = "sess-cc"
 	alice := signedTokenWithSub(t, "alice")
 
-	// Seed the cache through the executor path (bearer via BearerTokenKey).
-	seedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, alice)
-	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: seedCtx, sessionID: sessionID}); err != nil {
-		t.Fatalf("BeforeRunCallback() error = %v", err)
-	}
+	const delegated = "EXCHANGED-FOR-ALICE"
+	plugin.setCachedToken(sessionID, subjectKey(alice), delegated, 0)
 
 	// Look up through the transport path: no BearerTokenKey, bearer only in the
 	// A2A CallContext Authorization header.
@@ -357,8 +370,8 @@ func TestHeaderProviderRecoversSubjectFromCallContext(t *testing.T) {
 		a2asrv.NewServiceParams(map[string][]string{"authorization": {"Bearer " + alice}}))
 	headers := plugin.HeaderProvider(fakeSessionContext{Context: ccCtx, sessionID: sessionID})
 
-	if got := headers["Authorization"]; got != "Bearer "+alice {
-		t.Fatalf("Authorization header = %q, want %q", got, "Bearer "+alice)
+	if got := headers["Authorization"]; got != "Bearer "+delegated {
+		t.Fatalf("Authorization header = %q, want %q", got, "Bearer "+delegated)
 	}
 }
 
@@ -391,7 +404,7 @@ func TestBeforeRunCallbackSameSubjectCachesExchange(t *testing.T) {
 func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	plugin.setCachedToken("sess-x", subjectOf("alice"), "alice-token", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
@@ -409,7 +422,7 @@ func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
 func TestEmptySubjectIsNotCacheable(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	plugin.setCachedToken("sess-x", "", "anonymous-token", 0)
 
 	if len(plugin.tokenCache) != 0 {
@@ -425,7 +438,7 @@ func TestEmptySubjectIsNotCacheable(t *testing.T) {
 func TestHeaderProviderRejectsForgedSubjectClaims(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	const sessionID = "sess-forge"
 	alice := signedTokenWithKey(t, "https://issuer.example", "alice", "genuine-signing-key")
 
@@ -450,7 +463,7 @@ func TestHeaderProviderRejectsForgedSubjectClaims(t *testing.T) {
 func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	plugin.setCachedToken("sess-ttl", subjectOf("alice"), "opaque-token", 0)
 
 	entry, ok := plugin.getCachedToken("sess-ttl", subjectOf("alice"))
@@ -475,7 +488,7 @@ func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
 func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	const sessionID = "sess-in-flight"
 	const bearer = "opaque-caller-bearer"
 
@@ -507,7 +520,7 @@ func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
 func TestSweepEvictsAnIdleEntryWithoutExpiry(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	plugin.setCachedToken("sess-idle", subjectOf("alice"), "opaque-token", 0)
 
 	due := time.Now().Add(-time.Minute).Unix()
@@ -526,7 +539,7 @@ func TestSweepEvictsAnIdleEntryWithoutExpiry(t *testing.T) {
 func TestSessionCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	const sessionID = "sess-burst"
 	const bearer = "opaque-alice"
 	plugin.setCachedToken(sessionID, subjectKey(bearer), "delegated-alice", 0)
@@ -566,7 +579,7 @@ func TestSessionCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 func TestSessionCapacityBoundSparesOtherSessions(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	const victimSession = "sess-victim"
 	const victimBearer = "opaque-victim"
 	plugin.setCachedToken(victimSession, subjectKey(victimBearer), "delegated-victim", 0)
@@ -587,7 +600,7 @@ func TestSessionCapacityBoundSparesOtherSessions(t *testing.T) {
 func TestCacheCapacityBoundCapsEverySession(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	sessions := maxCacheEntries/maxEntriesPerSession + 4
 	for session := range sessions {
 		for i := range maxEntriesPerSession {
@@ -609,7 +622,7 @@ func TestCacheCapacityBoundCapsEverySession(t *testing.T) {
 func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	past := time.Now().Add(-time.Hour).Unix()
 	future := time.Now().Add(time.Hour).Unix()
 	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", past)
@@ -628,7 +641,7 @@ func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
 func TestClearCacheDropsEveryEntry(t *testing.T) {
 	t.Parallel()
 
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin := exchangingPlugin(t)
 	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", time.Now().Add(time.Hour).Unix())
 	plugin.setCachedToken("sess-b", subjectOf("bob"), "bob-token", 0)
 	plugin.ClearCache()
@@ -801,5 +814,113 @@ func TestEarlierExpiry(t *testing.T) {
 				t.Fatalf("earlierExpiry(%d, %d) = %d, want %d", tt.current, tt.candidate, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestHeaderProvider_RecoversSessionID pins the identity HeaderProvider presents
+// for each shape of context it can be handed, including a derived one.
+func TestHeaderProvider_RecoversSessionID(t *testing.T) {
+	t.Parallel()
+
+	const (
+		sessionID      = "01a01e53-cfc7-7c25-9783-d0e5203b6451"
+		exchangedToken = "EXCHANGED-STS-TOKEN"
+	)
+
+	// valueCtx is the context the A2A executor produces: the session ID stored
+	// as a value, not exposed as a method.
+	valueCtx := func(bearer string) context.Context {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+		return context.WithValue(ctx, kagentmodels.SessionIDKey, sessionID)
+	}
+
+	tests := []struct {
+		name  string
+		ctx   func(t *testing.T, bearer string) context.Context
+		cache bool // seed the exchanged token for sessionID and this caller
+		want  string
+	}{
+		{
+			name:  "session as context value",
+			ctx:   func(_ *testing.T, b string) context.Context { return valueCtx(b) },
+			cache: true,
+			want:  "Bearer " + exchangedToken,
+		},
+		{
+			name: "session as context value, wrapped in a deadline context",
+			ctx: func(t *testing.T, b string) context.Context {
+				ctx, cancel := context.WithTimeout(valueCtx(b), time.Minute)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			cache: true,
+			want:  "Bearer " + exchangedToken,
+		},
+		{
+			// A caller still holding ADK's ToolContext keeps working.
+			name: "session only via SessionID()",
+			ctx: func(_ *testing.T, b string) context.Context {
+				return fakeSessionContext{
+					Context:   context.WithValue(context.Background(), kagentmodels.BearerTokenKey, b),
+					sessionID: sessionID,
+				}
+			},
+			cache: true,
+			want:  "Bearer " + exchangedToken,
+		},
+		{
+			// Startup toolset discovery: a plain context, no user to act for.
+			name: "no session",
+			ctx:  func(*testing.T, string) context.Context { return context.Background() },
+			want: "",
+		},
+		{
+			// A user is present but their exchange produced nothing: no header,
+			// so the upstream rejects rather than seeing another identity.
+			name: "session present but no cached token",
+			ctx:  func(_ *testing.T, b string) context.Context { return valueCtx(b) },
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			bearer := signedTokenWithSub(t, "alice")
+			plugin := exchangingPlugin(t)
+			if tt.cache {
+				plugin.setCachedToken(sessionID, subjectKey(bearer), exchangedToken, 0)
+			}
+
+			if got := plugin.HeaderProvider(tt.ctx(t, bearer))["Authorization"]; got != tt.want {
+				t.Fatalf("Authorization header = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHeaderProvider_ContextValueBeatsSessionIDMethod: when both mechanisms
+// disagree, the value the executor stamped for this request wins.
+func TestHeaderProvider_ContextValueBeatsSessionIDMethod(t *testing.T) {
+	t.Parallel()
+
+	const (
+		valueSession  = "session-from-value"
+		methodSession = "session-from-method"
+	)
+
+	bearer := signedTokenWithSub(t, "alice")
+	plugin := exchangingPlugin(t)
+	plugin.setCachedToken(valueSession, subjectKey(bearer), "TOKEN-FOR-VALUE", 0)
+	plugin.setCachedToken(methodSession, subjectKey(bearer), "TOKEN-FOR-METHOD", 0)
+
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	headers := plugin.HeaderProvider(fakeSessionContext{
+		Context:   context.WithValue(ctx, kagentmodels.SessionIDKey, valueSession),
+		sessionID: methodSession,
+	})
+
+	if got := headers["Authorization"]; got != "Bearer TOKEN-FOR-VALUE" {
+		t.Fatalf("Authorization header = %q, want %q", got, "Bearer TOKEN-FOR-VALUE")
 	}
 }

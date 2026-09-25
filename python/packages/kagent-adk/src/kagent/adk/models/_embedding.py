@@ -17,7 +17,7 @@ from typing import Any, List, Optional, Union
 import httpx
 import numpy as np
 
-from kagent.adk._bearer_token import bearer_token
+from kagent.adk._bearer_token import ExchangedTokenProvider, bearer_token, resolve_passthrough_token, session_id
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.types import EmbeddingConfig
 
@@ -42,13 +42,15 @@ class KAgentEmbedding:
     # Target dimension for Kagent memory storage (must match go/adk/pkg/embedding/embedding.go)
     TARGET_DIMENSION = 768
 
-    def __init__(self, config: EmbeddingConfig):
+    def __init__(self, config: EmbeddingConfig, exchanged_token_provider: Optional[ExchangedTokenProvider] = None):
         """Initialize EmbeddingClient.
 
         Args:
             config: Embedding configuration including model, provider, and base_url
+            exchanged_token_provider: Source of STS-exchanged tokens, None without STS.
         """
         self.config = config
+        self._exchanged_token_provider = exchanged_token_provider
 
     async def generate(self, texts: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """Generate embedding vector(s) for the given text(s).
@@ -162,7 +164,13 @@ class KAgentEmbedding:
         """
         if not self.config.api_key_passthrough:
             return None
-        return bearer_token.get()
+        # Embedding calls run outside the before_model_callback pipeline, so the
+        # request values come from the ContextVars and are passed in explicitly.
+        return resolve_passthrough_token(
+            self._exchanged_token_provider,
+            inbound_token=bearer_token.get(),
+            session_id=session_id.get(),
+        )
 
     def _tls_http_client(self) -> Optional[httpx.AsyncClient]:
         """httpx client honoring ModelConfig TLS settings, or None when unset."""

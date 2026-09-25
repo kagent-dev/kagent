@@ -101,7 +101,7 @@ def static(
 
         if plugins is None:
             plugins = []
-        plugins.append(LLMPassthroughPlugin())
+        plugins.append(LLMPassthroughPlugin(sts_integration))
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
@@ -118,6 +118,7 @@ def static(
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
         agent_config=agent_config,
+        exchanged_token_provider=sts_integration,
     )
 
     server = kagent_app.build()
@@ -216,6 +217,7 @@ def run(
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
         agent_config=agent_config,
+        exchanged_token_provider=sts_integration,
     )
 
     if local:
@@ -253,7 +255,13 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         return root_agent
 
     app = KAgentApp(
-        root_agent_factory, agent_card, app_cfg.api_url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
+        root_agent_factory,
+        agent_card,
+        app_cfg.api_url,
+        app_cfg.app_name,
+        plugins=plugins,
+        agent_config=agent_config,
+        exchanged_token_provider=sts_integration,
     )
     await app.test(task)
 

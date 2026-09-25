@@ -23,7 +23,7 @@ The executor (`KAgentExecutor`) is a thin kagent-specific wrapper around the
 upstream `adka2a.Executor`:
 
 ```
-main.go -> CreateRunnerConfig -> runner.Config
+main.go -> CreateRunnerConfig -> runner.Config + STS token provider
          |
 KAgentExecutor.Execute(ctx, reqCtx)
   -> kagent auth, telemetry, skills, session state, HITL resume setup

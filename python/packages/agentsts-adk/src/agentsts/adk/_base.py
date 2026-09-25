@@ -32,10 +32,22 @@ logger = logging.getLogger(__name__)
 HEADERS_KEY = "headers"
 
 
+def _acting_credential(state: dict) -> Optional[str]:
+    """Return the bearer token this caller presented.
+
+    Not get_subject_token: that hook receives the whole session state, so an
+    implementation reading a session-scoped field returns the same value for
+    every caller. Only the inbound Authorization header is caller-scoped.
+    """
+    headers = state.get(HEADERS_KEY, None)
+    if not isinstance(headers, dict):
+        headers = {}
+    return _extract_jwt_from_headers(headers)
+
+
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
-    headers = state.get(HEADERS_KEY, None)
-    return _extract_jwt_from_headers(headers)
+    return _acting_credential(state)
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -148,16 +160,74 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 mcp_toolset._header_provider = self.header_provider
                 logger.debug(f"add_to_agent: updated MCP tool's header provider for agent {agent_name}")
 
+    def exchanged_token(self, *, session_id: str, bearer_token: str) -> Optional[str]:
+        """Resolve the STS-exchanged token for one request.
+
+        The only read of the token cache, so the LLM and MCP paths cannot drift
+        apart on mode, the caller-token requirement or expiry.
+        """
+        # Propagate-only mode mints no credential. The LLM path falls back to the
+        # caller's own token and header_provider forwards it directly.
+        if not self.sts_integration:
+            return None
+        # The cache outlives the run, so without this a turn carrying no caller
+        # token would go out as whoever sent an earlier turn.
+        if not session_id or not bearer_token:
+            return None
+        cache_entry = self.token_cache.get(session_id)
+        if not cache_entry or _has_token_expired(cache_entry.expiry):
+            return None
+        return cache_entry.token
+
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
-        # access saved token
-        cache_entry = self.token_cache.get(self.cache_key(readonly_context._invocation_context))
-        if not cache_entry:
+        if readonly_context is None:
+            return {}
+
+        invocation_context = readonly_context._invocation_context
+        caller_token = self._caller_token(invocation_context)
+
+        # Propagate-only mode: unlike the Go registry, the Python MCP toolset
+        # forwards Authorization only when the header is allowlisted, so this is
+        # the sole thing giving the tool call a caller identity. Forward the live
+        # token, never a cached one, so a later turn cannot go out as an earlier
+        # caller.
+        if not self.sts_integration:
+            if not caller_token:
+                return {}
+            logger.debug("Forwarding the caller's own token for tool invocation")
+            return {"Authorization": f"Bearer {caller_token}"}
+
+        token = self.exchanged_token(
+            session_id=self.cache_key(invocation_context),
+            bearer_token=caller_token or "",
+        )
+        # No fallback to the raw token: with an STS configured, a failed exchange
+        # must not quietly send the caller's own credential to the backend.
+        if not token:
             return {}
 
         logger.debug("Using cached access token for tool invocation")
         return {
-            "Authorization": f"Bearer {cache_entry.token}",
+            "Authorization": f"Bearer {token}",
         }
+
+    def _caller_token(self, invocation_context: InvocationContext) -> Optional[str]:
+        """The bearer token this turn presented.
+
+        Not get_subject_token: that hook receives the whole session state, so an
+        implementation reading a session-scoped field returns the same value for
+        every caller. Only the inbound Authorization header is caller-scoped.
+        """
+        return _acting_credential(invocation_context.session.state)
+
+    def _subject_token(self, invocation_context: InvocationContext) -> Optional[str]:
+        """The token to exchange, which a deployment may source itself."""
+        get_subject_token = (
+            self.sts_integration.get_subject_token
+            if self.sts_integration and self.sts_integration.get_subject_token
+            else _default_get_subject_token
+        )
+        return get_subject_token(invocation_context.session.state)
 
     @override
     async def before_run_callback(
@@ -166,6 +236,11 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Propagate token to model before execution."""
+        # Propagate-only mode exchanges nothing, and caching the caller's own
+        # token would only let a later turn go out as an earlier caller.
+        if not self.sts_integration:
+            return None
+
         cache_key = self.cache_key(invocation_context)
 
         # Check if we have a valid cached subject token
@@ -179,35 +254,29 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return None
 
         # No valid cached token, need to get/exchange subject token
-        get_subject_token = (
-            self.sts_integration.get_subject_token
-            if self.sts_integration and self.sts_integration.get_subject_token
-            else _default_get_subject_token
-        )
-        subject_token = get_subject_token(invocation_context.session.state)
+        subject_token = self._subject_token(invocation_context)
         if not subject_token:
             logger.debug("subject token not found in session state for token propagation")
             return None
 
-        if self.sts_integration:
-            # Get actor token (from cache or fetch dynamically)
-            actor_token = await self._get_actor_token()
-            if actor_token is None and self.sts_integration.fetch_actor_token:
-                # Dynamic fetch failed; already logged a warning in _get_actor_token
-                return None
+        # Get actor token (from cache or fetch dynamically)
+        actor_token = await self._get_actor_token()
+        if actor_token is None and self.sts_integration.fetch_actor_token:
+            # Dynamic fetch failed; already logged a warning in _get_actor_token
+            return None
 
-            try:
-                subject_token = await self.sts_integration.exchange_token(
-                    subject_token=subject_token,
-                    subject_token_type=TokenType.JWT,
-                    actor_token=actor_token,
-                    actor_token_type=TokenType.JWT if actor_token else None,
-                    resource=self.resource,
-                    audience=self.audience,
-                )
-            except Exception as e:
-                logger.warning(f"STS token exchange failed: {e}")
-                return None
+        try:
+            subject_token = await self.sts_integration.exchange_token(
+                subject_token=subject_token,
+                subject_token_type=TokenType.JWT,
+                actor_token=actor_token,
+                actor_token_type=TokenType.JWT if actor_token else None,
+                resource=self.resource,
+                audience=self.audience,
+            )
+        except Exception as e:
+            logger.warning(f"STS token exchange failed: {e}")
+            return None
 
         # Extract expiry from the token
         expiry = _extract_jwt_expiry(subject_token)

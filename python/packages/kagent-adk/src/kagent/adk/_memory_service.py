@@ -15,6 +15,7 @@ from google.protobuf import json_format, struct_pb2
 from kagent.api.v1alpha1 import memory_pb2
 from kagent.core import AsyncControllerClient
 
+from kagent.adk._bearer_token import ExchangedTokenProvider
 from kagent.adk.models import KAgentEmbedding
 from kagent.adk.types import EmbeddingConfig
 
@@ -36,6 +37,7 @@ class KagentMemoryService(BaseMemoryService):
         controller_client: AsyncControllerClient,
         embedding_config: Optional[EmbeddingConfig] = None,
         ttl_days: int = 0,
+        exchanged_token_provider: Optional[ExchangedTokenProvider] = None,
     ):
         """Initialize KagentMemoryService.
 
@@ -44,12 +46,15 @@ class KagentMemoryService(BaseMemoryService):
             controller_client: Shared authenticated controller gRPC client
             embedding_config: Configuration for embedding model (EmbeddingConfig only).
             ttl_days: TTL for memory entries in days. 0 means use the server default.
+            exchanged_token_provider: Source of STS-exchanged tokens, None without STS.
         """
         self.agent_name = agent_name
         self.client = controller_client
         self.embedding_config = embedding_config
         self.ttl_days = ttl_days
-        self._embedding_client = KAgentEmbedding(embedding_config) if embedding_config else None
+        self._embedding_client = (
+            KAgentEmbedding(embedding_config, exchanged_token_provider) if embedding_config else None
+        )
 
     async def add_session_to_memory(self, session: Session, model: Optional[Any] = None) -> None:
         """Add a session's content to long-term memory (non-blocking).
