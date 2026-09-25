@@ -142,8 +142,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 			SystemPrompt: "Always delegate the request to the specialist subagent, then return its answer.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 				Name: "specialist", Description: "Handles every delegated specialist request",
-				TemplateRef: corev1.LocalObjectReference{Name: child.Name},
-				Isolation:   v1alpha3.SubAgentToolIsolationShared,
+				TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}

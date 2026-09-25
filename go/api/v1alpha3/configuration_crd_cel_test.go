@@ -146,7 +146,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					Tools:  []string{"search"},
 				},
 				SubAgent: &SubAgentToolBinding{
-					Name: "helper", Description: "delegate work", TemplateRef: corev1.LocalObjectReference{Name: "helper"},
+					Name: "helper", Description: "delegate work", TemplateRef: &corev1.LocalObjectReference{Name: "helper"},
 				},
 			}}),
 			wantReject: "exactly one of mcp or subAgent must be specified",
@@ -154,7 +154,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name: "AgentTemplate accepts a subagent template reference",
 			object: validAgentTemplate(namespace, "valid-subagent", []ToolBinding{{SubAgent: &SubAgentToolBinding{
-				Name: "review", Description: "Review code", TemplateRef: corev1.LocalObjectReference{Name: "review-context"},
+				Name: "review", Description: "Review code", TemplateRef: &corev1.LocalObjectReference{Name: "review-context"},
 			}}}),
 		},
 		{
@@ -222,6 +222,53 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				},
 			}),
 		},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		binding    SubAgentToolBinding
+		wantReject string
+	}{
+		{name: "template-ref", binding: SubAgentToolBinding{TemplateRef: &corev1.LocalObjectReference{Name: "context"}}},
+		{name: "agent-ref", binding: SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{Name: "reviewer"}}},
+		{name: "neither-ref", wantReject: "exactly one of templateRef or agentRef must be specified"},
+		{
+			name: "both-refs",
+			binding: SubAgentToolBinding{
+				TemplateRef: &corev1.LocalObjectReference{Name: "context"}, AgentRef: &corev1.LocalObjectReference{Name: "reviewer"},
+			},
+			wantReject: "exactly one of templateRef or agentRef must be specified",
+		},
+		{name: "empty-template-ref", binding: SubAgentToolBinding{TemplateRef: &corev1.LocalObjectReference{}}, wantReject: "templateRef.name must not be empty"},
+		{name: "empty-agent-ref", binding: SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{}}, wantReject: "agentRef.name must not be empty"},
+	} {
+		for _, inline := range []bool{false, true} {
+			name := fmt.Sprintf("subagent-%s-inline-%t", tc.name, inline)
+			t.Run(name, func(t *testing.T) {
+				binding := tc.binding.DeepCopy()
+				binding.Name, binding.Description = "review", "Review code"
+				template := validAgentTemplate(namespace, name, []ToolBinding{{SubAgent: binding}})
+				var object ctrlclient.Object = template
+				if inline {
+					object = &Agent{ObjectMeta: template.ObjectMeta, Spec: AgentSpec{
+						Template: &template.Spec, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+					}}
+				}
+				err := cl.Create(ctx, object)
+				if tc.wantReject != "" {
+					require.ErrorContains(t, err, tc.wantReject)
+					return
+				}
+				require.NoError(t, err)
+				// Read back through the API so pruning a reference cannot masquerade as acceptance.
+				require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), object))
+				if agent, ok := object.(*Agent); ok {
+					require.Equal(t, binding, agent.Spec.Template.Tools[0].SubAgent)
+				} else {
+					require.Equal(t, binding, object.(*AgentTemplate).Spec.Tools[0].SubAgent)
+				}
+			})
+		}
 	}
 
 	for _, inlineTemplate := range []bool{false, true} {

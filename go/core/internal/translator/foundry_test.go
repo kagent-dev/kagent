@@ -50,7 +50,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				child.Name = "child"
 				template.Spec.ModelConfig.Name = "default-model"
 				template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
-					Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+					Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 				}}}
 				objects = append(objects, child, modelConfig())
 			case "memory":

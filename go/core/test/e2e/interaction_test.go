@@ -1087,8 +1087,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 				Name: "specialist", Description: "Handles specialist requests",
-				TemplateRef: corev1.LocalObjectReference{Name: child.Name},
-				Isolation:   v1alpha3.SubAgentToolIsolationShared,
+				TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}

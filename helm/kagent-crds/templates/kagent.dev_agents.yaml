@@ -585,7 +585,7 @@ spec:
                     type: object
                   tools:
                     items:
-                      description: ToolBinding selects exactly one MCP or AgentTemplate-backed
+                      description: ToolBinding selects exactly one MCP or subagent
                         tool source.
                       properties:
                         mcp:
@@ -642,30 +642,13 @@ spec:
                           - server
                           type: object
                         subAgent:
-                          description: SubAgentToolBinding exposes another same-namespace
-                            AgentTemplate as a logical tool.
+                          description: SubAgentToolBinding exposes a same-namespace
+                            AgentTemplate or Agent as a logical tool.
                           properties:
-                            description:
-                              description: Description tells the parent when to route
-                                work to this binding.
-                              minLength: 1
-                              type: string
-                            isolation:
-                              default: Shared
-                              description: SubAgentToolIsolation controls whether
-                                a referenced template shares its parent's runtime
-                                boundary.
-                              enum:
-                              - Shared
-                              - Dedicated
-                              type: string
-                            name:
-                              minLength: 1
-                              type: string
-                            templateRef:
+                            agentRef:
                               description: |-
-                                LocalObjectReference contains enough information to let you locate the
-                                referenced object inside the same namespace.
+                                AgentRef selects a Dedicated subagent with its own Harness and AgentInstance, invoked over A2A.
+                                Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
                               properties:
                                 name:
                                   default: ""
@@ -679,13 +662,42 @@ spec:
                               type: object
                               x-kubernetes-map-type: atomic
                               x-kubernetes-validations:
-                              - message: name must not be empty
+                              - message: agentRef.name must not be empty
+                                rule: has(self.name) && self.name != ''
+                            description:
+                              description: Description tells the parent when to route
+                                work to this binding.
+                              minLength: 1
+                              type: string
+                            name:
+                              minLength: 1
+                              type: string
+                            templateRef:
+                              description: TemplateRef selects a Shared subagent compiled
+                                into the parent's runtime using its Harness.
+                              properties:
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                              type: object
+                              x-kubernetes-map-type: atomic
+                              x-kubernetes-validations:
+                              - message: templateRef.name must not be empty
                                 rule: has(self.name) && self.name != ''
                           required:
                           - description
                           - name
-                          - templateRef
                           type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of templateRef or agentRef must be
+                              specified
+                            rule: has(self.templateRef) != has(self.agentRef)
                       type: object
                       x-kubernetes-validations:
                       - message: exactly one of mcp or subAgent must be specified

@@ -18,6 +18,10 @@ an inline spec (`template`, `harness`) or a local reference (`templateRef`,
 values, not overrides. References, including those inside inline specs, resolve in
 the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
 with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
+Each subagent selects exactly one of `templateRef` (Shared) or `agentRef`
+(Dedicated); there is no separate `isolation` field. An `agentRef` selects an
+Agent with its own Harness and conversation. Dedicated execution remains
+unsupported and is rejected during compilation.
 
 All three are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
