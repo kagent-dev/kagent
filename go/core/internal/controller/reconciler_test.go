@@ -9,6 +9,7 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
@@ -26,6 +27,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -323,6 +325,78 @@ func (s *fakeRuntimeRevisionStore) RetirePairIdentities(_ context.Context, names
 	return nil
 }
 
+func TestReconcilerUpdatesHarnessStatus(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test-harness-status-reconciler", nil)
+
+	harness := &kagentv1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "team-a",
+			Name:       "kagent",
+			Generation: 1,
+		},
+		Spec: kagentv1alpha3.HarnessSpec{
+			Substrate: kagentv1alpha3.HarnessSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"},
+			},
+		},
+	}
+	workerPool := &atev1alpha1.WorkerPool{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "team-a",
+			Name:      "default",
+		},
+	}
+
+	mock := krttest.NewMock(t, []any{harness, workerPool})
+	harnesses := krttest.GetMockCollection[*kagentv1alpha3.Harness](mock)
+	workerPools := krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock)
+	harnessStatuses := newHarnessStatuses(harnesses, workerPools, opts)
+
+	statusClient := kagentfake.NewSimpleClientset(harness.DeepCopy()).ApiV1alpha3()
+
+	collections := Collections{
+		Harnesses:             harnesses,
+		WorkerPools:           workerPools,
+		HarnessStatuses:       harnessStatuses,
+		AgentTemplates:        krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+		Reconciliations:       krttest.GetMockCollection[PairReconciliation](mock),
+		AgentTemplateStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]](mock),
+		ModelConfigStatuses:   krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
+	}
+
+	reconciler := newReconciler(
+		collections,
+		&fakeActorTemplates{},
+		&fakeRuntimeRevisionStore{},
+		statusClient,
+	)
+
+	go reconciler.Run(stop)
+
+	var updated *kagentv1alpha3.Harness
+	var err error
+	require.Eventually(t, func() bool {
+		updated, err = statusClient.Harnesses(harness.Namespace).Get(
+			context.Background(),
+			harness.Name,
+			metav1.GetOptions{},
+		)
+		if err != nil {
+			return false
+		}
+
+		condition := apimeta.FindStatusCondition(
+			updated.Status.Conditions,
+			kagentv1alpha3.HarnessConditionTypeReady,
+		)
+		return condition != nil &&
+			condition.Status == metav1.ConditionTrue &&
+			!condition.LastTransitionTime.IsZero()
+	}, 3*time.Second, 10*time.Millisecond)
+}
+
 func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
@@ -346,6 +420,9 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 	secrets := krt.NewStaticCollection(nil, []*corev1.Secret{secret}, opts.WithName("Secrets")...)
 	configMaps := krttest.GetMockCollection[*corev1.ConfigMap](mock)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
+	harnesses := krttest.GetMockCollection[*kagentv1alpha3.Harness](mock)
+	workerPools := krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock)
+	harnessStatuses := newHarnessStatuses(harnesses, workerPools, opts)
 
 	collections := Collections{
 		ModelConfigs:          modelConfigs,
@@ -356,6 +433,9 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		AgentTemplates:        krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 		Reconciliations:       krttest.GetMockCollection[PairReconciliation](mock),
 		AgentTemplateStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]](mock),
+		Harnesses:             harnesses,
+		WorkerPools:           workerPools,
+		HarnessStatuses:       harnessStatuses,
 	}
 
 	statusClient := kagentfake.NewSimpleClientset(modelConfig.DeepCopy()).ApiV1alpha3()

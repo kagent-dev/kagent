@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +34,45 @@ func newAgentTemplateStatuses(templates krt.Collection[*kagentv1alpha3.AgentTemp
 		}
 		return &kagentv1alpha3.AgentTemplateStatus{ObservedGeneration: template.Generation, Harnesses: statuses}, nil
 	}, opts.WithName("AgentTemplateStatuses")...)
+	return statuses
+}
+
+func newHarnessStatuses(
+	harnesses krt.Collection[*kagentv1alpha3.Harness],
+	workerPools krt.Collection[*atev1alpha1.WorkerPool],
+	opts krt.OptionsBuilder,
+) krt.StatusCollection[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus] {
+	statuses, _ := krt.NewStatusManyCollection(harnesses, func(ctx krt.HandlerContext, harness *kagentv1alpha3.Harness) (*kagentv1alpha3.HarnessStatus, []*atev1alpha1.WorkerPool) {
+		workerPoolKey := types.NamespacedName{
+			Namespace: harness.Namespace,
+			Name:      harness.Spec.Substrate.WorkerPoolRef.Name,
+		}
+		workerPool := krt.FetchOne(ctx, workerPools, krt.FilterObjectName(workerPoolKey))
+
+		status := &kagentv1alpha3.HarnessStatus{
+			ObservedGeneration: harness.Generation,
+		}
+
+		if workerPool == nil || *workerPool == nil {
+			status.Conditions = []metav1.Condition{{
+				Type:               kagentv1alpha3.HarnessConditionTypeReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             "WorkerPoolNotFound",
+				Message:            fmt.Sprintf("WorkerPool %q not found", workerPoolKey.String()),
+				ObservedGeneration: harness.Generation,
+			}}
+			return status, nil
+		}
+
+		status.Conditions = []metav1.Condition{{
+			Type:               kagentv1alpha3.HarnessConditionTypeReady,
+			Status:             metav1.ConditionTrue,
+			Reason:             "WorkerPoolResolved",
+			Message:            fmt.Sprintf("WorkerPool %q exists", workerPoolKey.String()),
+			ObservedGeneration: harness.Generation,
+		}}
+		return status, nil
+	}, opts.WithName("HarnessStatuses")...)
 	return statuses
 }
 
