@@ -281,8 +281,16 @@ publishing it as a LoadBalancer.
 **Its own cluster, deliberately, though that stands one up twice.** Sharing `test-e2e`'s
 was cheaper in machine time and more expensive in the only currency that matters here:
 the two suites ran in series, so the browser lane added its minutes to the job every
-other job waits on. Run beside it, a lane that takes about five minutes hides inside one
-that takes ten. The second cluster costs a runner, not wall-clock.
+other job waits on. Run beside it, the second cluster costs a runner rather than
+wall-clock.
+
+It has its own Blacksmith builder cache (`cache-key: kagent-e2e-ui`) rather than sharing
+`test-e2e`'s, so the two do not write one sticky disk while running at the same time.
+The cost is that its *first* run on a new key builds every image from an empty cache —
+measured at 332s against 47s for the same step on a warm one, which made that first run
+the longest job in the workflow. That is a one-off, and it is the thing to check first
+if this job ever looks slow: a cold sticky disk and a real regression look identical
+from the outside.
 
 Being its own job is also what lets it be cheap. It builds three images where `test-e2e`
 builds five — the controller, the UI and one runtime — because the harness *kinds* that
