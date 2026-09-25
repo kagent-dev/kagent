@@ -15,6 +15,9 @@ env: []
 
 imagePullSecrets: []
 
+# -- Optional annotations added to the agent's pod template.
+annotations: {}
+
 resources:
   requests:
     cpu: 100m
