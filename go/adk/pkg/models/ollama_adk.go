@@ -293,6 +293,10 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 				}{content: content})
 				continue
 			}
+
+			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				textParts = append(textParts, unsupportedImageNote(part.InlineData))
+			}
 		}
 
 		// Build message based on what we found

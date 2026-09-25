@@ -76,7 +76,12 @@ function statusFrame(options: {
   message?: {
     messageId: string;
     role: Role;
-    parts: (ReturnType<typeof text> | ReturnType<typeof data>)[];
+    parts: (
+      | ReturnType<typeof text>
+      | ReturnType<typeof data>
+      | { content: { case: "raw"; value: Uint8Array }; filename: string; mediaType: string }
+      | { content: { case: "url"; value: string }; filename: string; mediaType: string }
+    )[];
     metadata?: Record<string, unknown>;
     extensions?: string[];
   };
@@ -1350,5 +1355,90 @@ describe("A2AGrpcChatClient.history", () => {
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
     expect(messages.map((message) => textOf(message))).toEqual(["task-1", "task-2"]);
+  });
+});
+
+describe("A2AGrpcChatClient files", () => {
+  it("sends each file as a raw part, typed by extension when the browser says nothing", async () => {
+    let captured: SendMessageRequest | undefined;
+    serve(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* (request) {
+          captured = request;
+        },
+      });
+    });
+    const notes = new File(["# hi"], "notes.md", { type: "" });
+    for await (const event of new A2AGrpcChatClient().send({
+      conversation: CONVERSATION,
+      text: "",
+      files: [notes],
+    })) {
+      void event;
+    }
+    // Files alone: no empty text part ahead of them.
+    expect(captured?.message?.parts).toHaveLength(1);
+    const part = captured?.message?.parts[0];
+    expect(part?.content.case).toBe("raw");
+    expect(part?.filename).toBe("notes.md");
+    expect(part?.mediaType).toBe("text/markdown");
+    expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
+  });
+
+  it("renders a file the agent sent rather than dropping it", async () => {
+    const events = await turn([
+      statusFrame({
+        state: TaskState.WORKING,
+        message: {
+          messageId: "m-file",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "raw" as const, value: new TextEncoder().encode("ok") },
+              filename: "report.csv",
+              mediaType: "text/csv",
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.csv",
+        mediaType: "text/csv",
+        size: 2,
+        blob: expect.any(Blob),
+      },
+    ]);
+  });
+
+  it("names a linked file by its path and drops non-http links", async () => {
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-url",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "url" as const, value: "https://files.example/out/report.pdf?sig=abc" },
+              filename: "",
+              mediaType: "application/pdf",
+            },
+            { content: { case: "url" as const, value: "javascript:alert(1)" }, filename: "x.pdf", mediaType: "application/pdf" },
+            { content: { case: "url" as const, value: "data:text/html,<b>hi</b>" }, filename: "y.html", mediaType: "text/html" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.pdf",
+        mediaType: "application/pdf",
+        url: "https://files.example/out/report.pdf?sig=abc",
+      },
+    ]);
   });
 });

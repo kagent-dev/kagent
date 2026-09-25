@@ -13,6 +13,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
+	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
@@ -37,7 +38,7 @@ import (
 
 const (
 	DefaultBindAddress     = ":8083"
-	DefaultMaxMessageSize  = 16 << 20
+	DefaultMaxMessageSize  = client.DefaultGRPCMaxMessageSize
 	defaultShutdownTimeout = 5 * time.Second
 )
 

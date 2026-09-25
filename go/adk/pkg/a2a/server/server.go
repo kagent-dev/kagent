@@ -27,6 +27,7 @@ import (
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/stats"
 
+	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -91,8 +92,12 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 
-	grpcServer := grpc.NewServer(grpc.StatsHandler(rpcEndSignal{otelgrpc.NewServerHandler(
-		otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))}))
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(client.DefaultGRPCMaxMessageSize),
+		grpc.MaxSendMsgSize(client.DefaultGRPCMaxMessageSize),
+		grpc.StatsHandler(rpcEndSignal{otelgrpc.NewServerHandler(
+			otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))}),
+	)
 	a2agrpc.NewHandler(requestHandler).RegisterWith(grpcServer)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus(a2apb.A2AService_ServiceDesc.ServiceName, grpc_health_v1.HealthCheckResponse_SERVING)

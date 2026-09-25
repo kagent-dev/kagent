@@ -43,6 +43,7 @@ import { getChatClient } from "../chat";
 import { runtimeConfig } from "../runtimeConfig";
 import { randomId } from "../randomId";
 import { conversationKey } from "../chat/types";
+import { mediaTypeOf } from "../chat/attachments";
 import {
   IDLE_TURN,
   isActive,
@@ -113,7 +114,7 @@ export interface ChatController {
    * turned away for a reason nothing on screen explains.
    */
   pendingQuestion?: PendingRequest;
-  send: (text: string) => Promise<void>;
+  send: (text: string, files?: readonly File[]) => Promise<void>;
   cancel: () => Promise<void>;
   /**
    * Gives up a pending question without answering it.
@@ -205,7 +206,7 @@ export function useChat(
   // Refs, not state: cancelling and cleanup read these outside a render, and a
   // stale closure over them would abort the wrong turn.
   const abortRef = useRef<AbortController | null>(null);
-  const lastSentRef = useRef<string>("");
+  const lastSentRef = useRef<{ text: string; files?: readonly File[] }>({ text: "" });
   /*
    * The task the turn in flight is filed under, for cancelling it.
    *
@@ -257,8 +258,13 @@ export function useChat(
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const run = useCallback(
-    async (text: string, hitl?: Record<string, unknown>, displayParts?: ChatPart[]) => {
-      if (!conversation || !key || !text.trim()) return;
+    async (
+      text: string,
+      hitl?: Record<string, unknown>,
+      displayParts?: ChatPart[],
+      files?: readonly File[],
+    ) => {
+      if (!conversation || !key || (!text.trim() && !files?.length)) return;
 
       // Before anything is dispatched: a failure here means the turn never began,
       // and half-starting one would leave the transcript showing a message that was
@@ -271,7 +277,7 @@ export function useChat(
 
       const controller = new AbortController();
       abortRef.current = controller;
-      lastSentRef.current = text;
+      lastSentRef.current = { text, files };
 
       /*
        * Every event goes through the machine, and only through the machine.
@@ -311,7 +317,18 @@ export function useChat(
           // HITL decisions still carry fallback prose on the wire, but the transcript
           // renders the structured decision instead of showing protocol text as if it
           // were a new chat message.
-          parts: displayParts ?? [{ kind: "text", text }],
+          parts: displayParts ?? [
+            ...(text ? [{ kind: "text" as const, text }] : []),
+            ...(files ?? []).map(
+              (file): ChatPart => ({
+                kind: "file",
+                name: file.name,
+                mediaType: mediaTypeOf(file),
+                size: file.size,
+                blob: file,
+              }),
+            ),
+          ],
           createdAt: new Date().toISOString(),
         }),
       );
@@ -348,6 +365,7 @@ export function useChat(
         for await (const event of getChatClient().send({
           conversation,
           text,
+          files,
           messageId,
           // A conversation holding a question is answered by naming its turn. Read
           // from the ref rather than from the render's closure because `run` is
@@ -505,7 +523,14 @@ export function useChat(
   const activeTurn = turn.key === key ? turn : IDLE_TURN;
   const myQuestion = pending?.key === key ? pending : null;
 
-  const retry = useCallback(() => run(lastSentRef.current), [run]);
+  const retry = useCallback(
+    () => run(lastSentRef.current.text, undefined, undefined, lastSentRef.current.files),
+    [run],
+  );
+  const send = useCallback(
+    (text: string, files?: readonly File[]) => run(text, undefined, undefined, files),
+    [run],
+  );
 
   const refreshTranscript = useCallback(async () => {
     if (!conversation || !key) return;
@@ -588,7 +613,7 @@ export function useChat(
           ? ("streaming" as const)
           : ("idle" as const),
       pendingQuestion: myQuestion?.request,
-      send: run,
+      send,
       cancel,
       dismissQuestion,
       answerQuestion,
@@ -601,7 +626,7 @@ export function useChat(
       activeTurn,
       myQuestion,
       isDismissing,
-      run,
+      send,
       cancel,
       dismissQuestion,
       answerQuestion,

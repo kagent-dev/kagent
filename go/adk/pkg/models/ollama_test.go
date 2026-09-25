@@ -3,6 +3,7 @@ package models
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/genai"
@@ -261,4 +262,12 @@ func names(t *testing.T, tools []*genai.Tool) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+func TestConvertGenaiContentsToOllamaMessages_ImageOnlyUserTurnKeepsNote(t *testing.T) {
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", DisplayName: "cat.png"}}}}}
+	msgs, _ := convertGenaiContentsToOllamaMessages(contents, nil)
+	if len(msgs) != 1 || msgs[0].Role != "user" || !strings.Contains(msgs[0].Content, `[Image "cat.png" was not sent`) {
+		t.Errorf("messages = %+v, want one user message with the image note", msgs)
+	}
 }

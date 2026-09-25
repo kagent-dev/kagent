@@ -25,6 +25,16 @@ export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
   );
 }
 
+/** Whether a harness (`namespace/name`) takes files; undefined until known. Only kagent does. */
+export function useHarnessTakesFiles(ref?: string): boolean | undefined {
+  const namespace = ref?.split("/")[0];
+  const harnesses = useApiResource(namespace ? ["harnesses.list", namespace] : null, () =>
+    apiClient.agentBuildingBlocks.harnesses(namespace),
+  );
+  const harness = harnesses.data?.find((candidate) => candidate.ref === ref);
+  return harness && harness.runtime === "kagent";
+}
+
 /** The agent templates in one namespace, or in every observed namespace. */
 export function useAgentTemplates(namespace?: string): ApiResource<AgentTemplate[]> {
   return useApiResource(["agentTemplates.list", namespace ?? ""], () =>
