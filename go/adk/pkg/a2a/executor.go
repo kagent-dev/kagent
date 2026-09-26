@@ -246,7 +246,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
 		ctx = withBearerToken(ctx)
-		ctx = auth.WithUserID(ctx, userID)
+		// The synthetic ADK user ID is only a native session lookup key. Memory
+		// and outgoing credentials must receive only the passed-through caller.
+		ctx = auth.WithUserID(ctx, trustedUserID)
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
 		// through the request attribute span processor.

@@ -20,7 +20,8 @@ import (
 )
 
 // KagentMemoryService implements memory.Service by storing memories
-// via the Kagent backend API (backed by pgvector).
+// via the Kagent backend API (backed by pgvector). Memory ownership comes only
+// from the caller identity in context, never from ADK's local session keys.
 type KagentMemoryService struct {
 	agentName        string
 	controllerClient *controllerclient.Client
@@ -75,8 +76,12 @@ func New(cfg Config) (*KagentMemoryService, error) {
 // It extracts content from the session, optionally summarizes it, generates embeddings,
 // and stores it via the Kagent API.
 func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session adksession.Session) error {
+	userID, err := memoryUserID(ctx)
+	if err != nil {
+		return err
+	}
 	log := logging.FromContext(ctx)
-	log.DebugContext(ctx, "adding session to memory", "session_id", session.ID(), "user_id", session.UserID())
+	log.DebugContext(ctx, "adding session to memory", "session_id", session.ID(), "user_id", userID)
 
 	// Extract text content from session events
 	rawContent := s.extractSessionContent(session)
@@ -109,7 +114,7 @@ func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session ad
 
 	// Store each content item with its embedding
 	for i, content := range contents {
-		if err := s.storeMemory(ctx, session.UserID(), content, embeddings[i]); err != nil {
+		if err := s.storeMemory(ctx, content, embeddings[i]); err != nil {
 			return fmt.Errorf("failed to store memory %d: %w", i, err)
 		}
 	}
@@ -119,10 +124,10 @@ func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session ad
 }
 
 // storeMemory stores a single memory item via the Kagent API.
-func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content string, vector []float32) error {
-	// Native session keys survive forks; memory remains scoped to the caller.
-	if caller := auth.UserIDFromContext(ctx); caller != "" {
-		userID = caller
+func (s *KagentMemoryService) storeMemory(ctx context.Context, content string, vector []float32) error {
+	userID, err := memoryUserID(ctx)
+	if err != nil {
+		return err
 	}
 	memoryInput := &apiv1alpha1.SessionMemoryInput{
 		AgentName: s.agentName,
@@ -136,7 +141,7 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content s
 
 	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
 	defer cancel()
-	_, err := s.controllerClient.MemoryService().AddSession(callContext, &apiv1alpha1.MemoryServiceAddSessionRequest{Memory: memoryInput})
+	_, err = s.controllerClient.MemoryService().AddSession(callContext, &apiv1alpha1.MemoryServiceAddSessionRequest{Memory: memoryInput})
 	if err != nil {
 		return fmt.Errorf("add session memory: %w", err)
 	}
@@ -147,9 +152,9 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content s
 // SearchMemory implements memory.Service.SearchMemory.
 // It searches for relevant memories using vector similarity.
 func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
-	userID := req.UserID
-	if caller := auth.UserIDFromContext(ctx); caller != "" {
-		userID = caller
+	userID, err := memoryUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
 	log := logging.FromContext(ctx)
 	log.DebugContext(ctx, "searching memory", "user_id", userID)
@@ -205,6 +210,16 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 
 	log.InfoContext(ctx, "found memories", "count", len(memories))
 	return &memory.SearchResponse{Memories: memories}, nil
+}
+
+// ADK user IDs address native storage and may be the fixed "conversation" key.
+// Missing request identity must fail before any model, embedding, or memory RPC.
+func memoryUserID(ctx context.Context) (string, error) {
+	userID := auth.UserIDFromContext(ctx)
+	if userID == "" {
+		return "", fmt.Errorf("memory requires caller identity")
+	}
+	return userID, nil
 }
 
 // summarizeContent uses the LLM to extract key facts from conversation content.
