@@ -10,6 +10,9 @@ dependencies = [
     "uvicorn>=0.51.0",
 ]
 
+[project.scripts]
+basic-openai-agent = "basic_agent.agent:main"
+
 [tool.uv.sources]
 kagent-openai = { workspace = true }
 
