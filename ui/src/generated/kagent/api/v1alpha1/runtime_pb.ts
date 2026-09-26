@@ -9,7 +9,7 @@ import { enumDesc, fileDesc } from "@bufbuild/protobuf/codegenv2";
  * Describes the file kagent/api/v1alpha1/runtime.proto.
  */
 export const file_kagent_api_v1alpha1_runtime: GenFile = /*@__PURE__*/
-  fileDesc("CiFrYWdlbnQvYXBpL3YxYWxwaGExL3J1bnRpbWUucHJvdG8SE2thZ2VudC5hcGkudjFhbHBoYTEq0AEKDFJ1bnRpbWVTdGF0ZRIdChlSVU5USU1FX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWUlVOVElNRV9TVEFURV9DUkVBVElORxABEhcKE1JVTlRJTUVfU1RBVEVfUkVBRFkQAhIbChdSVU5USU1FX1NUQVRFX1NVU1BFTkRFRBADEhgKFFJVTlRJTUVfU1RBVEVfRkFJTEVEEAQSGgoWUlVOVElNRV9TVEFURV9ERUxFVElORxAFEhkKFVJVTlRJTUVfU1RBVEVfREVMRVRFRBAGKqcBChBSdW50aW1lT3BlcmF0aW9uEhoKFlJVTlRJTUVfT1BFUkFUSU9OX05PTkUQABIcChhSVU5USU1FX09QRVJBVElPTl9DUkVBVEUQARIdChlSVU5USU1FX09QRVJBVElPTl9TVVNQRU5EEAISHAoYUlVOVElNRV9PUEVSQVRJT05fUkVTVU1FEAMSHAoYUlVOVElNRV9PUEVSQVRJT05fREVMRVRFEARCSVpHZ2l0aHViLmNvbS9rYWdlbnQtZGV2L2thZ2VudC9nby9hcGkvZ2VuL2thZ2VudC9hcGkvdjFhbHBoYTE7YXBpdjFhbHBoYTFiBnByb3RvMw");
+  fileDesc("CiFrYWdlbnQvYXBpL3YxYWxwaGExL3J1bnRpbWUucHJvdG8SE2thZ2VudC5hcGkudjFhbHBoYTEq0AEKDFJ1bnRpbWVTdGF0ZRIdChlSVU5USU1FX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWUlVOVElNRV9TVEFURV9DUkVBVElORxABEhcKE1JVTlRJTUVfU1RBVEVfUkVBRFkQAhIbChdSVU5USU1FX1NUQVRFX1NVU1BFTkRFRBADEhgKFFJVTlRJTUVfU1RBVEVfRkFJTEVEEAQSGgoWUlVOVElNRV9TVEFURV9ERUxFVElORxAFEhkKFVJVTlRJTUVfU1RBVEVfREVMRVRFRBAGKsoBChBSdW50aW1lT3BlcmF0aW9uEiEKHVJVTlRJTUVfT1BFUkFUSU9OX1VOU1BFQ0lGSUVEEAASHAoYUlVOVElNRV9PUEVSQVRJT05fQ1JFQVRFEAESHQoZUlVOVElNRV9PUEVSQVRJT05fU1VTUEVORBACEhwKGFJVTlRJTUVfT1BFUkFUSU9OX1JFU1VNRRADEhwKGFJVTlRJTUVfT1BFUkFUSU9OX0RFTEVURRAEEhoKFlJVTlRJTUVfT1BFUkFUSU9OX05PTkUQBUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z");
 
 /**
  * RuntimeState is shared by Sessions and Sandboxes. Its names are also the
@@ -61,16 +61,15 @@ export const RuntimeStateSchema: GenEnum<RuntimeState> = /*@__PURE__*/
   enumDesc(file_kagent_api_v1alpha1_runtime, 0);
 
 /**
- * RuntimeOperation identifies active lifecycle work. RUNTIME_OPERATION_NONE means
- * no operation.
+ * RuntimeOperation identifies active lifecycle work.
  *
  * @generated from enum kagent.api.v1alpha1.RuntimeOperation
  */
 export enum RuntimeOperation {
   /**
-   * @generated from enum value: RUNTIME_OPERATION_NONE = 0;
+   * @generated from enum value: RUNTIME_OPERATION_UNSPECIFIED = 0;
    */
-  NONE = 0,
+  UNSPECIFIED = 0,
 
   /**
    * @generated from enum value: RUNTIME_OPERATION_CREATE = 1;
@@ -91,6 +90,13 @@ export enum RuntimeOperation {
    * @generated from enum value: RUNTIME_OPERATION_DELETE = 4;
    */
   DELETE = 4,
+
+  /**
+   * No lifecycle operation is active.
+   *
+   * @generated from enum value: RUNTIME_OPERATION_NONE = 5;
+   */
+  NONE = 5,
 }
 
 /**

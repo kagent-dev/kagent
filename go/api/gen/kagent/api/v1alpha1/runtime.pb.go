@@ -84,33 +84,36 @@ func (RuntimeState) EnumDescriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_runtime_proto_rawDescGZIP(), []int{0}
 }
 
-// RuntimeOperation identifies active lifecycle work. RUNTIME_OPERATION_NONE means
-// no operation.
+// RuntimeOperation identifies active lifecycle work.
 type RuntimeOperation int32
 
 const (
-	RuntimeOperation_RUNTIME_OPERATION_NONE    RuntimeOperation = 0
-	RuntimeOperation_RUNTIME_OPERATION_CREATE  RuntimeOperation = 1
-	RuntimeOperation_RUNTIME_OPERATION_SUSPEND RuntimeOperation = 2
-	RuntimeOperation_RUNTIME_OPERATION_RESUME  RuntimeOperation = 3
-	RuntimeOperation_RUNTIME_OPERATION_DELETE  RuntimeOperation = 4
+	RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED RuntimeOperation = 0
+	RuntimeOperation_RUNTIME_OPERATION_CREATE      RuntimeOperation = 1
+	RuntimeOperation_RUNTIME_OPERATION_SUSPEND     RuntimeOperation = 2
+	RuntimeOperation_RUNTIME_OPERATION_RESUME      RuntimeOperation = 3
+	RuntimeOperation_RUNTIME_OPERATION_DELETE      RuntimeOperation = 4
+	// No lifecycle operation is active.
+	RuntimeOperation_RUNTIME_OPERATION_NONE RuntimeOperation = 5
 )
 
 // Enum value maps for RuntimeOperation.
 var (
 	RuntimeOperation_name = map[int32]string{
-		0: "RUNTIME_OPERATION_NONE",
+		0: "RUNTIME_OPERATION_UNSPECIFIED",
 		1: "RUNTIME_OPERATION_CREATE",
 		2: "RUNTIME_OPERATION_SUSPEND",
 		3: "RUNTIME_OPERATION_RESUME",
 		4: "RUNTIME_OPERATION_DELETE",
+		5: "RUNTIME_OPERATION_NONE",
 	}
 	RuntimeOperation_value = map[string]int32{
-		"RUNTIME_OPERATION_NONE":    0,
-		"RUNTIME_OPERATION_CREATE":  1,
-		"RUNTIME_OPERATION_SUSPEND": 2,
-		"RUNTIME_OPERATION_RESUME":  3,
-		"RUNTIME_OPERATION_DELETE":  4,
+		"RUNTIME_OPERATION_UNSPECIFIED": 0,
+		"RUNTIME_OPERATION_CREATE":      1,
+		"RUNTIME_OPERATION_SUSPEND":     2,
+		"RUNTIME_OPERATION_RESUME":      3,
+		"RUNTIME_OPERATION_DELETE":      4,
+		"RUNTIME_OPERATION_NONE":        5,
 	}
 )
 
@@ -153,13 +156,14 @@ const file_kagent_api_v1alpha1_runtime_proto_rawDesc = "" +
 	"\x17RUNTIME_STATE_SUSPENDED\x10\x03\x12\x18\n" +
 	"\x14RUNTIME_STATE_FAILED\x10\x04\x12\x1a\n" +
 	"\x16RUNTIME_STATE_DELETING\x10\x05\x12\x19\n" +
-	"\x15RUNTIME_STATE_DELETED\x10\x06*\xa7\x01\n" +
-	"\x10RuntimeOperation\x12\x1a\n" +
-	"\x16RUNTIME_OPERATION_NONE\x10\x00\x12\x1c\n" +
+	"\x15RUNTIME_STATE_DELETED\x10\x06*\xca\x01\n" +
+	"\x10RuntimeOperation\x12!\n" +
+	"\x1dRUNTIME_OPERATION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18RUNTIME_OPERATION_CREATE\x10\x01\x12\x1d\n" +
 	"\x19RUNTIME_OPERATION_SUSPEND\x10\x02\x12\x1c\n" +
 	"\x18RUNTIME_OPERATION_RESUME\x10\x03\x12\x1c\n" +
-	"\x18RUNTIME_OPERATION_DELETE\x10\x04BIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
+	"\x18RUNTIME_OPERATION_DELETE\x10\x04\x12\x1a\n" +
+	"\x16RUNTIME_OPERATION_NONE\x10\x05BIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
 
 var (
 	file_kagent_api_v1alpha1_runtime_proto_rawDescOnce sync.Once

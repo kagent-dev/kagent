@@ -163,7 +163,7 @@ func (x *Sandbox) GetOperation() RuntimeOperation {
 	if x != nil {
 		return x.Operation
 	}
-	return RuntimeOperation_RUNTIME_OPERATION_NONE
+	return RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED
 }
 
 func (x *Sandbox) GetFailure() *Failure {
