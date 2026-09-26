@@ -30,11 +30,6 @@ service SandboxService {
   rpc DeleteSandbox(DeleteSandboxRequest) returns (DeleteSandboxResponse);
 }
 
-message GuestCapabilities {
-  bool process_execution = 1;
-  bool file_access = 2;
-}
-
 message Sandbox {
   string id = 1;
   string creator = 2;
@@ -47,7 +42,6 @@ message Sandbox {
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp updated_at = 10;
   google.protobuf.Timestamp expires_at = 11;
-  GuestCapabilities guest = 12;
 }
 
 message CreateSandboxRequest {
