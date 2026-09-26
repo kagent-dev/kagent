@@ -18,6 +18,22 @@ tests:
       - hasDocuments:
           count: 1
 
+  - it: should reject operator-managed Kagent Secrets during bootstrap
+    template: controller-deployment.yaml
+    set:
+      database.postgres.secretRef.name: custom-kagent
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.secretRef.name requires database.postgres.bundled.bootstrap=false
+
+  - it: should reject custom Kagent roles during bootstrap
+    template: controller-deployment.yaml
+    set:
+      database.postgres.role: tenant_owner
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.role must be kagent_owner while bundled bootstrap is enabled
+
   - it: should render the controller deployment with custom replica count
     template: controller-deployment.yaml
     set:
@@ -123,6 +139,12 @@ tests:
   - it: should configure substrate ate-api mTLS when substrate is enabled
     template: controller-deployment.yaml
     set:
+      database:
+        postgres:
+          secretRef:
+            name: external-postgres
+          bundled:
+            enabled: false
       controller:
         substrate:
           enabled: true
@@ -144,26 +166,23 @@ tests:
             name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
             value: /run/substrate-podidentity/credential-bundle.pem
       - equal:
-          path: spec.template.spec.volumes[0].name
+          path: spec.template.spec.volumes[1].name
           value: substrate-servicedns
       - equal:
-          path: spec.template.spec.volumes[0].projected.sources[0].clusterTrustBundle.signerName
-          value: servicedns.podcert.ate.dev/identity
-      - equal:
-          path: spec.template.spec.volumes[1].projected.sources[0].podCertificate.signerName
-          value: podidentity.podcert.ate.dev/identity
-      - equal:
-          path: spec.template.spec.volumes[1].projected.sources[0].podCertificate.credentialBundlePath
-          value: credential-bundle.pem
-      - equal:
-          path: spec.template.spec.containers[0].volumeMounts[0].name
-          value: substrate-servicedns
-      - equal:
-          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
-          value: /run/substrate-servicedns
-      - equal:
-          path: spec.template.spec.containers[0].volumeMounts[1].mountPath
-          value: /run/substrate-podidentity
+          path: spec.template.spec.volumes[2].name
+          value: substrate-podidentity
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: substrate-servicedns
+            mountPath: /run/substrate-servicedns
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: substrate-podidentity
+            mountPath: /run/substrate-podidentity
+            readOnly: true
 
   - it: should set KAGENT_GATEWAY_URL with computed default value
     template: controller-configmap.yaml
@@ -557,64 +576,238 @@ tests:
             name: extra-data
             mountPath: /extra
 
-  - it: should not render volumes or volumeMounts sections when none are configured
+  - it: should always mount the database Secret
     template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          secretRef:
+            name: external-postgres
+          bundled:
+            enabled: false
     asserts:
-      - isNull:
-          path: spec.template.spec.volumes
-      - isNull:
-          path: spec.template.spec.containers[0].volumeMounts
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].secret.name
+          value: external-postgres
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].name
+          value: postgres-connection
 
   # =============================================================================
   # Database Configuration Tests
   # =============================================================================
 
-  - it: should set POSTGRES_PASSWORD from secret and POSTGRES_DATABASE_URL with bundled connection string by default
+  - it: should reject a nonboolean bootstrap value
+    template: controller-deployment.yaml
+    set:
+      database.postgres.bundled.bootstrap: disabled
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.bundled.bootstrap must be true or false
+
+  - it: should reject the old bootstrap location
+    template: controller-deployment.yaml
+    set:
+      database.postgres.bootstrap: false
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.bootstrap moved to database.postgres.bundled.bootstrap
+
+  - it: should use existing users with bundled PostgreSQL when bootstrap is disabled
+    template: controller-deployment.yaml
+    set:
+      database.postgres.bundled.bootstrap: false
+      database.postgres.secretRef.name: existing-kagent
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_DATABASE_BOOTSTRAP
+            value: "false"
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
+
+  - it: should require an application Secret when bundled bootstrap is disabled
+    template: controller-deployment.yaml
+    set:
+      database.postgres.bundled.bootstrap: false
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.secretRef.name is required when bootstrap is disabled
+
+  - it: should use the managed Kagent Secret by default
     template: controller-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_PASSWORD
+            name: POSTGRES_DATABASE_URL
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+      - notExists:
+          path: spec.template.spec.initContainers
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_DATABASE_BOOTSTRAP
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgres-admin
+            mountPath: /var/run/secrets/kagent/postgres-admin
+            readOnly: true
+
+  - it: should use an external database Secret
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          secretRef:
+            name: external-postgres
+          bundled:
+            enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+
+  - it: should keep the managed Kagent Secret when Substrate is enabled
+    template: controller-deployment.yaml
+    set:
+      substrate:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+
+  - it: should keep an explicitly separate Substrate database Secret separate
+    template: controller-deployment.yaml
+    set:
+      substrate:
+        enabled: true
+        postgres:
+          bootstrap: false
+          readWriteConnectionStringSecretRef:
+            name: substrate-db
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
             valueFrom:
               secretKeyRef:
-                name: RELEASE-NAME-postgresql
-                key: POSTGRES_PASSWORD
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL
-            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
+                name: substrate-db
+                key: connectionString
 
-  - it: should set POSTGRES_DATABASE_URL with external url when url is set
+  - it: should read an external database URL from a Secret
     template: controller-deployment.yaml
     set:
       database:
         postgres:
-          url: "postgres://user:pass@external-host:5432/db"
+          bundled:
+            enabled: false
+          secretRef:
+            name: external-postgres
+            key: url
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_DATABASE_URL
-            value: "postgres://user:pass@external-host:5432/db"
-
-  - it: should set POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile is set
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          urlFile: "/var/secrets/db-url"
-    asserts:
-      - contains:
+            value: "@file:/var/run/secrets/kagent/postgres/connection-string"
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL_FILE
-            value: "/var/secrets/db-url"
+            name: POSTGRES_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: external-postgres
+                key: url
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            projected:
+              sources:
+                - secret:
+                    name: external-postgres
+                    items:
+                      - key: url
+                        path: connection-string
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgres-connection
+            mountPath: /var/run/secrets/kagent/postgres
+            readOnly: true
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts[0].subPath
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_DATABASE_BOOTSTRAP
+            value: "false"
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
+
+  - it: should keep Kagent separate from Substrate read/write and owner Secrets
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          bundled:
+            enabled: false
+          secretRef:
+            name: kagent-db
+            key: kagent-url
+      substrate:
+        enabled: true
+        postgres:
+          bootstrap: false
+          readWriteConnectionStringSecretRef:
+            name: substrate-readwrite-db
+            key: readwrite-url
+          ownerConnectionStringSecretRef:
+            name: substrate-owner-db
+            key: owner-url
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            projected:
+              sources:
+                - secret:
+                    name: kagent-db
+                    items:
+                      - key: kagent-url
+                        path: connection-string
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: substrate-readwrite-db
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-connection
+            secret:
+              secretName: substrate-owner-db
 
   - it: should set DATABASE_VECTOR_ENABLED to false by default
     template: controller-configmap.yaml
@@ -633,6 +826,56 @@ tests:
       - equal:
           path: data.DATABASE_VECTOR_ENABLED
           value: "true"
+
+  - it: should set the default PostgreSQL role
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.POSTGRES_DATABASE_ROLE
+          value: kagent_owner
+
+  - it: should set a BYO PostgreSQL role
+    template: controller-configmap.yaml
+    set:
+      database.postgres.bundled.bootstrap: false
+      database.postgres.secretRef.name: tenant-postgres
+      database.postgres.role: tenant_owner
+    asserts:
+      - equal:
+          path: data.POSTGRES_DATABASE_ROLE
+          value: tenant_owner
+
+  - it: should use the kagent PostgreSQL schema by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.POSTGRES_DATABASE_SCHEMA
+          value: kagent
+
+  - it: should allow a custom PostgreSQL schema
+    template: controller-configmap.yaml
+    set:
+      database.postgres.schema: kagent_custom
+    asserts:
+      - equal:
+          path: data.POSTGRES_DATABASE_SCHEMA
+          value: kagent_custom
+
+  - it: should use the extensions schema for pgvector by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.POSTGRES_VECTOR_SCHEMA
+          value: extensions
+
+  - it: should allow an existing pgvector extension in public
+    template: controller-configmap.yaml
+    set:
+      database.postgres.vectorSchema: public
+    asserts:
+      - equal:
+          path: data.POSTGRES_VECTOR_SCHEMA
+          value: public
 
   - it: should not set DB pool env vars by default
     template: controller-configmap.yaml
@@ -676,75 +919,25 @@ tests:
       - notExists:
           path: data.POSTGRES_DATABASE_URL
 
-  - it: should not set POSTGRES_PASSWORD when url is set and bundled is enabled
+  - it: should reject the removed url value
     template: controller-deployment.yaml
     set:
       database:
         postgres:
           url: "postgres://user:pass@external-host:5432/db"
-          bundled:
-            enabled: true
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
+      - failedTemplate:
+          errorMessage: "database.postgres.url has been removed; use database.postgres.secretRef.{name,key}"
 
-  - it: should not set POSTGRES_PASSWORD when url is set and bundled is disabled
+  - it: should reject the removed urlFile value
     template: controller-deployment.yaml
     set:
       database:
         postgres:
-          url: "postgres://user:pass@external-host:5432/db"
-          bundled:
-            enabled: false
+          urlFile: /var/secrets/db-url
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
-
-  - it: should set POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile and bundled are both enabled
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          urlFile: "/var/secrets/db-url"
-          bundled:
-            enabled: true
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL_FILE
-            value: "/var/secrets/db-url"
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL
-
-  - it: should set external POSTGRES_DATABASE_URL and omit POSTGRES_PASSWORD when url and bundled are both enabled
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          url: "postgres://user:pass@external-host:5432/db"
-          bundled:
-            enabled: true
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL
-            value: "postgres://user:pass@external-host:5432/db"
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
+      - failedTemplate:
+          errorMessage: "database.postgres.urlFile has been removed; use database.postgres.secretRef.{name,key}"
 
   - it: should use default httpGet startup probe
     template: controller-deployment.yaml

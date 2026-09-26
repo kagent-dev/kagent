@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"reflect"
 	"testing"
+	"time"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
@@ -149,6 +150,38 @@ func TestNamespaceCache(t *testing.T) {
 	}
 	if _, ok := got["team-b"]; !ok {
 		t.Fatal("namespaceCache() missing team-b")
+	}
+}
+
+func TestPostgresConfigFromEnv(t *testing.T) {
+	t.Setenv("DB_MAX_CONNS", "8")
+	t.Setenv("DB_MIN_CONNS", "1")
+	t.Setenv("DB_MAX_CONN_IDLE_TIME", "1m")
+	t.Setenv("DB_MAX_CONN_LIFETIME", "10m")
+	t.Setenv("POSTGRES_DATABASE_ROLE", "kagent_app")
+	t.Setenv("POSTGRES_DATABASE_SCHEMA", "kagent_test")
+
+	config := postgresConfigFromEnv("@file:/database/connection-string", true)
+	if config.URL != "@file:/database/connection-string" || !config.VectorEnabled {
+		t.Fatalf("postgres config lost connection source or vector setting: %#v", config)
+	}
+	if config.Role != "kagent_app" {
+		t.Fatalf("Role = %q, want kagent_app", config.Role)
+	}
+	if config.Schema != "kagent_test" {
+		t.Fatalf("Schema = %q, want kagent_test", config.Schema)
+	}
+	if config.MaxConns == nil || *config.MaxConns != 8 {
+		t.Fatalf("MaxConns = %v, want 8", config.MaxConns)
+	}
+	if config.MinConns == nil || *config.MinConns != 1 {
+		t.Fatalf("MinConns = %v, want 1", config.MinConns)
+	}
+	if config.MaxConnIdleTime == nil || *config.MaxConnIdleTime != time.Minute {
+		t.Fatalf("MaxConnIdleTime = %v, want 1m", config.MaxConnIdleTime)
+	}
+	if config.MaxConnLifetime == nil || *config.MaxConnLifetime != 10*time.Minute {
+		t.Fatalf("MaxConnLifetime = %v, want 10m", config.MaxConnLifetime)
 	}
 }
 

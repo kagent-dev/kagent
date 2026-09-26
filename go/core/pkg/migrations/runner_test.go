@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -70,6 +71,7 @@ func startTestDB(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("get PostgreSQL URL: %v", err)
 	}
+	execSQL(t, dsn, "CREATE EXTENSION vector WITH SCHEMA public")
 	return dsn
 }
 
@@ -192,9 +194,107 @@ func TestRunUpAndDown(t *testing.T) {
 	}
 }
 
+func TestRunUpAsStableRole(t *testing.T) {
+	dsn := startTestDB(t)
+	execSQL(t, dsn, `
+		CREATE ROLE kagent_app NOLOGIN;
+		CREATE ROLE kagent_login LOGIN PASSWORD 'rotating-password';
+		GRANT kagent_app TO kagent_login;
+		GRANT USAGE, CREATE ON SCHEMA public TO kagent_app`)
+	t.Cleanup(func() {
+		execSQL(t, dsn, `
+			DROP TABLE IF EXISTS migration_test, test_schema_migrations;
+			REVOKE ALL ON SCHEMA public FROM kagent_app;
+			DROP ROLE IF EXISTS kagent_login;
+			DROP ROLE IF EXISTS kagent_app`)
+	})
+
+	loginURL, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginURL.User = url.UserPassword("kagent_login", "rotating-password")
+	query := loginURL.Query()
+	query.Set("pool_max_conns", "4")
+	loginURL.RawQuery = query.Encode()
+	if err := RunUpAsRole(t.Context(), loginURL.String(), "kagent_app", []Source{testSource(twoMigrationFS)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigratedAsRole(t.Context(), loginURL.String(), "kagent_app", []Source{testSource(twoMigrationFS)}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var owner string
+	if err := db.QueryRowContext(t.Context(), `SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'migration_test'::regclass`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "kagent_app" {
+		t.Fatalf("migration table owner = %q, want kagent_app", owner)
+	}
+}
+
+func TestCustomSchemaUsesConfiguredVectorSchema(t *testing.T) {
+	dsn := startTestDB(t)
+	execSQL(t, dsn, `DROP EXTENSION vector; CREATE SCHEMA extensions; CREATE EXTENSION vector WITH SCHEMA extensions`)
+	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
+	migrationURL, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := migrationURL.Query()
+	query.Set("pool_max_conns", "4")
+	migrationURL.RawQuery = query.Encode()
+	if err := RunUp(t.Context(), migrationURL.String(), sources); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigrated(t.Context(), migrationURL.String(), sources); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"memory", coreTrackingTable, vectorTrackingTable} {
+		if !testTableExists(t, dsn, "tenant_one."+table) {
+			t.Fatalf("%s was not created in tenant_one", table)
+		}
+		if testTableExists(t, dsn, "public."+table) || testTableExists(t, dsn, "extensions."+table) {
+			t.Fatalf("%s was created outside tenant_one", table)
+		}
+	}
+}
+
+func TestCustomSchemaMustBeAccessible(t *testing.T) {
+	dsn := startTestDB(t)
+	execSQL(t, dsn, `CREATE SCHEMA locked; REVOKE ALL ON SCHEMA locked FROM PUBLIC; CREATE ROLE blocked NOLOGIN`)
+	source := testSource(twoMigrationFS)
+	source.Schema = "locked"
+	if err := RunUpAsRole(t.Context(), dsn, "blocked", []Source{source}); err == nil || !strings.Contains(err.Error(), `migration schema "locked" is not accessible`) {
+		t.Fatalf("RunUpAsRole error = %v", err)
+	}
+	if testTableExists(t, dsn, "public."+source.TrackingTable) || testTableExists(t, dsn, "public.migration_test") {
+		t.Fatal("migration wrote into public")
+	}
+}
+
+func TestPgvectorSchemaMismatchFailsBeforeMigrations(t *testing.T) {
+	dsn := startTestDB(t)
+	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
+	if err := RunUp(t.Context(), dsn, sources); err == nil || !strings.Contains(err.Error(), `installed in schema "public", expected "extensions"`) {
+		t.Fatalf("RunUp error = %v", err)
+	}
+	if err := VerifyMigrated(t.Context(), dsn, sources); err == nil || !strings.Contains(err.Error(), `installed in schema "public", expected "extensions"`) {
+		t.Fatalf("VerifyMigrated error = %v", err)
+	}
+	if testTableExists(t, dsn, "tenant_one."+coreTrackingTable) {
+		t.Fatal("core migration ran before the pgvector schema precheck")
+	}
+}
+
 func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	dsn := startTestDB(t)
-	sources := BuiltinSources(true)
+	sources := BuiltinSourcesInSchema(true, "public", "public")
 
 	if err := RunUp(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial RunUp: %v", err)
@@ -439,6 +539,7 @@ func TestValidateSources(t *testing.T) {
 		{Name: "", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
 		{Name: "test", TrackingTable: "Bad-Table", FS: valid.FS, Dir: valid.Dir},
 		{Name: "test", Schema: "Bad-Schema", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
+		{Name: "test", VectorSchema: "public", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
 	}
 	for _, source := range tests {
 		if err := validateSources([]Source{source}); err == nil {
@@ -464,17 +565,51 @@ func TestBuiltinTrackingTables(t *testing.T) {
 	if sources[1].TrackingTable != vectorTrackingTable {
 		t.Fatalf("vector source = %+v", sources[1])
 	}
+	if sources[0].Schema != "kagent" || sources[1].VectorSchema != "extensions" {
+		t.Fatalf("default schemas = %q, %q", sources[0].Schema, sources[1].VectorSchema)
+	}
+}
+
+func TestBuiltinSourcesInSchema(t *testing.T) {
+	sources := BuiltinSourcesInSchema(true, "tenant_schema", "shared_extensions")
+	for _, source := range sources {
+		if source.Schema != "tenant_schema" {
+			t.Fatalf("source %q schema = %q", source.Name, source.Schema)
+		}
+		if source.VectorSchema != "shared_extensions" {
+			t.Fatalf("source %q vector schema = %q", source.Name, source.VectorSchema)
+		}
+	}
+	defaults := BuiltinSourcesInSchema(true, "", "")
+	if defaults[0].Schema != "kagent" || defaults[1].VectorSchema != "extensions" {
+		t.Fatalf("default schemas = %q, %q", defaults[0].Schema, defaults[1].VectorSchema)
+	}
 }
 
 func TestWithSearchPath(t *testing.T) {
-	got, err := withSearchPath("postgres://u:p@host/db?sslmode=disable", "tenant_1")
+	got, err := withSearchPath("postgres://u:p@host/db?sslmode=disable", "tenant_1", "extensions")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "search_path=tenant_1") || !strings.Contains(got, "sslmode=disable") {
-		t.Fatalf("URL = %q", got)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := withSearchPath("mysql://host/db", "tenant_1"); err == nil {
+	if parsed.Query().Get("search_path") != `"tenant_1"` || parsed.Query().Get("kagent.vector_schema") != "extensions" || parsed.Query().Get("sslmode") != "disable" {
+		t.Fatalf("URL query = %q", parsed.RawQuery)
+	}
+	got, err = withSearchPath("postgres://u:p@host/db?kagent.vector_schema=other", "", "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Query().Has("search_path") || parsed.Query().Get("kagent.vector_schema") != "public" {
+		t.Fatalf("URL query = %q", parsed.RawQuery)
+	}
+	if _, err := withSearchPath("mysql://host/db", "tenant_1", "extensions"); err == nil {
 		t.Fatal("withSearchPath accepted MySQL")
 	}
 }

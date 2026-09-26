@@ -114,7 +114,7 @@ func applyEmbeddedMigrations(t *testing.T, env upgradeEnv, database string, vect
 	defer stop()
 
 	url := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/%s?sslmode=disable", localPort, database)
-	require.NoError(t, migrations.RunUp(t.Context(), url, migrations.BuiltinSources(vectorEnabled)),
+	require.NoError(t, migrations.RunUp(t.Context(), url, migrations.BuiltinSourcesInSchema(vectorEnabled, "public", "public")),
 		"apply embedded migrations to database %s", database)
 }
 
@@ -125,7 +125,7 @@ func migrateEmbeddedSourcesTo(t *testing.T, env upgradeEnv, targets map[string]i
 	defer stop()
 	url := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/kagent?sslmode=disable", localPort)
 
-	for _, source := range slices.Backward(migrations.BuiltinSources(vectorEnabled)) {
+	for _, source := range slices.Backward(migrations.BuiltinSourcesInSchema(vectorEnabled, "public", "public")) {
 		target, ok := targets[source.Name]
 		require.True(t, ok, "missing rollback target for migration source %s", source.Name)
 		err := migrations.WithProvider(t.Context(), url, source, func(provider *goose.Provider) error {

@@ -52,6 +52,9 @@ data:
   {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
+  POSTGRES_DATABASE_ROLE: {{ .Values.database.postgres.role | quote }}
+  POSTGRES_DATABASE_SCHEMA: {{ .Values.database.postgres.schema | quote }}
+  POSTGRES_VECTOR_SCHEMA: {{ .Values.database.postgres.vectorSchema | quote }}
   {{- with .Values.database.postgres.pool }}
   {{- if and (hasKey . "maxConns") (ne .maxConns nil) }}
   DB_MAX_CONNS: {{ .maxConns | quote }}

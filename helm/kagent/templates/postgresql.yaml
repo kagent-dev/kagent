@@ -87,22 +87,23 @@ spec:
             - name: POSTGRES_DB
               value: "kagent"
             - name: POSTGRES_USER
-              value: "kagent"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.postgres.adminSecretName" . }}
+                  key: {{ .Values.database.postgres.bundled.adminSecretRef.usernameKey }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "kagent.passwordSecretName" . }}
-                  key: POSTGRES_PASSWORD
+                  name: {{ include "kagent.postgres.adminSecretName" . }}
+                  key: {{ .Values.database.postgres.bundled.adminSecretRef.passwordKey }}
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           livenessProbe:
             exec:
               command:
-                - pg_isready
-                - -U
-                - kagent
-                - -d
-                - kagent
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5
@@ -111,11 +112,9 @@ spec:
           readinessProbe:
             exec:
               command:
-                - pg_isready
-                - -U
-                - kagent
-                - -d
-                - kagent
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

@@ -22,9 +22,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func main() {
@@ -35,6 +38,17 @@ func main() {
 	logger := slog.Default()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	switch os.Getenv("KAGENT_DATABASE_BOOTSTRAP") {
+	case "", "false":
+	case "true":
+		if err := runDatabaseBootstrap(ctx); err != nil {
+			logger.ErrorContext(ctx, "database bootstrap failed", "error", err)
+			os.Exit(1)
+		}
+	default:
+		logger.ErrorContext(ctx, "invalid database bootstrap value")
+		os.Exit(1)
+	}
 
 	// No options: core's own controller runs with the default authenticator and
 	// authorizer. A library consumer supplies its own by calling app.Run directly.
@@ -42,4 +56,38 @@ func main() {
 		logger.ErrorContext(ctx, "controller stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func runDatabaseBootstrap(ctx context.Context) error {
+	adminUsername, err := readRequiredFile("POSTGRES_ADMIN_USERNAME_FILE")
+	if err != nil {
+		return err
+	}
+	adminPassword, err := readRequiredFile("POSTGRES_ADMIN_PASSWORD_FILE")
+	if err != nil {
+		return err
+	}
+	return database.Bootstrap(ctx, database.BootstrapConfig{
+		EndpointSource: os.Getenv("POSTGRES_DATABASE_URL"),
+		AdminUsername:  adminUsername,
+		AdminPassword:  adminPassword,
+		Schema:         kagentenv.DatabaseSchema.Get(),
+		VectorEnabled:  kagentenv.DatabaseVectorEnabled.Get(),
+		VectorSchema:   kagentenv.DatabaseVectorSchema.Get(),
+	})
+}
+
+func readRequiredFile(envName string) (string, error) {
+	path := os.Getenv(envName)
+	if path == "" {
+		return "", fmt.Errorf("%s must name a credential file", envName)
+	}
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", envName, err)
+	}
+	if value := strings.TrimSpace(string(value)); value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("%s credential file is empty", envName)
 }

@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	db, err := Connect(context.Background(), &PostgresConfig{URL: connStr, VectorEnabled: true})
+	db, err := Connect(context.Background(), &PostgresConfig{URL: connStr, VectorEnabled: true, Schema: "public", VectorSchema: "public"})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to test database: %v\n", err)
 		os.Exit(1)

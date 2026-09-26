@@ -48,21 +48,21 @@ func NewDBCmd() *cobra.Command {
 // precedence, on: the DATABASE_VECTOR_ENABLED env var in the CLI's own
 // environment (explicit operator intent, works without a cluster), the
 // controller's configmap on the live cluster (the same value the server
-// reads), and finally the controller's default (enabled).
+// reads), and finally the controller's default (disabled).
 func migrationSources(namespace *string) dbmigrate.SourcesFunc {
 	return func(ctx context.Context) ([]migrations.Source, error) {
-		vectorEnabled := true
+		vectorEnabled := false
 		if v := os.Getenv(vectorEnabledKey); v != "" {
 			b, err := strconv.ParseBool(v)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: invalid %s=%q; assuming true\n", vectorEnabledKey, v)
+				fmt.Fprintf(os.Stderr, "warning: invalid %s=%q; assuming false\n", vectorEnabledKey, v)
 			} else {
 				vectorEnabled = b
 			}
 		} else if b, ok := clusterVectorEnabled(ctx, *namespace); ok {
 			vectorEnabled = b
 		}
-		return migrations.BuiltinSources(vectorEnabled), nil
+		return migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get()), nil
 	}
 }
 
