@@ -42,6 +42,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -1170,7 +1171,31 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 			t.Errorf("delete interaction ModelConfig: %v", err)
 		}
 	})
+	waitModelConfigReady(t, kube, model)
 	return model
+}
+
+// waitModelConfigReady blocks until the controller has resolved model and its references;
+// templates compiled sooner fail on a missing ModelConfig or Secret.
+func waitModelConfigReady(t *testing.T, kube ctrlclient.Client, model *v1alpha3.ModelConfig) {
+	t.Helper()
+	if err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(model), model); err != nil {
+			return false, err
+		}
+		accepted := meta.FindStatusCondition(model.Status.Conditions, v1alpha3.ModelConfigConditionTypeAccepted)
+		if accepted == nil || accepted.ObservedGeneration != model.Generation {
+			return false, nil
+		}
+		if accepted.Status != metav1.ConditionTrue {
+			return false, fmt.Errorf("not accepted: %s: %s", accepted.Reason, accepted.Message)
+		}
+		// ResolvedRefs stays False until the Secret reaches the controller's cache.
+		resolved := meta.FindStatusCondition(model.Status.Conditions, v1alpha3.ModelConfigConditionTypeResolvedRefs)
+		return resolved != nil && resolved.Status == metav1.ConditionTrue && resolved.ObservedGeneration == model.Generation, nil
+	}); err != nil {
+		t.Fatalf("wait for ModelConfig %s/%s to be ready: %v", model.Namespace, model.Name, err)
+	}
 }
 
 func createAndWaitInteractionTemplate(t *testing.T, harness testHarness, kube ctrlclient.Client, template *v1alpha3.AgentTemplate) {
