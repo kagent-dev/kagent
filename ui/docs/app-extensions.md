@@ -42,7 +42,7 @@ cover everything:
 | | Rule |
 |---|---|
 | `navItems`, `routes`, `formFields`, `tableColumns`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
-| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
+| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `chatPartRenderers`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
 
 So list the extension whose opinion should prevail **last**.
 
@@ -523,6 +523,26 @@ branding: {
 A replacement owns the region completely, **including rendering the
 application's own navigation** — which is why it is handed `coreNavItems` rather
 than keeping a copy that drifts as pages are added.
+
+## Chat message parts
+
+`chatPartRenderers` replaces the component that draws one part of a chat message.
+Keys are the part's `kind` (`text`, `tool_approval`, `ask_user`), or the
+`dataKind` for a data part (`tool_call`, `tool_result`, `tool_not_run`,
+`structured_output`, `unknown`). A key you leave out keeps the core renderer.
+The keys come from the part types themselves, so a new kind is overridable as
+soon as it exists.
+
+```tsx
+chatPartRenderers: {
+  // part is typed as a text part; role, messageId, taskId and sessionId describe the turn.
+  text: ({ part, role }) => (role === "agent" ? <MyProse text={part.text} /> : <p>{part.text}</p>),
+  structured_output: MyJsonViewer,
+}
+```
+
+The replacement owns the part completely, bubble included. Empty text parts are
+not rendered at all, so a `text` renderer never sees a reply before it has words.
 
 ## App-level providers
 
