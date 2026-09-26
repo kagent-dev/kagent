@@ -286,6 +286,7 @@ func gatewayTestSession() *apiv1alpha1.Session {
 		Agent:            &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 		A2AAuthority:     "private-runtime-authority",
 		State:            apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		Operation:        apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
 	}
 }
 

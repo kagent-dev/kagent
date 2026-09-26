@@ -224,7 +224,7 @@ func (x *Session) GetOperation() RuntimeOperation {
 	if x != nil {
 		return x.Operation
 	}
-	return RuntimeOperation_RUNTIME_OPERATION_NONE
+	return RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED
 }
 
 func (x *Session) GetFailure() *Failure {

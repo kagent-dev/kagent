@@ -21,13 +21,9 @@
  *
  * ## What "unspecified" means, and what it does not
  *
- * Proto3 gives every enum a zero value, and both of these use it. The controller
- * leaves `operation` at zero when no lifecycle operation is in flight, so
- * `"unspecified"` there reads as "nothing happening" — but that is the *controller's*
- * convention rather than something the wire distinguishes, and a record that was
- * never written would look identical. `state` at zero has no such convention: it
- * means the controller did not say. Both are rendered as their own thing on screen
- * rather than being folded into a plausible-looking default.
+ * The wire distinguishes an omitted operation (`UNSPECIFIED = 0`) from an
+ * explicit idle operation (`NONE`). This view model maps both to `"unspecified"`.
+ * State `UNSPECIFIED` means the controller did not report a lifecycle state.
  */
 
 /**

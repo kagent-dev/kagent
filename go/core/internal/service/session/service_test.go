@@ -60,6 +60,7 @@ func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1alpha1
 		return nil, false, s.createErr
 	}
 	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+	session.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
 	return session, true, nil
 }
 
@@ -68,7 +69,7 @@ func (s *serviceTestStore) GetSession(_ context.Context, id, creator string) (*a
 	if s.getResult != nil || s.getErr != nil {
 		return s.getResult, s.getErr
 	}
-	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}, nil
+	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE}, nil
 }
 
 func (s *serviceTestStore) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Session, error) {

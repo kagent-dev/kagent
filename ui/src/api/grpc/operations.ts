@@ -558,6 +558,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
   RuntimeOperation,
   AgentInstanceOperation
 > = {
+  [RuntimeOperation.UNSPECIFIED]: "unspecified",
   [RuntimeOperation.NONE]: "unspecified",
   [RuntimeOperation.CREATE]: "create",
   [RuntimeOperation.SUSPEND]: "suspend",

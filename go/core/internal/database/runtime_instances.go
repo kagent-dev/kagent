@@ -42,7 +42,7 @@ func (r runtimeInstanceRow) lifecycle() (apiv1alpha1.RuntimeState, apiv1alpha1.R
 		return 0, 0, fmt.Errorf("decode runtime %s state %q", r.ID, r.State)
 	}
 	operation, ok := apiv1alpha1.RuntimeOperation_value[r.Operation]
-	if !ok {
+	if !ok || operation == int32(apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED) {
 		return 0, 0, fmt.Errorf("decode runtime %s operation %q", r.ID, r.Operation)
 	}
 	return apiv1alpha1.RuntimeState(state), apiv1alpha1.RuntimeOperation(operation), nil

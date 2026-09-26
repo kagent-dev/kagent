@@ -201,7 +201,10 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 		State:    apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING,
 		Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}
-	store := controllerTestStore{session: &apiv1alpha1.Session{Id: "session", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}}
+	store := controllerTestStore{session: &apiv1alpha1.Session{
+		Id: "session", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+	}}
 	reads := 0
 	gateway := taskLookupGateway{listTasks: func(*a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
 		reads++

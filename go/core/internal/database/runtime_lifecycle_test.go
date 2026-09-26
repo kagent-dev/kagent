@@ -35,6 +35,7 @@ func TestRuntimeLifecycleRejectsUnknownStoredValues(t *testing.T) {
 		{State: "UNRECOGNIZED", Operation: "RUNTIME_OPERATION_NONE"},
 		{State: "RUNTIME_STATE_UNSPECIFIED", Operation: "RUNTIME_OPERATION_NONE"},
 		{State: "RUNTIME_STATE_READY", Operation: "UNRECOGNIZED"},
+		{State: "RUNTIME_STATE_READY", Operation: "RUNTIME_OPERATION_UNSPECIFIED"},
 	} {
 		_, _, err := row.lifecycle()
 		require.Error(t, err)
