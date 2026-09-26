@@ -295,7 +295,7 @@ func TestSessionCheckpoint(t *testing.T) {
 			t.Fatalf("fork Session: %v", err)
 		}
 		fork := forked.GetSession()
-		if fork.GetId() == fixture.sessionID || fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		if fork.GetId() == fixture.sessionID || fork.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 			t.Fatalf("fork = %+v", fork)
 		}
 		t.Cleanup(func() {
@@ -690,7 +690,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 			t.Errorf("delete Session: %v", cleanupErr)
 		}
 	})
-	if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 		t.Fatalf("created Session state = %s, want READY", session.GetState())
 	}
 	return &interactionFixture{

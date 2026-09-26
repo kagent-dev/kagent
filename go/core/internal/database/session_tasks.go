@@ -45,7 +45,7 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 				return ErrMessageAccepted
 			}
 		}
-		if session.State != "SESSION_STATE_READY" || session.Operation != "SESSION_OPERATION_UNSPECIFIED" {
+		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return ErrConflict
 		}
 		blocked, err := queryOne(ctx, tx, `
@@ -128,7 +128,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if session.State == "SESSION_STATE_DELETED" {
+		if session.State == "RUNTIME_STATE_DELETED" {
 			return ErrNotFound
 		}
 		if task.ContextID != session.ContextID.String() {
@@ -183,7 +183,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 				return fmt.Errorf("a terminal task cannot be updated: %w", ErrFailedPrecondition)
 			}
 		}
-		if session.State != "SESSION_STATE_READY" || session.Operation != "SESSION_OPERATION_UNSPECIFIED" {
+		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return fmt.Errorf("session cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
 		}
 		if (stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) && dispatchID != "" {
@@ -267,7 +267,7 @@ func (c *Client) GetVersionedSessionTask(ctx context.Context, sessionID, taskID 
 			    (SELECT MAX(e.sequence) FROM session_task_event e
 			     WHERE e.history_id = t.history_id AND e.task_id = t.id) AS version
 			FROM session_task t JOIN session i ON i.history_id = t.history_id
-			WHERE i.id = $1 AND i.state <> 'SESSION_STATE_DELETED' AND t.id = $2
+			WHERE i.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED' AND t.id = $2
 		`, pgx.RowToStructByName[storedTask], sessionID, taskID)
 		if err != nil {
 			return notFoundOr(err)
@@ -322,7 +322,7 @@ func taskVersion(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID
 // checkpoint creation blocks the write. The caller checks the storage version
 // before invoking this shared persistence operation.
 func storeSessionTaskEvent(ctx context.Context, tx pgx.Tx, session sessionRow, task *a2a.Task, event a2a.Event, deferPublication bool) error {
-	if session.State == "SESSION_STATE_DELETED" {
+	if session.State == "RUNTIME_STATE_DELETED" {
 		return ErrNotFound
 	}
 	historyID := session.HistoryID
@@ -459,7 +459,7 @@ func (c *Client) getPublicTask(ctx context.Context, sessionID, taskID string, hi
 			    ($3::boolean AND EXISTS (SELECT 1 FROM session_task_event e
 			      WHERE e.history_id = t.history_id AND e.task_id = t.id AND NOT e.published)) AS pending
 			FROM session_task t JOIN session i ON i.history_id = t.history_id
-			WHERE i.id = $1 AND i.state <> 'SESSION_STATE_DELETED' AND t.id = $2
+			WHERE i.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED' AND t.id = $2
 		`, pgx.RowToStructByName[publicTask], sessionID, taskID, settled)
 		if err != nil {
 			return notFoundOr(err)

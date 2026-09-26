@@ -118,7 +118,7 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	linked, err := store.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(reserved.Execution.Id), "alice")
 	require.NoError(t, err)
 	require.NotEmpty(t, linked.SessionId)
-	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.SessionId, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE, "")
+	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.SessionId, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 	require.NoError(t, err)
 	_, err = sessions.GetSession(owner, &apiv1alpha1.GetSessionRequest{SessionId: linked.SessionId})
 	require.Equal(t, codes.NotFound, status.Code(err))

@@ -60,7 +60,7 @@ func TestCreateSessionExplicitReplayIDAndOutput(t *testing.T) {
 
 func TestDeleteSession(t *testing.T) {
 	client := &lifecycleSessionClient{deleteSession: &apiv1alpha1.Session{
-		Id: testSessionID, State: apiv1alpha1.SessionState_SESSION_STATE_DELETED,
+		Id: testSessionID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED,
 	}}
 	cfg := &DeleteCfg{SessionID: testSessionID}
 	var output bytes.Buffer

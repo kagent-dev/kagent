@@ -99,12 +99,12 @@ CREATE TABLE session (
     prepared_revision    TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     state                TEXT        NOT NULL,
     data                 BYTEA       NOT NULL,
-    operation            TEXT        NOT NULL DEFAULT 'SESSION_OPERATION_UNSPECIFIED',
+    operation            TEXT        NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE',
     context_id           UUID        NOT NULL CHECK (context_id = id),
     -- Retain fork request identity after deletion without retaining the checkpoint.
     source_checkpoint_id UUID,
     pinned_checkpoint_id UUID GENERATED ALWAYS AS (
-        CASE WHEN state <> 'SESSION_STATE_DELETED' THEN source_checkpoint_id END
+        CASE WHEN state <> 'RUNTIME_STATE_DELETED' THEN source_checkpoint_id END
     ) STORED REFERENCES session_checkpoint(id) ON DELETE RESTRICT,
     -- Immutable identity of the actor created for this session.
     actor_uid            TEXT CHECK (actor_uid IS NULL OR actor_uid <> ''),
@@ -116,23 +116,23 @@ CREATE TABLE session (
     dispatch_expires_at  TIMESTAMPTZ,
     CHECK ((dispatch_id IS NULL) = (dispatch_expires_at IS NULL)),
     CHECK (executor_id IS NULL OR (operation_id IS NOT NULL
-        AND operation <> 'SESSION_OPERATION_UNSPECIFIED'
-        AND state <> 'SESSION_STATE_DELETED')),
-    CHECK (state <> 'SESSION_STATE_DELETED' OR
-        (prepared_revision IS NULL AND operation = 'SESSION_OPERATION_UNSPECIFIED')),
+        AND operation <> 'RUNTIME_OPERATION_NONE'
+        AND state <> 'RUNTIME_STATE_DELETED')),
+    CHECK (state <> 'RUNTIME_STATE_DELETED' OR
+        (prepared_revision IS NULL AND operation = 'RUNTIME_OPERATION_NONE')),
     history_id           UUID        NOT NULL,
     CONSTRAINT session_context_binding_fkey
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
     CONSTRAINT session_history_key UNIQUE (history_id),
     CONSTRAINT session_operation_check
-        CHECK (operation IN ('SESSION_OPERATION_UNSPECIFIED', 'SESSION_OPERATION_CREATE',
-            'SESSION_OPERATION_SUSPEND', 'SESSION_OPERATION_RESUME', 'SESSION_OPERATION_DELETE')),
-    CHECK (state IN ('SESSION_STATE_CREATING', 'SESSION_STATE_READY',
-        'SESSION_STATE_SUSPENDED', 'SESSION_STATE_FAILED', 'SESSION_STATE_DELETED')),
+        CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE',
+            'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE')),
+    CHECK (state IN ('RUNTIME_STATE_CREATING', 'RUNTIME_STATE_READY',
+        'RUNTIME_STATE_SUSPENDED', 'RUNTIME_STATE_FAILED', 'RUNTIME_STATE_DELETED')),
     UNIQUE (user_id, request_id)
 );
 CREATE INDEX session_user_id_id_idx
-    ON session (user_id, id) WHERE state <> 'SESSION_STATE_DELETED';
+    ON session (user_id, id) WHERE state <> 'RUNTIME_STATE_DELETED';
 
 CREATE TABLE session_share (
     id          UUID        PRIMARY KEY,

@@ -5,9 +5,15 @@ package kagent.api.v1alpha1;
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "kagent/api/v1alpha1/common.proto";
+import "kagent/api/v1alpha1/runtime.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
+// Lifecycle mutations execute inline. After a retryable error, repeat the same
+// mutation; CreateSession retries must keep the same request_id and input.
+// GetSession only observes state. A timeout does not roll back runtime effects.
+// Pending issued work blocks conflicting lifecycle, task, and checkpoint work
+// until a client retry completes it. Automatic idle suspension is independent.
 service SessionService {
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
@@ -19,24 +25,6 @@ service SessionService {
   rpc CreateSessionShare(CreateSessionShareRequest) returns (CreateSessionShareResponse);
   rpc ListSessionShares(ListSessionSharesRequest) returns (ListSessionSharesResponse);
   rpc RevokeSessionShare(RevokeSessionShareRequest) returns (RevokeSessionShareResponse);
-}
-
-enum SessionState {
-  SESSION_STATE_UNSPECIFIED = 0;
-  SESSION_STATE_CREATING = 1;
-  SESSION_STATE_READY = 2;
-  SESSION_STATE_SUSPENDED = 3;
-  SESSION_STATE_FAILED = 4;
-  SESSION_STATE_DELETING = 5;
-  SESSION_STATE_DELETED = 6;
-}
-
-enum SessionOperation {
-  SESSION_OPERATION_UNSPECIFIED = 0;
-  SESSION_OPERATION_CREATE = 1;
-  SESSION_OPERATION_SUSPEND = 2;
-  SESSION_OPERATION_RESUME = 3;
-  SESSION_OPERATION_DELETE = 4;
 }
 
 enum SessionSharePermission {
@@ -60,8 +48,8 @@ message Session {
   ResourceReference agent = 15;
   string prepared_revision = 5;
   string a2a_authority = 6;
-  SessionState state = 7;
-  SessionOperation operation = 8;
+  RuntimeState state = 7;
+  RuntimeOperation operation = 8;
   Failure failure = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;

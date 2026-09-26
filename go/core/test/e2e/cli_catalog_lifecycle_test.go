@@ -52,7 +52,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			t.Fatalf("decode create Session stdout %q: %v", createdJSON, err)
 		}
 		session := created.GetSession()
-		if session.GetId() == "" || session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		if session.GetId() == "" || session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 			t.Fatalf("created Session = %#v, want ID and READY state", session)
 		}
 		deleted := false
@@ -86,7 +86,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 		if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
 			t.Fatalf("decode delete Session stdout %q: %v", deletedJSON, err)
 		}
-		if deletedResponse.GetSession().GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED {
+		if deletedResponse.GetSession().GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
 			t.Fatalf("deleted Session state = %s, want DELETED", deletedResponse.GetSession().GetState())
 		}
 	})

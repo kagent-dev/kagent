@@ -193,7 +193,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), session.GetPreparedRevision())
-			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE)
+			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()
 			claimed, err := store.ClaimSessionOperation(ctx, session.Id, operation.ID, executor)

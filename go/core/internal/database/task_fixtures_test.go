@@ -46,12 +46,12 @@ func saveRuntimeTask(t *testing.T, client *Client, sessionID string, task *a2a.T
 
 // finishSessionOperation simulates successful runtime work through the same
 // lifecycle operations used by the service, preserving their checks and fencing.
-func finishSessionOperation(ctx context.Context, client *Client, id string, kind apiv1alpha1.SessionOperation, authority string) (*apiv1alpha1.Session, error) {
+func finishSessionOperation(ctx context.Context, client *Client, id string, kind apiv1alpha1.RuntimeOperation, authority string) (*apiv1alpha1.Session, error) {
 	work, err := client.BeginSessionOperation(ctx, id, kind)
 	if err != nil {
 		return nil, err
 	}
-	if work.Session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if work.Session.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return work.Session, nil
 	}
 	executor := uuid.New()
@@ -63,14 +63,14 @@ func finishSessionOperation(ctx context.Context, client *Client, id string, kind
 		return nil, fmt.Errorf("fixture lifecycle operation already claimed: %w", ErrConflict)
 	}
 	actorUID := ""
-	if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
+	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		actorUID = "actor-" + id
 	}
 	return client.FinishSessionOperation(ctx, id, work.ID, executor, authority, actorUID, "")
 }
 
 func deleteSession(ctx context.Context, client *Client, id string) error {
-	_, err := finishSessionOperation(ctx, client, id, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE, "")
+	_, err := finishSessionOperation(ctx, client, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 	return err
 }
 

@@ -121,7 +121,7 @@ func TestLifecycleRetainsAmbiguousMutation(t *testing.T) {
 			require.Equal(t, codes.Unavailable, status.Code(err))
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err, "uncertainty must preserve the session and its resource pins")
-			require.NotEqual(t, apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED, current.Operation)
+			require.NotEqual(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
 			_, err = call(t.Context(), current)
 			require.ErrorIs(t, err, database.ErrConflict)
 			_, err = setup.Delete(t.Context(), current)
@@ -201,7 +201,7 @@ func TestSupersededLifecycleObserverCannotExecute(t *testing.T) {
 				require.ErrorIs(t, err, database.ErrNotFound)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED, current.State)
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, current.State)
 			}
 		})
 	}
@@ -248,7 +248,7 @@ func TestLifecycleReadFailureCanRetryPreparation(t *testing.T) {
 	require.Zero(t, actors.mutations.Load())
 	ready, err := NewActorWorkflow(store, base).Create(t.Context(), session)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_READY, ready.State)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.State)
 }
 
 // completionTestStore injects failures at the database/runtime boundary while
@@ -283,14 +283,14 @@ func TestLifecycleCompletionFailureDoesNotRepeatRuntime(t *testing.T) {
 	_, err = NewActorWorkflow(store, actors).Create(t.Context(), session)
 	require.ErrorIs(t, err, database.ErrConflict)
 	require.EqualValues(t, 1, actors.mutations.Load())
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE)
+	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
 	// Only the original executor with its known successful response may finish.
 	_, err = store.FinishSessionOperation(t.Context(), session.Id, operation.ID, operation.ExecutorID, substrate.ActorHost("team-a", substrate.ActorName(session.Id), ""), "actor-uid", "")
 	require.NoError(t, err)
 	ready, err := NewActorWorkflow(store, actors).Create(t.Context(), session)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_READY, ready.State)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.State)
 	require.EqualValues(t, 1, actors.mutations.Load())
 }
 
@@ -345,7 +345,7 @@ func TestCreationUsesPreparedAtespace(t *testing.T) {
 			actors := &retryTestActors{lifecycleTestActors: base}
 			ready, err := NewActorWorkflow(store, actors).Create(t.Context(), session)
 			require.NoError(t, err)
-			require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_READY, ready.State)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.State)
 			require.EqualValues(t, 1, actors.mutations.Load())
 		})
 	}

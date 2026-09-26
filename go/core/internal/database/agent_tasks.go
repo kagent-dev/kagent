@@ -16,7 +16,7 @@ func (c *Client) SessionForTask(ctx context.Context, taskID string) (string, err
 	id, err := queryOne(ctx, c.db, `
 		SELECT i.id::text FROM session i
 		JOIN session_task t ON t.history_id = i.history_id
-		WHERE t.id = $1 AND i.state <> 'SESSION_STATE_DELETED'
+		WHERE t.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
 	`, pgx.RowTo[string], taskID)
 	return id, notFoundOr(err)
 }
@@ -28,7 +28,7 @@ func (c *Client) ListAgentTasks(ctx context.Context, sessionIDs []string, afterI
 	total, err := queryOne(ctx, c.db, `
 		SELECT COUNT(*) FROM session_task t
 		JOIN session i ON i.history_id = t.history_id
-		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'SESSION_STATE_DELETED'
+		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'RUNTIME_STATE_DELETED'
 		  AND ($2::text = '' OR t.state = $2)
 		  AND ($3::timestamptz IS NULL OR t.status_timestamp > $3)
 	`, pgx.RowTo[int64], sessionIDs, string(state), statusTimestampAfter)
@@ -40,7 +40,7 @@ func (c *Client) ListAgentTasks(ctx context.Context, sessionIDs []string, afterI
 		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
 		    t.history_sequence, t.position FROM session_task t
 		JOIN session i ON i.history_id = t.history_id
-		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'SESSION_STATE_DELETED'
+		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'RUNTIME_STATE_DELETED'
 		  AND ($2::text = '' OR (t.position, t.id) > (
 		      SELECT cursor.position, cursor.id FROM session_task cursor
 		      JOIN session owner ON owner.history_id = cursor.history_id

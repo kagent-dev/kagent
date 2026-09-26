@@ -116,7 +116,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	session, err = markSessionReady(ctx, client, session.Id, "runtime:80")
 	require.NoError(t, err)
 	require.Equal(t, "renamed while creating", session.Name)
-	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.NoError(t, err)
 	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed again")
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.True(t, proto.Equal(session, stored))
 	require.Equal(t, request.ProtoReflect().GetUnknown(), stored.ProtoReflect().GetUnknown())
 	require.Equal(t, request.Agent.ProtoReflect().GetUnknown(), stored.Agent.ProtoReflect().GetUnknown())
-	session, err = finishSessionOperation(ctx, client, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME, "")
+	session, err = finishSessionOperation(ctx, client, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, "")
 	require.NoError(t, err)
 
 	task := &a2a.Task{ID: "task", ContextID: session.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
