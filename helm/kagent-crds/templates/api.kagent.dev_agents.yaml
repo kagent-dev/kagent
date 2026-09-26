@@ -242,7 +242,7 @@ spec:
                         type: object
                       workerPoolRef:
                         description: WorkerPoolRef references a WorkerPool in the
-                          Harness namespace.
+                          resource's namespace.
                         properties:
                           name:
                             default: ""

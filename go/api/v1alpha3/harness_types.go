@@ -158,7 +158,7 @@ type HarnessSnapshotPolicy struct {
 //
 // +kubebuilder:validation:XValidation:rule="self.workerPoolRef.name.size() > 0",message="workerPoolRef name must not be empty"
 type HarnessSubstratePolicy struct {
-	// WorkerPoolRef references a WorkerPool in the Harness namespace.
+	// WorkerPoolRef references a WorkerPool in the resource's namespace.
 	// +required
 	WorkerPoolRef corev1.LocalObjectReference `json:"workerPoolRef"`
 
