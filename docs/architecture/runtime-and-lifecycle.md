@@ -16,7 +16,7 @@ operation UUID and executor claim on the session row. Fork creation loads its
 pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the Agent
 controller; session creation uses the pinned ActorTemplate's existing namespace.
 Read-only preparation may run concurrently, but an atomic execution claim permits
-exactly one caller to issue runtime mutations. Network work holds no database
+one bounded inline attempt to issue runtime mutations. Network work holds no database
 transaction or lock. Completion changes the session atomically and retains its
 operation UUID until a later transition supersedes it.
 
@@ -29,14 +29,25 @@ Neither requires an old operation receipt. A2A task storage and checkpoint
 reconstruction have their own durable history requirements.
 
 An unclaimed operation can retry preparation; Delete may supersede it. Preparation
-failure invalidates its generation. Once claimed, an operation never expires. A
-timeout, disconnected client, process restart, lost runtime response, or runtime
-success whose database completion fails leaves the operation pending and blocks
-conflicting lifecycle work, including Delete. The session retains its revision
-and checkpoint pins. Only the original executor with a known successful response
-may finish persistence; a favorable Actor read alone does not establish that an
-earlier request has stopped. There is no automatic takeover or administrative
-unlock API for uncertain operations.
+failure invalidates its generation. After an attempt issues runtime work, errors
+retain the operation and resource pins. The attempt releases its execution claim
+on return. A crashed executor's claim expires after at most two minutes, allowing
+a client retry to claim the same operation with a new executor ID. Each attempt
+uses a context bounded by that interval; no claim renewer or recovery sweep runs.
+A stale executor cannot complete or release a newer attempt's claim.
+
+Lifecycle retries inspect the pinned Actor identity and continue Substrate's
+reentrant workflows, including completing egress setup for an existing creation.
+Already completed creation steps are not repeated. Fork retries must still match
+the retained source snapshot. Conflicting Session lifecycle, task, and checkpoint
+work remains blocked until the pending operation completes. Releasing an attempt
+never clears its durable intent or makes uncertain work an unissued preparation.
+
+Clients must retry the mutation after transient errors; Get only observes it.
+If the client stops retrying, the explicit operation remains pending across API
+restarts. There is no general automatic lifecycle recovery. The
+[client retry contract](../lifecycle-retries.md) covers error codes, deadlines,
+creation request IDs, and the limitations of retries and concurrent callers.
 
 Deletion retains an indefinitely kept DELETED session tombstone with its owner,
 creation request identity, and final operation UUID. It clears runtime routing,

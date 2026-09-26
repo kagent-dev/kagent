@@ -1,5 +1,30 @@
 # End-to-end tests
 
+The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
+The guest image defaults to the controller release. For local builds, override
+`controller.sandbox.guestImage.registry`, `.repository`, and `.tag` with the guest
+image built for the test. Setting `.digest` instead of `.tag` avoids registry
+resolution from the controller.
+It creates and cleans up its own SandboxTemplates. Run from `go/`:
+
+```sh
+KAGENT_E2E_API_URL=http://<controller-address>:8083 \
+KAGENT_E2E_SANDBOX_IMAGE=<digest-pinned-tools-image> \
+KAGENT_E2E_SANDBOX_NAMESPACE=kagent \
+KAGENT_E2E_SANDBOX_WORKER_POOL=kagent-default \
+KAGENT_E2E_RUNTIME_IMAGE=<digest-pinned-go-adk-image> \
+KAGENT_E2E_SANDBOX_MCP_URL=http://kagent-controller.kagent.svc:8083/mcp \
+  go test ./core/test/e2e -run '^TestSandbox' -v -count=1 -timeout 15m
+```
+
+The controller restart test needs a stable service endpoint (NodePort or ingress);
+`kubectl port-forward` exits when the selected pod is replaced. The suite tests
+public gRPC/MCP calls, owner isolation, binary files, process execution/output,
+suspend/resume, expiration, template revision retention, and controller restart.
+The agent test uses a deterministic local model and a real Go ADK Session to
+create a sandbox through MCP as its invoking user. Missing image settings skip
+those fixtures; configured preparation and runtime failures fail the tests.
+
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.
