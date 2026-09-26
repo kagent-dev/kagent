@@ -2,7 +2,8 @@
 
 Use this guide when adding or changing configuration types under
 `go/api/v1alpha3`. The [system overview](architecture/README.md) explains what
-belongs in Kubernetes.
+belongs in Kubernetes; the [protobuf guide](protobuf-api.md) describes the
+implemented gRPC contracts.
 
 These are target conventions for new APIs and the pre-release cleanup. **Must**
 rules are review requirements; departures need a domain reason documented here.
@@ -98,8 +99,10 @@ Preserve Kubernetes update, patch, server-side apply, and field-ownership
 semantics. `resourceVersion` is opaque; never parse it as a numeric public version.
 Identity is immutable, and immutable spec fields must be validated as such.
 
-Kagent's gRPC replacement updates require the client's UID and resourceVersion.
-Do not fetch the latest metadata and attach it to a stale replacement spec.
+The target contract for gRPC replacement updates requires the client's UID and
+resourceVersion. Do not fetch the latest metadata and attach it to a stale
+replacement spec. Current adapters do not yet enforce those caller guards; see
+[Kubernetes objects over gRPC](protobuf-api.md#kubernetes-objects-over-grpc).
 Editors preserve fields outside their scope. Status writes use the status
 subresource and cannot be smuggled into a spec update.
 
