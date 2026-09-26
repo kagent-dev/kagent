@@ -58,7 +58,7 @@ func TestToSessionUsesIndexedLifecycleColumns(t *testing.T) {
 	}
 
 	session, err := toSession(sessionRow{
-		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "RUNTIME_STATE_SUSPENDED", Operation: "RUNTIME_OPERATION_RESUME",
+		runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED.String(), Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME.String()}, Data: data,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -67,15 +67,14 @@ func TestToSessionUsesIndexedLifecycleColumns(t *testing.T) {
 		session.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", session.GetState(), session.GetOperation())
 	}
-	// Display names live only in the protobuf payload.
+	// Display metadata stays in the protobuf.
 	if session.GetName() != "Renamed later" {
-		t.Fatalf("name = %q, want the column's value", session.GetName())
+		t.Fatalf("name = %q, want the protobuf value", session.GetName())
 	}
 }
 
-// TestToSessionLeavesAnEmptyNameEmpty pins the additive property: a row
-// written before the column existed reads as unnamed, not as its id and not as
-// some placeholder.
+// TestToSessionLeavesAnEmptyNameEmpty preserves unnamed sessions without
+// substituting their ID or a placeholder.
 func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
 	data, err := proto.Marshal(&apiv1alpha1.Session{
 		Id:    "session-1",
@@ -84,7 +83,7 @@ func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := toSession(sessionRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "RUNTIME_STATE_READY", Operation: "RUNTIME_OPERATION_NONE"})
+	session, err := toSession(sessionRow{runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY.String(), Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()}, Data: data})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +95,7 @@ func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
 func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
-	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111');
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'RUNTIME_STATE_READY', '\x')
-	`); err != nil {
-		t.Fatal(err)
-	}
+	insertReadySessionFixture(t, db, "11111111-1111-4111-8111-111111111111", "request-1", []byte{})
 	client := NewClient(db)
 	now := time.Now()
 	first := &a2a.Task{
@@ -231,16 +225,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, context_id) VALUES ($1, $1)
-	`, sessionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'session-request', $1, $1, 'RUNTIME_STATE_READY', $2)
-	`, sessionID, sessionData); err != nil {
-		t.Fatal(err)
-	}
+	insertReadySessionFixture(t, db, sessionID, "session-request", sessionData)
 	client := NewClient(db)
 	task := newSessionTask("task-1", "message-1")
 	if _, err := client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("message-request"), task, ""); err != nil {
@@ -362,17 +347,8 @@ func TestReserveSessionCheckpointRejectsCorruptSource(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient(db)
 	sessionID := "99999999-9999-4999-8999-999999999999"
-	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, context_id) VALUES ($1, $1)
-	`, sessionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'session-request', $1, $1, 'RUNTIME_STATE_READY', $2)
-	`, sessionID, []byte{0xff}); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	insertReadySessionFixture(t, db, sessionID, "session-request", []byte{0xff})
+	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
 	require.ErrorContains(t, err, "decode Session")
 }
 
@@ -623,6 +599,23 @@ func newSessionTask(id, messageID string) *a2a.Task {
 	}
 }
 
+func insertReadySessionFixture(t *testing.T, db dbExecutor, id, requestID string, data []byte) {
+	t.Helper()
+	_, err := db.Exec(t.Context(), `
+		WITH history AS (
+			INSERT INTO a2a_context (id, context_id) VALUES ($1, $1)
+			RETURNING id, context_id
+		), runtime AS (
+			INSERT INTO runtime_instance (id, kind, user_id, request_id, state, operation)
+			VALUES ($1, 'agent', 'alice', $2, 'RUNTIME_STATE_READY', 'RUNTIME_OPERATION_NONE')
+			RETURNING id
+		)
+		INSERT INTO session (id, context_id, history_id, data)
+		SELECT runtime.id, history.context_id, history.id, $3 FROM runtime CROSS JOIN history
+	`, id, requestID, data)
+	require.NoError(t, err)
+}
+
 // sessionFixture installs a runnable agent — a template/harness pair with a
 // successful revision — so sessions can be created against it.
 func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace, revisionID, template, harness string) {
@@ -722,9 +715,7 @@ func TestSessionNameRoundTripsAndRenames(t *testing.T) {
 	if err != nil || renamed.GetName() != "Named afterwards" {
 		t.Fatalf("UpdateSessionName() = %+v, error %v", renamed, err)
 	}
-	// The rename has to survive a re-read, not just be echoed back: the name lives
-	// in a column while the rest of the message lives in a blob the rename does not
-	// rewrite, so an echoed value proves nothing about what was stored.
+	// The renamed protobuf must survive a re-read, not just be echoed back.
 	read, err := client.GetSession(ctx, unnamedID, "alice")
 	if err != nil || read.GetName() != "Named afterwards" {
 		t.Fatalf("re-read after rename = %+v, error %v", read, err)

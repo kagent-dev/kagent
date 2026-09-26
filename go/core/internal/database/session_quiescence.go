@@ -34,7 +34,7 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 		}
 		row, err := queryOne(ctx, tx, `
 			SELECT i.id::text AS session_id, e.task_id, e.sequence
-			FROM session_task_event e JOIN session i ON i.history_id = e.history_id
+			FROM session_task_event e JOIN session_record i ON i.history_id = e.history_id
 			WHERE e.published AND e.quiescence_pending = TRUE
 			  AND e.quiescence_executor_id IS NULL
 			  AND i.state = 'RUNTIME_STATE_READY'

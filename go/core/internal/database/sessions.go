@@ -21,18 +21,14 @@ func toSession(row sessionRow) (*apiv1alpha1.Session, error) {
 	if err := proto.Unmarshal(row.Data, session); err != nil {
 		return nil, fmt.Errorf("decode Session %s: %w", row.ID, err)
 	}
-	state, ok := apiv1alpha1.RuntimeState_value[row.State]
-	if !ok {
-		return nil, fmt.Errorf("decode Session %s state %q", row.ID, row.State)
-	}
-	operationValue, ok := apiv1alpha1.RuntimeOperation_value[row.Operation]
-	if !ok {
-		return nil, fmt.Errorf("decode Session %s operation %q", row.ID, row.Operation)
+	state, operation, err := row.lifecycle()
+	if err != nil {
+		return nil, err
 	}
 	// Columns own identity, authorization, revision retention and lifecycle.
-	// Store updates write the same values to the payload in the same transaction.
+	// The full protobuf retains the remaining fields, including unknown fields.
 	session.State = apiv1alpha1.RuntimeState(state)
-	session.Operation = apiv1alpha1.RuntimeOperation(operationValue)
+	session.Operation = apiv1alpha1.RuntimeOperation(operation)
 	session.Id = row.ID.String()
 	session.ContextId = row.ContextID.String()
 	session.Creator = row.UserID
@@ -115,7 +111,7 @@ func insertSession(ctx context.Context, db pgx.Tx, request *apiv1alpha1.Session,
 	revision, err := queryOne(ctx, db, `
 		SELECT r.revision, clock_timestamp() AS db_time
 		FROM agent_definition p
-		JOIN runtime_revision r ON r.revision = p.latest_successful_revision
+		JOIN agent_runtime_revision r ON r.revision = p.latest_successful_revision
   WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
  `, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
 	if err != nil {
@@ -156,7 +152,7 @@ func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) 
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id, operation_id, executor_id
-		FROM session WHERE id = $1 AND actor_uid = $2
+		FROM session_record WHERE id = $1 AND actor_uid = $2
 		    AND state <> 'RUNTIME_STATE_DELETED'
 	`, pgx.RowToStructByName[sessionRow], id, actorUID)
 	if err != nil {
@@ -170,7 +166,7 @@ func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) 
 func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1alpha1.Session, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id, operation_id, executor_id FROM session WHERE id = $1 AND user_id = $2 AND state <> 'RUNTIME_STATE_DELETED'
+		    source_checkpoint_id, history_id, operation_id, executor_id FROM session_record WHERE id = $1 AND user_id = $2 AND state <> 'RUNTIME_STATE_DELETED'
 	`, pgx.RowToStructByName[sessionRow], id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get Session %s: %w", id, notFoundOr(err))
@@ -184,8 +180,8 @@ func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1alpha
 func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1alpha1.Session, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation,
-		    i.context_id, i.source_checkpoint_id, i.history_id, i.operation_id, i.executor_id FROM session i
-		LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
+		    i.context_id, i.source_checkpoint_id, i.history_id, i.operation_id, i.executor_id FROM session_record i
+		LEFT JOIN agent_runtime_revision r ON r.revision = i.prepared_revision
 		WHERE i.state <> 'RUNTIME_STATE_DELETED' AND ($1::boolean OR i.user_id = $2)
 		  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
 		  AND ($4::text = '' OR (r.agent_name = $4 AND r.namespace = $5))
@@ -232,10 +228,8 @@ func (c *Client) UpdateSessionName(ctx context.Context, id, userID, name string)
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
-			UPDATE session
-			SET data = $1
-			WHERE id = $2 AND user_id = $3
-		`, data, row.ID, userID)
+			UPDATE session SET data = $1 WHERE id = $2
+		`, data, row.ID)
 		if err != nil {
 			return err
 		}
@@ -252,16 +246,10 @@ func (c *Client) UpdateSessionName(ctx context.Context, id, userID, name string)
 }
 
 type sessionRow struct {
-	ID                 uuid.UUID
-	UserID             string
-	PreparedRevision   *string
-	State              string
+	runtimeInstanceRow
 	Data               []byte
-	Operation          string
 	ContextID          uuid.UUID
 	SourceCheckpointID *uuid.UUID
-	OperationID        *uuid.UUID
-	ExecutorID         *uuid.UUID
 	HistoryID          uuid.UUID
 }
 
@@ -271,7 +259,7 @@ type sessionRow struct {
 func lockSession(ctx context.Context, db pgx.Tx, id string) (sessionRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id, operation_id, executor_id FROM session WHERE id = $1 FOR UPDATE
+		    source_checkpoint_id, history_id, operation_id, executor_id FROM session_record WHERE id = $1 FOR UPDATE
 	`, pgx.RowToStructByName[sessionRow], id)
 }
 
@@ -281,7 +269,7 @@ func lockSession(ctx context.Context, db pgx.Tx, id string) (sessionRow, error) 
 func readSessionRequest(ctx context.Context, db dbExecutor, userID, requestID string) (sessionRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id, operation_id, executor_id FROM session
+		    source_checkpoint_id, history_id, operation_id, executor_id FROM session_record
 		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[sessionRow], userID, requestID)
 }
@@ -291,14 +279,14 @@ func readSessionRequest(ctx context.Context, db dbExecutor, userID, requestID st
 func readSession(ctx context.Context, db dbExecutor, id string) (sessionRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id, operation_id, executor_id FROM session WHERE id = $1 AND state <> 'RUNTIME_STATE_DELETED'
+		    source_checkpoint_id, history_id, operation_id, executor_id FROM session_record WHERE id = $1 AND state <> 'RUNTIME_STATE_DELETED'
 	`, pgx.RowToStructByName[sessionRow], id)
 }
 
 // insertSessionRecords stores a new session and its independent history together.
 // Callers supply a transaction and a prepared CREATING/CREATE session; a duplicate
 // creator/requestID returns pgx.ErrNoRows so the caller can roll back and resolve it.
-func insertSessionRecords(ctx context.Context, db dbExecutor, session *apiv1alpha1.Session, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (sessionRow, error) {
+func insertSessionRecords(ctx context.Context, db pgx.Tx, session *apiv1alpha1.Session, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (sessionRow, error) {
 	data, err := marshalSession(session)
 	if err != nil {
 		return sessionRow{}, err
@@ -308,37 +296,25 @@ func insertSessionRecords(ctx context.Context, db dbExecutor, session *apiv1alph
 	`, historyID, session.ContextId); err != nil {
 		return sessionRow{}, fmt.Errorf("insert A2A context: %w", err)
 	}
-	return queryOne(ctx, db, `
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, prepared_revision,
-		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid,
-		    'RUNTIME_STATE_CREATING', 'RUNTIME_OPERATION_CREATE', $8)
-		ON CONFLICT (user_id, request_id) DO NOTHING
-		RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id, operation_id, executor_id
-	`,
-		pgx.RowToStructByName[sessionRow], session.Id, session.Creator, requestID, session.ContextId,
-		historyID, session.PreparedRevision, sourceCheckpointID, data,
-	)
+	if _, err := queryOne(ctx, db, `
+		INSERT INTO runtime_instance (id, kind, user_id, request_id, prepared_revision, state, operation)
+		VALUES ($1, 'agent', $2, $3, $4, 'RUNTIME_STATE_CREATING', 'RUNTIME_OPERATION_CREATE')
+		ON CONFLICT (kind, user_id, request_id) DO NOTHING RETURNING id
+	`, pgx.RowTo[uuid.UUID], session.Id, session.Creator, requestID, session.PreparedRevision); err != nil {
+		return sessionRow{}, err
+	}
+	if err := execSQL(ctx, db, `
+		INSERT INTO session (id, context_id, history_id, source_checkpoint_id, pinned_checkpoint_id, data)
+		VALUES ($1, $2, $3, $4, $4, $5)
+	`, session.Id, session.ContextId, historyID, sourceCheckpointID, data); err != nil {
+		return sessionRow{}, err
+	}
+	return readSession(ctx, db, session.Id)
 }
 
-// tombstoneSession releases runtime references and revokes shares while
-// retaining owner and request identity. Callers hold the session lock and have
-// established that no uncertain executor can still act. History remains retained.
-func tombstoneSession(ctx context.Context, tx pgx.Tx, session *apiv1alpha1.Session, operationID *uuid.UUID) error {
-	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED
-	session.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
-	session.PreparedRevision, session.A2AAuthority = "", ""
-	session.UpdatedAt = timestamppb.Now()
-	data, err := marshalSession(session)
-	if err != nil {
+func releaseAgentRuntimeReferences(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	if err := execSQL(ctx, tx, `UPDATE session SET pinned_checkpoint_id = NULL WHERE id = $1`, id); err != nil {
 		return err
 	}
-	if err := execSQL(ctx, tx, `
-		UPDATE session SET state = 'RUNTIME_STATE_DELETED',
-		    operation = 'RUNTIME_OPERATION_NONE', prepared_revision = NULL,
-		    data = $2, operation_id = $3, executor_id = NULL WHERE id = $1
-	`, session.Id, data, operationID); err != nil {
-		return err
-	}
-	return execSQL(ctx, tx, `DELETE FROM session_share WHERE session_id = $1`, session.Id)
+	return execSQL(ctx, tx, `DELETE FROM session_share WHERE session_id = $1`, id)
 }

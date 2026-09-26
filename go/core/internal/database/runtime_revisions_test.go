@@ -96,6 +96,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 		revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 		require.NoError(t, err)
 		require.Empty(t, revisions)
+
 		claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 		require.NoError(t, err)
 		require.Nil(t, claimed)
@@ -131,6 +132,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
+
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -252,7 +254,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 				}
 				type claimResult struct {
-					revision *RuntimeRevision
+					revision *RuntimeArtifact
 					err      error
 				}
 				claimed := make(chan claimResult, 1)
@@ -303,6 +305,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.Equal(t, "revision", session.GetPreparedRevision())
 	require.NoError(t, deleteSession(ctx, client, session.GetId()))
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+	original, err := client.GetRuntimeRevision(ctx, "revision")
+	require.NoError(t, err)
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -312,8 +316,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	pair.AgentUID = "replacement-uid"
 	pair.DesiredRevision = "revision"
 	require.ErrorIs(t, client.UpsertAgentDefinition(ctx, pair), ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *claimed, false), ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *claimed, true), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, false), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, true), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
 	restarted := NewClient(pool)
 	revisions, err := restarted.ListUnreferencedRuntimeRevisions(ctx)
@@ -328,8 +332,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.ErrorIs(t, err, ErrNotFound)
 	// The same digest can be prepared again once cleanup has completed.
-	claimed.ActorTemplateUID = "recreated-actor-uid"
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *claimed, false))
+	original.ActorTemplateUID = "recreated-actor-uid"
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, false))
 	newClaim, err := restarted.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, newClaim)
@@ -337,7 +341,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err, "a delayed collector must not finalize the new runtime")
 	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *claimed, false))
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, false))
 	require.NoError(t, restarted.UpsertAgentDefinition(ctx, pair))
 }
 
@@ -351,6 +355,8 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				defer cancel()
 				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 				require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+				original, err := client.GetRuntimeRevision(ctx, "revision")
+				require.NoError(t, err)
 				claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 				require.NoError(t, err)
 				require.NotNil(t, claimed)
@@ -387,7 +393,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				created, deleted := make(chan error, 1), make(chan error, 1)
 				create := func() {
 					if operation == "record" {
-						created <- creating.RecordRuntimeRevision(ctx, *claimed, true)
+						created <- creating.RecordRuntimeRevision(ctx, *original, true)
 						return
 					}
 					created <- creating.UpsertAgentDefinition(ctx, pair)

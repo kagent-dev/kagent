@@ -78,7 +78,7 @@ func TestDeleteSessionAborted(t *testing.T) {
 	cfg := &DeleteCfg{SessionID: testSessionID}
 
 	err := deleteSession(t.Context(), client, cfg, clioutput.FormatTable, &bytes.Buffer{})
-	require.ErrorContains(t, err, "another lifecycle operation is in progress; retry after it completes")
+	require.ErrorContains(t, err, "lifecycle work is active or pending; inspect the Session and retry its pending operation")
 	assert.Equal(t, codes.Aborted, status.Code(err))
 }
 

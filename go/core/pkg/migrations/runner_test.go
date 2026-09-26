@@ -203,9 +203,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
 	for _, source := range sources {
-		want := []int64{0, 1}
-		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, want) {
-			t.Fatalf("%s versions = %v, want current migrations", source.Name, versions)
+		expected := []int64{0, 1}
+		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
+			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
 		}
 	}
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
@@ -216,7 +216,14 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	sessionID := "00000000-0000-0000-0000-000000000002"
 	historyID := "00000000-0000-0000-0000-000000000003"
 	execSQL(t, dsn, "INSERT INTO a2a_context (id, context_id) VALUES ($1, $2)", historyID, contextID)
-	execSQL(t, dsn, "INSERT INTO session (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'RUNTIME_STATE_READY', $2, $3, $4)", sessionID, []byte{}, contextID, historyID)
+	execSQL(t, dsn, `WITH created AS (INSERT INTO runtime_instance (id, kind, user_id, request_id, state, operation)
+        VALUES ($1, 'agent', 'user', 'request', 'RUNTIME_STATE_READY', 'RUNTIME_OPERATION_NONE') RETURNING id)
+        INSERT INTO session (id, data, context_id, history_id) SELECT id, $2, $3, $4 FROM created`, sessionID, []byte{}, contextID, historyID)
+	sandboxID := "00000000-0000-0000-0000-000000000005"
+	execSQL(t, dsn, `WITH created AS (INSERT INTO runtime_instance (id, kind, user_id, request_id, state, operation)
+        VALUES ($1, 'sandbox', 'user', 'request', 'RUNTIME_STATE_CREATING', 'RUNTIME_OPERATION_CREATE') RETURNING id)
+        INSERT INTO sandbox (id, namespace, sandbox_template_name, revision_receipt, request_hash, expires_at, data)
+        SELECT id, 'default', 'scratch', 'revision', $2, NOW() + interval '1 hour', $3 FROM created`, sandboxID, make([]byte, 32), []byte{})
 	execSQL(t, dsn, "INSERT INTO session_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
 	scheduleID := "00000000-0000-0000-0000-000000000003"
 	executionID := "00000000-0000-0000-0000-000000000004"

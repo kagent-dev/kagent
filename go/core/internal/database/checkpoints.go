@@ -206,7 +206,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		}
 
 		session, err := lockSession(ctx, tx, checkpoint.GetSessionId())
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (session.UserID != userID || session.State == "RUNTIME_STATE_DELETED")) {
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (session.UserID != userID || session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String())) {
 			return ErrNotFound
 		}
 		if err != nil {
@@ -216,7 +216,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		if _, err := toSession(session); err != nil {
 			return err
 		}
-		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
+		if session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY.String() || session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String() {
 			return fmt.Errorf("session %s cannot checkpoint in state %s with operation %s: %w", checkpoint.GetSessionId(), session.State, session.Operation, ErrConflict)
 		}
 		type head struct {

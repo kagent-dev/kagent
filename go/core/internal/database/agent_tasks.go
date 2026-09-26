@@ -14,7 +14,7 @@ import (
 // authorize the resulting session before returning data or invoking its runtime.
 func (c *Client) SessionForTask(ctx context.Context, taskID string) (string, error) {
 	id, err := queryOne(ctx, c.db, `
-		SELECT i.id::text FROM session i
+		SELECT i.id::text FROM session_record i
 		JOIN session_task t ON t.history_id = i.history_id
 		WHERE t.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
 	`, pgx.RowTo[string], taskID)
@@ -27,7 +27,7 @@ func (c *Client) SessionForTask(ctx context.Context, taskID string) (string, err
 func (c *Client) ListAgentTasks(ctx context.Context, sessionIDs []string, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int, historyLength *int) ([]*a2a.Task, int, error) {
 	total, err := queryOne(ctx, c.db, `
 		SELECT COUNT(*) FROM session_task t
-		JOIN session i ON i.history_id = t.history_id
+		JOIN session_record i ON i.history_id = t.history_id
 		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'RUNTIME_STATE_DELETED'
 		  AND ($2::text = '' OR t.state = $2)
 		  AND ($3::timestamptz IS NULL OR t.status_timestamp > $3)
@@ -39,11 +39,11 @@ func (c *Client) ListAgentTasks(ctx context.Context, sessionIDs []string, afterI
 		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at,
 		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
 		    t.history_sequence, t.position FROM session_task t
-		JOIN session i ON i.history_id = t.history_id
+		JOIN session_record i ON i.history_id = t.history_id
 		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'RUNTIME_STATE_DELETED'
 		  AND ($2::text = '' OR (t.position, t.id) > (
 		      SELECT cursor.position, cursor.id FROM session_task cursor
-		      JOIN session owner ON owner.history_id = cursor.history_id
+		      JOIN session_record owner ON owner.history_id = cursor.history_id
 		      WHERE cursor.id = $2 AND owner.id = ANY($1::uuid[])
 		  ))
 		  AND ($3::text = '' OR t.state = $3)

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -128,7 +129,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if session.State == "RUNTIME_STATE_DELETED" {
+		if session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String() {
 			return ErrNotFound
 		}
 		if task.ContextID != session.ContextID.String() {
@@ -266,7 +267,7 @@ func (c *Client) GetVersionedSessionTask(ctx context.Context, sessionID, taskID 
 			SELECT t.history_id, t.data,
 			    (SELECT MAX(e.sequence) FROM session_task_event e
 			     WHERE e.history_id = t.history_id AND e.task_id = t.id) AS version
-			FROM session_task t JOIN session i ON i.history_id = t.history_id
+			FROM session_task t JOIN session_record i ON i.history_id = t.history_id
 			WHERE i.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED' AND t.id = $2
 		`, pgx.RowToStructByName[storedTask], sessionID, taskID)
 		if err != nil {
@@ -458,7 +459,7 @@ func (c *Client) getPublicTask(ctx context.Context, sessionID, taskID string, hi
 			SELECT t.history_id, t.data, t.created_at,
 			    ($3::boolean AND EXISTS (SELECT 1 FROM session_task_event e
 			      WHERE e.history_id = t.history_id AND e.task_id = t.id AND NOT e.published)) AS pending
-			FROM session_task t JOIN session i ON i.history_id = t.history_id
+			FROM session_task t JOIN session_record i ON i.history_id = t.history_id
 			WHERE i.id = $1 AND i.state <> 'RUNTIME_STATE_DELETED' AND t.id = $2
 		`, pgx.RowToStructByName[publicTask], sessionID, taskID, settled)
 		if err != nil {

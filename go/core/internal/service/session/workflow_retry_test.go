@@ -83,7 +83,7 @@ func (a *retryTestActors) DeleteActor(ctx context.Context, space, name string) e
 	return a.mutationErr
 }
 
-func TestLifecycleRetainsAmbiguousMutation(t *testing.T) {
+func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 	for _, name := range []string{"create", "fork", "resume", "suspend", "delete"} {
 		t.Run(name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
@@ -122,10 +122,10 @@ func TestLifecycleRetainsAmbiguousMutation(t *testing.T) {
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err, "uncertainty must preserve the session and its resource pins")
 			require.NotEqual(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
-			_, err = call(t.Context(), current)
-			require.ErrorIs(t, err, database.ErrConflict)
-			_, err = setup.Delete(t.Context(), current)
-			require.ErrorIs(t, err, database.ErrConflict, "Delete must not erase uncertain work")
+			if name != "delete" {
+				_, err = setup.Delete(t.Context(), current)
+				require.ErrorIs(t, err, database.ErrConflict, "Delete must not erase uncertain work")
+			}
 			if checkpointID != "" {
 				_, _, err = store.BeginDeleteSessionCheckpoint(t.Context(), checkpointID, session.Creator)
 				require.ErrorIs(t, err, database.ErrNotFound, "uncertain fork must retain its checkpoint pin")
@@ -133,7 +133,27 @@ func TestLifecycleRetainsAmbiguousMutation(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, checkpoint.State)
 			}
-			require.EqualValues(t, 1, actors.mutations.Load())
+			actors.mutationErr = nil
+			// A fresh workflow models the next request reaching another replica.
+			restarted := NewActorWorkflow(store, actors)
+			retryCall := restarted.Create
+			switch name {
+			case "resume":
+				retryCall = restarted.Resume
+			case "suspend":
+				retryCall = restarted.Suspend
+			case "delete":
+				retryCall = restarted.Delete
+			}
+			result, err := retryCall(t.Context(), current)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, result.Operation)
+			if name == "create" || name == "fork" {
+				require.EqualValues(t, 1, actors.mutations.Load(), "retry must preserve the created Actor")
+			}
+			if name == "delete" {
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, result.State)
+			}
 		})
 	}
 }
@@ -274,24 +294,17 @@ func (s *completionTestStore) FinishSessionOperation(ctx context.Context, sessio
 	return s.Client.FinishSessionOperation(ctx, sessionID, id, executor, authority, actorUID, failure)
 }
 
-func TestLifecycleCompletionFailureDoesNotRepeatRuntime(t *testing.T) {
+func TestLifecycleCompletionFailureRetriesPersistence(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
 	failure := status.Error(codes.Unavailable, "completion database unavailable")
 	_, err := NewActorWorkflow(&completionTestStore{lifecycleTestStore: store, finishErr: failure}, actors).Create(t.Context(), session)
 	require.ErrorIs(t, err, failure)
-	_, err = NewActorWorkflow(store, actors).Create(t.Context(), session)
-	require.ErrorIs(t, err, database.ErrConflict)
-	require.EqualValues(t, 1, actors.mutations.Load())
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
-	require.NoError(t, err)
-	// Only the original executor with its known successful response may finish.
-	_, err = store.FinishSessionOperation(t.Context(), session.Id, operation.ID, operation.ExecutorID, substrate.ActorHost("team-a", substrate.ActorName(session.Id), ""), "actor-uid", "")
-	require.NoError(t, err)
 	ready, err := NewActorWorkflow(store, actors).Create(t.Context(), session)
 	require.NoError(t, err)
 	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.State)
-	require.EqualValues(t, 1, actors.mutations.Load())
+	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, ready.Operation)
+	require.EqualValues(t, 1, actors.mutations.Load(), "retry must not recreate the Actor")
 }
 
 func TestClaimedCreationBlocksDeletionBeforeRuntimeCall(t *testing.T) {
@@ -330,6 +343,37 @@ func TestClaimedCreationBlocksDeletionBeforeRuntimeCall(t *testing.T) {
 
 // Namespace provisioning belongs to the template controller. Lifecycle execution
 // must work even when its caller cannot create an Atespace.
+func TestExpiredLifecycleAttemptCannotIssueRuntime(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
+	claimed, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	attemptCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	delayed := &completionTestStore{lifecycleTestStore: store, afterClaim: func(context.Context) {
+		close(claimed)
+		<-release // Simulate a stalled executor that does not observe cancellation yet.
+	}}
+	done := make(chan error, 1)
+	go func() { _, err := NewActorWorkflow(delayed, actors).Create(attemptCtx, session); done <- err }()
+	select {
+	case <-claimed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("attempt did not claim execution")
+	}
+	workflow := NewActorWorkflow(store, actors)
+	require.Eventually(t, func() bool {
+		_, err := workflow.Create(t.Context(), session)
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond)
+	// The delayed attempt must observe its expired context before issuing calls.
+	// Cleanup releases it after the replacement has finished.
+	t.Cleanup(func() {
+		require.ErrorIs(t, <-done, context.DeadlineExceeded)
+		require.EqualValues(t, 1, actors.mutations.Load())
+	})
+}
+
 func (*retryTestActors) EnsureAtespace(context.Context, string) error {
 	return status.Error(codes.PermissionDenied, "session caller cannot create an Atespace")
 }

@@ -9,6 +9,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -25,6 +26,7 @@ func TestMalformedProtobufPayloads(t *testing.T) {
 		decode func([]byte) error
 	}{
 		{"session", func(data []byte) error { _, err := toSession(sessionRow{Data: data}); return err }},
+		{"sandbox", func(data []byte) error { _, err := (sandboxRow{Data: data}).sandbox(); return err }},
 		{"checkpoint", func(data []byte) error {
 			_, err := toSessionCheckpoint(sessionCheckpointRow{Data: data})
 			return err
@@ -133,7 +135,10 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	stored := &apiv1alpha1.Session{}
 	require.NoError(t, proto.Unmarshal(row.Data, stored))
-	require.True(t, proto.Equal(session, stored))
+	reconstructed, err := toSession(row)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(session, reconstructed))
+	require.True(t, proto.Equal(session, stored), "persist the full Session protobuf")
 	require.Equal(t, request.ProtoReflect().GetUnknown(), stored.ProtoReflect().GetUnknown())
 	require.Equal(t, request.Agent.ProtoReflect().GetUnknown(), stored.Agent.ProtoReflect().GetUnknown())
 	session, err = finishSessionOperation(ctx, client, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, "")
@@ -221,6 +226,69 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestSandboxProtobufPersistenceLifecycle(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool)
+	ctx := t.Context()
+	input, options := sandboxFixture(t, client, "revision")
+	addUnknown(input)
+	addUnknown(input.SandboxTemplate)
+	created, _, err := client.CreateSandbox(ctx, input, "create", options)
+	require.NoError(t, err)
+	require.Equal(t, input.ProtoReflect().GetUnknown(), created.ProtoReflect().GetUnknown())
+
+	// Simulate a resource written by a newer binary, including nested fields.
+	addUnknown(created.Guest)
+	require.NoError(t, client.withTx(ctx, func(tx pgx.Tx) error {
+		if _, err := lockSandbox(ctx, tx, created.Id); err != nil {
+			return err
+		}
+		_, err := saveSandboxPayload(ctx, tx, created)
+		return err
+	}))
+
+	for _, kind := range []apiv1alpha1.RuntimeOperation{
+		apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
+		apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND,
+		apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME,
+		apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE,
+	} {
+		finished := finishSandbox(t, client, created.Id, kind)
+		observed, err := client.GetSandbox(ctx, created.Id, input.Creator)
+		require.NoError(t, err)
+		require.True(t, proto.Equal(finished, observed))
+		require.Equal(t, created.Name, observed.Name)
+		require.True(t, proto.Equal(created.CreatedAt, observed.CreatedAt))
+		require.True(t, proto.Equal(created.ExpiresAt, observed.ExpiresAt))
+		require.True(t, proto.Equal(created.SandboxTemplate, observed.SandboxTemplate))
+		require.True(t, proto.Equal(created.Guest, observed.Guest))
+		require.Equal(t, created.ProtoReflect().GetUnknown(), observed.ProtoReflect().GetUnknown())
+		row, err := readSandbox(ctx, pool, created.Id)
+		require.NoError(t, err)
+		stored := &apiv1alpha1.Sandbox{}
+		require.NoError(t, proto.Unmarshal(row.Data, stored))
+		require.True(t, proto.Equal(observed, stored), "persist the full Sandbox protobuf")
+	}
+}
+
+func TestSandboxCorruptPayloadRollsBackOperation(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool)
+	ctx := t.Context()
+	input, options := sandboxFixture(t, client, "revision")
+	created, _, err := client.CreateSandbox(ctx, input, "create", options)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE sandbox SET data = $2 WHERE id = $1`, created.Id, []byte{0xff})
+	require.NoError(t, err)
+	_, err = client.BeginSandboxOperation(ctx, created.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	require.Error(t, err)
+	row, err := readSandbox(ctx, pool, created.Id)
+	require.NoError(t, err)
+	require.Nil(t, row.OperationID, "a failed payload write must not leave an admitted operation")
+	require.Equal(t, created.State.String(), row.State)
+	require.Equal(t, created.Operation.String(), row.Operation)
+}
+
 func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	pool := setupTestDB(t)
 	client := NewClient(pool)
@@ -240,7 +308,8 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.Equal(t, "new-uid", stored.ActorTemplateUID)
 	cards, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(card, cards[0].AgentCard))
+	require.Len(t, cards, 1)
+	require.Equal(t, stored.Revision, cards[0].Revision)
 	rendered, err := pbconv.FromProtoAgentCard(stored.AgentCard)
 	require.NoError(t, err)
 	require.Equal(t, "assistant", rendered.Name)
