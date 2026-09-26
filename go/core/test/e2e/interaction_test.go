@@ -754,7 +754,7 @@ func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, 
 	message.ContextID = f.sessionID
 	request.Message.ContextId = f.sessionID
 	request.Tenant = f.tenant
-	response, err := f.client.SendMessage(f.ctx, request)
+	response, err := sendMessageWithRetry(f.ctx, f.client, request)
 	if err != nil {
 		t.Fatalf("send A2A message: %v", err)
 	}
@@ -767,6 +767,27 @@ func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, 
 		t.Fatalf("A2A response = %T, want Task", result)
 	}
 	return message, request, task
+}
+
+// sendMessageWithRetry follows the gateway's explicit rejection contract. A
+// published task can precede the runtime releasing its execution slot. Retry the
+// same input only when the gateway proves it was never accepted; a generic
+// transport error may hide accepted work and must not cause another execution.
+func sendMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+	var response *a2apb.SendMessageResponse
+	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		var err error
+		response, err = client.SendMessage(ctx, request)
+		if status.Code(err) == codes.FailedPrecondition {
+			for _, detail := range status.Convert(err).Details() {
+				if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == a2atype.ProtocolDomain && info.Metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
+					return false, nil
+				}
+			}
+		}
+		return err == nil, err
+	})
+	return response, err
 }
 
 func newMessageRequest(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest) {
