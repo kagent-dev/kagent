@@ -224,7 +224,7 @@ export function AgentChatPage() {
    * which is a way of filling the list rather than a thing anyone wants.
    */
   const latest = chat.messages[chat.messages.length - 1];
-  const canCheckpoint = Boolean(latest) && !checkpointByMessage.has(latest.id);
+  const canCheckpoint = Boolean(latest?.taskId) && !checkpointByMessage.has(latest.id);
 
   /*
    * Saves the conversation's current turn boundary.
@@ -234,11 +234,11 @@ export function AgentChatPage() {
    * `checkpointsByMessage` for why the message alone cannot say which turn it is in.
    */
   const checkpointChat = useCallback(async () => {
-    if (!id) return;
+    if (!id || !latest?.taskId) return;
     const anchor = [...chat.messages].reverse().find((m) => m.role === "user")?.id;
     setCheckpointing(true);
     try {
-      const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
+      const checkpoint = await apiClient.agentInstances.checkpoints.create(id, latest.taskId);
       if (anchor) {
         setSavedHere((current) => {
           const marks = new Map(current.conversation === id ? current.marks : []);
@@ -255,7 +255,7 @@ export function AgentChatPage() {
     } finally {
       setCheckpointing(false);
     }
-  }, [id, chat.messages, checkpoints]);
+  }, [id, chat.messages, checkpoints, latest]);
 
   /*
    * Removes a saved boundary.

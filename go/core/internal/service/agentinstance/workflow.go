@@ -22,11 +22,14 @@ import (
 )
 
 type workflowStore interface {
+	ClaimInstanceQuiescence(context.Context) (*database.InstanceQuiescence, error)
+	FinishInstanceQuiescence(context.Context, *database.InstanceQuiescence, *database.AgentInstanceTaskSnapshot) error
+	GetAgentInstanceForRuntime(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	BeginAgentInstanceOperation(context.Context, string, apiv1alpha1.AgentInstanceOperation) (*database.InstanceOperation, error)
 	ClaimAgentInstanceOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
-	FinishAgentInstanceOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string) (*apiv1alpha1.AgentInstance, error)
+	FinishAgentInstanceOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetAgentInstanceOperation(context.Context, string, uuid.UUID) (*database.InstanceOperation, error)
 }
 
@@ -61,11 +64,18 @@ func (w *ActorWorkflow) Pause(ctx context.Context, instance *apiv1alpha1.AgentIn
 		return fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
+	current, err := w.actors.GetActor(ctx, atespace, name)
+	if err != nil {
+		return err
+	}
+	if err := w.verifyActor(ctx, instance, revision, current); err != nil {
+		return err
+	}
 	actor, err := w.actors.PauseActor(ctx, atespace, name)
 	if err != nil {
 		return fmt.Errorf("pause Actor %s/%s: %w", atespace, name, err)
 	}
-	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+	if !validActorIdentity(actor, revision, name) || actor.GetMetadata().GetUid() != current.GetMetadata().GetUid() || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
 		return fmt.Errorf("pause Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
 	}
 	return nil
@@ -80,6 +90,13 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
+	current, err := w.actors.GetActor(ctx, atespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.verifyActor(ctx, instance, revision, current); err != nil {
+		return nil, err
+	}
 	actor, err := w.actors.SuspendActor(ctx, atespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("suspend Actor %s/%s: %w", atespace, name, err)
@@ -88,7 +105,7 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 		return nil, fmt.Errorf("suspend Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
 	}
 	metadata := actor.GetMetadata()
-	if metadata.GetAtespace() != atespace || metadata.GetName() != name || metadata.GetUid() == "" {
+	if !validActorIdentity(actor, revision, name) || metadata.GetUid() != current.GetMetadata().GetUid() {
 		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
 	}
 	snapshot := actor.GetStatus().GetExternalSnapshot()
@@ -132,8 +149,8 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 // run keeps lifecycle preparation separate from the durable issue boundary.
 // Multiple callers may prepare using read-only calls; exactly one can authorize
 // runtime mutations. Once authorized, every error retains the operation and its
-// resource pins. Pause/Quiesce and A2A execution join this boundary in the later
-// shared-instance-execution change; this is lifecycle serialization only.
+// resource pins. The instance lock serializes admission against runtime writes,
+// claimed idle work, and checkpoint capture.
 func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKind apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
 	operation, err := w.store.BeginAgentInstanceOperation(ctx, instanceID, requestedKind)
 	if err != nil {
@@ -181,8 +198,8 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 		if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
 			return w.failPreparation(ctx, operation, fmt.Errorf("refuse to adopt existing Actor %s/%s while creation is still pending", atespace, name))
 		}
-		if !validActorIdentity(actor, revision, name) {
-			return w.failPreparation(ctx, operation, fmt.Errorf("actor %s/%s identity or template changed", atespace, name))
+		if err := w.verifyActor(ctx, instance, revision, actor); err != nil {
+			return w.failPreparation(ctx, operation, err)
 		}
 		if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME || kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
 			switch actor.GetStatus().GetState() {
@@ -272,7 +289,7 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 	// A disconnected client must not discard an already known runtime outcome.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return w.store.FinishAgentInstanceOperation(finishCtx, instanceID, operation.ID, executorID, authority, "")
+	return w.store.FinishAgentInstanceOperation(finishCtx, instanceID, operation.ID, executorID, authority, actor.GetMetadata().GetUid(), "")
 }
 
 // failPreparation releases only unissued work. If another caller won, observe
@@ -281,7 +298,7 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.InstanceOperation, cause error) (*apiv1alpha1.AgentInstance, error) {
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	_, err := w.store.FinishAgentInstanceOperation(finishCtx, admitted.Instance.Id, admitted.ID, uuid.Nil, "", "lifecycle preparation failed")
+	_, err := w.store.FinishAgentInstanceOperation(finishCtx, admitted.Instance.Id, admitted.ID, uuid.Nil, "", "", "lifecycle preparation failed")
 	if errors.Is(err, database.ErrConflict) {
 		operation, readErr := w.store.GetAgentInstanceOperation(finishCtx, admitted.Instance.Id, admitted.ID)
 		if readErr != nil {
@@ -297,6 +314,19 @@ func operationOutcome(operation *database.InstanceOperation) (*apiv1alpha1.Agent
 		return operation.Instance, nil
 	}
 	return nil, fmt.Errorf("lifecycle operation %s is pending; runtime effects may be unresolved: %w", operation.ID, database.ErrConflict)
+}
+
+// Verify the recorded actor UID before issuing lifecycle work. Names and
+// templates alone also match an externally replaced actor, which we must not
+// adopt or checkpoint as this instance's runtime.
+func (w *ActorWorkflow) verifyActor(ctx context.Context, instance *apiv1alpha1.AgentInstance, revision *database.RuntimeRevision, actor *ateapipb.Actor) error {
+	if !validActorIdentity(actor, revision, substrate.ActorName(instance.Id)) {
+		return fmt.Errorf("runtime actor identity or template changed")
+	}
+	if _, err := w.store.GetAgentInstanceForRuntime(ctx, instance.Id, actor.GetMetadata().GetUid()); err != nil {
+		return fmt.Errorf("verify runtime actor UID: %w", err)
+	}
+	return nil
 }
 
 func validActorIdentity(actor *ateapipb.Actor, revision *database.RuntimeRevision, name string) bool {

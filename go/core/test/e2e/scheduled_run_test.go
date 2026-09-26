@@ -83,8 +83,7 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 
 		_, err = f.schedules.DeleteScheduledRun(f.ctx, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
 		require.NoError(t, err)
-		_, err = f.instances.DeleteAgentInstance(f.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: first.GetAgentInstanceId()})
-		require.NoError(t, err)
+		require.NoError(t, deleteIdleInstance(f.ctx, f.instances, first.GetAgentInstanceId()))
 		retained, err = f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: first.GetId()})
 		require.NoError(t, err)
 		require.Equal(t, first.GetAgentInstanceId(), retained.GetExecution().GetAgentInstanceId())
@@ -202,8 +201,7 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 			if execution.GetAgentInstanceId() == "" {
 				continue
 			}
-			_, err := f.instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: execution.GetAgentInstanceId()})
-			if err != nil && status.Code(err) != codes.NotFound {
+			if err := deleteIdleInstance(cleanupCtx, f.instances, execution.GetAgentInstanceId()); err != nil {
 				t.Errorf("delete scheduled instance: %v", err)
 			}
 		}

@@ -69,16 +69,17 @@ type AuthProvider interface {
 //
 // It lives here rather than beside the server because a library consumer
 // registering its own services has to name these, and the server package is
-// internal. AccessPublic is the only value that skips authentication; every
-// other value is the verb the authorizer is asked to allow.
+// internal. AccessPublic skips authentication. AccessRuntime requires the
+// separate workload authenticator; the remaining modes use public identity.
 type AccessMode string
 
 const (
-	AccessPublic AccessMode = "public"
-	AccessRead   AccessMode = "read"
-	AccessCreate AccessMode = "create"
-	AccessUpdate AccessMode = "update"
-	AccessDelete AccessMode = "delete"
+	AccessPublic  AccessMode = "public"
+	AccessRuntime AccessMode = "runtime"
+	AccessRead    AccessMode = "read"
+	AccessCreate  AccessMode = "create"
+	AccessUpdate  AccessMode = "update"
+	AccessDelete  AccessMode = "delete"
 )
 
 // Authz

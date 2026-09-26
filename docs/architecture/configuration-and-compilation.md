@@ -138,7 +138,7 @@ images, and compatible worker hardware.
 
 ## Harness-specific output
 
-- **kagent** emits Go ADK configuration, the Harness's memory and context
+- **kagent** emits configuration for the Go or Python ADK, the Harness's memory and context
   compaction policy, Shared native subagents, and the kagent HITL extension.
 - **Codex** emits native App Server configuration, OpenAI or Bedrock model setup,
   Streamable HTTP MCP servers, Shared agents, and skills. Approvals are currently
@@ -146,10 +146,19 @@ images, and compatible worker hardware.
 - **Claude** emits Anthropic, Bedrock, or Vertex model setup, HTTP/SSE MCP
   servers, Shared agents, and skills.
 - **BYO** runs a digest-pinned user image that implements private A2A gRPC and
-  `/readyz`. Optional model, prompt, tool, skill, and plugin configuration is
+  `/readyz`, and uses the private TaskStore at `KAGENT_API_URL` for task creation,
+  persistence and settlement. The shared Go app and Python runtime builders
+  provide this integration. Other images must implement the same TaskStore
+  contract; an upstream A2A server with only an in-memory store is insufficient.
+  Optional model, prompt, tool, skill, and plugin configuration is
   supplied in the ADK-shaped format when requested.
 
 Dedicated agent bindings are not compiled yet.
+
+The Python ADK image's default entrypoint runs a named Python agent module. To
+consume the kagent compiler's configuration, set `spec.workload.command` to
+`["/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "8080"]`.
+The compiler supplies the private A2A gRPC address separately.
 
 `spec.kagent.compaction` on the Harness is runtime policy, like `spec.kagent.memory`:
 it belongs to the runner that drives the root agent and is not part of the

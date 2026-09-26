@@ -38,7 +38,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder},
-			wantEgress: []string{"api.anthropic.com"},
+			wantEgress: []string{"api.anthropic.com", "kagent-controller.kagent"},
 		},
 		{
 			name: "Anthropic gateway",
@@ -48,7 +48,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
-			wantEgress: []string{"host.docker.internal"},
+			wantEgress: []string{"host.docker.internal", "kagent-controller.kagent"},
 		},
 		{
 			name: "Bedrock IAM",
@@ -63,7 +63,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
 			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
 			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: v2translator.CredentialPlaceholder},
-			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
+			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com", "kagent-controller.kagent"},
 		},
 		{
 			name: "Anthropic Vertex AI",
@@ -142,7 +142,7 @@ func TestCompileTracing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "collector"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "collector", "kagent-controller.kagent"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -198,7 +198,7 @@ func TestCompileLogging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "logs"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "kagent-controller.kagent", "logs"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -344,7 +344,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		len(cfg.SkillResources.Plugins) != 1 || !reflect.DeepEqual(cfg.SkillResources.Plugins[0].Skills, []string{"deploy"}) {
 		t.Fatalf("compiled skills = %#v", cfg.SkillResources)
 	}
-	wantEgress := []string{"api.anthropic.com", "git.example.com", "registry.example.com"}
+	wantEgress := []string{"api.anthropic.com", "git.example.com", "kagent-controller.kagent", "registry.example.com"}
 	if !reflect.DeepEqual(revision.EgressDestinations, wantEgress) {
 		t.Fatalf("egress = %v, want %v", revision.EgressDestinations, wantEgress)
 	}
@@ -412,7 +412,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	if !foundSecret {
 		t.Fatalf("MCP credential environment missing: %#v", revision.Environment)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "mcp.example.com"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "kagent-controller.kagent", "mcp.example.com"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	if !bytes.Contains(revision.Provenance, []byte(`"kind":"RemoteMCPServer"`)) {

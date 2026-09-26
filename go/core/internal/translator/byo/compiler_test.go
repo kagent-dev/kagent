@@ -33,8 +33,11 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, harness.Spec.Workload.Command, revision.Command)
 	require.Equal(t, harness.Spec.Workload.Args, revision.Args)
-	require.Empty(t, revision.EgressDestinations)
-	require.Equal(t, []corev1.EnvVar{{Name: "MODE", Value: "production"}}, revision.Environment)
+	require.Equal(t, []string{"kagent-controller.kagent"}, revision.EgressDestinations)
+	require.Equal(t, []corev1.EnvVar{
+		{Name: "MODE", Value: "production"},
+		{Name: "KAGENT_API_URL", Value: "http://kagent-controller.kagent:8083"},
+	}, revision.Environment)
 
 	var config adk.AgentConfig
 	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))

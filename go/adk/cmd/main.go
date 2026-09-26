@@ -67,6 +67,9 @@ func main() {
 
 func run(logger *slog.Logger, host, port, configDir string) error {
 	kagentAPIURL := env.KagentAPIURL.Get()
+	if kagentAPIURL == "" {
+		return fmt.Errorf("KAGENT_API_URL is required")
+	}
 
 	if err := config.MaterializeFromEnv(configDir); err != nil {
 		return fmt.Errorf("materialize agent config in %s: %w", configDir, err)
@@ -128,30 +131,26 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 	}()
 
 	// Create one authenticated controller channel for all kagent persistence.
-	var controllerClient *controllerclient.Client
-	var tokenService *auth.KAgentTokenService
-	if kagentAPIURL != "" {
-		tokenService = auth.NewKAgentTokenService(appName)
-		if err := tokenService.Start(context.Background()); err != nil {
-			logger.Error("failed to start token service", "error", err)
-		} else {
-			logger.Info("token service started")
-		}
-		defer tokenService.Stop()
-		controllerClient, err = controllerclient.New(controllerclient.Config{
-			APIURL:        kagentAPIURL,
-			AgentName:     appName,
-			TokenProvider: tokenService,
-		})
-		if err != nil {
-			return fmt.Errorf("create controller API client for %s: %w", kagentAPIURL, err)
-		}
-		defer func() {
-			if err := controllerClient.Close(); err != nil {
-				logger.Error("failed to close controller gRPC client", "error", err)
-			}
-		}()
+	tokenService := auth.NewKAgentTokenService(appName)
+	if err := tokenService.Start(context.Background()); err != nil {
+		logger.Error("failed to start token service", "error", err)
+	} else {
+		logger.Info("token service started")
 	}
+	defer tokenService.Stop()
+	controllerClient, err := controllerclient.New(controllerclient.Config{
+		APIURL:        kagentAPIURL,
+		AgentName:     appName,
+		TokenProvider: tokenService,
+	})
+	if err != nil {
+		return fmt.Errorf("create controller API client for %s: %w", kagentAPIURL, err)
+	}
+	defer func() {
+		if err := controllerClient.Close(); err != nil {
+			logger.Error("failed to close controller gRPC client", "error", err)
+		}
+	}()
 
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
@@ -171,7 +170,7 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 
 	// Build memory service if configured.
 	var memoryService *kagentmemory.KagentMemoryService
-	if agentConfig.Memory != nil && controllerClient != nil {
+	if agentConfig.Memory != nil {
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
 			AgentName:        appName,
 			ControllerClient: controllerClient,
@@ -219,15 +218,16 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 
 	// Delegate the actor-local A2A server and task store to app.New.
 	kagentApp, err := app.New(app.AppConfig{
-		AgentCard:       *agentCard,
-		Host:            host,
-		Port:            port,
-		AppName:         appName,
-		ShutdownTimeout: 5 * time.Second,
-		Logger:          logger,
-		Agent:           runnerConfig.Agent,
-		Telemetry:       runtimeTelemetry,
-		Flush:           providers.ForceFlush,
+		ControllerClient: controllerClient,
+		AgentCard:        *agentCard,
+		Host:             host,
+		Port:             port,
+		AppName:          appName,
+		ShutdownTimeout:  5 * time.Second,
+		Logger:           logger,
+		Agent:            runnerConfig.Agent,
+		Telemetry:        runtimeTelemetry,
+		Flush:            providers.ForceFlush,
 	}, executor)
 	if err != nil {
 		return fmt.Errorf("create app: %w", err)

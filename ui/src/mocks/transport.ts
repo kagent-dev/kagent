@@ -978,6 +978,9 @@ const checkpointMessage = (row: MockCheckpoint) => ({
 on(CheckpointService.method.createCheckpoint, (input, call) => {
   const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
   const headTaskId = mockLatestTaskId(instance.id);
+  if (input.expectedHeadTaskId !== headTaskId) {
+    throw new ConnectError("Conversation advanced beyond the expected task", Code.FailedPrecondition);
+  }
   const checkpoint = saveCheckpoint({
     id: randomId(),
     agentInstanceId: instance.id,

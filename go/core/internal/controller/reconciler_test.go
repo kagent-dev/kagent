@@ -200,7 +200,14 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			instance, _, err := store.CreateAgentInstance(ctx, request, "instance")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), instance.GetPreparedRevision())
-			require.NoError(t, store.DeleteAgentInstance(ctx, instance.GetId()))
+			operation, err := store.BeginAgentInstanceOperation(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
+			require.NoError(t, err)
+			executor := uuid.New()
+			claimed, err := store.ClaimAgentInstanceOperation(ctx, instance.Id, operation.ID, executor)
+			require.NoError(t, err)
+			require.True(t, claimed)
+			_, err = store.FinishAgentInstanceOperation(ctx, instance.Id, operation.ID, executor, "", "", "")
+			require.NoError(t, err)
 			require.NotNil(t, templates.template)
 
 			// An invalid replacement UID still revokes the old identity. Failed or

@@ -194,3 +194,24 @@ func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
+	execution := &apiv1alpha1.ScheduledRunExecution{
+		Id: "execution", AgentInstanceId: "instance",
+		State:    apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING,
+		Deadline: timestamppb.New(time.Now().Add(time.Minute)),
+	}
+	store := controllerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "instance", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}}
+	reads := 0
+	gateway := taskLookupGateway{listTasks: func(*a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+		reads++
+		return &a2atype.ListTasksResponse{}, nil
+	}}
+	// Neither dispatch nor workflow methods are supplied: even an empty history
+	// after a lost response must never trigger another send.
+	controller := NewController(store, nil, gateway)
+	require.NoError(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+	require.Equal(t, 1, reads)
+	require.Empty(t, execution.TaskId)
+	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
+}

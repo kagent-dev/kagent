@@ -45,14 +45,8 @@ func TestMalformedProtobufPayloads(t *testing.T) {
 }
 
 func TestA2AProtobufTaskEventScope(t *testing.T) {
-	pool := setupTestDB(t)
-	client, q, ctx := NewClient(pool), pool, t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original"), "create")
-	require.NoError(t, err)
-	instanceRow, err := readAgentInstance(ctx, q, instance.Id)
-	require.NoError(t, err)
-	original := &a2apb.Task{Id: "task", ContextId: instance.GetContextId(), Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
+	contextID := uuid.NewString()
+	original := &a2apb.Task{Id: "task", ContextId: contextID, Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
 		Artifacts: []*a2apb.Artifact{{ArtifactId: "one", Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "first"}}, {Content: &a2apb.Part_Text{Text: "second"}}}}, {ArtifactId: "two"}},
 	}
 	addUnknown(original)
@@ -67,26 +61,18 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 		event a2a.Event
 	}{
 		{"reorder artifacts", reordered},
-		{"status", &a2a.TaskStatusUpdateEvent{TaskID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Metadata: map[string]any{"status": "done"}}},
-		{"append", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.GetContextId(), Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("third")}, Metadata: map[string]any{"chunk": "last"}}}},
-		{"replace parts", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.GetContextId(), Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("second"), a2a.NewTextPart("first")}}}},
-		{"snapshot", &a2a.Task{ID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Artifacts: []*a2a.Artifact{{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("replacement")}}}}},
+		{"status", &a2a.TaskStatusUpdateEvent{TaskID: "task", ContextID: contextID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Metadata: map[string]any{"status": "done"}}},
+		{"append", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: contextID, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("third")}, Metadata: map[string]any{"chunk": "last"}}}},
+		{"replace parts", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: contextID, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("second"), a2a.NewTextPart("first")}}}},
+		{"snapshot", &a2a.Task{ID: "task", ContextID: contextID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Artifacts: []*a2a.Artifact{{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("replacement")}}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			task, err := pbconv.FromProtoTask(original)
 			require.NoError(t, err)
 			next, err := a2aevent.ApplyUpdate(task, test.event)
 			require.NoError(t, err)
-			data, err := proto.Marshal(original)
+			got, _, err := taskTransition(original, next, test.event)
 			require.NoError(t, err)
-			_, err = saveTaskProjection(ctx, q, instanceRow.HistoryID, original.Id, string(a2a.TaskStateWorking), nil, data)
-			require.NoError(t, err)
-			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, next, test.event, nil))
-			row, err := readAgentInstanceTask(ctx, q, instanceRow.HistoryID, original.Id)
-			require.NoError(t, err)
-			require.Equal(t, string(next.Status.State), row.State)
-			got := &a2apb.Task{}
-			require.NoError(t, proto.Unmarshal(row.Data, got))
 			require.Equal(t, original.ProtoReflect().GetUnknown(), got.ProtoReflect().GetUnknown())
 			require.Equal(t, original.Status.ProtoReflect().GetUnknown(), got.Status.ProtoReflect().GetUnknown())
 			switch test.name {
@@ -104,24 +90,6 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 			}
 		})
 	}
-	data, err := proto.Marshal(original)
-	require.NoError(t, err)
-	_, err = saveTaskProjection(ctx, q, instanceRow.HistoryID, original.Id, string(a2a.TaskStateWorking), nil, data)
-	require.NoError(t, err)
-	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, original.Id)
-	require.NoError(t, err)
-	require.True(t, interrupted)
-	row, err := readAgentInstanceTask(ctx, q, instanceRow.HistoryID, original.Id)
-	require.NoError(t, err)
-	got := &a2apb.Task{}
-	require.NoError(t, proto.Unmarshal(row.Data, got))
-	require.Equal(t, original.ProtoReflect().GetUnknown(), got.ProtoReflect().GetUnknown())
-	require.Equal(t, original.Status.ProtoReflect().GetUnknown(), got.Status.ProtoReflect().GetUnknown())
-	require.True(t, proto.Equal(original.Artifacts[0], got.Artifacts[0]))
-	require.Equal(t, string(a2a.TaskStateFailed), row.State)
-	require.Equal(t, a2apb.TaskState_TASK_STATE_FAILED, got.Status.State)
-	require.Equal(t, row.StatusTimestamp.UnixMicro(), got.Status.Timestamp.AsTime().UnixMicro())
-
 	task, err := pbconv.FromProtoTask(original)
 	require.NoError(t, err)
 	event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}}
@@ -148,12 +116,15 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	instance, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime:80")
 	require.NoError(t, err)
 	require.Equal(t, "renamed while creating", instance.Name)
-	stale := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
+	suspend, err := client.BeginAgentInstanceOperation(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND)
+	require.NoError(t, err)
 	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "renamed again")
 	require.NoError(t, err)
-	stale.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
-	stale.Creator, stale.PreparedRevision = "mallory", "invalid"
-	instance, err = client.TransitionAgentInstance(ctx, stale, instance.State, instance.Operation)
+	executor := uuid.New()
+	claimed, err := client.ClaimAgentInstanceOperation(ctx, instance.Id, suspend.ID, executor)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	instance, err = client.FinishAgentInstanceOperation(ctx, instance.Id, suspend.ID, executor, "", "", "")
 	require.NoError(t, err)
 	require.Equal(t, "renamed again", instance.Name)
 	require.Equal(t, "alice", instance.Creator)
@@ -165,14 +136,13 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.True(t, proto.Equal(instance, stored))
 	require.Equal(t, request.ProtoReflect().GetUnknown(), stored.ProtoReflect().GetUnknown())
 	require.Equal(t, request.Harness.ProtoReflect().GetUnknown(), stored.Harness.ProtoReflect().GetUnknown())
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
-	instance, err = client.TransitionAgentInstance(ctx, instance, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED, instance.Operation)
+	instance, err = finishInstanceOperation(ctx, client, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME, "")
 	require.NoError(t, err)
 
 	task := &a2a.Task{ID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
 		History: []*a2a.Message{{ID: "message", Role: a2a.MessageRoleUser, Parts: a2a.ContentParts{a2a.NewTextPart("hello")}}},
 	}
-	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("request hash"), task)
+	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task, "")
 	require.NoError(t, err)
 	// Simulate a newer writer using the same binary SQL boundary.
 	taskRow, err := readAgentInstanceTask(ctx, q, row.HistoryID, string(task.ID))
@@ -193,13 +163,13 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = insertTaskEvent(ctx, q, taskEventWrite{
 		HistoryID: taskRow.HistoryID,
-		TaskID:    &taskRow.ID,
+		TaskID:    taskRow.ID,
 		Data:      futureEvent,
 	})
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
-	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
+	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
+	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}
 	addUnknown(checkpointRequest)
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
 	require.NoError(t, err)
@@ -222,7 +192,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Len(t, tasks[0].History, 2)
 	forkRow, err := readAgentInstance(ctx, q, fork.Id)
 	require.NoError(t, err)
-	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)}, nil)
+	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)}, nil, false)
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
@@ -236,7 +206,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Equal(t, futureTask.ProtoReflect().GetUnknown(), forkTask.ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.ProtoReflect().GetUnknown(), forkTask.Status.ProtoReflect().GetUnknown())
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, forkTask.Status.State)
-	require.NoError(t, client.DeleteAgentInstance(ctx, fork.Id))
+	require.NoError(t, deleteInstance(ctx, client, fork.Id))
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
 	checkpointRow, err = readCheckpoint(ctx, q, checkpoint.Id, "alice", nil)

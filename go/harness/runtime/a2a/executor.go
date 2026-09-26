@@ -614,6 +614,18 @@ func (r taskRef) matches(other taskRef) bool {
 	return r.taskID == other.taskID && r.contextID == other.contextID
 }
 
+// ReservedTaskID identifies the approval that holds this native session. The
+// runtime TaskStore uses it to reject unrelated input before committing history.
+// Active work is independently serialized by durable admission and activate.
+func (e *Executor) ReservedTaskID() a2atype.TaskID {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if task, ok := e.state.(*parkedTask); ok {
+		return task.taskID
+	}
+	return ""
+}
+
 // activate claims the Actor for task. It returns a continued turn only when
 // this request continues the task currently waiting for input.
 func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, error) {

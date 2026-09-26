@@ -536,6 +536,26 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 	return leases, nil
 }
 
+// ClaimScheduledRunDispatch records that a worker may issue its one A2A send.
+// It requires an unexpired lease and a linked, pending execution. Once claimed,
+// later workers recover the task from history; they never resend an uncertain
+// dispatch. A crash before sending therefore waits for the execution deadline.
+func (c *Client) ClaimScheduledRunDispatch(ctx context.Context, lease ScheduledRunExecutionLease) error {
+	result, err := c.db.Exec(ctx, `
+  UPDATE scheduled_run_execution SET state = 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING'
+  WHERE id = $1 AND lease_token = $2 AND next_attempt_at > clock_timestamp()
+    AND deadline > clock_timestamp() AND agent_instance_id IS NOT NULL
+    AND state = 'SCHEDULED_RUN_EXECUTION_STATE_PENDING'
+ `, lease.ExecutionID, lease.Token)
+	if err != nil {
+		return fmt.Errorf("claim scheduled dispatch: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
 // UpdateScheduledRunExecution records progress only under a matching, unexpired lease on a
 // pending or running execution. It preserves an existing task ID, records terminal
 // completion time, and releases the lease with a one-second retry delay. A lost lease or
@@ -578,6 +598,7 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 			WHERE id = $1 AND lease_token = $5::uuid AND next_attempt_at > clock_timestamp()
 			    AND state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING')
 			    AND (task_id IS NULL OR $3::text IS NULL OR task_id = $3)
+            AND (state <> 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING' OR $2::text <> 'SCHEDULED_RUN_EXECUTION_STATE_PENDING')
 		`,
 			lease.ExecutionID, progress.State.String(), taskID,
 			data, lease.Token,

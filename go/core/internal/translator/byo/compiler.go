@@ -12,6 +12,8 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -50,7 +52,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		}, "")...)
 		compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
 	}
-	environment = adkconfig.DedupeEnv(append(environment, adkconfig.HarnessEnvironment(harness)...))
+	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
+	environment = adkconfig.DedupeEnv(append(environment,
+		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
+	))
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
@@ -59,6 +64,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
+	compiled.Egress = append(compiled.Egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
 	slices.Sort(compiled.Egress)
 
 	return &v2translator.CompileResult{Revision: v2translator.Revision{

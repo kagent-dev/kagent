@@ -39,6 +39,7 @@ import (
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -307,6 +308,10 @@ func Run(ctx context.Context, opts Options) error {
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
+	runtimeTasks := taskstore.NewService(store)
+	if err := manager.Add(instanceWorkflow); err != nil {
+		return fmt.Errorf("register idle instance worker: %w", err)
+	}
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
 	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
@@ -316,7 +321,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
+	gateway := a2agateway.New(store, authorizer, gatewayDialer,
 		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
@@ -346,12 +351,14 @@ func Run(ctx context.Context, opts Options) error {
 		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
 		Reflection:            envBool("GRPC_REFLECTION"),
 		Authenticator:         authenticator,
+		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,
 		PromptTemplateService: prompts,
 		SystemService:         system,
 		MemoryService:         memory,
+		TaskStoreService:      runtimeTasks,
 		AgentInstanceService:  instances,
 		ScheduledRunService:   schedules,
 		// Both halves of the pair CreateAgentInstance names. Without these two

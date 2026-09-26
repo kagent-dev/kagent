@@ -26,8 +26,8 @@ remains current. A superseded caller gets a conflict and issues no runtime work,
 even when the new operation has the same state and kind. There is no historical
 lifecycle result archive or pruning requirement. Creation retries return current
 instance state; already-at-target Suspend/Resume requests are successful no-ops.
-Neither requires an old operation receipt. A2A message deduplication and event
-replay have their own durable history requirements and are unchanged.
+Neither requires an old operation receipt. A2A task storage and checkpoint
+reconstruction have their own durable history requirements.
 
 An unclaimed operation can retry preparation; Delete may supersede it. Preparation
 failure invalidates its generation. Once claimed, an operation never expires. A
@@ -53,8 +53,9 @@ Explicit suspend and resume update the logical lifecycle state. Deletion closes 
 admission, stops and deletes the Actor, then tombstones the instance. The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
-This serialization covers explicit lifecycle calls only: A2A, Pause, Quiesce, and
-checkpoint execution still need shared ownership before multi-replica gateway use.
+TaskStore writes and automatic idle lifecycle work use durable task boundaries
+alongside these explicit lifecycle claims. Checkpoint reservations also block
+conflicting task writes and idle lifecycle work.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without instance-local execution claims. PostgreSQL tests with controlled
@@ -63,35 +64,52 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 
 ## Automatic quiescence
 
-After an A2A task reaches a quiescent boundary—terminal, `input-required`, or
-`auth-required`—the gateway asks the lifecycle workflow to quiesce the Actor.
-Quiescence suspends compute and returns the exact snapshot identity while leaving
-the AgentInstance logically ready. Substrate ingress resumes a suspended Actor
-automatically when the next interaction arrives.
+The runtime stages a final task update and acknowledges it after native cleanup.
+That acknowledgement publishes task state and history atomically, without waiting
+for pause/suspend. An AgentInstance lifecycle worker independently claims the idle
+boundary in PostgreSQL. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
+terminal work suspends it and records the exact external snapshot. Waiting tasks
+are not forkable. The AgentInstance stays logically READY, and Substrate ingress
+resumes it when another authorized interaction arrives.
 
-Runtime calls and quiescence are serialized by an in-memory coordinator so a
-late suspend cannot race a new turn in one process. This intentionally limits the
-gateway to one replica until coordination is moved to a shared store.
+Unfinished native cleanup blocks new task writes and explicit lifecycle changes.
+After publication, a new turn may supersede idle work before it is claimed. Once
+claimed, idle work blocks new execution, explicit lifecycle changes, and checkpoint
+capture until its outcome is recorded. The worker performs runtime I/O outside the
+database transaction. Successful snapshot references are retried on database failure
+without repeating the Substrate operation. Checkpoint creation requires the matching
+snapshot and can return FailedPrecondition after task completion while it is pending.
+
+Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
+never expires: losing the worker does not prove that the suspend stopped. Uncertain
+claims still block new work, but completed results remain readable. The recorded
+actor UID is checked before lifecycle calls; a same-name replacement cannot be
+adopted implicitly.
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway
+    participant Actor as Agent runtime
+    participant API as TaskStore API
     participant DB as PostgreSQL
-    participant Workflow as AgentInstance workflow
-    participant Actor as Substrate Actor
-    Client->>Gateway: send or continue A2A task
-    Gateway->>Actor: invoke (ingress resumes if suspended)
-    Actor-->>Gateway: quiescent event
-    Gateway->>Actor: close runtime stream
-    Gateway->>Workflow: quiesce instance
-    Workflow->>Actor: suspend
-    Actor-->>Workflow: exact snapshot identity
-    Workflow-->>Gateway: snapshot boundary
-    Gateway->>DB: store task + event + snapshot atomically
-    DB-->>Gateway: committed
-    Gateway-->>Client: publish quiescent event
-    Note over Workflow,Actor: AgentInstance remains logically ready
+    participant Worker as AgentInstance lifecycle worker
+    Client->>Gateway: authorized send / continuation
+    Gateway->>Actor: invoke
+    Actor->>API: create and versioned updates
+    API->>DB: stage final boundary
+    API-->>Actor: committed version
+    Actor->>API: settle after native cleanup
+    API->>DB: publish task/history atomically
+    Actor-->>Gateway: final event
+    Gateway->>Actor: close observer connection
+    Gateway->>DB: observe publication
+    Gateway-->>Client: current public task
+    Note over Worker,DB: Idle lifecycle runs independently of the client response
+    Worker->>DB: claim idle boundary unless new execution superseded it
+    Worker->>Actor: pause or suspend
+    Actor-->>Worker: settled native boundary
+    Worker->>DB: record snapshot and finish idle claim
 ```
 
 ## Runtime boundaries

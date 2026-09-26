@@ -2,19 +2,18 @@ import faulthandler
 import logging
 from typing import Union
 
-from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 from kagent.core.tracing import signal_enabled
 from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
@@ -61,9 +60,10 @@ class KAgentApp:
             config=self.executor_config,
         )
 
-        task_store = InMemoryTaskStore()
+        controller = AsyncControllerClient(self.config.api_url)
+        task_store = KAgentTaskStore(controller)
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandlerV2(
+        request_handler = KAgentRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,
@@ -72,6 +72,7 @@ class KAgentApp:
 
         faulthandler.enable()
         app = FastAPI(
+            lifespan=controller.lifespan(),
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,

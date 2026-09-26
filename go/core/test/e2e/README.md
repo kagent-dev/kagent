@@ -11,6 +11,11 @@ mock servers, and cleanup. The same assertions run against all model protocols.
 The opaque BYO fixture has its own test because it does not consume managed
 agent configuration.
 
+Until Substrate supplies runtime credentials (#1660), TaskStore uses a temporary
+unsigned identity header in every deployment; no test authentication flag is
+needed. Run these prerelease builds in isolated deployments. Verified actor
+credentials will replace this path outright.
+
 Add portable tests using this pattern:
 
 ```go

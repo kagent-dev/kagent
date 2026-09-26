@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -204,11 +205,31 @@ func TestCreatePreservesStoreConflictReason(t *testing.T) {
 			storeErr := fmt.Errorf("AgentInstance cannot checkpoint in its current state: %w", cause)
 			service := NewService(&testStore{reserveErr: storeErr}, testAuthorizer{}, nil, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(err))
 			require.Equal(t, storeErr.Error(), serviceerrors.MessageOf(err))
 			require.ErrorIs(t, err, cause)
 		})
+	}
+}
+
+func TestCreateDistinguishesPendingSnapshotFromAdvancedConversation(t *testing.T) {
+	for _, test := range []struct {
+		err    error
+		reason string
+	}{
+		{database.ErrSnapshotPending, "KAGENT_CHECKPOINT_SNAPSHOT_PENDING"},
+		{database.ErrCheckpointAdvanced, "KAGENT_CHECKPOINT_CONVERSATION_ADVANCED"},
+	} {
+		service := NewService(&testStore{reserveErr: test.err}, testAuthorizer{}, &testTags{}, &testWorkflow{})
+		ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+		_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request", "task-a")
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		details := status.Convert(err).Details()
+		require.Len(t, details, 1)
+		info := details[0].(*errdetails.ErrorInfo)
+		require.Equal(t, test.reason, info.Reason)
+		require.Equal(t, "kagent.dev", info.Domain)
 	}
 }
 
@@ -236,7 +257,7 @@ func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	checkpoint, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+	checkpoint, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +276,7 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	if _, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1"); err == nil {
+	if _, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1"); err == nil {
 		t.Fatal("Create() succeeded after snapshot identity changed")
 	}
 	if tags.deleteCalls != 1 || store.failed == "" {
@@ -313,13 +334,13 @@ func TestCreateRetriesRetainedTagAfterPublishFailure(t *testing.T) {
 	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", createErr: status.Error(codes.DeadlineExceeded, "response lost")}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-	_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+	_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 	require.Error(t, err)
 	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 	require.Equal(t, 0, tags.deleteCalls)
 	retained := tags.created
 	store.finalizeErr = nil
-	checkpoint, err := service.Create(ctx, store.prepared.AgentInstanceId, "request-1")
+	checkpoint, err := service.Create(ctx, store.prepared.AgentInstanceId, "request-1", "task-1")
 	require.NoError(t, err)
 	require.Same(t, retained, tags.created)
 	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, checkpoint.State)
@@ -343,11 +364,11 @@ func TestCreateRejectsInvalidTagAndKeepsCleanupRetryable(t *testing.T) {
 			tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", mutateTag: tc.mutate, deleteErr: errors.New("cleanup unavailable")}
 			service := NewService(store, testAuthorizer{}, tags, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Error(t, err)
 			require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 			tags.deleteErr = nil
-			_, err = service.Create(ctx, store.prepared.AgentInstanceId, "request-1")
+			_, err = service.Create(ctx, store.prepared.AgentInstanceId, "request-1", "task-1")
 			require.Error(t, err)
 			require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED, store.prepared.State)
 			require.Nil(t, tags.created)
@@ -387,7 +408,7 @@ func TestConcurrentCreateRetainsOneTag(t *testing.T) {
 	for range cap(results) {
 		go func() {
 			<-start
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			results <- err
 		}()
 	}

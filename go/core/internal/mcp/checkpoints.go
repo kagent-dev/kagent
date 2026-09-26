@@ -9,6 +9,8 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -18,8 +20,9 @@ const (
 )
 
 type CreateCheckpointInput struct {
-	AgentInstanceID string `json:"agent_instance_id" jsonschema:"AgentInstance UUID"`
-	RequestID       string `json:"request_id,omitempty" jsonschema:"Optional stable request ID for idempotency"`
+	AgentInstanceID    string `json:"agent_instance_id" jsonschema:"AgentInstance UUID"`
+	ExpectedHeadTaskID string `json:"expected_head_task_id" jsonschema:"Terminal task ID to save; fails if the conversation has advanced"`
+	RequestID          string `json:"request_id,omitempty" jsonschema:"Optional stable request ID for idempotency"`
 }
 
 type CheckpointSummary struct {
@@ -69,9 +72,15 @@ func (h *Handler) registerCheckpointTools(server *mcp.Server) {
 }
 
 func (h *Handler) createCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CreateCheckpointInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
-	created, err := h.checkpoints.Create(ctx, input.AgentInstanceID, stableRequestID(input.RequestID))
+	created, err := h.checkpoints.Create(ctx, input.AgentInstanceID, stableRequestID(input.RequestID), input.ExpectedHeadTaskID)
 	if err != nil {
-		return toolError(err), CreateCheckpointOutput{}, nil
+		result := toolError(err)
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == "kagent.dev" {
+				result.Meta = mcp.Meta{"kagent.dev/error-reason": info.Reason}
+			}
+		}
+		return result, CreateCheckpointOutput{}, nil
 	}
 	output := CreateCheckpointOutput{Checkpoint: checkpointSummary(created)}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Created checkpoint %s", created.GetId())}}}, output, nil

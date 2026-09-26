@@ -212,12 +212,11 @@ export interface OperationMap {
   /**
    * Saves the conversation's current turn boundary, so a fork can start from it later.
    *
-   * The controller has no cutoff to offer: what is saved is wherever the conversation
-   * stands now. A conversation mid-turn has no boundary to save and is refused with
-   * `FailedPrecondition`.
+   * The expected terminal task must still be current. Snapshot-pending retries
+   * retain that task ID; an advanced conversation requires a fresh selection.
    */
   "agentInstances.checkpoints.create": {
-    input: AgentInstanceRef & { requestId: string };
+    input: AgentInstanceRef & { requestId: string; expectedHeadTaskId: string };
     output: Checkpoint;
   };
 
