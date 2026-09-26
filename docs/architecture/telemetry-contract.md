@@ -22,12 +22,13 @@ This page lists what the [registry](../../telemetry/registry) defines.
 
 ## Metrics
 
-### `kagent.runtime_revision.gc.failures`
+### `kagent.runtime_revision.gc.duration`
 
-Instrument: counter. Unit: `{failure}`. Number of failed runtime revision garbage collection attempts. A monotonic integer counter. Parent cancellation is excluded; an operation deadline while the parent remains active is counted. Revision and compute identity remain in logs, never in metric attributes.
+Instrument: histogram. Unit: `s`. Duration of a runtime revision garbage collection attempt. Records each discovery and each collection attempt, including the database claim, Substrate read and deletion, and database finalization. A no-op claim is a successful attempt. Parent cancellation is excluded; an operation deadline while the parent remains active is recorded as a failure. Explicit bucket boundaries in seconds are 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, and 60.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
+| `error.type` | conditionally required: The attempt failed. | The gRPC status code name for Substrate errors, or `_OTHER` for other failures. Absent on success. Never raw error text or revision, template, UID, or namespace identity. |
 | `kagent.gc.stage` | required |  |
 
 ### `kagent.runtime_revision.gc.pending`

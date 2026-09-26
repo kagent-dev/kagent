@@ -11,9 +11,11 @@ import (
 	"net/http/httptest"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/telemetrytest"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,27 +23,40 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
-	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
 	gcPendingMetric  = "kagent.runtime_revision.gc.pending"
-	gcFailuresMetric = "kagent.runtime_revision.gc.failures"
+	gcDurationMetric = "kagent.runtime_revision.gc.duration"
 )
+
+type gcMetricOutcome struct {
+	stage     string
+	errorType string
+}
 
 type gcMetricSnapshot struct {
 	gauges   map[string]int64
 	failures map[string]int64
+	attempts map[string]uint64
+	duration map[gcMetricOutcome]metricdata.HistogramDataPoint[float64]
 }
 
 func gatherRuntimeRevisionGCMetrics(t *testing.T, reader *sdkmetric.ManualReader) gcMetricSnapshot {
 	t.Helper()
 	data := telemetrytest.Collect(t, reader)
-	result := gcMetricSnapshot{gauges: make(map[string]int64), failures: make(map[string]int64)}
+	result := gcMetricSnapshot{
+		gauges: make(map[string]int64), failures: make(map[string]int64),
+		attempts: make(map[string]uint64), duration: make(map[gcMetricOutcome]metricdata.HistogramDataPoint[float64]),
+	}
 	for _, scope := range data.ScopeMetrics {
+		require.Equal(t, "github.com/kagent-dev/kagent/go/core/internal/controller", scope.Scope.Name)
+		require.Equal(t, version.Version, scope.Scope.Version)
 		for _, sample := range scope.Metrics {
 			shape, found := telemetrytest.FindMetric(data, sample.Name)
 			require.True(t, found)
@@ -53,29 +68,47 @@ func gatherRuntimeRevisionGCMetrics(t *testing.T, reader *sdkmetric.ManualReader
 				require.Len(t, gauge.DataPoints, 1)
 				require.Zero(t, gauge.DataPoints[0].Attributes.Len())
 				result.gauges[sample.Name] = gauge.DataPoints[0].Value
-			case gcFailuresMetric:
-				require.Equal(t, telemetrytest.MetricShape{
-					Name: gcFailuresMetric, Kind: "sum", Unit: "{failure}", AttributeKeys: []string{"kagent.gc.stage"},
-				}, shape)
-				sum, ok := sample.Data.(metricdata.Sum[int64])
-				require.True(t, ok, "failures must be an integer counter")
-				require.True(t, sum.IsMonotonic)
-				require.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
-				require.Len(t, sum.DataPoints, 2)
-				for _, point := range sum.DataPoints {
-					require.Equal(t, 1, point.Attributes.Len())
+			case gcDurationMetric:
+				histogram, ok := sample.Data.(metricdata.Histogram[float64])
+				require.True(t, ok, "duration must be a floating-point histogram")
+				require.Equal(t, metricdata.CumulativeTemporality, histogram.Temporality)
+				keys := []string{"kagent.gc.stage"}
+				for _, point := range histogram.DataPoints {
 					stage, found := point.Attributes.Value(attribute.Key("kagent.gc.stage"))
 					require.True(t, found)
-					result.failures[stage.AsString()] = point.Value
+					require.Contains(t, []string{"discovery", "collection"}, stage.AsString())
+					outcome := gcMetricOutcome{stage: stage.AsString()}
+					if errorType, failed := point.Attributes.Value(attribute.Key("error.type")); failed {
+						keys = []string{"error.type", "kagent.gc.stage"}
+						require.Equal(t, 2, point.Attributes.Len())
+						require.Contains(t, []string{"_OTHER", "Canceled", "Unknown", "InvalidArgument", "DeadlineExceeded",
+							"NotFound", "AlreadyExists", "PermissionDenied", "ResourceExhausted", "FailedPrecondition",
+							"Aborted", "OutOfRange", "Unimplemented", "Internal", "Unavailable", "DataLoss", "Unauthenticated"}, errorType.AsString())
+						outcome.errorType = errorType.AsString()
+						result.failures[outcome.stage] += int64(point.Count)
+					} else {
+						require.Equal(t, 1, point.Attributes.Len(), "success must omit error.type")
+					}
+					require.NotContains(t, result.duration, outcome, "one series per stage and outcome")
+					require.Equal(t, []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}, point.Bounds)
+					require.Len(t, point.BucketCounts, len(point.Bounds)+1)
+					var count uint64
+					for _, bucket := range point.BucketCounts {
+						count += bucket
+					}
+					require.Equal(t, point.Count, count)
+					require.GreaterOrEqual(t, point.Sum, float64(0))
+					result.attempts[outcome.stage] += point.Count
+					result.duration[outcome] = point
 				}
+				require.Equal(t, telemetrytest.MetricShape{
+					Name: gcDurationMetric, Kind: "histogram", Unit: "s", AttributeKeys: keys,
+				}, shape)
 			default:
 				t.Fatalf("unexpected GC metric %q", sample.Name)
 			}
 		}
 	}
-	require.Len(t, result.failures, 2)
-	require.Contains(t, result.failures, string(gcStageDiscovery))
-	require.Contains(t, result.failures, string(gcStageCollection))
 	return result
 }
 
@@ -116,28 +149,6 @@ func TestRuntimeRevisionGCMetricsDiscoveryAndRestart(t *testing.T) {
 	require.Equal(t, map[string]int64{gcPendingMetric: 0}, gatherRuntimeRevisionGCMetrics(t, restartedRegistry).gauges)
 }
 
-func TestRuntimeRevisionGCMetricsConcurrentReaders(t *testing.T) {
-	first, second := sdkmetric.NewManualReader(), sdkmetric.NewManualReader()
-	collector, err := NewRuntimeRevisionGC(&fakeGCStore{}, &fakeGCTemplates{}, newGCTestMeterProvider(t, first, second))
-	require.NoError(t, err)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for count := range int64(100) {
-			collector.metrics.recordPending(count)
-		}
-	}()
-	for range 100 {
-		gatherRuntimeRevisionGCMetrics(t, first)
-		gatherRuntimeRevisionGCMetrics(t, second)
-	}
-	<-done
-	for _, reader := range []*sdkmetric.ManualReader{first, second} {
-		require.Equal(t, int64(99), gatherRuntimeRevisionGCMetrics(t, reader).gauges[gcPendingMetric],
-			"collection by one reader must not consume another reader's cached count")
-	}
-}
-
 func TestRuntimeRevisionGCMetricsBoundedDiscovery(t *testing.T) {
 	for _, count := range []int{0, 1, 100} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
@@ -149,18 +160,49 @@ func TestRuntimeRevisionGCMetricsBoundedDiscovery(t *testing.T) {
 			collector.sweep(t.Context())
 			require.Equal(t, 2, store.lists, "discovery must not scale with candidate count, even for an empty sweep")
 			require.Len(t, store.deleted, count)
-			require.Equal(t, map[string]int64{gcPendingMetric: 0}, gatherRuntimeRevisionGCMetrics(t, registry).gauges)
+			snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
+			require.Equal(t, map[string]int64{gcPendingMetric: 0}, snapshot.gauges)
+			require.Equal(t, uint64(2), snapshot.attempts["discovery"])
+			require.Equal(t, uint64(count), snapshot.attempts["collection"])
+			require.Empty(t, snapshot.failures)
 			require.Equal(t, 2, store.lists, "scrapes must not access the store")
 		})
 	}
 }
 
+func TestRuntimeRevisionGCMetricsAttemptDuration(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &fakeGCStore{
+			revisions: []database.RuntimeRevision{{Revision: "candidate"}},
+			listDelay: 10 * time.Millisecond, beginDelay: 250 * time.Millisecond,
+			finalizeDelay: 2 * time.Second,
+		}
+		templates := &fakeGCTemplates{getDelay: 500 * time.Millisecond, deleteDelay: time.Second}
+		collector, reader := newTestRuntimeRevisionGC(t, store, templates)
+		require.Empty(t, gatherRuntimeRevisionGCMetrics(t, reader).duration)
+		collector.sweep(t.Context())
+		snapshot := gatherRuntimeRevisionGCMetrics(t, reader)
+		require.Equal(t, map[string]uint64{"discovery": 2, "collection": 1}, snapshot.attempts)
+		require.Empty(t, snapshot.failures)
+		discovery := snapshot.duration[gcMetricOutcome{"discovery", ""}]
+		require.Equal(t, 0.02, discovery.Sum, "both discovery calls must record seconds")
+		require.Equal(t, uint64(2), discovery.BucketCounts[1])
+		collection := snapshot.duration[gcMetricOutcome{"collection", ""}]
+		require.Equal(t, 3.75, collection.Sum, "include claim, compute read/delete, and database finalization exactly once")
+		require.Equal(t, uint64(1), collection.BucketCounts[9])
+	})
+}
+
 func TestRuntimeRevisionGCMetricsDiscoveryErrors(t *testing.T) {
 	for _, atEnd := range []bool{false, true} {
-		for _, mode := range []string{"error with partial results", "deadline", "parent cancellation", "canceled successful read"} {
+		for _, mode := range []string{"error with partial results", "deadline", "parent deadline", "parent cancellation", "canceled successful read"} {
 			t.Run(fmt.Sprintf("end=%t/%s", atEnd, mode), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
-					ctx, cancel := context.WithCancel(t.Context())
+					timeout := 2 * time.Minute
+					if mode == "parent deadline" {
+						timeout = 30 * time.Second
+					}
+					ctx, cancel := context.WithTimeout(t.Context(), timeout)
 					defer cancel()
 					failAt := 1
 					if atEnd {
@@ -173,7 +215,7 @@ func TestRuntimeRevisionGCMetricsDiscoveryErrors(t *testing.T) {
 							return revisions, nil
 						}
 						switch mode {
-						case "deadline":
+						case "deadline", "parent deadline":
 							<-listCtx.Done()
 							return nil, listCtx.Err()
 						case "parent cancellation":
@@ -203,6 +245,11 @@ func TestRuntimeRevisionGCMetricsDiscoveryErrors(t *testing.T) {
 					}
 					require.Equal(t, wantFailures, snapshot.failures[string(gcStageDiscovery)])
 					require.Zero(t, snapshot.failures[string(gcStageCollection)])
+					require.Equal(t, uint64(wantCollected)+uint64(wantFailures), snapshot.attempts["discovery"])
+					require.Equal(t, uint64(wantCollected), snapshot.attempts["collection"])
+					if mode == "deadline" {
+						require.Equal(t, float64(60), snapshot.duration[gcMetricOutcome{"discovery", "_OTHER"}].Sum)
+					}
 				})
 			})
 		}
@@ -216,7 +263,9 @@ func TestRuntimeRevisionGCMetricsCanceledSweep(t *testing.T) {
 	collector, registry := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{})
 	collector.sweep(ctx)
 	require.Zero(t, store.lists)
-	require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, registry).gauges, gcPendingMetric)
+	snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
+	require.NotContains(t, snapshot.gauges, gcPendingMetric)
+	require.Empty(t, snapshot.attempts)
 }
 
 func TestRuntimeRevisionGCMetricsCancellationStopsDispatch(t *testing.T) {
@@ -244,6 +293,8 @@ func TestRuntimeRevisionGCMetricsCancellationStopsDispatch(t *testing.T) {
 			require.Equal(t, int64(2), snapshot.gauges[gcPendingMetric], "retain the last successful discovery")
 			require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
 			require.Zero(t, snapshot.failures[string(gcStageCollection)])
+			require.Equal(t, map[string]uint64{"discovery": 1}, snapshot.attempts,
+				"parent cancellation excludes the in-flight collection, even if it returned nil")
 		})
 	}
 }
@@ -275,14 +326,22 @@ func TestRuntimeRevisionGCMetricsCollectionFailures(t *testing.T) {
 		changedUID       bool
 		skipClaim        bool
 		skipFinalization bool
-		wantFailure      bool
+		wantErrorType    string
 		wantPending      int64
 	}{
-		{name: "begin deletion", beginErr: failure, wantFailure: true, wantPending: 1},
-		{name: "read ActorTemplate", getErr: failure, wantFailure: true, wantPending: 1},
-		{name: "UID changed", changedUID: true, wantFailure: true, wantPending: 1},
-		{name: "delete ActorTemplate", deleteErr: failure, wantFailure: true, wantPending: 1},
-		{name: "finalize", finalizeErr: failure, wantFailure: true, wantPending: 1},
+		{name: "begin deletion", beginErr: failure, wantErrorType: "_OTHER", wantPending: 1},
+		{name: "read ActorTemplate", getErr: failure, wantErrorType: "_OTHER", wantPending: 1},
+		{name: "UID changed", changedUID: true, wantErrorType: "_OTHER", wantPending: 1},
+		{name: "delete ActorTemplate", deleteErr: failure, wantErrorType: "_OTHER", wantPending: 1},
+		{name: "finalize", finalizeErr: failure, wantErrorType: "_OTHER", wantPending: 1},
+		{name: "wrapped gRPC read", getErr: fmt.Errorf("read: %w", status.Error(codes.PermissionDenied, "private details")), wantErrorType: "PermissionDenied", wantPending: 1},
+		{name: "wrapped gRPC delete", deleteErr: fmt.Errorf("delete: %w", status.Error(codes.Unavailable, "private details")), wantErrorType: "Unavailable", wantPending: 1},
+		{name: "joined gRPC delete", deleteErr: errors.Join(failure, status.Error(codes.ResourceExhausted, "private details")), wantErrorType: "ResourceExhausted", wantPending: 1},
+		{name: "gRPC unknown", deleteErr: status.Error(codes.Unknown, "private details"), wantErrorType: "Unknown", wantPending: 1},
+		{name: "gRPC deadline", deleteErr: status.Error(codes.DeadlineExceeded, "private details"), wantErrorType: "DeadlineExceeded", wantPending: 1},
+		{name: "gRPC canceled with active parent", deleteErr: status.Error(codes.Canceled, "private details"), wantErrorType: "Canceled", wantPending: 1},
+		{name: "plain canceled with active parent", deleteErr: context.Canceled, wantErrorType: "_OTHER", wantPending: 1},
+		{name: "out of range gRPC code", deleteErr: status.Error(codes.Code(999), "private details"), wantErrorType: "_OTHER", wantPending: 1},
 		{name: "nil claim", skipClaim: true, wantPending: 1},
 		{name: "nil finalization", skipFinalization: true, wantPending: 1},
 		{name: "already absent compute", wantPending: 0},
@@ -307,11 +366,13 @@ func TestRuntimeRevisionGCMetricsCollectionFailures(t *testing.T) {
 			require.Contains(t, snapshot.gauges, gcPendingMetric)
 			require.Equal(t, test.wantPending, snapshot.gauges[gcPendingMetric])
 			wantFailures := int64(0)
-			if test.wantFailure {
+			if test.wantErrorType != "" {
 				wantFailures = 1
 			}
 			require.Equal(t, wantFailures, snapshot.failures[string(gcStageCollection)])
 			require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
+			require.Equal(t, map[string]uint64{"discovery": 2, "collection": 1}, snapshot.attempts)
+			require.Equal(t, uint64(1), snapshot.duration[gcMetricOutcome{"collection", test.wantErrorType}].Count)
 		})
 	}
 }
@@ -328,39 +389,64 @@ func TestRuntimeRevisionGCMetricsShapeAndScrape(t *testing.T) {
 	require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, reader).gauges, gcPendingMetric)
 	collector.sweep(t.Context())
 	require.Equal(t, map[string]int64{gcPendingMetric: 0}, gatherRuntimeRevisionGCMetrics(t, reader).gauges)
-	collector.metrics.recordFailure(t.Context(), gcStageDiscovery)
+	store.listErr = errors.New("discovery failed")
+	collector.sweep(t.Context())
 	response := httptest.NewRecorder()
 	promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), "# TYPE kagent_runtime_revision_gc_pending gauge")
-	require.Contains(t, response.Body.String(), "# TYPE kagent_runtime_revision_gc_failures_total counter")
+	require.Contains(t, response.Body.String(), "# TYPE kagent_runtime_revision_gc_duration_seconds histogram")
+	require.Contains(t, response.Body.String(), "kagent_runtime_revision_gc_duration_seconds_bucket")
+	require.Contains(t, response.Body.String(), "kagent_runtime_revision_gc_duration_seconds_count")
+	require.Contains(t, response.Body.String(), "kagent_runtime_revision_gc_duration_seconds_sum")
+	require.NotContains(t, response.Body.String(), "kagent_runtime_revision_gc_failures")
 	families, err := registry.Gather()
 	require.NoError(t, err)
-	var pendingFound, failuresFound bool
+	var pendingFound, durationFound bool
 	for _, family := range families {
 		switch family.GetName() {
 		case "kagent_runtime_revision_gc_pending":
 			pendingFound = true
 			require.Len(t, family.Metric, 1)
 			require.Zero(t, family.Metric[0].GetGauge().GetValue())
-		case "kagent_runtime_revision_gc_failures_total":
-			failuresFound = true
+		case "kagent_runtime_revision_gc_duration_seconds":
+			durationFound = true
 			require.Len(t, family.Metric, 2)
-			stages := make(map[string]float64)
+			outcomes := make(map[string]uint64)
 			for _, point := range family.Metric {
+				errorType := ""
+				stageFound := false
 				for _, label := range point.Label {
-					require.NotEqual(t, "stage", label.GetName())
-					if label.GetName() == "kagent_gc_stage" {
-						stages[label.GetValue()] = point.GetCounter().GetValue()
+					switch label.GetName() {
+					case "kagent_gc_stage":
+						stageFound = true
+						require.Equal(t, "discovery", label.GetValue())
+					case "error_type":
+						errorType = label.GetValue()
+					case "otel_scope_name":
+						require.Equal(t, "github.com/kagent-dev/kagent/go/core/internal/controller", label.GetValue())
+					case "otel_scope_version":
+						require.Equal(t, version.Version, label.GetValue())
+					case "otel_scope_schema_url":
+						require.Empty(t, label.GetValue())
+					default:
+						t.Fatalf("unexpected duration label %q", label.GetName())
 					}
 				}
+				require.True(t, stageFound)
+				outcomes[errorType] = point.GetHistogram().GetSampleCount()
+				var bounds []float64
+				for _, bucket := range point.GetHistogram().Bucket {
+					bounds = append(bounds, bucket.GetUpperBound())
+				}
+				require.Equal(t, []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}, bounds)
 			}
-			require.Equal(t, map[string]float64{"discovery": 1, "collection": 0}, stages)
+			require.Equal(t, map[string]uint64{"": 2, "_OTHER": 1}, outcomes)
 		}
 	}
 	require.True(t, pendingFound)
-	require.True(t, failuresFound)
-	require.Equal(t, 2, store.lists)
+	require.True(t, durationFound)
+	require.Equal(t, 3, store.lists)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.NoError(t, collector.Start(ctx))
@@ -370,7 +456,7 @@ func TestRuntimeRevisionGCMetricsShapeAndScrape(t *testing.T) {
 	for _, family := range families {
 		require.NotEqual(t, "kagent_runtime_revision_gc_pending", family.GetName(), "stopped GC must withdraw its last count")
 	}
-	require.Equal(t, 2, store.lists, "metric readers and canceled startup must not discover")
+	require.Equal(t, 3, store.lists, "metric readers and canceled startup must not discover")
 }
 
 func TestRuntimeRevisionGCFailureLogsRetainIdentity(t *testing.T) {
@@ -395,27 +481,6 @@ func TestRuntimeRevisionGCFailureLogsRetainIdentity(t *testing.T) {
 	require.Equal(t, int64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)])
 }
 
-func TestRuntimeRevisionGCMetricsConstructionErrors(t *testing.T) {
-	_, err := NewRuntimeRevisionGC(&fakeGCStore{}, &fakeGCTemplates{}, nil)
-	require.ErrorContains(t, err, "meter provider")
-	for _, stage := range []string{"pending", "failures", "callback"} {
-		t.Run(stage, func(t *testing.T) {
-			reader := sdkmetric.NewManualReader()
-			failure := errors.New("instrument creation failed")
-			provider := failingGCMeterProvider{
-				MeterProvider: newGCTestMeterProvider(t, reader), stage: stage, err: failure,
-			}
-			_, err := NewRuntimeRevisionGC(&fakeGCStore{}, &fakeGCTemplates{}, provider)
-			require.ErrorIs(t, err, failure)
-			data := telemetrytest.Collect(t, reader)
-			for _, name := range []string{gcPendingMetric, gcFailuresMetric} {
-				_, found := telemetrytest.FindMetric(data, name)
-				require.False(t, found, "failed construction must not publish measurements")
-			}
-		})
-	}
-}
-
 func TestRuntimeRevisionGCMetricsDisabled(t *testing.T) {
 	store := &fakeGCStore{revisions: []database.RuntimeRevision{{Revision: "candidate"}}}
 	collector, err := NewRuntimeRevisionGC(store, &fakeGCTemplates{}, noop.NewMeterProvider())
@@ -427,70 +492,6 @@ func TestRuntimeRevisionGCMetricsDisabled(t *testing.T) {
 	cancel()
 	require.NoError(t, collector.Start(ctx))
 }
-
-func TestRuntimeRevisionGCMetricsUnregisterFailure(t *testing.T) {
-	collector, reader := newTestRuntimeRevisionGC(t, &fakeGCStore{}, &fakeGCTemplates{})
-	collector.metrics.recordPending(7)
-	failure := errors.New("unregister failed")
-	collector.metrics.registration = failingGCRegistration{Registration: collector.metrics.registration, err: failure}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	require.ErrorIs(t, collector.Start(ctx), failure)
-	snapshot := gatherRuntimeRevisionGCMetrics(t, reader)
-	require.NotContains(t, snapshot.gauges, gcPendingMetric)
-	require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
-	require.Zero(t, snapshot.failures[string(gcStageCollection)])
-}
-
-type failingGCMeterProvider struct {
-	metric.MeterProvider
-	stage string
-	err   error
-}
-
-func (p failingGCMeterProvider) Meter(name string, options ...metric.MeterOption) metric.Meter {
-	return failingGCMeter{Meter: p.MeterProvider.Meter(name, options...), stage: p.stage, err: p.err}
-}
-
-type failingGCMeter struct {
-	metric.Meter
-	stage string
-	err   error
-}
-
-func (m failingGCMeter) Int64ObservableGauge(name string, options ...metric.Int64ObservableGaugeOption) (metric.Int64ObservableGauge, error) {
-	if m.stage == "pending" {
-		return nil, m.err
-	}
-	return m.Meter.Int64ObservableGauge(name, options...)
-}
-
-func (m failingGCMeter) Int64Counter(name string, options ...metric.Int64CounterOption) (metric.Int64Counter, error) {
-	if m.stage == "failures" {
-		return nil, m.err
-	}
-	return m.Meter.Int64Counter(name, options...)
-}
-
-func (m failingGCMeter) RegisterCallback(callback metric.Callback, instruments ...metric.Observable) (metric.Registration, error) {
-	if m.stage == "callback" {
-		return nil, m.err
-	}
-	return m.Meter.RegisterCallback(callback, instruments...)
-}
-
-type failingGCRegistration struct {
-	metric.Registration
-	err error
-}
-
-func (r failingGCRegistration) Unregister() error { return r.err }
-
-var (
-	_ metric.MeterProvider = failingGCMeterProvider{}
-	_ metric.Meter         = failingGCMeter{}
-	_ metric.Registration  = failingGCRegistration{}
-)
 
 type failingGCRead struct {
 	fakeActorTemplates

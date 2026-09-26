@@ -9,6 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -42,6 +43,7 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
 		require.Equal(t, int64(1), snapshot.failures[string(gcStageDiscovery)])
 		require.Equal(t, int64(1), snapshot.failures[string(gcStageCollection)])
+		require.Equal(t, map[string]uint64{"discovery": 3, "collection": 2}, snapshot.attempts)
 		require.Equal(t, int64(1), snapshot.gauges[gcPendingMetric])
 		templates.mu.Lock()
 		templates.deleteErr = nil
@@ -54,6 +56,7 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		snapshot = gatherRuntimeRevisionGCMetrics(t, registry)
 		require.Equal(t, map[string]int64{gcPendingMetric: 0}, snapshot.gauges)
 		require.Equal(t, int64(1), snapshot.failures[string(gcStageCollection)])
+		require.Equal(t, map[string]uint64{"discovery": 5, "collection": 3}, snapshot.attempts)
 		cancel()
 		require.NoError(t, <-done)
 		require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, registry).gauges, gcPendingMetric,
@@ -76,6 +79,7 @@ func TestRuntimeRevisionGCStartCanceledContext(t *testing.T) {
 		require.NotContains(t, snapshot.gauges, gcPendingMetric)
 		require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
 		require.Zero(t, snapshot.failures[string(gcStageCollection)])
+		require.Empty(t, snapshot.attempts)
 	})
 }
 
@@ -99,12 +103,16 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 		store.mu.Lock()
 		require.Equal(t, []string{"healthy"}, store.deleted, "deadline must release the sweep to process healthy candidates")
 		store.mu.Unlock()
-		require.Equal(t, int64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)])
+		snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
+		require.Equal(t, int64(1), snapshot.failures[string(gcStageCollection)])
+		require.Equal(t, float64(60), snapshot.duration[gcMetricOutcome{"collection", "_OTHER"}].Sum)
+		attempts := snapshot.attempts["collection"]
 		cancel() // The next sweep is blocked in the backend again.
 		require.NoError(t, <-done, "shutdown must cancel in-flight cleanup")
 		require.Len(t, store.revisions, 1, "failed deletion must retain its durable revision")
 		require.Equal(t, int64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)],
 			"parent cancellation must not count as another backend failure")
+		require.Equal(t, attempts, gatherRuntimeRevisionGCMetrics(t, registry).attempts["collection"])
 	})
 }
 
@@ -120,6 +128,9 @@ type fakeGCStore struct {
 	finalizeErr      error
 	skipClaim        bool
 	skipFinalization bool
+	listDelay        time.Duration
+	beginDelay       time.Duration
+	finalizeDelay    time.Duration
 }
 
 func newTestRuntimeRevisionGC(t *testing.T, store runtimeRevisionGCStore, templates runtimeRevisionGCClient) (*RuntimeRevisionGC, *sdkmetric.ManualReader) {
@@ -142,6 +153,7 @@ func newGCTestMeterProvider(t *testing.T, readers ...sdkmetric.Reader) *sdkmetri
 }
 
 func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]database.RuntimeRevision, error) {
+	time.Sleep(s.listDelay)
 	s.mu.Lock()
 	s.lists++
 	call, listFunc := s.lists, s.listFunc
@@ -154,6 +166,7 @@ func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]d
 }
 
 func (s *fakeGCStore) BeginRuntimeRevisionDeletion(_ context.Context, id string) (*database.RuntimeRevision, error) {
+	time.Sleep(s.beginDelay)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.begun = append(s.begun, id)
@@ -172,6 +185,7 @@ func (s *fakeGCStore) BeginRuntimeRevisionDeletion(_ context.Context, id string)
 }
 
 func (s *fakeGCStore) DeleteRuntimeRevision(_ context.Context, id, _ string) error {
+	time.Sleep(s.finalizeDelay)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.finalizeErr != nil {
@@ -193,11 +207,19 @@ func (s *fakeGCStore) DeleteRuntimeRevision(_ context.Context, id, _ string) err
 type fakeGCTemplates struct {
 	mu sync.Mutex
 	fakeActorTemplates
-	deleteErr error
-	block     bool
+	deleteErr   error
+	block       bool
+	getDelay    time.Duration
+	deleteDelay time.Duration
+}
+
+func (f *fakeGCTemplates) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
+	time.Sleep(f.getDelay)
+	return f.fakeActorTemplates.GetActorTemplate(ctx, atespace, name)
 }
 
 func (f *fakeGCTemplates) DeleteActorTemplate(ctx context.Context, _, name string) error {
+	time.Sleep(f.deleteDelay)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if name == "failed" {

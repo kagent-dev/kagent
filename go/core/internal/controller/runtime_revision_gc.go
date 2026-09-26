@@ -57,9 +57,6 @@ func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
 		r.sweep(ctx)
 		select {
 		case <-ctx.Done():
-			if err := r.metrics.registration.Unregister(); err != nil {
-				return fmt.Errorf("unregister runtime revision GC pending callback: %w", err)
-			}
 			return nil
 		case <-ticker.C:
 		}
@@ -76,7 +73,6 @@ func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
 			return
 		}
 		if err := r.collect(ctx, candidate.Revision); err != nil && ctx.Err() == nil {
-			r.metrics.recordFailure(ctx, gcStageCollection)
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to collect runtime revision",
 				"revision", candidate.Revision, "actor_template_atespace", candidate.ActorTemplateAtespace,
 				"actor_template_name", candidate.ActorTemplateName, "error", err)
@@ -90,14 +86,15 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeRev
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	listCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	revisions, err := r.store.ListUnreferencedRuntimeRevisions(listCtx)
 	cancel()
+	r.metrics.recordDuration(ctx, gcStageDiscovery, time.Since(started), err)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err != nil {
-		r.metrics.recordFailure(ctx, gcStageDiscovery)
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
 		return nil, err
 	}
@@ -107,17 +104,21 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeRev
 
 // collect retains the database row until compute deletion succeeds. Each candidate
 // has its own deadline so a stuck backend or database lock cannot stall the sweep.
-func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) (err error) {
+	started := time.Now()
+	defer func() {
+		r.metrics.recordDuration(ctx, gcStageCollection, time.Since(started), err)
+	}()
+	collectionCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	revision, err := r.store.BeginRuntimeRevisionDeletion(ctx, id)
+	revision, err := r.store.BeginRuntimeRevisionDeletion(collectionCtx, id)
 	if err != nil {
 		return fmt.Errorf("begin deletion of runtime revision %s: %w", id, err)
 	}
 	if revision == nil {
 		return nil
 	}
-	template, err := r.templates.GetActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName)
+	template, err := r.templates.GetActorTemplate(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName)
 	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("get unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
@@ -127,10 +128,10 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) error {
 	// Both deletes tolerate already-missing objects. If runtime cleanup succeeds
 	// but database finalization fails, the durable deletion marker keeps this
 	// revision discoverable so the next sweep can safely retry the sequence.
-	if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName); err != nil {
+	if err := r.templates.DeleteActorTemplate(collectionCtx, revision.ActorTemplateAtespace, revision.ActorTemplateName); err != nil {
 		return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
-	if err := r.store.DeleteRuntimeRevision(ctx, revision.Revision, revision.ActorTemplateUID); err != nil {
+	if err := r.store.DeleteRuntimeRevision(collectionCtx, revision.Revision, revision.ActorTemplateUID); err != nil {
 		return fmt.Errorf("delete unreferenced runtime revision %s: %w", revision.Revision, err)
 	}
 	return nil

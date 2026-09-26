@@ -111,54 +111,25 @@ remains in PostgreSQL.
 
 ## Runtime revision cleanup metrics
 
-The controller leader collects unreferenced runtime revisions at startup and
-every minute. Each candidate has a one-minute deadline; failed deletions remain
-eligible for retry without preventing other candidates from being attempted.
-Pair, instance, checkpoint, and UID protections still apply.
+GC uses the controller's shared OpenTelemetry provider and configured OTLP export.
+Prometheus scraping is opt-in through `controller.metrics.enabled`.
 
-GC uses the controller's shared OpenTelemetry MeterProvider. The instruments
-are defined in the Weaver registry and are available through the existing
-Prometheus reader and configured OTLP export. This instrumentation does not
-create a provider or enable a listener: scraping remains opt-in through
-`controller.metrics.enabled`, with existing authentication settings unchanged.
+| OTel metric | Instrument / unit | Prometheus name | Meaning |
+| --- | --- | --- | --- |
+| `kagent.runtime_revision.gc.pending` | Observable integer gauge / `{revision}` | `kagent_runtime_revision_gc_pending` | Eligible persisted revisions from the last successful discovery. No application attributes. |
+| `kagent.runtime_revision.gc.duration` | Histogram / `s` | `kagent_runtime_revision_gc_duration_seconds` | Each discovery or collection attempt, including claim, Substrate read/delete, and finalization. `kagent.gc.stage=discovery\|collection`; `error.type` only on failure: a Substrate gRPC code name or `_OTHER`. Parent cancellation is excluded; operation deadlines count as failures. |
 
-| OTel metric | Instrument and unit | Meaning |
-| --- | --- | --- |
-| `kagent.runtime_revision.gc.pending` | Observable integer gauge, `{revision}` | Eligible persisted revisions from the last successful discovery, including incomplete deletions. No application attributes. |
-| `kagent.runtime_revision.gc.failures` | Integer counter, `{failure}` | Failed attempts, with only `kagent.gc.stage=discovery\|collection`. No revision, template, UID, namespace, or error attributes. |
+Pending is absent before successful discovery, on standby replicas, and after GC
+stops. Do not fill absence with zero: zero means a successful empty discovery.
+Discovery errors retain the last count. Scrapes only read the cache; restart
+reconstructs pending from PostgreSQL and resets process-local histogram totals.
 
-Prometheus renders these as `kagent_runtime_revision_gc_pending` and
-`kagent_runtime_revision_gc_failures_total`, with the failure attribute rendered
-as `kagent_gc_stage` (not the previous `stage` label).
-
-Pending count is sampled at the start and once at the end of each sweep,
-including an empty sweep. Scrapes perform no database or network I/O. Discovery
-errors retain the previous count and increment `discovery` failures; an initial
-error stops the sweep. Parent cancellation is not counted as failure, but an
-operation's own deadline while its parent remains active is.
-
-Pending is absent before successful discovery, on standby replicas, and after
-GC stops. This replaces the previous Prometheus-only `NaN` representation:
-integer gauges cannot represent `NaN`, and a synchronous gauge would retain
-its last value after collection stops. The observable callback reads only a
-cached count and is unregistered when GC stops. Do not fill missing samples
-with zero: only successful empty discovery reports zero.
-Restart reconstructs count from PostgreSQL and resets process-local counters.
-Use reset-aware `rate` or
-`increase`, not raw counter differences. No age or freshness metric is exposed;
-counts can remain stale during slow cleanup or after discovery errors.
-
-When the registry is exported, scope queries to the active controller:
-
-- Growing pending count without collection failures suggests churn or slow
-  sweeps; rising discovery failures instead warrant database investigation.
-- Repeated collection failures with a positive backlog require correlating
-  logs by `revision`, `actor_template_atespace`, `actor_template_name`, and
-  `error`. Repeated same-object Substrate deletion errors distinguish persistent
-  failure from unrelated backlog turnover; claim or finalization errors can
-  instead indicate a database problem.
-
-Restore the failing dependency and let GC retry. Successful finalization is
-reflected in the next successful discovery; historical counters do not decrease.
-Do not bypass reference or UID protections or remove deletion markers to clear
-the gauge. Checkpoint recovery is outside this instrumentation's scope.
+- **Growing pending:** compare attempt rates, failure ratios, and latency on the
+  active controller before diagnosing churn versus slow or failing cleanup.
+  Let GC retry; never bypass reference/UID protections or clear deletion markers.
+- **Rising failure ratio or latency:** use reset-aware `rate` on histogram
+  `_count` (failed attempts have `error_type`), grouped by `kagent_gc_stage`,
+  and `_bucket` quantiles. Discovery errors point to the database; collection
+  errors require checking the bounded error type and logs (`revision`,
+  `actor_template_atespace`, `actor_template_name`, `error`) to identify the
+  failing dependency and repeated same-object failures.

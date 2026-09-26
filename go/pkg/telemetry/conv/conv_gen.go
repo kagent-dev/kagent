@@ -200,11 +200,11 @@ const (
 	KagentRuntimeBYO = "byo"
 )
 
-// KagentRuntimeRevisionGCFailures: Number of failed runtime revision garbage collection attempts.
+// KagentRuntimeRevisionGCDuration: Duration of a runtime revision garbage collection attempt.
 const (
-	KagentRuntimeRevisionGCFailures            = "kagent.runtime_revision.gc.failures"
-	KagentRuntimeRevisionGCFailuresUnit        = "{failure}"
-	KagentRuntimeRevisionGCFailuresDescription = "Number of failed runtime revision garbage collection attempts."
+	KagentRuntimeRevisionGCDuration            = "kagent.runtime_revision.gc.duration"
+	KagentRuntimeRevisionGCDurationUnit        = "s"
+	KagentRuntimeRevisionGCDurationDescription = "Duration of a runtime revision garbage collection attempt."
 )
 
 // KagentRuntimeRevisionGCPending: Number of cleanup-eligible runtime revisions in the last successful discovery.
