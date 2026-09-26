@@ -20,7 +20,7 @@ global:
   # -- Registry that overrides every per-image registry when set. This is the
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
-  # registry keys. Covers this chart's own images: controller, ui, bundled
+  # registry keys. Covers this chart's own images: controller, sandbox guest, ui, bundled
   # postgres, grafana-mcp, and substrateWorkerPool.workerImage. The vendored
   # subcharts (kagent-tools, kmcp, substrate) adopt it when their pinned
   # versions bump.
@@ -410,6 +410,20 @@ controller:
 
   # Extra controller env (mapped to flags via SUBSTRATE_* env names).
   env: []
+
+  # Standalone workspaces, enabled by default.
+  # Each SandboxTemplate supplies its own digest-pinned tools image.
+  sandbox:
+    # Preparation resolves tags and stores a digest-pinned revision.
+    guestImage:
+      registry: "" # Defaults to the top-level registry; global.imageRegistry overrides both.
+      repository: kagent-dev/kagent/sandbox-guest
+      tag: "" # The top-level tag takes precedence; otherwise defaults to Chart version.
+      digest: "" # Optional sha256 digest, takes precedence over the tag.
+    cpu: "1"
+    memory: "1Gi"
+    defaultTTL: "1h"
+    maxTTL: "24h"
 
   # Agent Substrate. Requires ate-system installed. kagent creates ate-api
   # ActorTemplates and references an existing Kubernetes WorkerPool.

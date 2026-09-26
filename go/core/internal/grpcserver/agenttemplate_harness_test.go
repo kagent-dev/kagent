@@ -33,15 +33,20 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		t.Fatalf("v1alpha3.AddToScheme() error = %v", err)
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	return newConfigurationConnection(t, kubeClient)
+}
 
+func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grpc.ClientConn {
+	t.Helper()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
-		Listener:             listener,
-		Authenticator:        &authimpl.UnsecureAuthenticator{},
-		SystemService:        testSystemService(),
-		AgentService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent"),
-		AgentTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
+		Listener:               listener,
+		Authenticator:          &authimpl.UnsecureAuthenticator{},
+		SystemService:          testSystemService(),
+		AgentService:           kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent"),
+		AgentTemplateService:   kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
+		SandboxTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

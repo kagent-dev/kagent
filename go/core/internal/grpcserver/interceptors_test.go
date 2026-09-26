@@ -284,6 +284,7 @@ func TestMapError(t *testing.T) {
 		{"service resource exhausted", serviceerrors.NewResourceExhausted("exhausted", nil), codes.ResourceExhausted},
 		{"service aborted", serviceerrors.NewAborted("aborted", nil), codes.Aborted},
 		{"service unavailable", serviceerrors.NewUnavailable("unavailable", nil), codes.Unavailable},
+		{"service wraps backend status", serviceerrors.NewUnavailable("unavailable", status.Error(codes.Unknown, "backend detail")), codes.Unavailable},
 		{"service internal", serviceerrors.NewInternal("internal detail", nil), codes.Internal},
 		{"unknown redacted", errors.New("database secret"), codes.Internal},
 	}
@@ -295,6 +296,9 @@ func TestMapError(t *testing.T) {
 			}
 			if (test.name == "unknown redacted" || test.name == "service internal") && status.Convert(mapped).Message() != "internal server error" {
 				t.Fatalf("message = %q", status.Convert(mapped).Message())
+			}
+			if test.name == "service wraps backend status" && status.Convert(mapped).Message() != "unavailable" {
+				t.Fatalf("backend cause escaped service boundary: %q", status.Convert(mapped).Message())
 			}
 		})
 	}

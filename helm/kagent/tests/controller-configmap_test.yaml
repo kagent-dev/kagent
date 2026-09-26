@@ -1,0 +1,74 @@
+suite: controller configuration
+templates:
+  - controller-configmap.yaml
+tests:
+  - it: defaults the guest to the chart release and supplies sandbox defaults
+    chart:
+      version: v1.2.3
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            SANDBOX_GUEST_IMAGE: ghcr.io/kagent-dev/kagent/sandbox-guest:v1.2.3
+            SANDBOX_CPU: "1"
+            SANDBOX_MEMORY: 1Gi
+            SANDBOX_DEFAULT_TTL: 1h
+            SANDBOX_MAX_TTL: 24h
+
+  - it: applies sandbox policy overrides through the ConfigMap
+    set:
+      controller.sandbox.cpu: "2"
+      controller.sandbox.memory: 2Gi
+      controller.sandbox.defaultTTL: 30m
+      controller.sandbox.maxTTL: 2h
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            SANDBOX_CPU: "2"
+            SANDBOX_MEMORY: 2Gi
+            SANDBOX_DEFAULT_TTL: 30m
+            SANDBOX_MAX_TTL: 2h
+
+  - it: uses the guest image registry repository and tag
+    set:
+      controller.sandbox.guestImage.registry: registry.example.com
+      controller.sandbox.guestImage.repository: team/guest
+      controller.sandbox.guestImage.tag: v2.0.0
+    asserts:
+      - equal:
+          path: data.SANDBOX_GUEST_IMAGE
+          value: registry.example.com/team/guest:v2.0.0
+
+  - it: uses the top-level registry when the guest registry is unset
+    set:
+      registry: registry.example.com
+      tag: v3.0.0
+    asserts:
+      - equal:
+          path: data.SANDBOX_GUEST_IMAGE
+          value: registry.example.com/kagent-dev/kagent/sandbox-guest:v3.0.0
+
+  - it: gives the global tag and mirror precedence over guest settings
+    set:
+      tag: v3.0.0
+      controller.sandbox.guestImage.tag: v2.0.0
+      controller.sandbox.guestImage.registry: registry.example.com
+      global.imageRegistry: mirror.example.com/
+    asserts:
+      - equal:
+          path: data.SANDBOX_GUEST_IMAGE
+          value: mirror.example.com/kagent-dev/kagent/sandbox-guest:v3.0.0
+
+  - it: gives the guest digest precedence over tags and respects the mirror
+    set:
+      tag: v3.0.0
+      controller.sandbox.guestImage.registry: registry.example.com
+      controller.sandbox.guestImage.repository: team/guest
+      controller.sandbox.guestImage.tag: v2.0.0
+      controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      global.imageRegistry: mirror.example.com
+    asserts:
+      - equal:
+          path: data.SANDBOX_GUEST_IMAGE
+          value: mirror.example.com/team/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
