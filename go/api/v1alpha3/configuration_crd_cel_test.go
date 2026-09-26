@@ -99,7 +99,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "Harness env requires a value source",
 			object: validHarness(namespace, "harness-empty-env", HarnessSpec{
 				Kagent: &KagentHarness{},
-				Env:    []HarnessEnvVar{{Name: "EMPTY"}},
+				Env:    []RuntimeEnvVar{{Name: "EMPTY"}},
 			}),
 			wantReject: "exactly one of value or credentialRef must be specified",
 		},
@@ -107,7 +107,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "Harness env rejects two value sources",
 			object: validHarness(namespace, "harness-two-env-sources", HarnessSpec{
 				Kagent: &KagentHarness{},
-				Env: []HarnessEnvVar{{
+				Env: []RuntimeEnvVar{{
 					Name:          "MODEL_KEY",
 					Value:         &empty,
 					CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model"}, Key: "key"},
@@ -134,7 +134,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "valid Harness",
 			object: validHarness(namespace, "valid-harness", HarnessSpec{
 				Claude: &ClaudeHarness{},
-				Env:    []HarnessEnvVar{{Name: "EMPTY", Value: &empty}},
+				Env:    []RuntimeEnvVar{{Name: "EMPTY", Value: &empty}},
 			}),
 		},
 		{
@@ -261,24 +261,24 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		},
 		{
 			name:   "SandboxTemplate allows empty literal environment values",
-			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Env = []HarnessEnvVar{{Name: "EMPTY", Value: &empty}} }),
+			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Env = []RuntimeEnvVar{{Name: "EMPTY", Value: &empty}} }),
 		},
 		{
 			name:       "SandboxTemplate requires one environment source",
-			object:     sandboxTemplateForValidation(namespace, "sandbox-missing-env-source", func(spec *SandboxTemplateSpec) { spec.Env = []HarnessEnvVar{{Name: "EMPTY"}} }),
+			object:     sandboxTemplateForValidation(namespace, "sandbox-missing-env-source", func(spec *SandboxTemplateSpec) { spec.Env = []RuntimeEnvVar{{Name: "EMPTY"}} }),
 			wantReject: "exactly one of value or credentialRef",
 		},
 		{
 			name: "SandboxTemplate rejects two environment sources",
 			object: sandboxTemplateForValidation(namespace, "sandbox-two-env-sources", func(spec *SandboxTemplateSpec) {
-				spec.Env = []HarnessEnvVar{{Name: "TOKEN", Value: &empty, CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "secret"}, Key: "token"}}}
+				spec.Env = []RuntimeEnvVar{{Name: "TOKEN", Value: &empty, CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "secret"}, Key: "token"}}}
 			}),
 			wantReject: "exactly one of value or credentialRef",
 		},
 		{
 			name: "SandboxTemplate rejects duplicate environment names",
 			object: sandboxTemplateForValidation(namespace, "sandbox-duplicate-env", func(spec *SandboxTemplateSpec) {
-				spec.Env = []HarnessEnvVar{{Name: "LANG", Value: &empty}, {Name: "LANG", Value: &empty}}
+				spec.Env = []RuntimeEnvVar{{Name: "LANG", Value: &empty}, {Name: "LANG", Value: &empty}}
 			}),
 			wantReject: "Duplicate value",
 		},
@@ -398,7 +398,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTemplateSpec)) *SandboxTemplate {
 	spec := SandboxTemplateSpec{
 		Workload:  SandboxTemplateWorkload{Image: "registry.example.com/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Substrate: HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: HarnessSnapshotPolicy{Location: "s3://snapshots"}},
+		Substrate: RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: RuntimeSnapshotPolicy{Location: "s3://snapshots"}},
 	}
 	if mutate != nil {
 		mutate(&spec)

@@ -18,9 +18,9 @@ func TestCompileOpaqueImage(t *testing.T) {
 	harness := &v2translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
-		Env:      []v1alpha3.HarnessEnvVar{{Name: "MODE", Value: new("production")}},
-		Substrate: v1alpha3.HarnessSubstratePolicy{
-			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: new("production")}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{
+			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
 	}}
 	template := &v2translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
@@ -53,12 +53,12 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	harness := &v2translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Env: []v1alpha3.HarnessEnvVar{
+		Env: []v1alpha3.RuntimeEnvVar{
 			{Name: "OTEL_SERVICE_NAME", Value: new("my-langgraph")},
 			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: new("https://otlp.example.com")},
 		},
-		Substrate: v1alpha3.HarnessSubstratePolicy{
-			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{
+			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
 	}}
 	template := &v2translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}

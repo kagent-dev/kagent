@@ -61,7 +61,7 @@ spec:
                 type: object
               env:
                 items:
-                  description: HarnessEnvVar configures one runtime environment variable.
+                  description: RuntimeEnvVar configures one runtime environment variable.
                   properties:
                     credentialRef:
                       description: CredentialRef references a key in a same-namespace
@@ -218,7 +218,7 @@ spec:
                       rule: self.modelConfigRef.name.size() > 0
                 type: object
               substrate:
-                description: HarnessSubstratePolicy contains the Substrate policy
+                description: RuntimeSubstratePolicy contains the Substrate policy
                   shared by all runtime variants.
                 properties:
                   snapshotPolicy:

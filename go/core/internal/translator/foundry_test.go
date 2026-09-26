@@ -31,8 +31,8 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 					Kagent: &v1alpha3.KagentHarness{},
 
 					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
-					Substrate: v1alpha3.HarnessSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}

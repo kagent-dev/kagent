@@ -36,9 +36,9 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	matchingHarness.UID = "harness-uid"
 	matchingHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
 	matchingHarness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	matchingHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
+	matchingHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
-		SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+		SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}}}, opts.WithName("ModelConfigs")...)
 	templates := krt.NewStaticCollection[*kagentv1alpha3.AgentTemplate](nil, nil, opts.WithName("AgentTemplates")...)
@@ -184,8 +184,8 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
 			runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			runtimeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+			runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			}
 			responses := kagentv1alpha3.OpenAIAPIFormatResponses
 			model := &kagentv1alpha3.ModelConfig{
@@ -334,8 +334,8 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	claudeHarness.UID = "harness-uid"
 	claudeHarness.Spec.Claude = &kagentv1alpha3.ClaudeHarness{}
 	claudeHarness.Spec.Workload.Image = "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	claudeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	claudeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
 		Provider: kagentv1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -389,8 +389,8 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	codexHarness.UID = "harness-uid"
 	codexHarness.Spec.Codex = &kagentv1alpha3.CodexHarness{}
 	codexHarness.Spec.Workload.Image = "example.com/codex@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	codexHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	codexHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
 		Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -452,7 +452,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	harness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
 	harness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
 	harness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	harness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}}
+	harness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
 	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{root, child}, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
 		harness,

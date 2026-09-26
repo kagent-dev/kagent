@@ -25,18 +25,18 @@ type SandboxTemplateSpec struct {
 	// +required
 	Workload SandboxTemplateWorkload `json:"workload"`
 
-	// Env supplies environment defaults using the existing Harness value contract.
+	// Env supplies runtime environment defaults.
 	// Credential references do not grant permission to read the referenced Secret.
 	// +optional
 	// +kubebuilder:validation:MaxItems=100
 	// +listType=map
 	// +listMapKey=name
-	Env []HarnessEnvVar `json:"env,omitempty"`
+	Env []RuntimeEnvVar `json:"env,omitempty"`
 
 	// Substrate configures compute placement and snapshot storage. References are
 	// resolved in this template's namespace.
 	// +required
-	Substrate HarnessSubstratePolicy `json:"substrate"`
+	Substrate RuntimeSubstratePolicy `json:"substrate"`
 }
 
 // SandboxTemplateStatus reports preparation of the current template inputs.

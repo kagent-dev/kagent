@@ -53,10 +53,10 @@ spec:
             properties:
               env:
                 description: |-
-                  Env supplies environment defaults using the existing Harness value contract.
+                  Env supplies runtime environment defaults.
                   Credential references do not grant permission to read the referenced Secret.
                 items:
-                  description: HarnessEnvVar configures one runtime environment variable.
+                  description: RuntimeEnvVar configures one runtime environment variable.
                   properties:
                     credentialRef:
                       description: CredentialRef references a key in a same-namespace
