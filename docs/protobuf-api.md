@@ -6,6 +6,9 @@ review guidelines; resource-specific behavior belongs in
 [docs/architecture](architecture/README.md). The source `.proto` files define the
 wire format. See the [Kubernetes guide](kubernetes-api.md) for CRD design.
 
+Clients integrating lifecycle APIs should follow the
+[Session and Sandbox retry contract](lifecycle-retries.md).
+
 ## Resource and operation design
 
 Give each service a clear responsibility. Reuse the owning protocol's types and
