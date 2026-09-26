@@ -21,17 +21,17 @@ func TestApplyCompaction(t *testing.T) {
 		openAIModel("summarizer", "https://summarizer.example.com/v1"),
 	)
 	agentModel := resolvedModel(t, collections, "agent")
-	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
-		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
+	template := &v2translator.TemplateConfiguration{
+		Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
 	}
-	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *v1alpha3.Harness {
-		return &v1alpha3.Harness{
-			ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
-			Spec:       v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
+	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *v2translator.HarnessConfiguration {
+		return &v2translator.HarnessConfiguration{
+			Name: "kagent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
 		}
 	}
-	apply := func(harness *v1alpha3.Harness) (*Result, error) {
+	apply := func(harness *v2translator.HarnessConfiguration) (*Result, error) {
 		builder := NewBuilder(krt.TestingDummyContext{}, collections)
 		result, err := builder.Build(context.Background(), &v2translator.AgentInput{Template: template, ResolvedModelConfig: agentModel})
 		require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 				&v2translator.AgentInput{
-					Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test", Source: &metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				})
 			require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.AgentInput{
-				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test", Source: &metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 			})
 		require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.AgentInput{
-				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test", Source: &metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 			})
 		require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.AgentInput{
-				Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+				Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test", Source: &metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
 				ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 			})
 		require.NoError(t, err)

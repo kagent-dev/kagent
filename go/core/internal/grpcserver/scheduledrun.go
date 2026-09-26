@@ -16,7 +16,7 @@ type scheduledRunServer struct {
 }
 
 func (s *scheduledRunServer) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.CreateScheduledRunRequest) (*apiv1alpha1.CreateScheduledRunResponse, error) {
-	result, err := s.service.Create(ctx, scheduledrun.CreateRequest{Harness: request.Harness, AgentTemplate: request.AgentTemplate, RequestID: request.RequestId, Config: request.Config})
+	result, err := s.service.Create(ctx, scheduledrun.CreateRequest{Agent: request.Agent, RequestID: request.RequestId, Config: request.Config})
 	if err != nil {
 		return nil, err
 	}

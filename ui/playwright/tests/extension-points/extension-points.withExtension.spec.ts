@@ -72,7 +72,7 @@ test("extension points: configured components mount where the point promises", a
   await test.step("5. a per-row point mounts once per row", async () => {
     const badge = "app_agents_agentsList_agentListItem_badge";
     // On one agent's page, because that is where `AgentInstance` rows are listed
-    // now: an instance is a conversation, so the agents list holds pairs and the
+    // now: an instance is a conversation, so the agents list holds definitions and the
     // conversations sit inside one. The point's id and its context are unchanged —
     // it was always a point about an instance — which is the property this step is
     // really protecting: a contribution written against it keeps working.
@@ -166,14 +166,14 @@ test("extension points: configured components mount where the point promises", a
     // Handed the conversation it is drawn beside, so an entry can be about it.
     await expect(rail.getByTestId("agent-rail-example")).toHaveAttribute(
       "href",
-      new RegExp(`agent=${instances.ready}$`),
+      new RegExp(`instance=${instances.ready}$`),
     );
 
     // "Agent Details" follows the declared link. It was computed and then ignored, so
     // a distribution serving its own details surface still sent every reader here.
     await expect(rail.getByTestId("agent-nav-agent-conversations")).toHaveAttribute(
       "href",
-      new RegExp(`agent=${instances.ready}$`),
+      new RegExp(`instance=${instances.ready}$`),
     );
 
     // "New chat" does not. It is the agent's own address with `/new` on the end, and
@@ -227,4 +227,15 @@ test("extension points: configured components mount where the point promises", a
     // A contributed page is a page of this app, not a separate site.
     await expectShell(page);
   });
+});
+
+
+test("extension points: rail receives Agent identity before a conversation exists", async ({ page }) => {
+  for (const path of [agentPage(agents.k8s), `${agentPage(agents.k8s)}/new`]) {
+    await loadPage(page, path);
+    await expect(page.getByTestId("agent-rail-example")).toHaveAttribute(
+      "href",
+      new RegExp(`definition=${encodeURIComponent(`kagent/${agents.k8s.name}`)}$`),
+    );
+  }
 });

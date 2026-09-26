@@ -55,8 +55,8 @@ The compiled agent an invocation belongs to.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
-| `gen_ai.agent.id` | required | The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`. |
-| `gen_ai.agent.name` | required | The compiled agent identity, `<template>-<harness>`. |
+| `gen_ai.agent.id` | required | The agent identity qualified by its namespace, `<namespace>/<agent>`. |
+| `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
 | `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | kagent also writes `ollama` and `sap.ai_core`, which the conventions do not list. |
 | `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The ADK runtimes report the model on each inference span instead. |
 
@@ -125,8 +125,8 @@ Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment o
 | `a2a.task.state` | conditionally required: Execution reported a task state. | The values are the A2A v1 wire names. An absent state does not mean success. |
 | `enduser.id` | conditionally required: A trusted identity reached the runtime. | Absent when the gateway forwarded no trusted identity. Never on a resource or a metric. Hashing the value is an operator decision. |
 | `error.type` | conditionally required: The invocation failed. | A bounded kagent vocabulary: `runtime_panic`, `invalid_request`, `continuation_unavailable`, `actor_unavailable`, `runtime_error`, `invalid_runtime_outcome`, `invalid_input_request`, `runtime_failure` and `transport_error`. Never a provider response, a credential or captured content. |
-| `gen_ai.agent.id` | required | The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`. |
-| `gen_ai.agent.name` | required | The compiled agent identity, `<template>-<harness>`. |
+| `gen_ai.agent.id` | required | The agent identity qualified by its namespace, `<namespace>/<agent>`. |
+| `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
 | `gen_ai.conversation.id` | conditionally required: The gateway assigned an A2A context. | The A2A context ID. |
 | `gen_ai.input.messages` | opt in | Bounded turn content, recorded only under `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. |
 | `gen_ai.operation.name` | required | Always `invoke_agent`. |
@@ -146,8 +146,8 @@ An agent runtime compiled by kagent. Conversation, task and user identity never 
 
 | Attribute | Role | Requirement | Note |
 | --- | --- | --- | --- |
-| `gen_ai.agent.id` | identity | required | The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`. |
-| `gen_ai.agent.name` | description | required | The compiled agent identity, `<template>-<harness>`. |
+| `gen_ai.agent.id` | identity | required | The agent identity qualified by its namespace, `<namespace>/<agent>`. |
+| `gen_ai.agent.name` | description | required | The compiled agent identity, `<agent>`. |
 | `gen_ai.provider.name` | description | conditionally required: The runtime is a harness compiled against one model. | The provider the agent is compiled against. |
 | `gen_ai.request.model` | description | conditionally required: The runtime is a harness compiled against one model. | The model the agent is compiled against. |
 | `kagent.runtime` | description | required | Every runtime declares it on its resource. The name of a Harness object is not its runtime. |

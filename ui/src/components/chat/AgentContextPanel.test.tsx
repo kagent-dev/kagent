@@ -5,11 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import { themeFor } from "@/theme/theme";
 import { AgentContextPanel } from "./AgentContextPanel";
 
-const useAgentTemplate = vi.hoisted(() => vi.fn());
+const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(), useAgent: vi.fn()}));
 
-vi.mock("@/api", () => ({ useAgentTemplate }));
+vi.mock("@/api", () => ({ useAgentTemplate, useAgent }));
 
 function renderPanel(tools: unknown[]) {
+  useAgent.mockReturnValue({data: {resource: {spec: {templateRef: {name: "assistant"}, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
       resource: {
@@ -27,7 +28,7 @@ function renderPanel(tools: unknown[]) {
     <ThemeProvider theme={themeFor("dark")}>
       <MemoryRouter>
         <AgentContextPanel
-          pair={{ namespace: "kagent", agentTemplate: "assistant", harness: "runner" }}
+          agentRef={{ namespace: "kagent", name: "assistant" }}
         />
       </MemoryRouter>
     </ThemeProvider>,

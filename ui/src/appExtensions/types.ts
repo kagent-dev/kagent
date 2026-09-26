@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { ExtensionSlotComponents } from "./extensionPoints";
 import type { ExtensionFormFieldContribution } from "./formFields";
-import type { AgentInstance, ApiCallId } from "@/api";
+import type { AgentInstance, ApiCallId, ChatDataPart, ChatMessage, ChatPart } from "@/api";
 import type { ExtensionApi } from "./api/extensionApi";
 import type { ExtensionTheme } from "./theme";
 import type { ExtensionAgentRailOverrides } from "./railOverrides";
@@ -106,44 +106,22 @@ export interface ExtensionRouteContribution {
 }
 
 /** A conversation identified by UUID. */
-export interface ExtensionAgentRef {
+export interface ExtensionAgentInstanceRef {
   id: string;
 }
 
-/**
- * An agent named by its template and harness rather than by a conversation.
- *
- * The rail's own pages address an agent both ways, and only this one is available on a
- * page with no conversation open.
- */
-export interface ExtensionAgentPair {
+/** The named Agent whose configuration and conversations the rail displays. */
+export interface ExtensionAgentRef {
   namespace: string;
-  agentTemplate?: string;
-  harness?: string;
+  name?: string;
 }
 
-/** What the agent rail tells a contributed entry about where it is being drawn. */
+/** The named Agent and optional open instance for a contributed rail entry. */
 export interface ExtensionAgentRailItemProps {
-  /** True when the current location matches the item's `path`. */
   isActive: boolean;
-  /**
-   * The conversation whose rail this is, when there is one.
-   *
-   * Absent on the agent's own page and on a new conversation, where no instance is
-   * open yet. A contribution that needs an address should derive it from this and
-   * render nothing when it is missing, exactly as the application's own entries are
-   * left out when their destination cannot be derived.
-   */
+  /** Absent before the first message creates an instance. */
+  instance?: ExtensionAgentInstanceRef;
   agent?: ExtensionAgentRef;
-  /**
-   * The agent this rail is scoped to, wherever it can be named.
-   *
-   * Present on every surface the rail is mounted on, including the ones with no
-   * conversation open — so an entry that would otherwise render nothing there has an
-   * agent to address. `agent` stays the narrower fact: which conversation, when there
-   * is one.
-   */
-  pair?: ExtensionAgentPair;
 }
 
 /**
@@ -189,23 +167,13 @@ export interface ExtensionAgentRailItemContribution {
  */
 export interface ExtensionAgentLinks {
   /**
-   * Where selecting an agent on the list page should navigate.
+   * Where selecting an instance in a conversation list should navigate.
    */
-  fromAgentsList?: (instance: AgentInstance) => string;
-  /*
-   * The two surfaces one agent has, unprefixed: the interface already says these are
-   * an agent's.
-   *
-   * There is no `conversation` and no `settings` any more, and neither is an
-   * omission. A conversation *is* an instance, so a row in the rail is a `chat` link
-   * to a different instance rather than a session beneath this one; and an instance
-   * has no spec to edit, so configuration lives on the `AgentTemplate` and the
-   * `Harness` rather than behind a per-agent settings page.
-   */
+  fromInstancesList?: (instance: AgentInstance) => string;
   /** Where the rail's conversation rows and the list's agent names point. */
-  chat?: (ref: ExtensionAgentRef) => string;
+  chat?: (ref: ExtensionAgentInstanceRef) => string;
   /** Where the rail's "Agent Details" entry points. */
-  details?: (ref: ExtensionAgentRef) => string;
+  details?: (ref: ExtensionAgentInstanceRef) => string;
 }
 
 /** A React context provider the extension wraps the whole app in. */
@@ -297,6 +265,11 @@ export interface AppExtensionConfig {
    */
   providerIcons?: Readonly<Record<string, ComponentType>>;
   /**
+   * Replacement renderers for chat message parts, keyed by part kind, or by
+   * `dataKind` for a data part. Merged over the core map like `providerIcons`.
+   */
+  chatPartRenderers?: ExtensionChatPartRenderers;
+  /**
    * Agent destinations the application resolves from this configuration.
    */
   agentLinks?: ExtensionAgentLinks;
@@ -313,3 +286,24 @@ export interface AppExtensionConfig {
    */
   agentRailOverrides?: ExtensionAgentRailOverrides;
 }
+
+/** A chat part's renderer key: its `kind`, or its `dataKind` for a data part. */
+export type ChatPartRendererKey = Exclude<ChatPart["kind"], "data"> | ChatDataPart["dataKind"];
+
+/** The part a renderer for `K` receives, so a `"text"` renderer gets a text part. */
+export type ChatPartForKey<K extends ChatPartRendererKey> = K extends ChatDataPart["dataKind"]
+  ? ChatDataPart & { dataKind: K }
+  : Extract<ChatPart, { kind: K }>;
+
+/** Props a chat part renderer receives: the part and the turn it belongs to. */
+export interface ChatPartRendererProps<K extends ChatPartRendererKey = ChatPartRendererKey> {
+  part: ChatPartForKey<K>;
+  role: ChatMessage["role"];
+  messageId: string;
+  taskId?: string;
+  sessionId?: string;
+}
+
+export type ExtensionChatPartRenderers = {
+  readonly [K in ChatPartRendererKey]?: ComponentType<ChatPartRendererProps<K>>;
+};

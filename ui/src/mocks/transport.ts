@@ -1,3 +1,5 @@
+import { AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
 import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
@@ -56,7 +58,7 @@ import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, S
  * every registered request transform have already been applied by the time a call
  * arrives here, exactly as they are in production. That matters for one fake in
  * particular: a share link is spent by a transform putting `X-Share-Token` on the
- * call, and `GetAgentInstance` refuses a token it never issued. Applying the transforms
+ * call, and `GetSession` refuses a token it never issued. Applying the transforms
  * again here would be a second implementation of the same thing, and two
  * implementations drift — so the header is simply read from the call.
  *
@@ -92,12 +94,12 @@ import {
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import {
-  AgentInstanceOperation as PbAgentInstanceOperation,
-  AgentInstanceService,
-  AgentInstanceSharePermission as PbSharePermission,
-  AgentInstanceState as PbAgentInstanceState,
-  type AgentInstanceSchema,
-} from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
+  SessionOperation as PbSessionOperation,
+  SessionService,
+  SessionSharePermission as PbSharePermission,
+  SessionState as PbSessionState,
+  type SessionSchema,
+} from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1alpha1/common_pb";
 import type {
   AgentInstance,
@@ -133,6 +135,8 @@ import {
   agentInstanceRef,
   allAgentInstances,
   allAgentTemplates,
+  allAgents,
+  saveAgent,
   allModels,
   allPromptDetails,
   allPromptSummaries,
@@ -331,7 +335,7 @@ function headerRecord(header: HeadersInit | undefined): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 /** A resource in the envelope the controller wraps custom resources in. */
-function structured(kind: string, value: object, apiVersion = "kagent.dev/v1alpha3") {
+function structured(kind: string, value: object, apiVersion = "api.kagent.dev/v1alpha3") {
   // `google.protobuf.Struct` is a `JsonObject` in the generated types, so a
   // fixture goes in exactly as it is written.
   return { apiVersion, kind, value: value as JsonObject };
@@ -383,7 +387,7 @@ function modelMessage(model: ModelConfig) {
   return {
     ref,
     resource: structured("ModelConfig", {
-      apiVersion: "kagent.dev/v1alpha3",
+      apiVersion: "api.kagent.dev/v1alpha3",
       kind: "ModelConfig",
       metadata: { name: ref.name, namespace: ref.namespace },
       spec: model.spec,
@@ -514,7 +518,9 @@ on(ToolService.method.createToolServer, (input) => {
   saveToolServer(input.type, server.metadata);
   // The RPC answers with the created resource rather than with a list row, which
   // is what the client assembles the row from.
-  return { resource: structured(input.type, server) };
+  return {
+    resource: structured(input.type, server, input.type === "MCPServer" ? "kagent.dev/v1alpha1" : undefined),
+  };
 });
 
 on(ToolService.method.deleteToolServer, (input) => {
@@ -600,41 +606,41 @@ on(PromptTemplateService.method.deletePromptTemplate, (input) => {
  * for the same reason: keyed by the generated enum, so a member added to the proto
  * fails `yarn typecheck` here rather than being served as a zero.
  */
-const PB_STATE_BY_NAME: Record<AgentInstanceState, PbAgentInstanceState> = {
-  unspecified: PbAgentInstanceState.UNSPECIFIED,
-  creating: PbAgentInstanceState.CREATING,
-  ready: PbAgentInstanceState.READY,
-  suspended: PbAgentInstanceState.SUSPENDED,
-  failed: PbAgentInstanceState.FAILED,
-  deleting: PbAgentInstanceState.DELETING,
-  deleted: PbAgentInstanceState.DELETED,
+const PB_STATE_BY_NAME: Record<AgentInstanceState, PbSessionState> = {
+  unspecified: PbSessionState.UNSPECIFIED,
+  creating: PbSessionState.CREATING,
+  ready: PbSessionState.READY,
+  suspended: PbSessionState.SUSPENDED,
+  failed: PbSessionState.FAILED,
+  deleting: PbSessionState.DELETING,
+  deleted: PbSessionState.DELETED,
   // A state this client does not recognise cannot be sent back as anything but
   // the zero value; there is no number to invent. The fixtures never use it.
-  unknown: PbAgentInstanceState.UNSPECIFIED,
+  unknown: PbSessionState.UNSPECIFIED,
 };
 
-const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, PbAgentInstanceOperation> = {
-  unspecified: PbAgentInstanceOperation.UNSPECIFIED,
-  create: PbAgentInstanceOperation.CREATE,
-  suspend: PbAgentInstanceOperation.SUSPEND,
-  resume: PbAgentInstanceOperation.RESUME,
-  delete: PbAgentInstanceOperation.DELETE,
-  unknown: PbAgentInstanceOperation.UNSPECIFIED,
+const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, PbSessionOperation> = {
+  unspecified: PbSessionOperation.UNSPECIFIED,
+  create: PbSessionOperation.CREATE,
+  suspend: PbSessionOperation.SUSPEND,
+  resume: PbSessionOperation.RESUME,
+  delete: PbSessionOperation.DELETE,
+  unknown: PbSessionOperation.UNSPECIFIED,
 };
 
 function agentInstanceMessage(
   row: AgentInstance,
-): MessageInitShape<typeof AgentInstanceSchema> {
+): MessageInitShape<typeof SessionSchema> {
   return {
     id: row.id,
+    contextId: row.id,
 
     // Empty is what an unnamed conversation carries on the wire — proto3 has no
     // absent string — so it goes back empty rather than omitted, and the client
     // turns it into a title rather than treating it as a gap.
     name: row.name,
     creator: row.creator,
-    harness: row.harness ? splitRef(row.harness) : undefined,
-    agentTemplate: row.agentTemplate ? splitRef(row.agentTemplate) : undefined,
+    agent: row.agent ? splitRef(row.agent) : undefined,
     // Proto3 cannot carry an absent string, so an unset field goes back as the
     // empty one the controller would also send — and `orUndefined` on the client
     // turns it back into "not reported".
@@ -664,12 +670,9 @@ function requireNamespace(namespace: string): string {
 }
 
 /**
- * The check `validateOptionalName` performs on the two agent filters.
- *
- * A DNS-1123 subdomain when set, and "do not filter" when empty. Copied rather than
- * skipped because the mistake it catches is one this codebase makes easily: an
- * instance reports its pair as `namespace/name`, so passing that straight back as a
- * filter looks right and is an `InvalidArgument` on a cluster.
+ * Optional resource names must be DNS-1123 subdomains when set.
+ * An instance reports its Agent as `namespace/name`; the name field of a
+ * resource reference accepts only the name component.
  */
 const DNS_1123_SUBDOMAIN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
 
@@ -760,7 +763,7 @@ function instanceFor(id: string, call: MockCall): AgentInstance {
    * Somebody else's conversation is not found, not forbidden.
    *
    * The controller resolves every single-instance read through
-   * `GetAgentInstanceForUser` — `WHERE id = $1 AND user_id = $2`
+   * `GetSessionForUser` — `WHERE id = $1 AND user_id = $2`
    * — so an instance created by another user simply is not there as far as this
    * caller is concerned, and the A2A gateway reads through the same call. Every
    * lifecycle operation, the rename and the delete go through here, so all of them
@@ -825,8 +828,8 @@ function lifecycle(
   });
 }
 
-on(AgentInstanceService.method.listAgentInstances, (input, call) => {
-  if (call.scenario === "empty") return { agentInstances: [], page: {} };
+on(SessionService.method.listSessions, (input, call) => {
+  if (call.scenario === "empty") return { sessions: [], page: {} };
 
   const pageSize = input.page?.limit ? input.page.limit : INSTANCE_DEFAULT_PAGE_SIZE;
   if (pageSize < 0 || pageSize > INSTANCE_MAX_PAGE_SIZE) {
@@ -836,8 +839,7 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
     );
   }
 
-  const templateFilter = input.agentTemplate ? `${requireNamespace(input.agentTemplate.namespace)}/${requireOptionalName("agent_template", input.agentTemplate.name)}` : "";
-  const harnessFilter = input.harness ? `${requireNamespace(input.harness.namespace)}/${requireOptionalName("harness", input.harness.name)}` : "";
+  const agentFilter = input.agent ? `${requireNamespace(input.agent.namespace)}/${requireOptionalName("agent", input.agent.name)}` : "";
 
   const matching = allAgentInstances().filter((row) => {
     // Somebody else's instances are excluded unless asked for, which is what the
@@ -845,10 +847,9 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
     // so every caller is treated as one fixed person — see `MOCK_INSTANCE_CREATOR`.
     if (!input.allCreators && row.creator !== MOCK_INSTANCE_CREATOR) return false;
 
-    if (templateFilter && row.agentTemplate !== templateFilter) {
+    if (agentFilter && row.agent !== agentFilter) {
       return false;
     }
-    if (harnessFilter && row.harness !== harnessFilter) return false;
     return true;
   });
 
@@ -861,42 +862,35 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
   const more = start + pageSize < matching.length;
 
   return {
-    agentInstances: page.map(agentInstanceMessage),
+    sessions: page.map(agentInstanceMessage),
     page: { nextPageToken: more ? (page[page.length - 1]?.id ?? "") : "" },
   };
 });
 
-on(AgentInstanceService.method.getAgentInstance, (input, call) => ({
-  agentInstance: agentInstanceMessage(
+on(SessionService.method.getSession, (input, call) => ({
+  session: agentInstanceMessage(
     instanceFor(
-      requireInstanceId(input.agentInstanceId),
+      requireInstanceId(input.sessionId),
       call,
     ),
   ),
 }));
 
-on(AgentInstanceService.method.suspendAgentInstance, (input, call) => ({
-  agentInstance: agentInstanceMessage(
-    lifecycle(input.agentInstanceId, call, "ready", "suspended", "suspend"),
+on(SessionService.method.suspendSession, (input, call) => ({
+  session: agentInstanceMessage(
+    lifecycle(input.sessionId, call, "ready", "suspended", "suspend"),
   ),
 }));
 
-on(AgentInstanceService.method.resumeAgentInstance, (input, call) => ({
-  agentInstance: agentInstanceMessage(
-    lifecycle(input.agentInstanceId, call, "suspended", "ready", "resume"),
+on(SessionService.method.resumeSession, (input, call) => ({
+  session: agentInstanceMessage(
+    lifecycle(input.sessionId, call, "suspended", "ready", "resume"),
   ),
 }));
 
-on(AgentInstanceService.method.createAgentInstance, (input, call) => {
-  const namespace = requireNamespace(input.harness?.namespace ?? "");
-  if (namespace !== requireNamespace(input.agentTemplate?.namespace ?? "")) throw new ConnectError("Harness and AgentTemplate must be in the same namespace", Code.InvalidArgument);
-  if (!input.harness?.name.trim() || !input.agentTemplate?.name.trim()) {
-    throw new ConnectError(
-      "a harness and an agent template are both required",
-      Code.InvalidArgument,
-    );
-  }
-
+on(SessionService.method.createSession, (input, call) => {
+  const namespace = requireNamespace(input.agent?.namespace ?? "");
+  if (!input.agent?.name.trim()) throw new ConnectError("an Agent is required", Code.InvalidArgument);
   const requestId = input.requestId;
   if (
     requestId === "" ||
@@ -913,10 +907,10 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
   // rule on the second edit would be a form tested against the wrong backend.
   const name = requireInstanceName(input.name ?? "");
   if (call.scenario === "error") {
-    // The controller's own refusal for a pair whose prepared revision is not ready,
+    // The controller's own refusal for an Agent whose prepared revision is not ready,
     // which is the failure a reader is most likely to meet.
     throw new ConnectError(
-      `no ready prepared revision for ${input.harness?.name}/${input.agentTemplate?.name}`,
+      `no ready prepared revision for ${input.agent?.name}`,
       Code.FailedPrecondition,
     );
   }
@@ -928,27 +922,26 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     id: randomId(),
     name,
     creator: MOCK_INSTANCE_CREATOR,
-    harness: `${namespace}/${input.harness?.name}`,
-    agentTemplate: `${namespace}/${input.agentTemplate?.name}`,
+    agent: `${namespace}/${input.agent?.name}`,
     preparedRevision: "rev-mock",
-    a2aAuthority: `${input.agentTemplate?.name}.${namespace}.svc.cluster.local:8080`,
+    a2aAuthority: `${input.agent?.name}.${namespace}.svc.cluster.local:8080`,
     state: "ready" as const,
     operation: "unspecified" as const,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   saveAgentInstance(created);
-  return { agentInstance: agentInstanceMessage(created) };
+  return { session: agentInstanceMessage(created) };
 });
 
-on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
+on(SessionService.method.updateSessionName, (input, call) => {
   const instance = instanceFor(
-    requireInstanceId(input.agentInstanceId),
+    requireInstanceId(input.sessionId),
     call,
   );
   const name = requireInstanceName(input.name);
   return {
-    agentInstance: agentInstanceMessage(
+    session: agentInstanceMessage(
       saveAgentInstance({
         ...instance,
         name,
@@ -968,7 +961,7 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
  */
 const checkpointMessage = (row: MockCheckpoint) => ({
   id: row.id,
-  agentInstanceId: row.agentInstanceId,
+  sessionId: row.agentInstanceId,
   name: row.name,
   headTaskId: row.headTaskId,
   state: PbCheckpointState.READY,
@@ -976,7 +969,7 @@ const checkpointMessage = (row: MockCheckpoint) => ({
 });
 
 on(CheckpointService.method.createCheckpoint, (input, call) => {
-  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const instance = instanceFor(requireInstanceId(input.sessionId), call);
   const headTaskId = mockLatestTaskId(instance.id);
   if (input.expectedHeadTaskId !== headTaskId) {
     throw new ConnectError("Conversation advanced beyond the expected task", Code.FailedPrecondition);
@@ -1003,7 +996,7 @@ on(CheckpointService.method.deleteCheckpoint, (input) => {
 });
 
 on(CheckpointService.method.listCheckpoints, (input, call) => {
-  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const instance = instanceFor(requireInstanceId(input.sessionId), call);
   return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
 });
 
@@ -1013,7 +1006,7 @@ on(CheckpointService.method.listCheckpoints, (input, call) => {
  * transcript up to the checkpoint's turn, which is what makes forking an earlier
  * boundary mean anything.
  */
-on(CheckpointService.method.forkAgentInstance, (input, call) => {
+on(CheckpointService.method.forkSession, (input, call) => {
   const checkpoint = checkpointById(input.checkpointId);
   if (!checkpoint) throw notFound(`Checkpoint ${input.checkpointId}`);
   const source = instanceFor(checkpoint.agentInstanceId, call);
@@ -1028,23 +1021,23 @@ on(CheckpointService.method.forkAgentInstance, (input, call) => {
     updatedAt: now,
   });
   mockForkTranscript(source.id, forked.id, checkpoint.headTaskId);
-  return { agentInstance: agentInstanceMessage(forked) };
+  return { session: agentInstanceMessage(forked) };
 });
 
-on(AgentInstanceService.method.deleteAgentInstance, (input, call) => {
+on(SessionService.method.deleteSession, (input, call) => {
   const instance = instanceFor(
-    requireInstanceId(input.agentInstanceId),
+    requireInstanceId(input.sessionId),
     call,
   );
   markDeleted(agentInstanceRef(instance));
   // The record as it stood, which is what the controller answers with: the caller
   // asked for it to go and is told what went.
-  return { agentInstance: agentInstanceMessage(instance) };
+  return { session: agentInstanceMessage(instance) };
 });
 
-on(AgentInstanceService.method.listAgentInstanceShares, (input, call) => {
+on(SessionService.method.listSessionShares, (input, call) => {
   const instance = instanceFor(
-    requireInstanceId(input.agentInstanceId),
+    requireInstanceId(input.sessionId),
     call,
   );
   return {
@@ -1055,9 +1048,9 @@ on(AgentInstanceService.method.listAgentInstanceShares, (input, call) => {
   };
 });
 
-on(AgentInstanceService.method.createAgentInstanceShare, (input, call) => {
+on(SessionService.method.createSessionShare, (input, call) => {
   const instance = instanceFor(
-    requireInstanceId(input.agentInstanceId),
+    requireInstanceId(input.sessionId),
     call,
   );
   const { share, token } = createInstanceShare(
@@ -1067,7 +1060,7 @@ on(AgentInstanceService.method.createAgentInstanceShare, (input, call) => {
   return { share: instanceShareMessage(share), token };
 });
 
-on(AgentInstanceService.method.revokeAgentInstanceShare, (input) => {
+on(SessionService.method.revokeSessionShare, (input) => {
   if (!revokeInstanceShare(input.shareId)) {
     throw new ConnectError(`share ${input.shareId} not found`, Code.NotFound);
   }
@@ -1076,7 +1069,7 @@ on(AgentInstanceService.method.revokeAgentInstanceShare, (input) => {
 
 const instanceShareMessage = (share: AgentInstanceShare) => ({
   id: share.id,
-  agentInstanceId: share.agentInstanceId,
+  sessionId: share.agentInstanceId,
   permission:
     share.permission === "readWrite"
       ? PbSharePermission.READ_WRITE
@@ -1109,7 +1102,6 @@ const agentTemplateMessage = (template: AgentTemplate) => ({
   resource: structured("AgentTemplate", template.resource as unknown as JsonObject),
   modelConfigRef: refPair(template.modelConfigRef),
   description: template.description,
-  admittingHarnesses: template.admittingHarnesses,
 });
 
 /** The template at this ref, or the controller's own `NotFound`. */
@@ -1185,7 +1177,6 @@ function templateFromResource(
     description: spec.description ?? "",
     // Recomputed by `saveAgentTemplate` from the labels; whatever is passed here is
     // replaced.
-    admittingHarnesses: [],
     resource: {
       ...(resource as unknown as AgentTemplate["resource"]),
       metadata: {
@@ -1593,8 +1584,7 @@ const scheduledRuns = [1, 2, 3].map((n) => create(ScheduledRunSchema, {
   id: `c686bd1d-9124-4e96-8df7-00000000000${n}`,
   etag: `d686bd1d-9124-4e96-8df7-00000000000${n}`,
   creator: MOCK_INSTANCE_CREATOR,
-  harness: { namespace: "kagent", name: "k8s-agent" },
-  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
   config: { name: n === 1 ? "Daily cluster report" : `Schedule ${n}`, schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
   createdAt: stamp("2026-09-01T09:00:00Z"),
 }));
@@ -1607,8 +1597,7 @@ scheduledRuns.push(create(ScheduledRunSchema, {
   id: "c686bd1d-9124-4e96-8df7-000000000004",
   etag: "d686bd1d-9124-4e96-8df7-000000000004",
   creator: MOCK_INSTANCE_CREATOR,
-  harness: { namespace: "kagent", name: "k8s-agent" },
-  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
   config: { name: "Retired sweep", schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
   createdAt: stamp("2026-09-01T09:00:00Z"),
   deletedAt: stamp("2026-09-02T09:00:00Z"),
@@ -1622,7 +1611,7 @@ const scheduleExecutions = Array.from({ length: 26 }, (_, i) => create(Scheduled
   deadline: stamp("2026-09-01T09:15:00Z"), completedAt: stamp(i === 1 ? "2026-09-01T09:15:00Z" : "2026-09-01T09:01:00Z"),
   state: i === 1 ? ScheduledRunExecutionState.TIMED_OUT : ScheduledRunExecutionState.SUCCEEDED,
   failureReason: i === 1 ? "Execution deadline exceeded" : "",
-  agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44", taskId: `mock-scheduled-task-${i}`,
+  sessionId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44", taskId: `mock-scheduled-task-${i}`,
 }));
 const scheduleRequests = new Map<string, ScheduledRun>();
 function scheduledRunFor(id: string, call: MockCall) {
@@ -1644,12 +1633,12 @@ on(ScheduledRunService.method.getScheduledRun, (input, call) => ({ scheduledRun:
 on(ScheduledRunService.method.createScheduledRun, (input) => {
   const prior = scheduleRequests.get(input.requestId);
   if (prior) return { scheduledRun: prior };
-  if (!input.requestId || !input.config?.prompt.trim() || !input.harness?.name || !input.agentTemplate?.name || input.harness.namespace !== input.agentTemplate.namespace) {
+  if (!input.requestId || !input.config?.prompt.trim() || !input.agent?.name || !input.agent.namespace) {
     throw new ConnectError("A prompt, request ID and an agent in one namespace are required", Code.InvalidArgument);
   }
   const schedule = create(ScheduledRunSchema, {
     id: randomId(), etag: randomId(), creator: MOCK_INSTANCE_CREATOR,
-    harness: input.harness, agentTemplate: input.agentTemplate, config: input.config,
+    agent: input.agent, config: input.config,
     createdAt: timestampFromDate(new Date()),
   });
   scheduledRuns.unshift(schedule);
@@ -1686,4 +1675,38 @@ on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
 on(ScheduledRunService.method.listScheduledRunExecutions, (input, call) => {
   const page = schedulePage(call.scenario === "empty" ? [] : scheduleExecutions.filter((row) => row.scheduledRunId === input.scheduledRunId), input.page);
   return { executions: page.rows, page: page.page };
+});
+
+const agentMessage = (agent: Agent) => ({ ref: { namespace: agent.namespace, name: agent.name }, resource: structured("Agent", agent.resource) });
+function agentFor(namespace: string, name: string): Agent {
+  const found = allAgents().find(agent => agent.namespace === namespace && agent.name === name);
+  if (!found) throw notFound("Agent");
+  return found;
+}
+on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
+on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
+function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined): Agent {
+  const namespace = requireNamespace(ref?.namespace ?? "");
+  const name = requireOptionalName("agent", ref?.name);
+  const resource = value as unknown as Agent["resource"];
+  const spec = resource?.spec;
+  if (!name || !spec || Number(spec.template !== undefined) + Number(spec.templateRef !== undefined) !== 1 || Number(spec.harness !== undefined) + Number(spec.harnessRef !== undefined) !== 1 || (spec.templateRef && !spec.templateRef.name) || (spec.harnessRef && !spec.harnessRef.name)) {
+    throw new ConnectError("Choose exactly one template or templateRef and one harness or harnessRef", Code.InvalidArgument);
+  }
+  return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name}, spec}};
+}
+on(AgentService.method.createAgent, input => {
+  const agent = writeAgent(input.ref, input.resource?.value);
+  if (allAgents().some(row => row.ref === agent.ref)) throw new ConnectError("Agent already exists", Code.AlreadyExists);
+  return {agent: agentMessage(saveAgent(agent))};
+});
+on(AgentService.method.updateAgent, input => {
+  const agent = writeAgent(input.ref, input.resource?.value);
+  agentFor(agent.namespace, agent.name);
+  return {agent: agentMessage(saveAgent(agent))};
+});
+on(AgentService.method.deleteAgent, input => {
+  const agent = agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
+  markDeleted(`Agent:${agent.ref}`);
+  return {};
 });

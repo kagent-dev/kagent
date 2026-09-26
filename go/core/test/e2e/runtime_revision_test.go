@@ -39,25 +39,28 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		t.Cleanup(func() { _ = conn.Close() })
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
 		t.Cleanup(cancel)
-		instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
+		sessions := apiv1alpha1.NewSessionServiceClient(conn)
 		checkpoints := apiv1alpha1.NewCheckpointServiceClient(conn)
 		system := apiv1alpha1.NewSystemServiceClient(conn)
-		request := func(name string) *apiv1alpha1.CreateAgentInstanceRequest {
-			return &apiv1alpha1.CreateAgentInstanceRequest{
-				AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
-				Harness:       &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: harness.name}, RequestId: uuid.NewString(),
+		request := func(name string) *apiv1alpha1.CreateSessionRequest {
+			return &apiv1alpha1.CreateSessionRequest{
+				Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
+				RequestId: uuid.NewString(),
 			}
 		}
-		deleteInstance := func(id string) {
+		deleteSession := func(id string) {
 			t.Helper()
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cleanupCancel()
-			require.NoError(t, deleteIdleInstance(cleanupCtx, instances, id))
+			require.NoError(t, deleteIdleSession(cleanupCtx, sessions, id))
 		}
 		send := func(id string) string {
 			t.Helper()
+			session, err := sessions.GetSession(ctx, &apiv1alpha1.GetSessionRequest{SessionId: id})
+			require.NoError(t, err)
+			ref := session.GetSession().GetAgent()
 			fixture := &interactionFixture{
-				ctx: metadata.AppendToOutgoingContext(ctx, "x-kagent-agent-instance-id", id), client: a2apb.NewA2AServiceClient(conn),
+				ctx: ctx, client: a2apb.NewA2AServiceClient(conn), sessionID: id, contextID: id, tenant: ref.GetNamespace() + "/" + ref.GetName(),
 			}
 			_, _, task := fixture.send(t, "What is 2+2?")
 			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
@@ -66,10 +69,10 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		}
 		// No FailedPrecondition retry: Ready must already be backed by a persisted
 		// successful revision when the first create request arrives.
-		created, err := instances.CreateAgentInstance(ctx, request(templateName))
+		created, err := sessions.CreateSession(ctx, request(templateName))
 		require.NoError(t, err)
-		source := created.GetAgentInstance()
-		t.Cleanup(func() { deleteInstance(source.GetId()) })
+		source := created.GetSession()
+		t.Cleanup(func() { deleteSession(source.GetId()) })
 		sourceTaskID := send(source.GetId())
 
 		// Observe the actual runtime through the public inventory API before deleting
@@ -97,30 +100,25 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		template.Spec.ModelConfig.Name = "missing-" + uuid.NewString()
 		require.NoError(t, kube.Update(ctx, template))
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-			current := &v1alpha3.AgentTemplate{}
+			current := &v1alpha3.Agent{}
 			if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), current); err != nil {
 				return false, err
 			}
-			for _, prepared := range current.Status.Harnesses {
-				if prepared.Harness != harness.name {
-					continue
-				}
-				for _, condition := range prepared.Conditions {
-					if condition.Type == v1alpha3.AgentTemplateConditionReady && condition.ObservedGeneration == template.Generation {
-						return condition.Status == metav1.ConditionFalse, nil
-					}
+			for _, condition := range current.Status.Conditions {
+				if condition.Type == v1alpha3.AgentConditionReady {
+					return condition.Status == metav1.ConditionFalse, nil
 				}
 			}
 			return false, nil
 		}))
-		fallback, err := instances.CreateAgentInstance(ctx, request(templateName))
+		fallback, err := sessions.CreateSession(ctx, request(templateName))
 		require.NoError(t, err, "an invalid edit must preserve the current UID's last-good runtime")
-		t.Cleanup(func() { deleteInstance(fallback.GetAgentInstance().GetId()) })
-		require.Equal(t, source.GetPreparedRevision(), fallback.GetAgentInstance().GetPreparedRevision())
-		send(fallback.GetAgentInstance().GetId())
-		deleteInstance(fallback.GetAgentInstance().GetId())
+		t.Cleanup(func() { deleteSession(fallback.GetSession().GetId()) })
+		require.Equal(t, source.GetPreparedRevision(), fallback.GetSession().GetPreparedRevision())
+		send(fallback.GetSession().GetId())
+		deleteSession(fallback.GetSession().GetId())
 
-		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: source.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: sourceTaskID})
+		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1alpha1.CreateCheckpointRequest{SessionId: source.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: sourceTaskID})
 		checkpointID := checkpointResponse.GetCheckpoint().GetId()
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
@@ -130,27 +128,30 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
-		deleteInstance(source.GetId())
+		deleteSession(source.GetId())
 		require.NoError(t, kube.Delete(ctx, template))
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name}}
+		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent))
+		require.NoError(t, kube.Delete(ctx, agent))
 		// Wait for the controller to retire the pair, using the same public create
-		// path as a client. Dispose of any instance created before retirement wins.
+		// path as a client. Dispose of any session created before retirement wins.
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-			response, err := instances.CreateAgentInstance(ctx, request(templateName))
+			response, err := sessions.CreateSession(ctx, request(templateName))
 			if status.Code(err) == codes.FailedPrecondition {
 				return true, nil
 			}
 			if err != nil {
 				return false, err
 			}
-			deleteInstance(response.GetAgentInstance().GetId())
+			deleteSession(response.GetSession().GetId())
 			return false, nil
 		}))
-		forked, err := checkpoints.ForkAgentInstance(ctx, &apiv1alpha1.ForkAgentInstanceRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
+		forked, err := checkpoints.ForkSession(ctx, &apiv1alpha1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
 		require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
-		forkID := forked.GetAgentInstance().GetId()
-		t.Cleanup(func() { deleteInstance(forkID) })
+		forkID := forked.GetSession().GetId()
+		t.Cleanup(func() { deleteSession(forkID) })
 		send(forkID)
-		deleteInstance(forkID)
+		deleteSession(forkID)
 		_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 		require.NoError(t, err)
 
@@ -178,10 +179,10 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		createAndWaitInteractionTemplate(t, harness, kube, replacement)
 		require.NotEqual(t, template.UID, replacement.UID)
 		next := replacement.Name
-		nextInstance, err := instances.CreateAgentInstance(ctx, request(next))
+		nextSession, err := sessions.CreateSession(ctx, request(next))
 		require.NoError(t, err)
-		t.Cleanup(func() { deleteInstance(nextInstance.GetAgentInstance().GetId()) })
-		send(nextInstance.GetAgentInstance().GetId())
+		t.Cleanup(func() { deleteSession(nextSession.GetSession().GetId()) })
+		send(nextSession.GetSession().GetId())
 	})
 }
 

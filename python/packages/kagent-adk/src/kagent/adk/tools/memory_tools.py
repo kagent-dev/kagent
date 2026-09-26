@@ -76,7 +76,6 @@ class SaveMemoryTool(BaseTool):
 
             await memory_service.add_memory(
                 app_name=tool_context.session.app_name,
-                user_id=tool_context.session.user_id,
                 content=content,
                 metadata={"session_id": tool_context.session.id, "source": "explicit_save"},
             )

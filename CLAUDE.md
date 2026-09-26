@@ -6,8 +6,8 @@ This file defines the repository-wide rules for agents working on kagent. Read t
 
 Kagent is a Kubernetes-native control plane for defining, running, and invoking AI agents.
 
-- `Harness` and `AgentTemplate` are `kagent.dev/v1alpha3` Kubernetes APIs. A harness describes how to compile a template into runnable inputs; a template describes the agent users want.
-- `AgentInstance` is PostgreSQL-backed control-plane state exposed through gRPC. It is not a Kubernetes resource.
+- `Agent`, `Harness`, and `AgentTemplate` are `api.kagent.dev/v1alpha3` Kubernetes APIs. Agent composes inline or referenced behavior and runtime configuration. AgentTemplate is reusable behavior; Harness selects how it runs.
+- `Session` is PostgreSQL-backed control-plane state exposed through gRPC. It is not a Kubernetes resource.
 - Upstream A2A owns task, interaction, streaming, and history semantics. Do not create parallel session or task models.
 - Substrate Actors are the compute backend. Durable directories own private runtime state that must survive actor replacement.
 - Harness compilers translate resolved templates into backend inputs. Keep compilation separate from applying those inputs.
@@ -73,6 +73,12 @@ Every component has a single responsibility. If code reaches into another compon
 Do not add new work to legacy API versions unless the change is explicitly a compatibility fix.
 
 ## 6. Change Workflow
+
+Keep all planning documents, implementation trackers, and planning notes in the
+gitignored `.plans/` directory at the repository root. Create it when needed;
+do not use `docs/plans/` or commit plans. Merge lasting architecture decisions
+and design rationale into `docs/architecture/` as part of the relevant change.
+Tracked documentation must stand on its own without links to local plans.
 
 1. Trace the existing behavior and all callers before editing.
 2. Change the narrowest source of truth that fixes the behavior for every caller.
@@ -168,10 +174,11 @@ is signed in correctly reports nobody — there is no backend to have signed in 
 
 An `AppExtensionConfig` contributes navigation entries and overrides, routes and
 route handles, slots, form fields, table columns, API overrides, providers, theme
-tokens, shell regions, branding, provider icons and agent links. Components read
-every colour, radius and font from those tokens, so overriding them restyles
-components an extension never touches. When adding a feature, check whether it
-belongs behind an extension point rather than as a branch inside a shared component.
+tokens, shell regions, branding, provider icons, chat part renderers and agent
+links. Components read every colour, radius and font from those tokens, so
+overriding them restyles components an extension never touches. When adding a
+feature, check whether it belongs behind an extension point rather than as a branch
+inside a shared component.
 
 Several are installed at once, as the ordered `activeAppExtensions` array. Additive
 contributions from every entry take effect in order; singular ones are merged with

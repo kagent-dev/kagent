@@ -313,7 +313,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			// missing an attribute fails the test rather than going unseen. The
 			// compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
-			agentName := template + "-" + test.harness
+			agentName := template
 			spans := receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent})
 			if len(spans) != 1 {
 				t.Fatalf("invoke_agent spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
@@ -446,6 +446,7 @@ type tracedTurn struct {
 func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) tracedTurn {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming traced A2A message: %v", err)
@@ -489,7 +490,7 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 	t.Helper()
-	actorID := substrate.ActorName(fixture.instanceID)
+	actorID := substrate.ActorName(fixture.sessionID)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 30*time.Second)
 	defer cancel()
 	err := wait.PollUntilContextTimeout(ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {

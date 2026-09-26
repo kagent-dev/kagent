@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import {
   Alert,
   Button,
@@ -13,13 +13,9 @@ import {
 import { useTheme } from "@emotion/react";
 import { Plus, Trash } from "lucide-react";
 import {
-  admitsLabels,
-  harnessSelector,
-  useHarnesses,
   useMcpServers,
   useModels,
   useTools,
-  type Harness,
 } from "@/api";
 import {
   draftProblems,
@@ -98,7 +94,6 @@ export function AgentTemplateForm({
   const models = useModels();
   const servers = useMcpServers();
   const tools = useTools();
-  const harnesses = useHarnesses(namespace);
 
   const set = <K extends keyof AgentTemplateDraft>(
     field: K,
@@ -137,80 +132,6 @@ export function AgentTemplateForm({
     }
     return grouped;
   }, [tools.data]);
-
-  /*
-   * Which harnesses would admit this template, given the labels as they stand.
-   *
-   * Computed here rather than read from the resource because the resource's own
-   * answer is the controller's, and it is a generation behind whatever the reader
-   * has just typed. This is the preview; the row on the list is the truth.
-   *
-   * Which is also why the preview is not rendered when nothing is being edited: with
-   * no unsaved labels to be ahead of, it would be a second answer to a question the
-   * page above has already answered from the controller — and two answers to "will
-   * anything run this" that can disagree is worse than one.
-   */
-  const wouldAdmit = useMemo(() => {
-    const labels = Object.fromEntries(
-      draft.labels
-        .filter((label) => label.key.trim() !== "")
-        .map((label) => [label.key.trim(), label.value.trim()]),
-    );
-    return (harnesses.data ?? []).filter((harness) => admitsLabels(harness, labels));
-  }, [draft.labels, harnesses.data]);
-
-  // Only BYO harnesses run a template with no model; the rest refuse it at compile time.
-  const modelRequiredBy = useMemo(
-    () =>
-      draft.modelConfig.trim() === ""
-        ? wouldAdmit.filter((harness) => harness.runtime !== "byo")
-        : [],
-    [draft.modelConfig, wouldAdmit],
-  );
-
-  const structuredOutputUnsupportedBy = useMemo(
-    () => wouldAdmit.filter((harness) => harness.runtime !== "kagent"),
-    [wouldAdmit],
-  );
-
-  /*
-   * With one harness on the cluster, a new template is labelled for it without being
-   * asked.
-   *
-   * A template no harness admits is the commonest way to end up with something that
-   * looks created and can never be used, and on a single-harness cluster there is no
-   * decision to make — the reader would press the one button under "Make it run on"
-   * every time. So it is pressed for them, and the alert below then says which harness
-   * will run it, which is where they find out it happened.
-   *
-   * Once, and only for a new template with no labels of its own: an edit that removed
-   * the label deliberately must not have it put back, and a reader who typed their own
-   * must not have it overwritten. `useEffect` rather than derivation because the
-   * harnesses arrive asynchronously and this changes the draft the reader will submit —
-   * a value they can then see and undo, rather than one applied invisibly at save.
-   */
-  const defaultedLabels = useRef(false);
-  useEffect(() => {
-    if (!isCreate || readOnly || defaultedLabels.current) return;
-    const only = harnesses.data?.length === 1 ? harnesses.data[0] : undefined;
-    if (!only || Object.keys(harnessSelector(only)).length === 0) return;
-    if (draft.labels.length > 0) return;
-    defaultedLabels.current = true;
-    makeAdmittedBy(only);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [harnesses.data, isCreate, readOnly]);
-
-  /** Adds whatever labels a harness selects on, so the template becomes usable by it. */
-  function makeAdmittedBy(harness: Harness) {
-    const selector = harnessSelector(harness);
-    const next = draft.labels.filter(
-      (label) => !(label.key.trim() in selector),
-    );
-    for (const [key, value] of Object.entries(selector)) {
-      next.push({ key, value });
-    }
-    set("labels", next);
-  }
 
   /** "None", said in the place a list would have been. */
   const none = (what: string) => (
@@ -284,18 +205,6 @@ export function AgentTemplateForm({
               {...readOnlySelect}
             />
           </div>
-          {!readOnly && modelRequiredBy.length > 0 ? (
-            <Alert
-              css={{ marginTop: theme.space(2) }}
-              type="warning"
-              showIcon
-              data-testid="template-form-model-required"
-              title="Some matching harnesses need a model"
-              description={`${modelRequiredBy
-                .map((harness) => harness.name)
-                .join(", ")} will report this template as incompatible until it names one.`}
-            />
-          ) : null}
         </Form.Item>
 
         <Form.Item label="Description">
@@ -424,19 +333,6 @@ export function AgentTemplateForm({
               </Space>
             ) : readOnly ? (
               none("Successful final answers are returned as text.")
-            ) : null}
-
-            {draft.outputSource !== "text" &&
-            structuredOutputUnsupportedBy.length > 0 ? (
-              <Alert
-                type="warning"
-                showIcon
-                data-testid="template-form-output-compatibility"
-                title="Some matching harnesses do not support structured output"
-                description={`${structuredOutputUnsupportedBy
-                  .map((harness) => harness.name)
-                  .join(", ")} will report this template as incompatible. The controller remains the source of truth for compatibility.`}
-              />
             ) : null}
           </Space>
         </Form.Item>
@@ -574,20 +470,20 @@ export function AgentTemplateForm({
           extra="Exposes another template in this namespace as a tool this one can route work to. The description is what tells the parent when to use it, so the CRD requires it."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            {readOnly && draft.agentTools.length === 0
+            {readOnly && draft.subAgentTools.length === 0
               ? none("No sub-agents.")
               : null}
 
-            {draft.agentTools.map((tool, index) => (
+            {draft.subAgentTools.map((tool, index) => (
               <Space key={index} size={8} align="start" data-testid={`template-form-agent-${index}`}>
                 <Input
                   css={{ width: 160 }}
                   value={tool.name}
                   placeholder={placeholder("Tool name")}
                   onChange={(event) => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], name: event.target.value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   {...readOnlyInput}
                 />
@@ -596,9 +492,9 @@ export function AgentTemplateForm({
                   value={tool.description}
                   placeholder={placeholder("When to use it")}
                   onChange={(event) => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], description: event.target.value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   {...readOnlyInput}
                 />
@@ -607,9 +503,9 @@ export function AgentTemplateForm({
                   value={tool.templateName}
                   placeholder={placeholder("Template name")}
                   onChange={(event) => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], templateName: event.target.value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   {...readOnlyInput}
                 />
@@ -617,9 +513,9 @@ export function AgentTemplateForm({
                   css={{ width: 130 }}
                   value={tool.isolation}
                   onChange={(value: "Shared" | "Dedicated") => {
-                    const next = [...draft.agentTools];
+                    const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], isolation: value };
-                    set("agentTools", next);
+                    set("subAgentTools", next);
                   }}
                   options={[
                     { value: "Shared", title: "Shared", label: "Shared" },
@@ -634,8 +530,8 @@ export function AgentTemplateForm({
                     icon={<Trash size={14} />}
                     onClick={() =>
                       set(
-                        "agentTools",
-                        draft.agentTools.filter((_, at) => at !== index),
+                        "subAgentTools",
+                        draft.subAgentTools.filter((_, at) => at !== index),
                       )
                     }
                   />
@@ -648,8 +544,8 @@ export function AgentTemplateForm({
                 icon={<Plus size={13} />}
                 data-testid="template-form-add-agent-tool"
                 onClick={() =>
-                  set("agentTools", [
-                    ...draft.agentTools,
+                  set("subAgentTools", [
+                    ...draft.subAgentTools,
                     { name: "", description: "", templateName: "", isolation: "Shared" },
                   ])
                 }
@@ -660,68 +556,10 @@ export function AgentTemplateForm({
           </Space>
         </Form.Item>
 
-        {/*
-          Labels, and the harness preview beside them.
-
-          This is the part of the form that decides whether the template can be used
-          at all, and nothing about a template says so — which is exactly why it is
-          spelled out here rather than left as a metadata editor.
-        */}
-        <Form.Item
-          label="Labels, and which harnesses will run this"
-          extra="A harness admits templates through a label selector. A template no harness admits reaches no prepared revision, so no agent can ever be created from it."
-        >
+        <Form.Item label="Labels" extra="Optional metadata. An Agent explicitly pairs this template with a Harness.">
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            {!readOnly && (harnesses.data ?? []).length > 0 ? (
-              <Space size={8} wrap>
-                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                  Make it run on:
-                </Text>
-                {(harnesses.data ?? []).map((harness) => {
-                  const admitted = wouldAdmit.some((match) => match.name === harness.name);
-                  return (
-                    <Button
-                      key={harness.name}
-                      size="small"
-                      type={admitted ? "primary" : "default"}
-                      data-testid={`template-form-admit-${harness.name}`}
-                      disabled={admitted || Object.keys(harnessSelector(harness)).length === 0}
-                      onClick={() => makeAdmittedBy(harness)}
-                    >
-                      {harness.name}
-                    </Button>
-                  );
-                })}
-              </Space>
-            ) : null}
-
-            {/* The preview is about *unsaved* labels. With nothing being edited there
-                is nothing for it to be ahead of, and the page above states the
-                controller's own answer instead. */}
-            {readOnly ? null : (
-              <div data-testid="template-form-admission">
-                {wouldAdmit.length > 0 ? (
-                  <Alert
-                    type="success"
-                    showIcon
-                    title={`These labels are admitted by ${wouldAdmit
-                      .map((harness) => harness.name)
-                      .join(", ")}`}
-                    description="An agent can be created from this template once the controller has prepared a revision for it."
-                  />
-                ) : (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    title="No harness will run this template"
-                    description="Nothing is wrong with the template itself — it simply carries no label any harness selects on, so no agent can be created from it. Use a button above, or add the labels by hand."
-                  />
-                )}
-              </div>
-            )}
-
             {readOnly && draft.labels.length === 0
-              ? none("No labels — which is why no harness admits it.")
+              ? none("No labels.")
               : null}
 
             {draft.labels.map((label, index) => (
@@ -809,7 +647,7 @@ export function AgentTemplateForm({
       </Form>
 
       <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-        <Tag>AgentTemplate</Tag> is a <code>kagent.dev/v1alpha3</code> custom resource.
+        <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
         Everything on this form writes one field of its <code>spec</code>, except the
         labels, which are <code>metadata</code> and decide which harness will run it.
       </Paragraph>

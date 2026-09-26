@@ -33,17 +33,17 @@ func New(client *controllerclient.Client, identityPath string) *Store {
 	return &Store{client: client, identityPath: identityPath}
 }
 
-func (s *Store) instanceID() (string, error) {
+func (s *Store) sessionID() (string, error) {
 	identity, err := os.ReadFile(s.identityPath)
 	if err != nil {
 		return "", fmt.Errorf("read runtime identity: %w", err)
 	}
-	id, ok := strings.CutPrefix(strings.TrimSpace(string(identity)), "ai-")
+	id, ok := strings.CutPrefix(strings.TrimSpace(string(identity)), "session-")
 	if !ok {
 		return "", fmt.Errorf("unexpected runtime actor name")
 	}
 	if _, err := uuid.Parse(id); err != nil {
-		return "", fmt.Errorf("invalid runtime instance identity: %w", err)
+		return "", fmt.Errorf("invalid runtime session identity: %w", err)
 	}
 	return id, nil
 }
@@ -77,14 +77,14 @@ func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVe
 	if err != nil {
 		return 0, err
 	}
-	id, err := s.instanceID()
+	id, err := s.sessionID()
 	if err != nil {
 		return 0, err
 	}
 	if executionFailed(ctx) {
 		return 0, fmt.Errorf("previous task persistence failed")
 	}
-	request := &apiv1alpha1.TaskStoreServiceCreateTaskRequest{AgentInstanceId: id, Task: wire}
+	request := &apiv1alpha1.TaskStoreServiceCreateTaskRequest{SessionId: id, Task: wire}
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		request.DispatchId = state.dispatchID
 	}
@@ -114,11 +114,11 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 	if err != nil {
 		return 0, err
 	}
-	id, err := s.instanceID()
+	id, err := s.sessionID()
 	if err != nil {
 		return 0, err
 	}
-	request := &apiv1alpha1.TaskStoreServiceUpdateTaskRequest{AgentInstanceId: id, Task: task, Event: event, ExpectedVersion: int64(update.PrevVersion)}
+	request := &apiv1alpha1.TaskStoreServiceUpdateTaskRequest{SessionId: id, Task: task, Event: event, ExpectedVersion: int64(update.PrevVersion)}
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		request.DispatchId = state.dispatchID
 	}
@@ -137,14 +137,14 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 }
 
 func (s *Store) Get(ctx context.Context, taskID a2a.TaskID) (*sdktaskstore.StoredTask, error) {
-	id, err := s.instanceID()
+	id, err := s.sessionID()
 	if err != nil {
 		return nil, err
 	}
 	var response *apiv1alpha1.TaskStoreServiceGetTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().GetTask(ctx, &apiv1alpha1.TaskStoreServiceGetTaskRequest{AgentInstanceId: id, TaskId: string(taskID)})
+		response, err = s.client.TaskStoreService().GetTask(ctx, &apiv1alpha1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: string(taskID)})
 		return err
 	})
 	if err != nil {
@@ -162,14 +162,14 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 	if err != nil {
 		return nil, err
 	}
-	id, err := s.instanceID()
+	id, err := s.sessionID()
 	if err != nil {
 		return nil, err
 	}
 	var response *apiv1alpha1.TaskStoreServiceListTasksResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().ListTasks(ctx, &apiv1alpha1.TaskStoreServiceListTasksRequest{AgentInstanceId: id, Request: wire})
+		response, err = s.client.TaskStoreService().ListTasks(ctx, &apiv1alpha1.TaskStoreServiceListTasksRequest{SessionId: id, Request: wire})
 		return err
 	})
 	if err != nil {

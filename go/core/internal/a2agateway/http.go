@@ -1,32 +1,42 @@
 package a2agateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"google.golang.org/grpc/metadata"
 )
 
 // HTTPPathPrefix is the public A2A namespace on the core HTTP listener.
 const HTTPPathPrefix = "/agents/"
 
-// NewHTTPHandler serves a card and JSON-RPC endpoint per AgentInstance. The URL
-// selects the instance; caller-supplied routing headers cannot override it.
-func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvider, shares agentinstance.ShareStore) http.Handler {
+// NewHTTPHandler serves a card and JSON-RPC endpoint per named Agent.
+func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvider, shares sessionsvc.ShareStore) http.Handler {
 	mux := http.NewServeMux()
-	rpc := withHTTPInstance(a2asrv.NewJSONRPCHandler(gateway))
-	mux.Handle("POST "+HTTPPathPrefix+"{instanceID}", rpc)
-	mux.Handle("POST "+HTTPPathPrefix+"{instanceID}/{$}", rpc)
-	mux.Handle("GET "+HTTPPathPrefix+"{instanceID}"+a2asrv.WellKnownAgentCardPath, withHTTPInstance(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		card, err := gateway.GetExtendedAgentCard(r.Context(), &a2atype.GetExtendedAgentCardRequest{})
+	rpc := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Bind this request's URL before entering the shared gateway. The SDK
+		// decodes JSON-RPC and exposes any payload tenant to the interceptor.
+		handler := &a2asrv.InterceptedHandler{
+			Handler: gateway,
+			Interceptors: []a2asrv.CallInterceptor{&httpAgentRoute{
+				agent: r.PathValue("namespace") + "/" + r.PathValue("name"),
+			}},
+		}
+		a2asrv.NewJSONRPCHandler(handler).ServeHTTP(w, r)
+	})
+	mux.Handle("POST "+HTTPPathPrefix+"{namespace}/{name}", rpc)
+	mux.Handle("POST "+HTTPPathPrefix+"{namespace}/{name}/{$}", rpc)
+	mux.Handle("GET "+HTTPPathPrefix+"{namespace}/{name}"+a2asrv.WellKnownAgentCardPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		card, err := gateway.GetExtendedAgentCard(r.Context(), &a2atype.GetExtendedAgentCardRequest{
+			Tenant: r.PathValue("namespace") + "/" + r.PathValue("name"),
+		})
 		if err != nil {
 			status := http.StatusInternalServerError
 			switch {
@@ -52,14 +62,14 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 		if _, err := w.Write(data); err != nil {
 			logging.FromContext(r.Context()).ErrorContext(r.Context(), "failed to write agent card", "error", err)
 		}
-	})))
+	}))
 	return auth.AuthnMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "private, no-store")
 		if _, ok := auth.AuthSessionFrom(r.Context()); !ok {
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		share, err := agentinstance.ResolveShare(r.Context(), shares, r.Header.Get("X-Share-Token"))
+		share, err := sessionsvc.ResolveShare(r.Context(), shares, r.Header.Get("X-Share-Token"))
 		if err != nil {
 			status := http.StatusInternalServerError
 			if serviceerrors.CodeOf(err) == serviceerrors.CodePermissionDenied {
@@ -73,10 +83,19 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 	}))
 }
 
-func withHTTPInstance(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Normalize the URL into the same routing metadata used by gRPC.
-		ctx := metadata.NewIncomingContext(r.Context(), metadata.Pairs(apia2a.AgentInstanceIDHeader, r.PathValue("instanceID")))
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+// httpAgentRoute normalizes the URL into the SDK's routing metadata. It runs
+// after decoding: attaching a tenant before the SDK handles the request would
+// allow a payload tenant to overwrite the Agent selected by the URL.
+type httpAgentRoute struct {
+	a2asrv.PassthroughCallInterceptor
+	agent string
+}
+
+var _ a2asrv.CallInterceptor = (*httpAgentRoute)(nil)
+
+func (h *httpAgentRoute) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
+	if tenant := callCtx.Tenant(); tenant != "" && tenant != h.agent {
+		return ctx, nil, a2atype.NewError(a2atype.ErrInvalidRequest, "tenant does not match the Agent URL")
+	}
+	return a2atype.AttachTenant(ctx, h.agent), nil, nil
 }

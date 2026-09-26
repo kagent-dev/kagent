@@ -110,9 +110,9 @@ export function withInstanceShareToken(
 ): ApiRequestContext {
   if (!INSTANCE_OPERATIONS.has(context.endpoint)) return context;
   const message = context.message as
-    | { agentInstanceId?: unknown }
+    | { sessionId?: unknown }
     | undefined;
-  if (message?.agentInstanceId !== id) {
+  if (message?.sessionId !== id) {
     return context;
   }
   return { ...context, headers: { ...context.headers, [SHARE_HEADER]: token } };

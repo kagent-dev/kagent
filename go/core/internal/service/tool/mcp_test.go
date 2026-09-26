@@ -102,13 +102,13 @@ func TestRuntimeMCPClientResolveServerMatrix(t *testing.T) {
 		wantURL   string
 		wantError string
 	}{
-		{name: "remote selected", objects: []client.Object{remote}, ref: types.NamespacedName{Namespace: "default", Name: "remote"}, groupKind: "RemoteMCPServer.kagent.dev", wantURL: "https://example.com/mcp"},
+		{name: "remote selected", objects: []client.Object{remote}, ref: types.NamespacedName{Namespace: "default", Name: "remote"}, groupKind: "RemoteMCPServer.api.kagent.dev", wantURL: "https://example.com/mcp"},
 		{name: "local selected", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, groupKind: "MCPServer.kagent.dev", wantURL: "http://local.team:8080/mcp"},
 		{name: "empty kind prefers remote", objects: []client.Object{collideRemote, collideLocal}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, wantURL: "https://remote.example.com/mcp"},
 		{name: "empty kind falls back local", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, wantURL: "http://local.team:8080/mcp"},
 		{name: "collision selects local", objects: []client.Object{collideRemote, collideLocal}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, groupKind: "MCPServer.kagent.dev", wantURL: "http://shared.clash:9090/mcp"},
 		{name: "kind without group suffix", objects: []client.Object{collideRemote, collideLocal}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, groupKind: "MCPServer", wantURL: "http://shared.clash:9090/mcp"},
-		{name: "explicit remote missing", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, groupKind: "RemoteMCPServer.kagent.dev", wantError: "no RemoteMCPServer team/local found"},
+		{name: "explicit remote missing", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, groupKind: "RemoteMCPServer.api.kagent.dev", wantError: "no RemoteMCPServer team/local found"},
 		{name: "both missing", ref: types.NamespacedName{Namespace: "default", Name: "missing"}, wantError: "no RemoteMCPServer or MCPServer"},
 	}
 

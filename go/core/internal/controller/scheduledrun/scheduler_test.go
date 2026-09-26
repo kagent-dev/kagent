@@ -20,11 +20,11 @@ type blockedExecutionStore struct {
 
 func (s *blockedExecutionStore) LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error) {
 	return []database.LeasedScheduledRunExecution{{Execution: &apiv1alpha1.ScheduledRunExecution{
-		Id: "execution", AgentInstanceId: "instance", Deadline: timestamppb.New(time.Now().Add(time.Minute)),
+		Id: "execution", SessionId: "session", Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}}}, nil
 }
 
-func (s *blockedExecutionStore) GetAgentInstance(ctx context.Context, _, _ string) (*apiv1alpha1.AgentInstance, error) {
+func (s *blockedExecutionStore) GetSession(ctx context.Context, _, _ string) (*apiv1alpha1.Session, error) {
 	select {
 	case s.started <- struct{}{}:
 	case <-ctx.Done():

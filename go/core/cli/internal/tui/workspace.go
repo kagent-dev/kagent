@@ -15,16 +15,16 @@ import (
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
+	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
 
 const (
-	// instancePageSize matches the server's default list page.
-	instancePageSize = 50
-	// maxInstancePages bounds the pages walked on open; reaching it is reported rather than hidden.
-	maxInstancePages = 20
+	// sessionPageSize matches the server's default list page.
+	sessionPageSize = 50
+	// maxSessionPages bounds the pages walked on open; reaching it is reported rather than hidden.
+	maxSessionPages = 20
 	// historyTaskLimit bounds how many past tasks open in the transcript.
 	historyTaskLimit = 20
 	// historyMessageLimit bounds the messages kept per historical task.
@@ -32,7 +32,7 @@ const (
 
 	sidebarWidth = 34
 	detailsWidth = 32
-	// Cascade panels size to their contents up to this cap; the instance panel takes what is left.
+	// Cascade panels size to their contents up to this cap; the session panel takes what is left.
 	maxFilterPanelHeight = 9
 	minFilterPanelHeight = 5
 	// allNames is the synthetic row that clears a cascade filter.
@@ -45,9 +45,9 @@ type Options struct {
 	Namespace string
 }
 
-// instanceLister narrows the client so tests can supply a fake.
-type instanceLister interface {
-	ListAgentInstances(context.Context, *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error)
+// sessionLister narrows the client so tests can supply a fake.
+type sessionLister interface {
+	ListSessions(context.Context, *apiv1alpha1.ListSessionsRequest) (*apiv1alpha1.ListSessionsResponse, error)
 }
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
@@ -61,29 +61,28 @@ func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, ga
 	return err
 }
 
-type instancesLoadedMsg struct {
-	instances []*apiv1alpha1.AgentInstance
+type sessionsLoadedMsg struct {
+	sessions  []*apiv1alpha1.Session
 	truncated bool
 	err       error
 }
 
-type instanceSelectedMsg struct{ agentInstance *apiv1alpha1.AgentInstance }
+type sessionSelectedMsg struct{ session *apiv1alpha1.Session }
 
-// instanceHistoryLoadedMsg names its instance, so a late reply cannot land in the new chat.
-type instanceHistoryLoadedMsg struct {
-	instanceID string
-	tasks      []*a2atype.Task
-	err        error
-}
-
-// catalogLoadedMsg carries Kubernetes names; on error the cascade falls back to instance-derived ones.
-type catalogLoadedMsg struct {
-	harnesses []string
-	templates []string
+// sessionHistoryLoadedMsg names its session, so a late reply cannot land in the new chat.
+type sessionHistoryLoadedMsg struct {
+	sessionID string
+	tasks     []*a2atype.Task
 	err       error
 }
 
-// namespacesLoadedMsg carries namespaces holding AgentTemplates; a forbidden list leaves the current one.
+// catalogLoadedMsg carries Kubernetes names; on error the cascade falls back to session-derived ones.
+type catalogLoadedMsg struct {
+	agents []string
+	err    error
+}
+
+// namespacesLoadedMsg carries namespaces holding Agents; a forbidden list leaves the current one.
 type namespacesLoadedMsg struct {
 	namespaces []namespaceCount
 	err        error
@@ -94,7 +93,7 @@ type workspaceModel struct {
 	ctx        context.Context
 	cfg        Options
 	client     *client.GatewayClientSet
-	lister     instanceLister
+	lister     sessionLister
 	catalog    catalog
 	catalogErr error
 	verbose    bool
@@ -104,33 +103,30 @@ type workspaceModel struct {
 
 	// panels
 	namespaces  list.Model
-	harnesses   list.Model
-	templates   list.Model
-	instances   list.Model
+	agents      list.Model
+	sessions    list.Model
 	chat        *chatModel
 	details     string
 	showDetails bool
 
-	// all holds every fetched AgentInstance; the cascade panels above narrow it.
-	all              []*apiv1alpha1.AgentInstance
-	catalogHarnesses []string
-	catalogTemplates []string
-	current          *apiv1alpha1.AgentInstance
-	status           string
+	// all holds every fetched Session; the cascade panels above narrow it.
+	all           []*apiv1alpha1.Session
+	catalogAgents []string
+	current       *apiv1alpha1.Session
+	status        string
 
-	// Empty harness or template means no filter; namespace is always set.
+	// Empty harness or agent means no filter; namespace is always set.
 	namespace string
-	harness   string
-	template  string
+	agent     string
 
 	focus panelID
 }
 
 // newWorkspaceModel builds the model from resolved dependencies; it reads no configuration of its own.
 func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, kubeCatalog catalog, catalogErr error, verbose bool) *workspaceModel {
-	var lister instanceLister
+	var lister sessionLister
 	if api != nil {
-		lister = api.AgentInstance
+		lister = api.Session
 	}
 
 	return &workspaceModel{
@@ -143,19 +139,18 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 		verbose:    verbose,
 		// Seed the delegates so rows render sanely before the first resize.
 		namespaces: newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
-		harnesses:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
-		templates:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
-		instances:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: instanceRow}),
+		agents:     newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
+		sessions:   newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: sessionRow}),
 		namespace:  cfg.Namespace,
-		focus:      panelInstances,
+		focus:      panelSessions,
 	}
 }
 
 func (m *workspaceModel) Init() tea.Cmd {
-	return tea.Batch(m.loadInstances(), m.loadCatalog(), m.loadNamespaces())
+	return tea.Batch(m.loadSessions(), m.loadCatalog(), m.loadNamespaces())
 }
 
-// loadNamespaces lists the namespaces that hold AgentTemplates.
+// loadNamespaces lists the namespaces that hold Agents.
 func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
@@ -166,73 +161,69 @@ func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	}
 }
 
-// loadCatalog reads the Harness and AgentTemplate names from Kubernetes.
+// loadCatalog reads the Agent names from Kubernetes.
 func (m *workspaceModel) loadCatalog() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
 			return catalogLoadedMsg{err: m.noCatalogErr()}
 		}
 
-		harnesses, err := m.catalog.Harnesses(m.ctx, m.namespace)
+		agents, err := m.catalog.Agents(m.ctx, m.namespace)
 		if err != nil {
 			return catalogLoadedMsg{err: err}
 		}
-		templates, err := m.catalog.AgentTemplates(m.ctx, m.namespace)
-		if err != nil {
-			return catalogLoadedMsg{err: err}
-		}
-		return catalogLoadedMsg{harnesses: harnesses, templates: templates}
+		return catalogLoadedMsg{agents: agents}
 	}
 }
 
-// loadInstances walks every page, bounded so a large deployment cannot stall startup.
-func (m *workspaceModel) loadInstances() tea.Cmd {
+// loadSessions walks every page, bounded so a large deployment cannot stall startup.
+func (m *workspaceModel) loadSessions() tea.Cmd {
 	return func() tea.Msg {
 		if m.lister == nil {
-			return instancesLoadedMsg{err: fmt.Errorf("no kagent client configured")}
+			return sessionsLoadedMsg{err: fmt.Errorf("no kagent client configured")}
 		}
 
 		var (
-			instances []*apiv1alpha1.AgentInstance
+			sessions  []*apiv1alpha1.Session
 			pageToken string
 		)
-		for range maxInstancePages {
-			response, err := m.lister.ListAgentInstances(m.ctx, &apiv1alpha1.ListAgentInstancesRequest{
+		for range maxSessionPages {
+			response, err := m.lister.ListSessions(m.ctx, &apiv1alpha1.ListSessionsRequest{
 
-				Page: &apiv1alpha1.PageRequest{Limit: instancePageSize, PageToken: pageToken},
+				Page: &apiv1alpha1.PageRequest{Limit: sessionPageSize, PageToken: pageToken},
 			})
 			if err != nil {
-				return instancesLoadedMsg{err: err}
+				return sessionsLoadedMsg{err: err}
 			}
-			instances = append(instances, response.GetAgentInstances()...)
+			sessions = append(sessions, response.GetSessions()...)
 			pageToken = response.GetPage().GetNextPageToken()
 			if pageToken == "" {
-				return instancesLoadedMsg{instances: instances}
+				return sessionsLoadedMsg{sessions: sessions}
 			}
 		}
-		return instancesLoadedMsg{instances: instances, truncated: true}
+		return sessionsLoadedMsg{sessions: sessions, truncated: true}
 	}
 }
 
 // loadHistory preserves the durable task order returned by the gateway.
-func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
-	id := agentInstance.GetId()
+func (m *workspaceModel) loadHistory(session *apiv1alpha1.Session) tea.Cmd {
+	id := session.GetId()
 	return func() tea.Msg {
-		a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, id)
+		a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent())
 		if err != nil {
-			return instanceHistoryLoadedMsg{instanceID: id, err: err}
+			return sessionHistoryLoadedMsg{sessionID: id, err: err}
 		}
 		historyLength := historyMessageLimit
 		response, err := a2aClient.ListTasks(m.ctx, &a2atype.ListTasksRequest{
-			ContextID:        agentInstance.GetContextId(),
+			ContextID:        session.GetId(),
 			PageSize:         historyTaskLimit,
 			HistoryLength:    &historyLength,
 			IncludeArtifacts: true,
 		})
 		if err != nil {
-			return instanceHistoryLoadedMsg{instanceID: id, err: err}
+			return sessionHistoryLoadedMsg{sessionID: id, err: err}
 		}
-		return instanceHistoryLoadedMsg{instanceID: id, tasks: response.Tasks}
+		return sessionHistoryLoadedMsg{sessionID: id, tasks: response.Tasks}
 	}
 }
 
@@ -242,16 +233,16 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, m.resize()
 
-	case instancesLoadedMsg:
-		return m, m.applyInstances(msg)
+	case sessionsLoadedMsg:
+		return m, m.applySessions(msg)
 
 	case catalogLoadedMsg:
 		// Without a catalog the panels still work, so this only warns.
 		if msg.err != nil {
-			m.status = fmt.Sprintf("Listing only AgentTemplates that have instances: %v", msg.err)
+			m.status = fmt.Sprintf("Listing only Agents that have sessions: %v", msg.err)
 			return m, nil
 		}
-		m.catalogHarnesses, m.catalogTemplates = msg.harnesses, msg.templates
+		m.catalogAgents = msg.agents
 		m.rebuildPanels()
 		return m, m.resize()
 
@@ -259,11 +250,11 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyNamespaces(msg)
 		return m, m.resize()
 
-	case instanceSelectedMsg:
-		return m, m.selectInstance(msg.agentInstance)
+	case sessionSelectedMsg:
+		return m, m.selectSession(msg.session)
 
-	case instanceHistoryLoadedMsg:
-		if msg.instanceID != m.current.GetId() || m.chat == nil {
+	case sessionHistoryLoadedMsg:
+		if msg.sessionID != m.current.GetId() || m.chat == nil {
 			return m, nil // the user selected something else while this was in flight
 		}
 		if msg.err != nil {
@@ -273,7 +264,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, task := range msg.tasks {
 			m.chat.AppendHistoryTask(task)
 		}
-		// Tasks are sorted oldest first, so the last is the most recent thing this instance did.
+		// Tasks are sorted oldest first, so the last is the most recent thing this session did.
 		if last := len(msg.tasks) - 1; last >= 0 && msg.tasks[last] != nil && msg.tasks[last].Status.Timestamp != nil {
 			m.chat.setHeaderMeta(stateBadge(m.current.GetState()), *msg.tasks[last].Status.Timestamp)
 		}
@@ -336,16 +327,14 @@ type sidebarPanel struct {
 	row    func(list.Item, int) string
 }
 
-// sidebarPanels is the single source of sidebar geometry; the instance panel takes what is left.
+// sidebarPanels is the single source of sidebar geometry; the session panel takes what is left.
 func (m *workspaceModel) sidebarPanels() []sidebarPanel {
 	namespaces := filterPanelHeight(m.namespaces)
-	harnesses := filterPanelHeight(m.harnesses)
-	templates := filterPanelHeight(m.templates)
+	agents := filterPanelHeight(m.agents)
 	return []sidebarPanel{
 		{panelNamespaces, &m.namespaces, namespaces, nameRow},
-		{panelHarnesses, &m.harnesses, harnesses, nameRow},
-		{panelTemplates, &m.templates, templates, nameRow},
-		{panelInstances, &m.instances, max(m.bodyHeight()-namespaces-harnesses-templates, 3), instanceRow},
+		{panelAgents, &m.agents, agents, nameRow},
+		{panelSessions, &m.sessions, max(m.bodyHeight()-namespaces-agents, 3), sessionRow},
 	}
 }
 
@@ -368,7 +357,7 @@ func (m *workspaceModel) panelAt(x, y int) (panelID, bool) {
 		}
 		row -= panel.height
 	}
-	return panelInstances, true
+	return panelSessions, true
 }
 
 // panelListAt returns a panel's list and the screen row of its top border.
@@ -383,71 +372,68 @@ func (m *workspaceModel) panelListAt(id panelID) (*list.Model, int) {
 	return nil, 0
 }
 
-// applyInstances stores the fetched instances and rebuilds every panel.
-func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
+// applySessions stores the fetched sessions and rebuilds every panel.
+func (m *workspaceModel) applySessions(msg sessionsLoadedMsg) tea.Cmd {
 	if msg.err != nil {
-		m.status = fmt.Sprintf("Failed to load AgentInstances: %v", msg.err)
+		m.status = fmt.Sprintf("Failed to load Sessions: %v", msg.err)
 		return nil
 	}
 	m.status = ""
 	if msg.truncated {
-		m.status = fmt.Sprintf("Showing the first %d AgentInstances; more pages are available.", len(msg.instances))
+		m.status = fmt.Sprintf("Showing the first %d Sessions; more pages are available.", len(msg.sessions))
 	}
 
-	// The API lists all instances; this panel browses Kubernetes targets.
-	m.all = slices.DeleteFunc(msg.instances, func(instance *apiv1alpha1.AgentInstance) bool {
-		targetNamespace := instance.GetAgentTemplate().GetNamespace()
+	// The API lists all sessions; this panel browses Kubernetes targets.
+	m.all = slices.DeleteFunc(msg.sessions, func(session *apiv1alpha1.Session) bool {
+		targetNamespace := session.GetAgent().GetNamespace()
 		return targetNamespace != "" && targetNamespace != m.namespace
 	})
-	slices.SortStableFunc(m.all, func(a, b *apiv1alpha1.AgentInstance) int {
+	slices.SortStableFunc(m.all, func(a, b *apiv1alpha1.Session) int {
 		return b.GetCreatedAt().AsTime().Compare(a.GetCreatedAt().AsTime()) // newest first
 	})
 	m.rebuildPanels()
 
 	if m.current == nil {
-		return m.openSelectedInstance()
+		return m.openSelectedSession()
 	}
-	// A refresh may have deleted the open instance or changed its state, so re-read it.
-	for _, agentInstance := range m.all {
-		if agentInstance.GetId() == m.current.GetId() {
-			if agentInstance.GetState() != m.current.GetState() {
-				return m.selectInstance(agentInstance)
+	// A refresh may have deleted the open session or changed its state, so re-read it.
+	for _, session := range m.all {
+		if session.GetId() == m.current.GetId() {
+			if session.GetState() != m.current.GetState() {
+				return m.selectSession(session)
 			}
-			m.current = agentInstance
+			m.current = session
 			m.renderDetails()
 			return nil
 		}
 	}
 	m.chat.stop()
 	m.chat, m.current = nil, nil
-	m.status = "The open AgentInstance no longer exists."
-	return m.openSelectedInstance()
+	m.status = "The open Session no longer exists."
+	return m.openSelectedSession()
 }
 
-// rebuildPanels derives the cascade from fetched instances, then narrows by the current selections.
+// rebuildPanels derives the cascade from fetched sessions, then narrows by the current selections.
 func (m *workspaceModel) rebuildPanels() {
-	m.harnesses.SetItems(countedNames(m.catalogHarnesses, m.all, func(i *apiv1alpha1.AgentInstance) string {
-		return i.GetHarness().GetName()
-	}))
-	m.rebuildTemplates()
+	m.rebuildAgents()
 }
 
-// rebuildTemplates also rebuilds the instances below it, since SetItems resets this panel's cursor.
-func (m *workspaceModel) rebuildTemplates() {
-	m.templates.SetItems(countedNames(m.catalogTemplates, m.filterByHarness(), func(i *apiv1alpha1.AgentInstance) string {
-		return i.GetAgentTemplate().GetName()
+// rebuildAgents also rebuilds the sessions below it, since SetItems resets this panel's cursor.
+func (m *workspaceModel) rebuildAgents() {
+	m.agents.SetItems(countedNames(m.catalogAgents, m.all, func(i *apiv1alpha1.Session) string {
+		return i.GetAgent().GetName()
 	}))
-	m.template = ""
-	m.rebuildInstances()
+	m.agent = ""
+	m.rebuildSessions()
 }
 
-func (m *workspaceModel) rebuildInstances() {
-	visible := m.visibleInstances()
+func (m *workspaceModel) rebuildSessions() {
+	visible := m.visibleSessions()
 	items := make([]list.Item, 0, len(visible))
-	for _, agentInstance := range visible {
-		items = append(items, instanceItem{AgentInstance: agentInstance})
+	for _, session := range visible {
+		items = append(items, sessionItem{Session: session})
 	}
-	m.instances.SetItems(items)
+	m.sessions.SetItems(items)
 }
 
 // applyNamespaces fills the namespace panel, always including the current namespace.
@@ -464,7 +450,7 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 
 	items := make([]list.Item, 0, len(namespaces))
 	for _, namespace := range namespaces {
-		items = append(items, nameItem{name: namespace.Name, count: namespace.Templates})
+		items = append(items, nameItem{name: namespace.Name, count: namespace.Agents})
 	}
 	m.namespaces.SetItems(items)
 	for i, namespace := range namespaces {
@@ -474,24 +460,19 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 	}
 }
 
-// syncCascade applies the cascade cursors; a target namespace change reloads its catalog and filters the instance list.
+// syncCascade applies the cascade cursors; a target namespace change reloads its catalog and filters the session list.
 func (m *workspaceModel) syncCascade() tea.Cmd {
 	if namespace := selectedNamespace(m.namespaces); namespace != "" && namespace != m.namespace {
 		m.namespace = namespace
-		m.harness, m.template = "", ""
-		m.all, m.catalogHarnesses, m.catalogTemplates = nil, nil, nil
+		m.agent = ""
+		m.all, m.catalogAgents = nil, nil
 		m.current, m.chat = nil, nil
 		m.rebuildPanels()
-		return tea.Batch(m.loadInstances(), m.loadCatalog())
+		return tea.Batch(m.loadSessions(), m.loadCatalog())
 	}
-	if harness := selectedName(m.harnesses); harness != m.harness {
-		m.harness = harness
-		m.rebuildTemplates() // a different harness invalidates the template below
-		return nil
-	}
-	if template := selectedName(m.templates); template != m.template {
-		m.template = template
-		m.rebuildInstances()
+	if agent := selectedName(m.agents); agent != m.agent {
+		m.agent = agent
+		m.rebuildSessions()
 	}
 	return nil
 }
@@ -505,16 +486,16 @@ func selectedNamespace(panel list.Model) string {
 	return item.name
 }
 
-// countedNames lists catalog names with instance counts after an "(all)" row, including unused ones.
-func countedNames(catalogNames []string, instances []*apiv1alpha1.AgentInstance, name func(*apiv1alpha1.AgentInstance) string) []list.Item {
+// countedNames lists catalog names with session counts after an "(all)" row, including unused ones.
+func countedNames(catalogNames []string, sessions []*apiv1alpha1.Session, name func(*apiv1alpha1.Session) string) []list.Item {
 	counts := map[string]int{}
 	for _, value := range catalogNames {
 		if value != "" {
 			counts[value] = 0
 		}
 	}
-	for _, agentInstance := range instances {
-		if value := name(agentInstance); value != "" {
+	for _, session := range sessions {
+		if value := name(session); value != "" {
 			counts[value]++
 		}
 	}
@@ -526,77 +507,64 @@ func countedNames(catalogNames []string, instances []*apiv1alpha1.AgentInstance,
 	slices.Sort(order)
 
 	items := make([]list.Item, 0, len(order)+1)
-	items = append(items, nameItem{name: allNames, count: len(instances)})
+	items = append(items, nameItem{name: allNames, count: len(sessions)})
 	for _, value := range order {
 		items = append(items, nameItem{name: value, count: counts[value]})
 	}
 	return items
 }
 
-func (m *workspaceModel) filterByHarness() []*apiv1alpha1.AgentInstance {
-	if m.harness == "" {
-		return m.all
-	}
-	var kept []*apiv1alpha1.AgentInstance
-	for _, agentInstance := range m.all {
-		if agentInstance.GetHarness().GetName() == m.harness {
-			kept = append(kept, agentInstance)
+// visibleSessions applies both cascade filters.
+func (m *workspaceModel) visibleSessions() []*apiv1alpha1.Session {
+	var kept []*apiv1alpha1.Session
+	for _, session := range m.all {
+		if m.agent == "" || session.GetAgent().GetName() == m.agent {
+			kept = append(kept, session)
 		}
 	}
 	return kept
 }
 
-// visibleInstances applies both cascade filters.
-func (m *workspaceModel) visibleInstances() []*apiv1alpha1.AgentInstance {
-	var kept []*apiv1alpha1.AgentInstance
-	for _, agentInstance := range m.filterByHarness() {
-		if m.template == "" || agentInstance.GetAgentTemplate().GetName() == m.template {
-			kept = append(kept, agentInstance)
-		}
-	}
-	return kept
-}
-
-// openSelectedInstance opens whatever the instance panel currently highlights.
-func (m *workspaceModel) openSelectedInstance() tea.Cmd {
-	item, ok := m.instances.SelectedItem().(instanceItem)
+// openSelectedSession opens whatever the session panel currently highlights.
+func (m *workspaceModel) openSelectedSession() tea.Cmd {
+	item, ok := m.sessions.SelectedItem().(sessionItem)
 	if !ok {
 		return nil
 	}
-	selected := item.AgentInstance
-	return func() tea.Msg { return instanceSelectedMsg{agentInstance: selected} }
+	selected := item.Session
+	return func() tea.Msg { return sessionSelectedMsg{session: selected} }
 }
 
-// selectInstance opens a chat; a non-READY instance is not dialed at all.
-func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
-	if agentInstance == nil {
+// selectSession opens a chat; a non-READY session is not dialed at all.
+func (m *workspaceModel) selectSession(session *apiv1alpha1.Session) tea.Cmd {
+	if session == nil {
 		return nil
 	}
-	m.chat.stop() // otherwise its stream delivers into the next instance's chat
-	m.current = agentInstance
+	m.chat.stop() // otherwise its stream delivers into the next session's chat
+	m.current = session
 	m.renderDetails()
 
-	if !instance.Ready(agentInstance) {
+	if !sessionview.Ready(session) {
 		m.chat = nil
-		m.status = fmt.Sprintf("AgentInstance is %s and cannot accept messages.", instance.StateLabel(agentInstance.GetState()))
+		m.status = fmt.Sprintf("Session is %s and cannot accept messages.", sessionview.StateLabel(session.GetState()))
 		return nil
 	}
 
 	m.status = ""
-	a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, agentInstance.GetId())
+	a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent())
 	if err != nil {
 		m.chat = nil
-		m.status = fmt.Sprintf("Failed to connect to AgentInstance: %v", err)
+		m.status = fmt.Sprintf("Failed to connect to Session: %v", err)
 		return nil
 	}
 
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(m.ctx, agentInstance.GetAgentTemplate().GetName(), agentInstance.GetContextId(), send, m.verbose)
-	m.chat.setHeaderMeta(stateBadge(agentInstance.GetState()), agentInstance.GetUpdatedAt().AsTime())
+	m.chat = newChatModel(m.ctx, session.GetAgent().GetName(), session.GetId(), send, m.verbose)
+	m.chat.setHeaderMeta(stateBadge(session.GetState()), session.GetUpdatedAt().AsTime())
 	// Bubble Tea calls Init only on the root model, so start the chat's here.
-	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(agentInstance))
+	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(session))
 }
 
 // handleKey reports whether it consumed the key; the rest fall through to the focused panel.
@@ -612,7 +580,7 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.chat.stop()
 		return tea.Quit, true
 	case "ctrl+r":
-		return m.loadInstances(), true
+		return m.loadSessions(), true
 	case "ctrl+d":
 		m.showDetails = !m.showDetails
 		return m.resize(), true
@@ -628,15 +596,15 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// activateFocused narrows the cascade, or opens a chat from the instance panel.
+// activateFocused narrows the cascade, or opens a chat from the session panel.
 func (m *workspaceModel) activateFocused() (tea.Cmd, bool) {
 	switch m.focus {
-	case panelNamespaces, panelHarnesses, panelTemplates:
+	case panelNamespaces, panelAgents:
 		// The cursor already applied the filter, so enter just drills down.
 		m.focus = m.focus.next()
 		return m.resize(), true
-	case panelInstances:
-		return m.openSelectedInstance(), true
+	case panelSessions:
+		return m.openSelectedSession(), true
 	default:
 		return nil, false
 	}
@@ -665,14 +633,11 @@ func (m *workspaceModel) forward(msg tea.Msg) tea.Cmd {
 	case panelNamespaces:
 		m.namespaces, cmd = m.namespaces.Update(msg)
 		cmd = tea.Batch(cmd, m.syncCascade())
-	case panelHarnesses:
-		m.harnesses, cmd = m.harnesses.Update(msg)
+	case panelAgents:
+		m.agents, cmd = m.agents.Update(msg)
 		cmd = tea.Batch(cmd, m.syncCascade())
-	case panelTemplates:
-		m.templates, cmd = m.templates.Update(msg)
-		cmd = tea.Batch(cmd, m.syncCascade())
-	case panelInstances:
-		m.instances, cmd = m.instances.Update(msg)
+	case panelSessions:
+		m.sessions, cmd = m.sessions.Update(msg)
 	default:
 		if m.chat != nil {
 			updated, chatCmd := m.chat.Update(msg)
@@ -723,7 +688,7 @@ func (m *workspaceModel) centerWidth() int {
 	return max(width, 20)
 }
 
-// renderDetails fills the right pane with the selected instance's identity.
+// renderDetails fills the right pane with the selected session's identity.
 func (m *workspaceModel) renderDetails() {
 	if m.current == nil {
 		m.details = ""
@@ -731,9 +696,8 @@ func (m *workspaceModel) renderDetails() {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "ID\n%s\n\n", m.current.GetId())
-	fmt.Fprintf(&b, "AgentTemplate\n%s\n\n", m.current.GetAgentTemplate().GetName())
-	fmt.Fprintf(&b, "Harness\n%s\n\n", m.current.GetHarness().GetName())
-	fmt.Fprintf(&b, "State\n%s\n\n", instance.StateLabel(m.current.GetState()))
+	fmt.Fprintf(&b, "Agent\n%s\n\n", m.current.GetAgent().GetName())
+	fmt.Fprintf(&b, "State\n%s\n\n", sessionview.StateLabel(m.current.GetState()))
 
 	if failure := m.current.GetFailure(); failure != nil {
 		fmt.Fprintf(&b, "\nFailure\n%s\n", failure.GetMessage())
@@ -771,13 +735,13 @@ func (m *workspaceModel) centerView() string {
 		return m.chat.View()
 	}
 	if len(m.all) == 0 {
-		return "No AgentInstances.\n\nCreate one with:\nkagent create agent-instance --harness H --agent-template T"
+		return "No Sessions.\n\nCreate one with:\nkagent create session --agent A"
 	}
 	if m.current != nil {
-		return fmt.Sprintf("AgentInstance is %s.\n\nIt cannot accept messages right now.\nPress ctrl+r to refresh, or pick another in panel [3].",
-			instance.StateLabel(m.current.GetState()))
+		return fmt.Sprintf("Session is %s.\n\nIt cannot accept messages right now.\nPress ctrl+r to refresh, or pick another in panel [3].",
+			sessionview.StateLabel(m.current.GetState()))
 	}
-	return "Select an AgentInstance in panel [3] to start chatting."
+	return "Select a Session in panel [3] to start chatting."
 }
 
 // footerView is the keybinding hint bar, plus any current error.

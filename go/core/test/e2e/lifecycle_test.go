@@ -8,27 +8,27 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// TestAgentInstanceLifecycle verifies the synchronous public lifecycle contract
-// against a clean cluster, owning both the template and instance it creates.
-func TestAgentInstanceLifecycle(t *testing.T) {
+// TestSessionLifecycle verifies the synchronous public lifecycle contract
+// against a clean cluster, owning both the template and session it creates.
+func TestSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
-		deleted, err := fixture.instances.DeleteAgentInstance(fixture.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			AgentInstanceId: fixture.instanceID,
+		deleted, err := fixture.sessions.DeleteSession(fixture.ctx, &apiv1alpha1.DeleteSessionRequest{
+			SessionId: fixture.sessionID,
 		})
 		if err != nil {
-			t.Fatalf("delete AgentInstance: %v", err)
+			t.Fatalf("delete Session: %v", err)
 		}
-		if deleted.GetAgentInstance().GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-			t.Fatalf("deleted AgentInstance state = %s, want DELETED", deleted.GetAgentInstance().GetState())
+		if deleted.GetSession().GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED {
+			t.Fatalf("deleted Session state = %s, want DELETED", deleted.GetSession().GetState())
 		}
 
-		_, err = fixture.instances.GetAgentInstance(fixture.ctx, &apiv1alpha1.GetAgentInstanceRequest{
-			AgentInstanceId: fixture.instanceID,
+		_, err = fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{
+			SessionId: fixture.sessionID,
 		})
 		if status.Code(err) != codes.NotFound {
-			t.Fatalf("get deleted AgentInstance error = %v, want NotFound", err)
+			t.Fatalf("get deleted Session error = %v, want NotFound", err)
 		}
 	})
 }

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,7 +13,7 @@ import (
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
 	_, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{Root: &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{},
+		Template: &v2translator.TemplateConfiguration{},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "kagent ModelConfig is required") {
 		t.Fatalf("Compile() error = %v", err)
@@ -28,8 +27,8 @@ func TestCompilerRequiresModelConfig(t *testing.T) {
 // knows to ask — which is exactly why it needs a test: the failure is a client
 // that cannot tell an answerable question from an unanswerable one.
 func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
-	card := v2translator.ManagedAgentCard(&v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "pizza-agent", Namespace: "team-a"},
+	card := v2translator.ManagedAgentCard("pizza-agent", &v2translator.TemplateConfiguration{
+		Name: "pizza-agent", Namespace: "team-a", Source: &metav1.ObjectMeta{Name: "pizza-agent", Namespace: "team-a"},
 	})
 
 	if !card.Capabilities.Streaming {

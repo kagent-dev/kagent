@@ -167,14 +167,6 @@ type HarnessSubstratePolicy struct {
 	SnapshotPolicy HarnessSnapshotPolicy `json:"snapshotPolicy"`
 }
 
-// HarnessAgentTemplateAdmission selects AgentTemplates that this Harness admits.
-// An omitted admission accepts no AgentTemplates.
-type HarnessAgentTemplateAdmission struct {
-	// Selector selects admitted AgentTemplates in the Harness namespace.
-	// +required
-	Selector metav1.LabelSelector `json:"selector"`
-}
-
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
@@ -203,11 +195,6 @@ type HarnessSpec struct {
 
 	// +required
 	Substrate HarnessSubstratePolicy `json:"substrate"`
-
-	// AllowedAgentTemplates selects AgentTemplates this Harness admits.
-	// When omitted, the Harness admits none.
-	// +optional
-	AllowedAgentTemplates *HarnessAgentTemplateAdmission `json:"allowedAgentTemplates,omitempty"`
 }
 
 // HarnessCapabilities records behavior proven for a pinned adapter and runtime.

@@ -2,13 +2,12 @@ package translator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -38,35 +37,37 @@ type HarnessCompiler interface {
 	Compile(context.Context, *HarnessInput) (*CompileResult, error)
 }
 
-// ResolvedTree is the validated AgentTemplate topology for one Harness.
-type ResolvedTree struct {
-	Harness *v1alpha3.Harness
-	Root    *ResolvedAgent
+// resolvedTemplateTree is the validated AgentTemplate topology for one Harness.
+type resolvedTemplateTree struct {
+	Harness *HarnessConfiguration
+	Root    *resolvedTemplate
 }
 
-// ResolvedAgent is one template and its validated Shared children.
-type ResolvedAgent struct {
-	Template *v1alpha3.AgentTemplate
-	Shared   []ResolvedAgentBinding
+// resolvedTemplate is one template and its validated Shared children.
+type resolvedTemplate struct {
+	Template *TemplateConfiguration
+	Shared   []resolvedTemplateBinding
 }
 
-// ResolvedAgentBinding preserves the parent-specific identity of a Shared child.
-type ResolvedAgentBinding struct {
+// resolvedTemplateBinding preserves the parent-specific identity of a Shared child.
+type resolvedTemplateBinding struct {
 	Name        string
 	Description string
-	Agent       *ResolvedAgent
+	Agent       *resolvedTemplate
 }
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
-	Harness      *v1alpha3.Harness
+	// AgentName is the runnable identity, independent of inline or referenced inputs.
+	AgentName    string
+	Harness      *HarnessConfiguration
 	Root         *AgentInput
 	OutputSchema *ResolvedOutputSchema
 }
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
 type AgentInput struct {
-	Template            *v1alpha3.AgentTemplate
+	Template            *TemplateConfiguration
 	ResolvedModelConfig *ResolvedModelConfig
 	Instruction         string
 	MCPTools            []ResolvedMCPTool
@@ -91,10 +92,55 @@ func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompile
 	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
 }
 
-// CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
-// revision and user-facing diagnostics. Nothing below this boundary needs to
-// read the public API objects.
-func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*CompileResult, error) {
+// CompileAgent resolves either inline or referenced configuration through the
+// same compiler. Inline values are in-memory inputs, never Kubernetes objects.
+func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*CompileResult, error) {
+	if (agent.Spec.Template == nil) == (agent.Spec.TemplateRef == nil) ||
+		(agent.Spec.Harness == nil) == (agent.Spec.HarnessRef == nil) {
+		return nil, NewValidationError("Agent requires exactly one of template/templateRef and harness/harnessRef")
+	}
+	var template *TemplateConfiguration
+	if agent.Spec.Template != nil {
+		template = &TemplateConfiguration{Name: agent.Name, Namespace: agent.Namespace, Spec: *agent.Spec.Template.DeepCopy()}
+	} else {
+		key := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.TemplateRef.Name}
+		found := krt.FetchOne(c.ctx, c.collections.AgentTemplates, krt.FilterObjectName(key))
+		if found == nil {
+			return nil, fmt.Errorf("resolve AgentTemplate %q: not found", key)
+		}
+		template = templateConfiguration(*found)
+	}
+	var harness *HarnessConfiguration
+	if agent.Spec.Harness != nil {
+		harness = &HarnessConfiguration{Name: agent.Name, Namespace: agent.Namespace, Spec: *agent.Spec.Harness.DeepCopy()}
+	} else {
+		key := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.HarnessRef.Name}
+		found := krt.FetchOne(c.ctx, c.collections.Harnesses, krt.FilterObjectName(key))
+		if found == nil {
+			return nil, fmt.Errorf("resolve Harness %q: not found", key)
+		}
+		harness = harnessConfiguration(*found)
+	}
+	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
+	if err != nil {
+		return nil, err
+	}
+	result.AgentUID = string(agent.UID)
+	result.Provenance, err = json.Marshal(struct {
+		AgentName string             `json:"agentName"`
+		AgentUID  string             `json:"agentUID"`
+		Spec      v1alpha3.AgentSpec `json:"spec"`
+		Inputs    json.RawMessage    `json:"inputs"`
+	}{agent.Name, string(agent.UID), agent.Spec, result.Provenance})
+	if err != nil {
+		return nil, fmt.Errorf("encode Agent provenance: %w", err)
+	}
+	return result, nil
+}
+
+// compileConfiguration compiles resolved configuration for the named Agent.
+// The Agent name owns runtime identity; template and Harness names are provenance.
+func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -107,6 +153,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if err != nil {
 		return nil, err
 	}
+	input.AgentName = agentName
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
@@ -116,11 +163,12 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
+	result.AgentName = agentName
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
 	return result, nil
 }
 
-func harnessType(harness *v1alpha3.Harness) HarnessType {
+func harnessType(harness *HarnessConfiguration) HarnessType {
 	switch {
 	case harness.Spec.Kagent != nil:
 		return HarnessTypeKagent
@@ -135,37 +183,36 @@ func harnessType(harness *v1alpha3.Harness) HarnessType {
 	}
 }
 
-func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, root *v1alpha3.AgentTemplate) (*ResolvedTree, error) {
-	selector, err := harnessSelector(harness)
-	if err != nil {
-		return nil, err
-	}
+func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguration, root *TemplateConfiguration) (*resolvedTemplateTree, error) {
 	seen, path, names := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
-	var resolve func(*v1alpha3.AgentTemplate, bool) (*ResolvedAgent, error)
-	resolve = func(template *v1alpha3.AgentTemplate, child bool) (*ResolvedAgent, error) {
+	var resolve func(*TemplateConfiguration, bool) (*resolvedTemplate, error)
+	resolve = func(template *TemplateConfiguration, child bool) (*resolvedTemplate, error) {
 		if template.Namespace != harness.Namespace {
 			return nil, NewValidationError("Harness and AgentTemplate must be in the same namespace")
 		}
-		if !selector.Matches(labels.Set(template.Labels)) {
-			return nil, NewValidationError("AgentTemplate %q is not admitted by Harness %q", template.Name, harness.Name)
+		// Inline roots are not references and cannot participate in a resource cycle.
+		if template.Source != nil {
+			if _, ok := path[template.Name]; ok {
+				return nil, NewValidationError("AgentTemplate tool cycle includes %q", template.Name)
+			}
+			if _, ok := seen[template.Name]; ok {
+				return nil, NewValidationError("AgentTemplate %q is referenced more than once in the Shared tree", template.Name)
+			}
+			seen[template.Name], path[template.Name] = struct{}{}, struct{}{}
+			defer delete(path, template.Name)
 		}
-		if _, ok := path[template.Name]; ok {
-			return nil, NewValidationError("AgentTemplate tool cycle includes %q", template.Name)
-		}
-		if _, ok := seen[template.Name]; ok {
-			return nil, NewValidationError("AgentTemplate %q is referenced more than once in the Shared tree", template.Name)
-		}
-		seen[template.Name], path[template.Name] = struct{}{}, struct{}{}
-		defer delete(path, template.Name)
 
-		resolved := &ResolvedAgent{Template: template.DeepCopy()}
+		resolved := &resolvedTemplate{Template: template}
 		for _, tool := range template.Spec.Tools {
-			if tool.Agent == nil {
+			if tool.SubAgent == nil {
 				continue
 			}
-			binding := tool.Agent
-			if binding.Isolation == v1alpha3.AgentToolIsolationDedicated {
-				return nil, NewValidationError("Dedicated AgentTemplate tools are not supported yet")
+			binding := tool.SubAgent
+			if (binding.TemplateRef == nil) == (binding.AgentRef == nil) {
+				return nil, NewValidationError("subagent %q requires exactly one of templateRef or agentRef", binding.Name)
+			}
+			if binding.AgentRef != nil {
+				return nil, NewValidationError("Dedicated subagent %q (agentRef) is not supported yet", binding.Name)
 			}
 			if _, ok := names[binding.Name]; ok {
 				return nil, NewValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)
@@ -176,14 +223,14 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 			if childTemplate == nil {
 				return nil, fmt.Errorf("resolve AgentTemplate %q: not found", binding.TemplateRef.Name)
 			}
-			agent, err := resolve(*childTemplate, true)
+			agent, err := resolve(templateConfiguration(*childTemplate), true)
 			if err != nil {
 				return nil, err
 			}
 			if child {
 				return nil, NewValidationError("consecutive Shared AgentTemplate tools exceed the kagent runtime boundary")
 			}
-			resolved.Shared = append(resolved.Shared, ResolvedAgentBinding{Name: binding.Name, Description: binding.Description, Agent: agent})
+			resolved.Shared = append(resolved.Shared, resolvedTemplateBinding{Name: binding.Name, Description: binding.Description, Agent: agent})
 		}
 		return resolved, nil
 	}
@@ -192,30 +239,19 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 	if err != nil {
 		return nil, err
 	}
-	return &ResolvedTree{Harness: harness.DeepCopy(), Root: resolved}, nil
+	return &resolvedTemplateTree{Harness: harness, Root: resolved}, nil
 }
 
-func harnessSelector(harness *v1alpha3.Harness) (labels.Selector, error) {
-	if harness.Spec.AllowedAgentTemplates == nil {
-		return labels.Nothing(), NewValidationError("Harness %q admits no AgentTemplates", harness.Name)
-	}
-	selector, err := metav1.LabelSelectorAsSelector(&harness.Spec.AllowedAgentTemplates.Selector)
-	if err != nil {
-		return nil, NewValidationError("Harness %q has an invalid AgentTemplate selector: %v", harness.Name, err)
-	}
-	return selector, nil
-}
-
-func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*HarnessInput, error) {
+func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) (*HarnessInput, error) {
 	outputSchema, err := c.resolveOutputSchema(ctx, tree.Root.Template)
 	if err != nil {
 		return nil, err
 	}
 	if outputSchema != nil && harnessType(tree.Harness) != HarnessTypeKagent {
-		return nil, NewValidationError("Harness %q does not support structured output", tree.Harness.Name)
+		return nil, NewValidationError("Harness runtime %q does not support structured output", harnessType(tree.Harness))
 	}
-	var build func(*ResolvedAgent) (*AgentInput, error)
-	build = func(agent *ResolvedAgent) (*AgentInput, error) {
+	var build func(*resolvedTemplate) (*AgentInput, error)
+	build = func(agent *resolvedTemplate) (*AgentInput, error) {
 		template := agent.Template
 		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
 		if err != nil {
@@ -237,7 +273,7 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 		toolNames := make([]string, 0)
 		for _, tool := range template.Spec.Tools {
 			if tool.MCP == nil {
-				if tool.Agent == nil {
+				if tool.SubAgent == nil {
 					return nil, NewValidationError("tool binding must select an MCP server or AgentTemplate")
 				}
 				continue

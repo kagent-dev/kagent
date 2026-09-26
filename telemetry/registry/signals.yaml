@@ -45,10 +45,10 @@ attribute_groups:
     attributes:
       - ref: gen_ai.agent.name
         requirement_level: required
-        note: The compiled agent identity, `<template>-<harness>`.
+        note: The compiled agent identity, `<agent>`.
       - ref: gen_ai.agent.id
         requirement_level: required
-        note: The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`.
+        note: The agent identity qualified by its namespace, `<namespace>/<agent>`.
       - ref: gen_ai.provider.name
         requirement_level:
           conditionally_required: The runtime is a harness compiled against one model.
@@ -179,13 +179,13 @@ entities:
     identity:
       - ref: gen_ai.agent.id
         requirement_level: required
-        note: The agent identity qualified by its namespace, `<namespace>/<template>-<harness>`.
+        note: The agent identity qualified by its namespace, `<namespace>/<agent>`.
     description:
       - ref: kagent.runtime
         requirement_level: required
       - ref: gen_ai.agent.name
         requirement_level: required
-        note: The compiled agent identity, `<template>-<harness>`.
+        note: The compiled agent identity, `<agent>`.
       - ref: gen_ai.provider.name
         requirement_level:
           conditionally_required: The runtime is a harness compiled against one model.

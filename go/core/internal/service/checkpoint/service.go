@@ -26,19 +26,19 @@ const (
 )
 
 type store interface {
-	ReserveAgentInstanceCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, *database.AgentInstanceTaskSnapshot, error)
-	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string, string) (*apiv1alpha1.Checkpoint, error)
-	GetAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
-	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
-	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
-	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
-	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
-	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
+	ReserveSessionCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, *database.SessionTaskSnapshot, error)
+	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1alpha1.Checkpoint, error)
+	GetSessionCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
+	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
+	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
+	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
+	DeleteSessionCheckpoint(context.Context, string, string) error
+	ForkSession(context.Context, string, string, string, string) (*apiv1alpha1.Session, bool, error)
 	UpdateCheckpointName(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
 }
 
 type workflow interface {
-	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
+	Create(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 }
 
 type tagClient interface {
@@ -49,8 +49,8 @@ type tagClient interface {
 }
 
 type Service struct {
-	// creates coalesces identical requests within this service instance.
-	// TODO: route tag creation and cleanup through durable instance ownership
+	// creates coalesces identical requests within this service session.
+	// TODO: route tag creation and cleanup through durable session ownership
 	// so retries on different replicas cannot race.
 	creates    singleflight.Group
 	store      store
@@ -60,9 +60,9 @@ type Service struct {
 }
 
 type ListRequest struct {
-	InstanceID string
-	PageSize   int
-	PageToken  string
+	SessionID string
+	PageSize  int
+	PageToken string
 }
 
 type ListResult struct {
@@ -74,20 +74,20 @@ func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflo
 	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow}
 }
 
-func (s *Service) Create(ctx context.Context, instanceID, requestID, expectedHeadTaskID string) (*apiv1alpha1.Checkpoint, error) {
-	if err := validateCreate(instanceID, requestID); err != nil {
+func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1alpha1.Checkpoint, error) {
+	if err := validateCreate(sessionID, requestID); err != nil {
 		return nil, err
 	}
 	if expectedHeadTaskID == "" {
 		return nil, status.Error(codes.InvalidArgument, "expected_head_task_id is required")
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", instanceID)
+	userID, err := s.authorize(ctx, auth.VerbCreate, "Session", sessionID)
 	if err != nil {
 		return nil, err
 	}
-	key := fmt.Sprintf("%q/%q/%q/%q", userID, instanceID, requestID, expectedHeadTaskID)
+	key := fmt.Sprintf("%q/%q/%q/%q", userID, sessionID, requestID, expectedHeadTaskID)
 	result, err, _ := s.creates.Do(key, func() (any, error) {
-		return s.create(ctx, userID, instanceID, requestID, expectedHeadTaskID)
+		return s.create(ctx, userID, sessionID, requestID, expectedHeadTaskID)
 	})
 	if err != nil {
 		return nil, err
@@ -95,12 +95,12 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID, expectedHea
 	return result.(*apiv1alpha1.Checkpoint), nil
 }
 
-func (s *Service) create(ctx context.Context, userID, instanceID, requestID, expectedHeadTaskID string) (*apiv1alpha1.Checkpoint, error) {
+func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expectedHeadTaskID string) (*apiv1alpha1.Checkpoint, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	checkpoint, snapshot, err := s.store.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID, HeadTaskId: expectedHeadTaskID}, userID, requestID)
+	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID)
 	if errors.Is(err, database.ErrCheckpointAdvanced) || errors.Is(err, database.ErrSnapshotPending) {
 		reason := "KAGENT_CHECKPOINT_CONVERSATION_ADVANCED"
 		if errors.Is(err, database.ErrSnapshotPending) {
@@ -116,7 +116,7 @@ func (s *Service) create(ctx context.Context, userID, instanceID, requestID, exp
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different checkpoint", err)
 	}
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
 	if errors.Is(err, database.ErrConflict) || errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
@@ -132,14 +132,14 @@ func (s *Service) create(ctx context.Context, userID, instanceID, requestID, exp
 	if err != nil {
 		cleanupErr := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpoint.GetId()))
 		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
-			_, finalizeErr := s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "", "", err.Error())
+			_, finalizeErr := s.store.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "", "", err.Error())
 			err = errors.Join(err, finalizeErr)
 		} else {
 			err = errors.Join(err, fmt.Errorf("cleanup checkpoint tag: %w", cleanupErr))
 		}
 		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", err)
 	}
-	checkpoint, err = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), tag.GetMetadata().GetUid(), tag.GetStatus().GetSnapshot().GetSnapshotUri(), "")
+	checkpoint, err = s.store.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), tag.GetMetadata().GetUid(), tag.GetStatus().GetSnapshot().GetSnapshotUri(), "")
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to publish checkpoint", err)
 	}
@@ -149,8 +149,8 @@ func (s *Service) create(ctx context.Context, userID, instanceID, requestID, exp
 // The CREATING reservation blocks task admission and lifecycle changes while
 // CreateTag copies the Actor's current snapshot. Verify both sides of the copy
 // because ate-api also permits Actors to be changed outside kagent.
-func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, reference *database.AgentInstanceTaskSnapshot) (*ateapipb.Tag, error) {
-	actorName := substrate.ActorName(checkpoint.GetAgentInstanceId())
+func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, reference *database.SessionTaskSnapshot) (*ateapipb.Tag, error) {
+	actorName := substrate.ActorName(checkpoint.GetSessionId())
 	actor, err := s.verifySnapshot(ctx, actorName, reference)
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1alpha1.Checkpo
 	return tag, nil
 }
 
-func (s *Service) verifySnapshot(ctx context.Context, actorName string, reference *database.AgentInstanceTaskSnapshot) (*ateapipb.Actor, error) {
+func (s *Service) verifySnapshot(ctx context.Context, actorName string, reference *database.SessionTaskSnapshot) (*ateapipb.Actor, error) {
 	actor, err := s.tags.GetActor(ctx, reference.Atespace, actorName)
 	if err != nil {
 		return nil, fmt.Errorf("get checkpoint Actor: %w", err)
@@ -207,7 +207,7 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Ch
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, checkpointID, userID)
+	checkpoint, err := s.store.GetSessionCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -218,10 +218,10 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Ch
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	if err := validateIdentity(request.InstanceID); err != nil {
+	if err := validateIdentity(request.SessionID); err != nil {
 		return ListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.InstanceID)
+	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.SessionID)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -236,7 +236,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	rows, err := s.store.ListAgentInstanceCheckpoints(ctx, request.InstanceID, userID, afterID, pageSize+1)
+	rows, err := s.store.ListSessionCheckpoints(ctx, request.SessionID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
@@ -255,7 +255,7 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil {
 		return err
 	}
-	snapshot, tagUID, err := s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
+	snapshot, tagUID, err := s.store.BeginDeleteSessionCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -274,7 +274,7 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID)); err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 	}
-	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, checkpointID, userID); err != nil {
+	if err := s.store.DeleteSessionCheckpoint(ctx, checkpointID, userID); err != nil {
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
 	}
 	return nil
@@ -300,15 +300,15 @@ func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1
 	return checkpoint, nil
 }
 
-func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1alpha1.Session, error) {
 	if err := validateCreate(checkpointID, requestID); err != nil {
 		return nil, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", "")
+	userID, err := s.authorize(ctx, auth.VerbCreate, "Session", "")
 	if err != nil {
 		return nil, err
 	}
-	snapshot, tagUID, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpointID, userID)
+	snapshot, tagUID, err := s.store.GetSessionCheckpointSnapshot(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -330,32 +330,32 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
+		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
 	}
-	instance, _, err := s.store.ForkAgentInstance(ctx, checkpointID, userID, requestID, id.String())
+	session, _, err := s.store.ForkSession(ctx, checkpointID, userID, requestID, id.String())
 	if errors.Is(err, database.ErrIdempotencyConflict) {
-		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
+		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
 	}
 	if errors.Is(err, database.ErrFailedPrecondition) {
-		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted AgentInstance", err)
+		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted Session", err)
 	}
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
+		return nil, serviceerrors.NewInternal("Failed to reserve fork Session", err)
 	}
-	instance, err = s.workflow.Create(ctx, instance)
+	session, err = s.workflow.Create(ctx, session)
 	if errors.Is(err, database.ErrConflict) {
 		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("AgentInstance was deleted", err)
+		return nil, serviceerrors.NewNotFound("Session was deleted", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewUnavailable("Failed to create fork AgentInstance", err)
+		return nil, serviceerrors.NewUnavailable("Failed to create fork Session", err)
 	}
-	return instance, nil
+	return session, nil
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
@@ -370,8 +370,8 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, n
 	return principal.User.ID, nil
 }
 
-func validateCreate(instanceID, requestID string) error {
-	if err := validateIdentity(instanceID); err != nil {
+func validateCreate(sessionID, requestID string) error {
+	if err := validateIdentity(sessionID); err != nil {
 		return err
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {

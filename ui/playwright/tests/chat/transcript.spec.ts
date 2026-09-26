@@ -164,6 +164,7 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
   });
 
   await test.step("10. the streamed reply lands exactly once", async () => {
+    await expectTurnFinished(page, turn);
     // Exact text, not a substring. Streaming appends, and the failure mode that
     // actually happened here was a doubled first chunk ("There There are 3
     // pods…") — which every `toContainText` in this file would have passed.
@@ -174,7 +175,6 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
   });
 
   await test.step("11. the turn finishes, the composer comes back, and the indicator settles", async () => {
-    await expectTurnFinished(page, turn);
     await expect(page.getByTestId("chat-send")).toBeVisible();
     // Nothing reported once the turn is over: the status line belongs to a turn in
     // flight, so a finished one leaves it with nothing to say.

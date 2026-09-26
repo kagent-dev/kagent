@@ -35,10 +35,10 @@ import {
   SystemService,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
-  AgentInstanceOperation as PbAgentInstanceOperation,
-  AgentInstanceService,
-  AgentInstanceState as PbAgentInstanceState,
-} from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
+  SessionOperation as PbSessionOperation,
+  SessionService,
+  SessionState as PbSessionState,
+} from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import { ApiError, isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
@@ -59,10 +59,10 @@ describe("model configurations", () => {
   const modelConfigMessage = (name: string, model: string) => ({
     ref: { namespace: "kagent", name },
     resource: {
-      apiVersion: "kagent.dev/v1alpha3",
+      apiVersion: "api.kagent.dev/v1alpha3",
       kind: "ModelConfig",
       value: {
-        apiVersion: "kagent.dev/v1alpha3",
+        apiVersion: "api.kagent.dev/v1alpha3",
         kind: "ModelConfig",
         metadata: { name, namespace: "kagent" },
         spec: { model, provider: "OpenAI" },
@@ -217,7 +217,7 @@ describe("tool servers and tools", () => {
           toolServers: [
             {
               ref: "kagent/kagent-tool-server",
-              groupKind: "RemoteMCPServer.kagent.dev",
+              groupKind: "RemoteMCPServer.api.kagent.dev",
               discoveredTools: [{ name: "k8s_get_resources", description: "read" }],
             },
           ],
@@ -228,7 +228,7 @@ describe("tool servers and tools", () => {
     expect(await apiClient.mcpServers.list()).toEqual([
       {
         ref: "kagent/kagent-tool-server",
-        groupKind: "RemoteMCPServer.kagent.dev",
+        groupKind: "RemoteMCPServer.api.kagent.dev",
         discoveredTools: [{ name: "k8s_get_resources", description: "read" }],
       },
     ]);
@@ -242,7 +242,7 @@ describe("tool servers and tools", () => {
           received = request;
           return {
             resource: {
-              apiVersion: "kagent.dev/v1alpha3",
+              apiVersion: "api.kagent.dev/v1alpha3",
               kind: "RemoteMCPServer",
               value: { metadata: { name: "extra", namespace: "kagent" } },
             },
@@ -267,13 +267,43 @@ describe("tool servers and tools", () => {
     expect(received).toMatchObject({
       type: "RemoteMCPServer",
       ref: { namespace: "kagent", name: "extra" },
-      resource: { kind: "RemoteMCPServer" },
+      resource: { kind: "RemoteMCPServer", apiVersion: "api.kagent.dev/v1alpha3" },
     });
     expect(created.ref).toBe("kagent/extra");
-    expect(created.groupKind).toBe("RemoteMCPServer.kagent.dev");
+    expect(created.groupKind).toBe("RemoteMCPServer.api.kagent.dev");
     // Empty because it is: the controller has not handshaken with the server yet,
     // and inventing tools here would put unconfirmed ones on screen.
     expect(created.discoveredTools).toEqual([]);
+  });
+
+  it("keeps KMCP servers in their own API group", async () => {
+    let received: unknown;
+    serve(({ service }) => {
+      service(ToolService, {
+        createToolServer: (request) => {
+          received = request;
+          return { resource: request.resource };
+        },
+      });
+    });
+
+    const created = await apiClient.mcpServers.create({
+      type: "MCPServer",
+      mcpServer: {
+        metadata: { name: "local", namespace: "kagent" },
+        spec: {
+          deployment: { image: "example.com/mcp:latest", port: 8080 },
+          transportType: "stdio",
+          stdioTransport: {},
+        },
+      },
+    });
+
+    expect(received).toMatchObject({
+      type: "MCPServer",
+      resource: { kind: "MCPServer", apiVersion: "kagent.dev/v1alpha1" },
+    });
+    expect(created.groupKind).toBe("MCPServer.kagent.dev");
   });
 
   /**
@@ -293,7 +323,7 @@ describe("tool servers and tools", () => {
                 value: {
                   id: "k8s_get_resources",
                   server_name: "kagent-tool-server",
-                  group_kind: "RemoteMCPServer.kagent.dev",
+                  group_kind: "RemoteMCPServer.api.kagent.dev",
                   created_at: "2026-01-01T00:00:00Z",
                   updated_at: "2026-01-01T00:00:00Z",
                   description: "read resources",
@@ -740,14 +770,13 @@ describe("agent instances", () => {
   function instanceMessage(overrides: Record<string, unknown> = {}) {
     return {
       id: INSTANCE_ID,
-      contextId: "distinct-a2a-context",
+      contextId: INSTANCE_ID,
       creator: "alice@example.com",
-      harness: { namespace: "kagent", name: "k8s-agent" },
-      agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+      agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
       preparedRevision: "rev-7f3a91c",
       a2aAuthority: "k8s-agent.kagent.svc:8080",
-      state: PbAgentInstanceState.READY,
-      operation: PbAgentInstanceOperation.UNSPECIFIED,
+      state: PbSessionState.READY,
+      operation: PbSessionOperation.UNSPECIFIED,
       createdAt: { seconds: 1767225600n, nanos: 0 },
       updatedAt: { seconds: 1767225600n, nanos: 0 },
       ...overrides,
@@ -756,14 +785,14 @@ describe("agent instances", () => {
 
   it("reads the two enums as words, and the refs as namespace/name", async () => {
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: () => ({
-          agentInstances: [
+      service(SessionService, {
+        listSessions: () => ({
+          sessions: [
             instanceMessage(),
             instanceMessage({
               id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
-              state: PbAgentInstanceState.SUSPENDED,
-              operation: PbAgentInstanceOperation.RESUME,
+              state: PbSessionState.SUSPENDED,
+              operation: PbSessionOperation.RESUME,
             }),
           ],
           page: {},
@@ -776,11 +805,10 @@ describe("agent instances", () => {
     const ready = rows.find((row) => row.id === INSTANCE_ID);
     const suspended = rows.find((row) => row.id.startsWith("b28e"));
 
-    expect(ready?.contextId).toBe("distinct-a2a-context");
+    expect(ready?.contextId).toBe(INSTANCE_ID);
     expect(ready?.state).toBe("ready");
     expect(ready?.operation).toBe("unspecified");
-    expect(ready?.harness).toBe("kagent/k8s-agent");
-    expect(ready?.agentTemplate).toBe("kagent/k8s-agent-7f3a91c");
+    expect(ready?.agent).toBe("kagent/k8s-agent-7f3a91c");
     expect(ready?.createdAt).toBe("2026-01-01T00:00:00.000Z");
 
     expect(suspended?.state).toBe("suspended");
@@ -795,12 +823,12 @@ describe("agent instances", () => {
    */
   it("names an enum value it does not recognise rather than dropping it", async () => {
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: () => ({
+      service(SessionService, {
+        listSessions: () => ({
           // 99 is not a member of either enum. Cast because the generated type
           // describes the proto this build compiled against, which is exactly the
           // assumption under test.
-          agentInstances: [
+          sessions: [
             instanceMessage({ state: 99, operation: 98 } as Record<string, unknown>),
           ],
           page: {},
@@ -820,17 +848,16 @@ describe("agent instances", () => {
    */
   it("reports an unset field as absent rather than as an empty string", async () => {
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: () => ({
-          agentInstances: [
+      service(SessionService, {
+        listSessions: () => ({
+          sessions: [
             instanceMessage({
-              harness: undefined,
-              agentTemplate: undefined,
+              agent: undefined,
               preparedRevision: "",
               a2aAuthority: "",
               createdAt: undefined,
-              state: PbAgentInstanceState.CREATING,
-              operation: PbAgentInstanceOperation.CREATE,
+              state: PbSessionState.CREATING,
+              operation: PbSessionOperation.CREATE,
             }),
           ],
           page: {},
@@ -839,8 +866,7 @@ describe("agent instances", () => {
     });
 
     const [row] = await apiClient.agentInstances.list();
-    expect(row.harness).toBeUndefined();
-    expect(row.agentTemplate).toBeUndefined();
+    expect(row.agent).toBeUndefined();
     expect(row.preparedRevision).toBeUndefined();
     expect(row.a2aAuthority).toBeUndefined();
     expect(row.createdAt).toBe("");
@@ -849,11 +875,11 @@ describe("agent instances", () => {
 
   it("keeps a failure the controller sent with nothing in it", async () => {
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: () => ({
-          agentInstances: [
+      service(SessionService, {
+        listSessions: () => ({
+          sessions: [
             instanceMessage({
-              state: PbAgentInstanceState.FAILED,
+              state: PbSessionState.FAILED,
               // Present, and empty. The message being there is the only signal that
               // something went wrong, so the presence must survive the conversion
               // even when neither half has any text in it.
@@ -878,17 +904,17 @@ describe("agent instances", () => {
   it("follows the page token until the controller stops handing one back", async () => {
     const tokensSeen: string[] = [];
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: (request) => {
+      service(SessionService, {
+        listSessions: (request) => {
           tokensSeen.push(request.page?.pageToken ?? "");
           if (!request.page?.pageToken) {
             return {
-              agentInstances: [instanceMessage()],
+              sessions: [instanceMessage()],
               page: { nextPageToken: "page-2" },
             };
           }
           return {
-            agentInstances: [
+            sessions: [
               instanceMessage({ id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05" }),
             ],
             page: {},
@@ -909,9 +935,9 @@ describe("agent instances", () => {
    */
   it("refuses a page token that does not advance", async () => {
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: () => ({
-          agentInstances: [instanceMessage()],
+      service(SessionService, {
+        listSessions: () => ({
+          sessions: [instanceMessage()],
           page: { nextPageToken: "stuck" },
         }),
       });
@@ -925,10 +951,10 @@ describe("agent instances", () => {
   it("asks for other people's instances only when told to", async () => {
     const asked: boolean[] = [];
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        listAgentInstances: (request) => {
+      service(SessionService, {
+        listSessions: (request) => {
           asked.push(request.allCreators);
-          return { agentInstances: [], page: {} };
+          return { sessions: [], page: {} };
         },
       });
     });
@@ -941,13 +967,13 @@ describe("agent instances", () => {
   it("addresses one instance by id, and reports a missing one as a 404", async () => {
     const asked: { id: string }[] = [];
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        getAgentInstance: (request) => {
-          asked.push({ id: request.agentInstanceId });
-          if (request.agentInstanceId !== INSTANCE_ID) {
+      service(SessionService, {
+        getSession: (request) => {
+          asked.push({ id: request.sessionId });
+          if (request.sessionId !== INSTANCE_ID) {
             throw new ConnectError("no such instance", Code.NotFound);
           }
-          return { agentInstance: instanceMessage() };
+          return { session: instanceMessage() };
         },
       });
     });
@@ -970,16 +996,16 @@ describe("agent instances", () => {
   it("suspends and resumes through their own RPCs, answering with the new state", async () => {
     const called: string[] = [];
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        suspendAgentInstance: (request) => {
-          called.push(`suspend ${request.agentInstanceId}`);
+      service(SessionService, {
+        suspendSession: (request) => {
+          called.push(`suspend ${request.sessionId}`);
           return {
-            agentInstance: instanceMessage({ state: PbAgentInstanceState.SUSPENDED }),
+            session: instanceMessage({ state: PbSessionState.SUSPENDED }),
           };
         },
-        resumeAgentInstance: (request) => {
-          called.push(`resume ${request.agentInstanceId}`);
-          return { agentInstance: instanceMessage({ state: PbAgentInstanceState.READY }) };
+        resumeSession: (request) => {
+          called.push(`resume ${request.sessionId}`);
+          return { session: instanceMessage({ state: PbSessionState.READY }) };
         },
       });
     });
@@ -1004,8 +1030,8 @@ describe("agent instances", () => {
    */
   it("passes a refused lifecycle operation through as the error it was", async () => {
     serve(({ service }) => {
-      service(AgentInstanceService, {
-        suspendAgentInstance: () => {
+      service(SessionService, {
+        suspendSession: () => {
           throw new ConnectError(
             "AgentInstance has a conflicting lifecycle operation",
             Code.Aborted,
@@ -1022,7 +1048,7 @@ describe("agent instances", () => {
     expect((failure as ApiError).code).toBe("Aborted");
     expect((failure as ApiError).message).toMatch(/conflicting lifecycle operation/);
     expect((failure as ApiError).url).toBe(
-      "AgentInstanceService/SuspendAgentInstance",
+      "SessionService/SuspendSession",
     );
   });
 });

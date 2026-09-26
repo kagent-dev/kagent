@@ -279,7 +279,7 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 
 // HarnessResourceAttributes is the literal OTEL_RESOURCE_ATTRIBUTES a Harness
 // sets. The rendered value keeps its entries under the agent identity.
-func HarnessResourceAttributes(harness *v1alpha3.Harness) (string, error) {
+func HarnessResourceAttributes(harness *HarnessConfiguration) (string, error) {
 	for _, variable := range harness.Spec.Env {
 		if variable.Name != otelResourceAttributes {
 			continue

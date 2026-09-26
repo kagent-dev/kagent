@@ -20,7 +20,7 @@ from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
-from google.adk.sessions import DatabaseSessionService, InMemorySessionService
+from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
@@ -35,6 +35,7 @@ from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
+from ._local_session_service import LocalSessionService
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
 from .types import AgentConfig
@@ -110,7 +111,7 @@ class KAgentApp:
                 token_provider=token_service,
             )
             if session_db_url:
-                session_service = DatabaseSessionService(db_url=session_db_url)
+                session_service = LocalSessionService(db_url=session_db_url)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(

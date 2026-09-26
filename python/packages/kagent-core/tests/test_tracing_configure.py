@@ -459,3 +459,79 @@ def test_force_flush_flushes_the_meter_provider(monkeypatch):
     _utils.force_flush()
 
     assert calls == [3000]
+
+
+def test_force_flush_flushes_logs_traces_and_metrics_in_order(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        _utils._logs, "get_logger_provider", lambda: SimpleNamespace(force_flush=lambda t: calls.append(("logs", t)))
+    )
+    monkeypatch.setattr(
+        _utils.trace, "get_tracer_provider", lambda: SimpleNamespace(force_flush=lambda t: calls.append(("traces", t)))
+    )
+    monkeypatch.setattr(
+        _utils.metrics,
+        "get_meter_provider",
+        lambda: SimpleNamespace(force_flush=lambda t: calls.append(("metrics", t))),
+    )
+
+    _utils.force_flush()
+
+    assert calls == [("logs", 3000), ("traces", 3000), ("metrics", 3000)]
+
+
+def test_force_flush_continues_when_log_flush_fails(monkeypatch):
+    calls = []
+
+    def boom(timeout):
+        raise RuntimeError("collector down")
+
+    monkeypatch.setattr(_utils._logs, "get_logger_provider", lambda: SimpleNamespace(force_flush=boom))
+    monkeypatch.setattr(
+        _utils.trace, "get_tracer_provider", lambda: SimpleNamespace(force_flush=lambda t: calls.append(t))
+    )
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: SimpleNamespace())
+
+    _utils.force_flush()
+
+    assert calls == [3000]
+
+
+def test_force_flush_exports_buffered_logs(monkeypatch):
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, InMemoryLogRecordExporter
+
+    exporter = InMemoryLogRecordExporter()
+    provider = LoggerProvider()
+    provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+    monkeypatch.setattr(_utils._logs, "get_logger_provider", lambda: provider)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: SimpleNamespace())
+
+    provider.get_logger("test").emit(body="buffered log")
+    assert exporter.get_finished_logs() == ()
+
+    _utils.force_flush()
+
+    assert len(exporter.get_finished_logs()) == 1
+    provider.shutdown()
+
+
+def test_configure_installs_post_response_flush_with_logs_only(monkeypatch):
+    from fastapi import FastAPI
+
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_METRICS_EXPORTER", "none")
+    monkeypatch.setenv("OTEL_LOGS_EXPORTER", "otlp")
+
+    installed = []
+    monkeypatch.setattr(_utils, "_add_post_response_flush", lambda app: installed.append(app))
+    monkeypatch.setattr(_utils._logs, "set_logger_provider", lambda provider: None)
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
+
+    app = FastAPI()
+    _utils.configure(name="test", namespace="test", fastapi_app=app)
+
+    assert installed == [app]

@@ -24,21 +24,21 @@ func TestMalformedProtobufPayloads(t *testing.T) {
 		name   string
 		decode func([]byte) error
 	}{
-		{"instance", func(data []byte) error { _, err := toAgentInstance(agentInstanceRow{Data: data}); return err }},
+		{"session", func(data []byte) error { _, err := toSession(sessionRow{Data: data}); return err }},
 		{"checkpoint", func(data []byte) error {
-			_, err := toAgentInstanceCheckpoint(agentInstanceCheckpointRow{Data: data})
+			_, err := toSessionCheckpoint(sessionCheckpointRow{Data: data})
 			return err
 		}},
 		{"share", func(data []byte) error {
-			_, err := toAgentInstanceShare(agentInstanceShareRow{Data: data})
+			_, err := toSessionShare(sessionShareRow{Data: data})
 			return err
 		}},
 		{"card", func(data []byte) error {
 			_, err := toRuntimeRevision(runtimeRevisionRow{AgentCard: data})
 			return err
 		}},
-		{"task", func(data []byte) error { _, err := unmarshalAgentInstanceTask(data); return err }},
-		{"event", func(data []byte) error { _, err := unmarshalAgentInstanceTaskEvent(data); return err }},
+		{"task", func(data []byte) error { _, err := unmarshalSessionTask(data); return err }},
+		{"event", func(data []byte) error { _, err := unmarshalSessionTaskEvent(data); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) { require.Error(t, test.decode([]byte{0xff})) })
 	}
@@ -105,53 +105,53 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	client := NewClient(pool)
 	q := pool
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original")
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "original")
 	addUnknown(request)
-	addUnknown(request.Harness)
-	instance, _, err := client.CreateAgentInstance(ctx, request, "create")
+	addUnknown(request.Agent)
+	session, _, err := client.CreateSession(ctx, request, "create")
 	require.NoError(t, err)
-	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "renamed while creating")
+	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed while creating")
 	require.NoError(t, err)
-	instance, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime:80")
+	session, err = markSessionReady(ctx, client, session.Id, "runtime:80")
 	require.NoError(t, err)
-	require.Equal(t, "renamed while creating", instance.Name)
-	suspend, err := client.BeginAgentInstanceOperation(ctx, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND)
+	require.Equal(t, "renamed while creating", session.Name)
+	suspend, err := client.BeginSessionOperation(ctx, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND)
 	require.NoError(t, err)
-	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "renamed again")
+	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "renamed again")
 	require.NoError(t, err)
 	executor := uuid.New()
-	claimed, err := client.ClaimAgentInstanceOperation(ctx, instance.Id, suspend.ID, executor)
+	claimed, err := client.ClaimSessionOperation(ctx, session.Id, suspend.ID, executor)
 	require.NoError(t, err)
 	require.True(t, claimed)
-	instance, err = client.FinishAgentInstanceOperation(ctx, instance.Id, suspend.ID, executor, "", "", "")
+	session, err = client.FinishSessionOperation(ctx, session.Id, suspend.ID, executor, "", "", "")
 	require.NoError(t, err)
-	require.Equal(t, "renamed again", instance.Name)
-	require.Equal(t, "alice", instance.Creator)
-	require.Equal(t, "revision", instance.PreparedRevision)
-	row, err := readAgentInstance(ctx, q, instance.Id)
+	require.Equal(t, "renamed again", session.Name)
+	require.Equal(t, "alice", session.Creator)
+	require.Equal(t, "revision", session.PreparedRevision)
+	row, err := readSession(ctx, q, session.Id)
 	require.NoError(t, err)
-	stored := &apiv1alpha1.AgentInstance{}
+	stored := &apiv1alpha1.Session{}
 	require.NoError(t, proto.Unmarshal(row.Data, stored))
-	require.True(t, proto.Equal(instance, stored))
+	require.True(t, proto.Equal(session, stored))
 	require.Equal(t, request.ProtoReflect().GetUnknown(), stored.ProtoReflect().GetUnknown())
-	require.Equal(t, request.Harness.ProtoReflect().GetUnknown(), stored.Harness.ProtoReflect().GetUnknown())
-	instance, err = finishInstanceOperation(ctx, client, instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME, "")
+	require.Equal(t, request.Agent.ProtoReflect().GetUnknown(), stored.Agent.ProtoReflect().GetUnknown())
+	session, err = finishSessionOperation(ctx, client, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME, "")
 	require.NoError(t, err)
 
-	task := &a2a.Task{ID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
+	task := &a2a.Task{ID: "task", ContextID: session.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
 		History: []*a2a.Message{{ID: "message", Role: a2a.MessageRoleUser, Parts: a2a.ContentParts{a2a.NewTextPart("hello")}}},
 	}
-	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task, "")
+	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("request hash"), task, "")
 	require.NoError(t, err)
 	// Simulate a newer writer using the same binary SQL boundary.
-	taskRow, err := readAgentInstanceTask(ctx, q, row.HistoryID, string(task.ID))
+	taskRow, err := readSessionTask(ctx, q, row.HistoryID, string(task.ID))
 	require.NoError(t, err)
 	futureTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(taskRow.Data, futureTask))
 	addUnknown(futureTask)
 	addUnknown(futureTask.Status)
-	futureTask.Status.Message = &a2apb.Message{MessageId: "question", Role: a2apb.Role_ROLE_AGENT, TaskId: string(task.ID), ContextId: instance.GetContextId(),
+	futureTask.Status.Message = &a2apb.Message{MessageId: "question", Role: a2apb.Role_ROLE_AGENT, TaskId: string(task.ID), ContextId: session.GetContextId(),
 		Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "question"}}}}
 	addUnknown(futureTask.Status.Message)
 	addUnknown(futureTask.Status.Message.Parts[0])
@@ -168,12 +168,12 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
-	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
+	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 	addUnknown(checkpointRequest)
-	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
 	require.NoError(t, err)
-	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/checkpoint", "")
+	checkpoint, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
 	checkpointRow, err := readCheckpoint(ctx, q, checkpoint.Id, "alice", new("READY"))
 	require.NoError(t, err)
@@ -181,16 +181,16 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, storedCheckpoint))
 	require.True(t, proto.Equal(checkpoint, storedCheckpoint))
 	require.Equal(t, checkpointRequest.ProtoReflect().GetUnknown(), checkpoint.ProtoReflect().GetUnknown())
-	_, err = client.GetAgentInstanceCheckpoint(ctx, checkpoint.Id, "mallory")
+	_, err = client.GetSessionCheckpoint(ctx, checkpoint.Id, "mallory")
 	require.ErrorIs(t, err, ErrNotFound)
-	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
+	fork, created, err := client.ForkSession(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
 	require.True(t, created)
-	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
+	tasks, total, err := client.ListSessionTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, tasks[0].History, 2)
-	forkRow, err := readAgentInstance(ctx, q, fork.Id)
+	forkRow, err := readSession(ctx, q, fork.Id)
 	require.NoError(t, err)
 	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)}, nil, false)
 	require.NoError(t, err)
@@ -198,16 +198,17 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
 	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
-	require.Equal(t, task.ID, tasks[0].ID)
-	forkTaskRow, err := readAgentInstanceTask(ctx, q, forkRow.HistoryID, string(tasks[0].ID))
+	require.NotEqual(t, task.ID, tasks[0].ID)
+	require.Equal(t, fork.Id, tasks[0].ContextID)
+	forkTaskRow, err := readSessionTask(ctx, q, forkRow.HistoryID, string(tasks[0].ID))
 	require.NoError(t, err)
 	forkTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(forkTaskRow.Data, forkTask))
 	require.Equal(t, futureTask.ProtoReflect().GetUnknown(), forkTask.ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.ProtoReflect().GetUnknown(), forkTask.Status.ProtoReflect().GetUnknown())
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, forkTask.Status.State)
-	require.NoError(t, deleteInstance(ctx, client, fork.Id))
-	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
+	require.NoError(t, deleteSession(ctx, client, fork.Id))
+	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
 	checkpointRow, err = readCheckpoint(ctx, q, checkpoint.Id, "alice", nil)
 	require.NoError(t, err)
@@ -215,8 +216,8 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, deleting))
 	require.Equal(t, checkpointRequest.ProtoReflect().GetUnknown(), deleting.ProtoReflect().GetUnknown())
 	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING, deleting.State)
-	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice"))
-	_, err = client.GetAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
+	require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.Id, "alice"))
+	_, err = client.GetSessionCheckpoint(ctx, checkpoint.Id, "alice")
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -227,7 +228,7 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	card, err := pbconv.ToProtoAgentCard(&a2a.AgentCard{Name: "assistant", Description: "assistant", Version: "v1", SupportedInterfaces: []*a2a.AgentInterface{a2a.NewAgentInterface("http://runtime", a2a.TransportProtocolGRPC)}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}, Skills: []a2a.AgentSkill{{ID: "skill", Name: "skill", Description: "skill", Tags: []string{"tag"}}}, Capabilities: a2a.AgentCapabilities{Streaming: true}})
 	require.NoError(t, err)
 	addUnknown(card)
-	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template", HarnessName: "kagent", HarnessUID: "harness", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
+	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "template", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
 	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
@@ -244,44 +245,44 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "assistant", rendered.Name)
 	require.True(t, rendered.Capabilities.Streaming)
-	agentInstanceFixture(t, client, ctx, "team-a", "instance-revision", "assistant", "kagent")
-	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
+	sessionFixture(t, client, ctx, "team-a", "session-revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
 	require.NoError(t, err)
-	for _, permission := range []apiv1alpha1.AgentInstanceSharePermission{apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY, apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE} {
+	for _, permission := range []apiv1alpha1.SessionSharePermission{apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE} {
 		digest := sha256.Sum256([]byte(permission.String()))
-		value := &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: instance.Id, Permission: permission}
+		value := &apiv1alpha1.SessionShare{Id: uuid.NewString(), SessionId: session.Id, Permission: permission}
 		addUnknown(value)
-		share, err := client.CreateAgentInstanceShare(ctx, value, digest[:], "alice")
+		share, err := client.CreateSessionShare(ctx, value, digest[:], "alice")
 		require.NoError(t, err)
 		require.Equal(t, value.ProtoReflect().GetUnknown(), share.ProtoReflect().GetUnknown())
-		resolved, ownerUserID, err := client.GetAgentInstanceShareByTokenHash(ctx, digest[:])
+		resolved, ownerUserID, err := client.GetSessionShareByTokenHash(ctx, digest[:])
 		require.NoError(t, err)
 		require.True(t, proto.Equal(share, resolved))
 		require.Equal(t, "alice", ownerUserID)
-		listed, err := client.ListAgentInstanceShares(ctx, instance.Id, "alice", "", 10)
+		listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
 		require.NoError(t, err)
 		require.Len(t, listed, 1)
 		require.True(t, proto.Equal(share, listed[0]))
-		listed, err = client.ListAgentInstanceShares(ctx, instance.Id, "mallory", "", 10)
+		listed, err = client.ListSessionShares(ctx, session.Id, "mallory", "", 10)
 		require.NoError(t, err)
 		require.Empty(t, listed)
-		require.ErrorIs(t, client.DeleteAgentInstanceShare(ctx, share.Id, "mallory"), ErrNotFound)
-		require.NoError(t, client.DeleteAgentInstanceShare(ctx, share.Id, "alice"))
-		_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, digest[:])
+		require.ErrorIs(t, client.DeleteSessionShare(ctx, share.Id, "mallory"), ErrNotFound)
+		require.NoError(t, client.DeleteSessionShare(ctx, share.Id, "alice"))
+		_, _, err = client.GetSessionShareByTokenHash(ctx, digest[:])
 		require.ErrorIs(t, err, ErrNotFound)
 	}
 }
 
 func TestProtobufRowsRejectInconsistentIndexes(t *testing.T) {
 	id := uuid.New()
-	checkpoint := &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: id.String(), State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY}
+	checkpoint := &apiv1alpha1.Checkpoint{Id: id.String(), SessionId: id.String(), State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY}
 	data, err := proto.Marshal(checkpoint)
 	require.NoError(t, err)
-	_, err = toAgentInstanceCheckpoint(agentInstanceCheckpointRow{ID: id, SourceInstanceID: id, State: "CREATING", Data: data})
+	_, err = toSessionCheckpoint(sessionCheckpointRow{ID: id, SourceSessionID: id, State: "CREATING", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
-	share := &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: id.String(), Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE}
+	share := &apiv1alpha1.SessionShare{Id: id.String(), SessionId: id.String(), Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}
 	data, err = proto.Marshal(share)
 	require.NoError(t, err)
-	_, err = toAgentInstanceShare(agentInstanceShareRow{ID: id, InstanceID: id, Permission: "AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY", Data: data})
+	_, err = toSessionShare(sessionShareRow{ID: id, SessionID: id, Permission: "SESSION_SHARE_PERMISSION_READ_ONLY", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
 }
