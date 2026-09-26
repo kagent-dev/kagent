@@ -1,3 +1,4 @@
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
 import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
@@ -35,9 +36,7 @@ import {
   SystemService,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
-  SessionOperation as PbSessionOperation,
   SessionService,
-  SessionState as PbSessionState,
 } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import { ApiError, isNotFound } from "./ApiError";
 import { apiClient } from "./client";
@@ -775,8 +774,8 @@ describe("agent instances", () => {
       agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
       preparedRevision: "rev-7f3a91c",
       a2aAuthority: "k8s-agent.kagent.svc:8080",
-      state: PbSessionState.READY,
-      operation: PbSessionOperation.UNSPECIFIED,
+      state: RuntimeState.READY,
+      operation: RuntimeOperation.NONE,
       createdAt: { seconds: 1767225600n, nanos: 0 },
       updatedAt: { seconds: 1767225600n, nanos: 0 },
       ...overrides,
@@ -791,8 +790,8 @@ describe("agent instances", () => {
             instanceMessage(),
             instanceMessage({
               id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
-              state: PbSessionState.SUSPENDED,
-              operation: PbSessionOperation.RESUME,
+              state: RuntimeState.SUSPENDED,
+              operation: RuntimeOperation.RESUME,
             }),
           ],
           page: {},
@@ -856,8 +855,8 @@ describe("agent instances", () => {
               preparedRevision: "",
               a2aAuthority: "",
               createdAt: undefined,
-              state: PbSessionState.CREATING,
-              operation: PbSessionOperation.CREATE,
+              state: RuntimeState.CREATING,
+              operation: RuntimeOperation.CREATE,
             }),
           ],
           page: {},
@@ -879,7 +878,7 @@ describe("agent instances", () => {
         listSessions: () => ({
           sessions: [
             instanceMessage({
-              state: PbSessionState.FAILED,
+              state: RuntimeState.FAILED,
               // Present, and empty. The message being there is the only signal that
               // something went wrong, so the presence must survive the conversion
               // even when neither half has any text in it.
@@ -1000,12 +999,12 @@ describe("agent instances", () => {
         suspendSession: (request) => {
           called.push(`suspend ${request.sessionId}`);
           return {
-            session: instanceMessage({ state: PbSessionState.SUSPENDED }),
+            session: instanceMessage({ state: RuntimeState.SUSPENDED }),
           };
         },
         resumeSession: (request) => {
           called.push(`resume ${request.sessionId}`);
-          return { session: instanceMessage({ state: PbSessionState.READY }) };
+          return { session: instanceMessage({ state: RuntimeState.READY }) };
         },
       });
     });

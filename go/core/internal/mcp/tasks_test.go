@@ -531,7 +531,7 @@ func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv
 
 func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error) {
 	return []*apiv1alpha1.Session{{
-		Id: testSessionID, State: apiv1alpha1.SessionState_SESSION_STATE_READY,
+		Id: testSessionID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
 		Agent: &apiv1alpha1.ResourceReference{Name: "assistant"},
 	}}, nil
 }

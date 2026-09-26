@@ -117,7 +117,7 @@ func (s *testStore) ForkSession(_ context.Context, _ string, userID, _ string, s
 	if s.forked == nil {
 		s.forked = &apiv1alpha1.Session{
 			Id: sessionID, Creator: userID,
-			State: apiv1alpha1.SessionState_SESSION_STATE_CREATING,
+			State: apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING,
 		}
 		return s.forked, true, nil
 	}
@@ -130,7 +130,7 @@ type testWorkflow struct {
 
 func (w *testWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	w.session = session
-	session.State = apiv1alpha1.SessionState_SESSION_STATE_READY
+	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
 	return session, nil
 }
 
@@ -323,7 +323,7 @@ func TestForkCreatesSessionFromCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY ||
+	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY ||
 		workflow.session != store.forked || store.forked.GetId() == "" {
 		t.Fatalf("fork = %+v, checkpoint = %+v", session, checkpoint)
 	}

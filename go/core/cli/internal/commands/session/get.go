@@ -125,7 +125,7 @@ func writeSessionsTable(w io.Writer, sessions []*apiv1alpha1.Session, nextPageTo
 		tw.AppendRow(table.Row{
 			session.GetId(),
 			resourceName(session.GetAgent()),
-			strings.TrimPrefix(session.GetState().String(), "SESSION_STATE_"),
+			strings.TrimPrefix(session.GetState().String(), "RUNTIME_STATE_"),
 			formatTimestamp(session.GetCreatedAt()),
 		})
 	}

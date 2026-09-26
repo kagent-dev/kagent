@@ -20,7 +20,7 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if session.State == "SESSION_STATE_DELETED" {
+		if session.State == "RUNTIME_STATE_DELETED" {
 			return ErrNotFound
 		}
 		type boundary struct {

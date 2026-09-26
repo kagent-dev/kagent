@@ -103,7 +103,7 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 	output := ListSessionsOutput{Sessions: []SessionSummary{}, NextPageToken: result.NextPageToken}
 	for _, session := range result.Sessions {
-		if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 			continue
 		}
 		output.Sessions = append(output.Sessions, sessionSummary(session))

@@ -27,7 +27,7 @@ type SessionOperation struct {
 // state. Delete alone may supersede unclaimed work; uncertain work blocks it.
 // Callers authorize access. Deleted sessions return ErrNotFound, except Delete
 // can observe the tombstone for a caller already authorized before deletion.
-func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1alpha1.SessionOperation) (*SessionOperation, error) {
+func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1alpha1.RuntimeOperation) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, sessionID)
@@ -39,49 +39,49 @@ func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, ki
 			return err
 		}
 		session := operation.Session
-		if session.State == apiv1alpha1.SessionState_SESSION_STATE_DELETED {
-			if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE {
+		if session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+			if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 				return nil
 			}
 			return ErrNotFound
 		}
-		pending := row.OperationID != nil && session.Operation != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED
+		pending := row.OperationID != nil && session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
 		if pending {
 			if session.Operation == kind {
 				return nil
 			}
-			canSupersede := kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE && row.ExecutorID == nil
+			canSupersede := kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE && row.ExecutorID == nil
 			if !canSupersede {
 				return fmt.Errorf("session has an unfinished lifecycle operation: %w", ErrConflict)
 			}
-			session.Operation = apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED
+			session.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
 		}
-		var expected, target apiv1alpha1.SessionState
+		var expected, target apiv1alpha1.RuntimeState
 		switch kind {
-		case apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE:
+		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
 			// Request deduplication reserves identity, not a historical READY response.
-			if session.State != apiv1alpha1.SessionState_SESSION_STATE_CREATING && session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+			if session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING && session.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 				return nil
 			}
-			expected = apiv1alpha1.SessionState_SESSION_STATE_CREATING
-		case apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME:
-			expected, target = apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED, apiv1alpha1.SessionState_SESSION_STATE_READY
-		case apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND:
-			expected, target = apiv1alpha1.SessionState_SESSION_STATE_READY, apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED
-		case apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE:
+			expected = apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING
+		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+			expected, target = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
+			expected, target = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED
+		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 			expected = session.State
 		default:
 			return fmt.Errorf("invalid lifecycle operation %s", kind)
 		}
-		alreadyAtTarget := target != apiv1alpha1.SessionState_SESSION_STATE_UNSPECIFIED && session.State == target
-		if alreadyAtTarget && session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+		alreadyAtTarget := target != apiv1alpha1.RuntimeState_RUNTIME_STATE_UNSPECIFIED && session.State == target
+		if alreadyAtTarget && session.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 			return nil
 		}
-		expectedOperation := apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED
-		if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
+		expectedOperation := apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
+		if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 			expectedOperation = kind
 		}
-		deletingUnissuedCreation := kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE && session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE
+		deletingUnissuedCreation := kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE && session.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE
 		canStart := session.State == expected && (session.Operation == expectedOperation || deletingUnissuedCreation)
 		if !canStart {
 			return fmt.Errorf("session cannot start %s from %s with operation %s: %w", kind, session.State, session.Operation, ErrConflict)
@@ -98,7 +98,7 @@ func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, ki
 		tag, err := tx.Exec(ctx, `
 			UPDATE session SET operation = $2, data = $3, operation_id = $5, executor_id = NULL WHERE id = $1
 			AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
-			AND ($2::text <> 'SESSION_OPERATION_SUSPEND' OR NOT EXISTS (
+			AND ($2::text <> 'RUNTIME_OPERATION_SUSPEND' OR NOT EXISTS (
 			    SELECT 1 FROM session_task WHERE history_id = $4
 			    AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED',
 			        'TASK_STATE_REJECTED', 'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')))
@@ -128,8 +128,8 @@ func (c *Client) ClaimSessionOperation(ctx context.Context, sessionID string, id
 	tag, err := c.db.Exec(ctx, `
 		UPDATE session SET executor_id = $3
 		WHERE id = $1 AND operation_id = $2 AND executor_id IS NULL
-		  AND operation <> 'SESSION_OPERATION_UNSPECIFIED'
-		  AND state <> 'SESSION_STATE_DELETED'
+		  AND operation <> 'RUNTIME_OPERATION_NONE'
+		  AND state <> 'RUNTIME_STATE_DELETED'
 	`, sessionID, id, executorID)
 	return tag.RowsAffected() == 1, err
 }
@@ -156,24 +156,24 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 		result = operation.Session
 		failedPreparation := executorID == uuid.Nil && failure != ""
 		successfulExecution := executorID != uuid.Nil && failure == ""
-		if id == uuid.Nil || operation.ID != id || result.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED || operation.ExecutorID != executorID || (!failedPreparation && !successfulExecution) {
+		if id == uuid.Nil || operation.ID != id || result.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE || operation.ExecutorID != executorID || (!failedPreparation && !successfulExecution) {
 			return fmt.Errorf("lifecycle operation no longer belongs to this executor: %w", ErrConflict)
 		}
 		kind := result.Operation
-		result.Operation = apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED
+		result.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
 		result.UpdatedAt = timestamppb.Now()
 		if successfulExecution {
 			switch kind {
-			case apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE:
+			case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
 				if authority == "" || actorUID == "" {
 					return fmt.Errorf("created Session requires runtime authority and actor UID")
 				}
-				result.State, result.A2AAuthority, result.Failure = apiv1alpha1.SessionState_SESSION_STATE_READY, authority, nil
-			case apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME:
-				result.State = apiv1alpha1.SessionState_SESSION_STATE_READY
-			case apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND:
-				result.State = apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED
-			case apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE:
+				result.State, result.A2AAuthority, result.Failure = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, authority, nil
+			case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+				result.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+			case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
+				result.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED
+			case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 				if actorUID != "" {
 					matches, err := queryOne(ctx, tx, `SELECT actor_uid = $2 FROM session WHERE id = $1`, pgx.RowTo[bool], sessionID, actorUID)
 					if err != nil {
@@ -185,7 +185,7 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 				}
 				return tombstoneSession(ctx, tx, result, row.OperationID)
 			}
-		} else if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
+		} else if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 			result.Operation = kind // A new generation may retry preparation with the same pinned inputs.
 		}
 		data, err := marshalSession(result)
@@ -198,7 +198,7 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 			    executor_id = NULL, actor_uid = CASE WHEN $7 THEN $6 ELSE actor_uid END
 			WHERE id = $1 AND ($6::text = '' OR actor_uid = $6 OR (actor_uid IS NULL AND $7))
 		`, sessionID, result.State.String(), result.Operation.String(), data, failedPreparation, actorUID,
-			successfulExecution && kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE)
+			successfulExecution && kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 		if err != nil {
 			return err
 		}

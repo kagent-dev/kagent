@@ -1,3 +1,4 @@
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
 import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1alpha1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
 import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
@@ -51,10 +52,8 @@ import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harne
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
 import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
 import {
-  SessionOperation as PbSessionOperation,
   SessionService,
   SessionSharePermission as PbSharePermission,
-  SessionState as PbSessionState,
 } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { Session as PbSession } from "@/generated/kagent/api/v1alpha1/sessions_pb";
@@ -545,25 +544,25 @@ function toPromptDetail(template: {
  * place that would otherwise keep quiet about it and render the new state as a
  * blank cell.
  */
-const INSTANCE_STATE_BY_ENUM: Record<PbSessionState, AgentInstanceState> = {
-  [PbSessionState.UNSPECIFIED]: "unspecified",
-  [PbSessionState.CREATING]: "creating",
-  [PbSessionState.READY]: "ready",
-  [PbSessionState.SUSPENDED]: "suspended",
-  [PbSessionState.FAILED]: "failed",
-  [PbSessionState.DELETING]: "deleting",
-  [PbSessionState.DELETED]: "deleted",
+const INSTANCE_STATE_BY_ENUM: Record<RuntimeState, AgentInstanceState> = {
+  [RuntimeState.UNSPECIFIED]: "unspecified",
+  [RuntimeState.CREATING]: "creating",
+  [RuntimeState.READY]: "ready",
+  [RuntimeState.SUSPENDED]: "suspended",
+  [RuntimeState.FAILED]: "failed",
+  [RuntimeState.DELETING]: "deleting",
+  [RuntimeState.DELETED]: "deleted",
 };
 
 const INSTANCE_OPERATION_BY_ENUM: Record<
-  PbSessionOperation,
+  RuntimeOperation,
   AgentInstanceOperation
 > = {
-  [PbSessionOperation.UNSPECIFIED]: "unspecified",
-  [PbSessionOperation.CREATE]: "create",
-  [PbSessionOperation.SUSPEND]: "suspend",
-  [PbSessionOperation.RESUME]: "resume",
-  [PbSessionOperation.DELETE]: "delete",
+  [RuntimeOperation.NONE]: "unspecified",
+  [RuntimeOperation.CREATE]: "create",
+  [RuntimeOperation.SUSPEND]: "suspend",
+  [RuntimeOperation.RESUME]: "resume",
+  [RuntimeOperation.DELETE]: "delete",
 };
 
 /**

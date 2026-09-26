@@ -55,6 +55,7 @@ func TestGetSessionTableUsesFullID(t *testing.T) {
 	assert.Contains(t, output.String(), testSessionID)
 	assert.Contains(t, output.String(), "smoke")
 	assert.Contains(t, output.String(), "READY")
+	assert.NotContains(t, output.String(), "RUNTIME_STATE_")
 	assert.Contains(t, output.String(), "Next page token: next-page")
 }
 
@@ -67,6 +68,7 @@ func TestGetOneSessionJSON(t *testing.T) {
 	assert.Equal(t, testSessionID, client.getRequest.GetSessionId())
 	assert.True(t, json.Valid(output.Bytes()))
 	assert.Contains(t, output.String(), testSessionID)
+	assert.Contains(t, output.String(), "RUNTIME_STATE_READY")
 }
 
 func TestListSessionsJSONPreservesNextPageToken(t *testing.T) {
@@ -114,7 +116,7 @@ func testSession() *apiv1alpha1.Session {
 		Id: testSessionID, Creator: "e2e",
 
 		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"},
-		State:     apiv1alpha1.SessionState_SESSION_STATE_READY,
+		State:     apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
 		CreatedAt: timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)),
 	}
 }

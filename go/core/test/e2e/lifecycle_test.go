@@ -20,7 +20,7 @@ func TestSessionLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("delete Session: %v", err)
 		}
-		if deleted.GetSession().GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED {
+		if deleted.GetSession().GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
 			t.Fatalf("deleted Session state = %s, want DELETED", deleted.GetSession().GetState())
 		}
 

@@ -59,7 +59,7 @@ func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1alpha1
 	if s.createErr != nil {
 		return nil, false, s.createErr
 	}
-	session.State = apiv1alpha1.SessionState_SESSION_STATE_READY
+	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
 	return session, true, nil
 }
 
@@ -68,7 +68,7 @@ func (s *serviceTestStore) GetSession(_ context.Context, id, creator string) (*a
 	if s.getResult != nil || s.getErr != nil {
 		return s.getResult, s.getErr
 	}
-	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.SessionState_SESSION_STATE_READY}, nil
+	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}, nil
 }
 
 func (s *serviceTestStore) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
@@ -503,7 +503,7 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 			if test.share != nil {
 				ctx = auth.ShareContextTo(ctx, test.share)
 			}
-			stored := &apiv1alpha1.Session{Id: id, State: apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED}
+			stored := &apiv1alpha1.Session{Id: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED}
 			store := &serviceTestStore{getResult: stored}
 			authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
 			// A suspended read must never touch a workflow.

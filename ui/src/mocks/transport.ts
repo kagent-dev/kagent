@@ -1,3 +1,4 @@
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
 import { AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
@@ -94,10 +95,8 @@ import {
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import {
-  SessionOperation as PbSessionOperation,
   SessionService,
   SessionSharePermission as PbSharePermission,
-  SessionState as PbSessionState,
   type SessionSchema,
 } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1alpha1/common_pb";
@@ -606,26 +605,26 @@ on(PromptTemplateService.method.deletePromptTemplate, (input) => {
  * for the same reason: keyed by the generated enum, so a member added to the proto
  * fails `yarn typecheck` here rather than being served as a zero.
  */
-const PB_STATE_BY_NAME: Record<AgentInstanceState, PbSessionState> = {
-  unspecified: PbSessionState.UNSPECIFIED,
-  creating: PbSessionState.CREATING,
-  ready: PbSessionState.READY,
-  suspended: PbSessionState.SUSPENDED,
-  failed: PbSessionState.FAILED,
-  deleting: PbSessionState.DELETING,
-  deleted: PbSessionState.DELETED,
+const PB_STATE_BY_NAME: Record<AgentInstanceState, RuntimeState> = {
+  unspecified: RuntimeState.UNSPECIFIED,
+  creating: RuntimeState.CREATING,
+  ready: RuntimeState.READY,
+  suspended: RuntimeState.SUSPENDED,
+  failed: RuntimeState.FAILED,
+  deleting: RuntimeState.DELETING,
+  deleted: RuntimeState.DELETED,
   // A state this client does not recognise cannot be sent back as anything but
   // the zero value; there is no number to invent. The fixtures never use it.
-  unknown: PbSessionState.UNSPECIFIED,
+  unknown: RuntimeState.UNSPECIFIED,
 };
 
-const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, PbSessionOperation> = {
-  unspecified: PbSessionOperation.UNSPECIFIED,
-  create: PbSessionOperation.CREATE,
-  suspend: PbSessionOperation.SUSPEND,
-  resume: PbSessionOperation.RESUME,
-  delete: PbSessionOperation.DELETE,
-  unknown: PbSessionOperation.UNSPECIFIED,
+const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, RuntimeOperation> = {
+  unspecified: RuntimeOperation.NONE,
+  create: RuntimeOperation.CREATE,
+  suspend: RuntimeOperation.SUSPEND,
+  resume: RuntimeOperation.RESUME,
+  delete: RuntimeOperation.DELETE,
+  unknown: RuntimeOperation.NONE,
 };
 
 function agentInstanceMessage(

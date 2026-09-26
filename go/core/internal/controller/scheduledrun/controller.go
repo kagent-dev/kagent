@@ -156,13 +156,13 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	}
 	dispatchCtx, cancel := context.WithDeadline(ctx, execution.GetDeadline().AsTime())
 	defer cancel()
-	if session.GetState() == apiv1alpha1.SessionState_SESSION_STATE_CREATING {
+	if session.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING {
 		session, err = c.workflow.Create(dispatchCtx, session)
 		if err != nil {
 			return err
 		}
 	}
-	if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || session.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || session.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return fmt.Errorf("scheduled session %s is not ready for dispatch", session.GetId())
 	}
 	if err := c.store.ClaimScheduledRunDispatch(ctx, leased.Lease); err != nil {
@@ -228,7 +228,7 @@ func (c *Controller) stop(ctx context.Context, execution *apiv1alpha1.ScheduledR
 		return c.gateway.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
 	}
 	// No invocation was accepted; clean up the ordinary session lifecycle.
-	if session.GetState() == apiv1alpha1.SessionState_SESSION_STATE_CREATING {
+	if session.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING {
 		_, err := c.workflow.Delete(ctx, session)
 		return nil, err
 	}

@@ -37,8 +37,8 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 			FROM session_task_event e JOIN session i ON i.history_id = e.history_id
 			WHERE e.published AND e.quiescence_pending = TRUE
 			  AND e.quiescence_executor_id IS NULL
-			  AND i.state = 'SESSION_STATE_READY'
-			  AND i.operation = 'SESSION_OPERATION_UNSPECIFIED'
+			  AND i.state = 'RUNTIME_STATE_READY'
+			  AND i.operation = 'RUNTIME_OPERATION_NONE'
 			  AND (i.dispatch_expires_at IS NULL OR i.dispatch_expires_at <= clock_timestamp())
 			  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = i.id AND state = 'CREATING')
 			ORDER BY e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
@@ -50,7 +50,7 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 		if err != nil {
 			return err
 		}
-		if session.State != "SESSION_STATE_READY" || session.Operation != "SESSION_OPERATION_UNSPECIFIED" {
+		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return ErrNotFound
 		}
 		stored, err := readSessionTask(ctx, tx, session.HistoryID, row.TaskID)
@@ -102,7 +102,7 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if session.State == "SESSION_STATE_DELETED" {
+		if session.State == "RUNTIME_STATE_DELETED" {
 			return ErrNotFound
 		}
 		pending, err := queryOne(ctx, tx, `

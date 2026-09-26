@@ -216,7 +216,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	sessionID := "00000000-0000-0000-0000-000000000002"
 	historyID := "00000000-0000-0000-0000-000000000003"
 	execSQL(t, dsn, "INSERT INTO a2a_context (id, context_id) VALUES ($1, $2)", historyID, contextID)
-	execSQL(t, dsn, "INSERT INTO session (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'SESSION_STATE_READY', $2, $3, $4)", sessionID, []byte{}, contextID, historyID)
+	execSQL(t, dsn, "INSERT INTO session (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'RUNTIME_STATE_READY', $2, $3, $4)", sessionID, []byte{}, contextID, historyID)
 	execSQL(t, dsn, "INSERT INTO session_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
 	scheduleID := "00000000-0000-0000-0000-000000000003"
 	executionID := "00000000-0000-0000-0000-000000000004"

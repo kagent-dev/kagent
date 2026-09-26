@@ -32,7 +32,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || created.GetA2AAuthority() == "" {
+	if created.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || created.GetA2AAuthority() == "" {
 		t.Fatalf("created session = %+v", created)
 	}
 	if len(actors.actors) != 1 {
@@ -52,7 +52,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
+	if created.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
 		t.Fatalf("quiesced session = %+v, boundary = %+v", created, boundary)
 	}
 
@@ -60,7 +60,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if suspended.GetState() != apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if suspended.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		t.Fatalf("suspended session = %+v", suspended)
 	}
 	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
@@ -71,7 +71,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || resumed.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if resumed.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || resumed.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		t.Fatalf("resumed session = %+v", resumed)
 	}
 
@@ -81,7 +81,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 	_, err = store.GetSessionByID(t.Context(), session.Id)
 	require.ErrorIs(t, err, database.ErrNotFound)
-	if deleted.GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED || len(actors.actors) != 0 {
+	if deleted.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED || len(actors.actors) != 0 {
 		t.Fatalf("deleted session = %+v, actors = %v", deleted, actors.actors)
 	}
 }
@@ -123,7 +123,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]
-	if fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY ||
+	if fork.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY ||
 		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
 		actor.GetSourceTag().GetName() != "checkpoint-"+checkpointID {
 		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
@@ -331,7 +331,7 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_CREATING, current.State)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING, current.State)
 			require.Empty(t, current.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
 			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
@@ -403,7 +403,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
 	deleted, err := service.Delete(ctx, session.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_DELETED, deleted.State)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
 	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")
