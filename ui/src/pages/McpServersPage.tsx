@@ -35,7 +35,7 @@ const FILTER_IDS: readonly string[] = ["ns", "kind"];
 const PAGE_SIZE = 25;
 
 /**
- * The kind, without the API group: `RemoteMCPServer.kagent.dev` → `RemoteMCPServer`.
+ * The kind, without the API group: `RemoteMCPServer.api.kagent.dev` → `RemoteMCPServer`.
  *
  * The group is the same for every row, so showing it would cost width and tell
  * the reader nothing.

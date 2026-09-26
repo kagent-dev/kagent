@@ -1,6 +1,6 @@
 # Codex Harness
 
-The Codex Harness compiles a `kagent.dev/v1alpha3` `AgentTemplate` into a
+The Codex Harness compiles an `api.kagent.dev/v1alpha3` `AgentTemplate` into a
 compiler-owned Codex configuration and runs one Codex App Server `0.148.0`
 process for each public A2A Task. Its native thread and workspace are retained
 in the Actor's `DurableDir`.
@@ -110,7 +110,7 @@ schema](https://learn.chatgpt.com/docs/app-server#message-schema).
 ## Example
 
 ```yaml
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
   name: codex-harness
@@ -125,7 +125,7 @@ spec:
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
 ---
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   labels:
@@ -151,7 +151,7 @@ spec:
       skills:
         - migrate-agent-plugin
 ---
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: kagent-codex

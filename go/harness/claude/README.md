@@ -115,7 +115,7 @@ the unresolved requests are denied, not approved.
 ## Example usage
 
 ```yaml
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
   name: claude-e2e
@@ -130,7 +130,7 @@ spec:
     snapshotPolicy:
       location: gs://ate-snapshots/kagent/
 ---
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   labels:
@@ -156,7 +156,7 @@ spec:
       skills:
         - migrate-agent-plugin
 ---
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: kagent-claude

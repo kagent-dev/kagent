@@ -12,9 +12,9 @@ kagent uses a Substrate-backed API. Do not reuse commands, manifests, or concept
 
 ## Target API
 
-- `Agent` is a `kagent.dev/v1alpha3` CRD pairing a template and Harness, each inline or referenced. It owns readiness and revision selection.
-- `Harness` is a `kagent.dev/v1alpha3` CRD describing a supported runtime adapter. The release-blocking adapters are kagent, Codex, and Claude.
-- `AgentTemplate` is a `kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and template-backed subagent tools (`tools[].subAgent`).
+- `Agent` is an `api.kagent.dev/v1alpha3` CRD pairing a template and Harness, each inline or referenced. It owns readiness and revision selection.
+- `Harness` is an `api.kagent.dev/v1alpha3` CRD describing a supported runtime adapter. The release-blocking adapters are kagent, Codex, and Claude.
+- `AgentTemplate` is an `api.kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and template-backed subagent tools (`tools[].subAgent`).
 - `AgentInstance` is a PostgreSQL-backed gRPC resource representing one runnable rooted template tree and one A2A context.
 - `A2A context_id` equals the AgentInstance ID. A2A owns interaction and task history; AgentInstance APIs own lifecycle, metadata, and sharing.
 - Substrate is the only compute backend.

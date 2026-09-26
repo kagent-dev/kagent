@@ -647,7 +647,7 @@ export function AgentTemplateForm({
       </Form>
 
       <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-        <Tag>AgentTemplate</Tag> is a <code>kagent.dev/v1alpha3</code> custom resource.
+        <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
         Everything on this form writes one field of its <code>spec</code>, except the
         labels, which are <code>metadata</code> and decide which harness will run it.
       </Paragraph>

@@ -126,7 +126,7 @@ HARNESS_DIGEST="$(docker buildx imagetools inspect localhost:5001/kagent-dev/kag
 step "9/10  A harness and an agent template, so the app has an agent in it"
 # Create shared building blocks and an explicit runnable Agent.
 kubectl apply -f - <<EOF
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
   name: kagent
@@ -141,7 +141,7 @@ spec:
     snapshotPolicy:
       location: s3://ate-snapshots/kagent
 ---
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   name: assistant
@@ -154,7 +154,7 @@ spec:
   description: A general-purpose assistant.
   systemPrompt: You are a helpful assistant running on kagent.
 ---
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: assistant
@@ -172,13 +172,13 @@ EOF
 # explains that it is a matter of waiting.
 printf 'waiting for the agent to become ready'
 for _ in $(seq 1 40); do
-  ready="$(kubectl get agent -n kagent assistant \
+  ready="$(kubectl get agents.api.kagent.dev -n kagent assistant \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
   [ "$ready" = "True" ] && break
   printf '.'; sleep 15
 done
 echo
-kubectl get agent -n kagent assistant \
+kubectl get agents.api.kagent.dev -n kagent assistant \
   -o jsonpath='agent assistant x kagent: Ready={.status.conditions[?(@.type=="Ready")].status}{"\n"}'
 
 step "10/10  Done"

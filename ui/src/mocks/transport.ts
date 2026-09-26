@@ -335,7 +335,7 @@ function headerRecord(header: HeadersInit | undefined): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 /** A resource in the envelope the controller wraps custom resources in. */
-function structured(kind: string, value: object, apiVersion = "kagent.dev/v1alpha3") {
+function structured(kind: string, value: object, apiVersion = "api.kagent.dev/v1alpha3") {
   // `google.protobuf.Struct` is a `JsonObject` in the generated types, so a
   // fixture goes in exactly as it is written.
   return { apiVersion, kind, value: value as JsonObject };
@@ -387,7 +387,7 @@ function modelMessage(model: ModelConfig) {
   return {
     ref,
     resource: structured("ModelConfig", {
-      apiVersion: "kagent.dev/v1alpha3",
+      apiVersion: "api.kagent.dev/v1alpha3",
       kind: "ModelConfig",
       metadata: { name: ref.name, namespace: ref.namespace },
       spec: model.spec,
@@ -518,7 +518,9 @@ on(ToolService.method.createToolServer, (input) => {
   saveToolServer(input.type, server.metadata);
   // The RPC answers with the created resource rather than with a list row, which
   // is what the client assembles the row from.
-  return { resource: structured(input.type, server) };
+  return {
+    resource: structured(input.type, server, input.type === "MCPServer" ? "kagent.dev/v1alpha1" : undefined),
+  };
 });
 
 on(ToolService.method.deleteToolServer, (input) => {

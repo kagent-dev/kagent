@@ -1,15 +1,13 @@
 {{- define "kagent.writer.rules" -}}
 - apiGroups:
-  - kagent.dev
+  - api.kagent.dev
   resources:
   - harnesses
   - agents
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs
-  - toolservers
   - remotemcpservers
-  - mcpservers
   verbs:
   - create
   - update
@@ -18,12 +16,25 @@
 - apiGroups:
   - kagent.dev
   resources:
+  - mcpservers
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - api.kagent.dev
+  resources:
   - harnesses/finalizers
   - agents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
-  - toolservers/finalizers
   - remotemcpservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kagent.dev
+  resources:
   - mcpservers/finalizers
   verbs:
   - update

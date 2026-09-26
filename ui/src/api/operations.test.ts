@@ -59,10 +59,10 @@ describe("model configurations", () => {
   const modelConfigMessage = (name: string, model: string) => ({
     ref: { namespace: "kagent", name },
     resource: {
-      apiVersion: "kagent.dev/v1alpha3",
+      apiVersion: "api.kagent.dev/v1alpha3",
       kind: "ModelConfig",
       value: {
-        apiVersion: "kagent.dev/v1alpha3",
+        apiVersion: "api.kagent.dev/v1alpha3",
         kind: "ModelConfig",
         metadata: { name, namespace: "kagent" },
         spec: { model, provider: "OpenAI" },
@@ -217,7 +217,7 @@ describe("tool servers and tools", () => {
           toolServers: [
             {
               ref: "kagent/kagent-tool-server",
-              groupKind: "RemoteMCPServer.kagent.dev",
+              groupKind: "RemoteMCPServer.api.kagent.dev",
               discoveredTools: [{ name: "k8s_get_resources", description: "read" }],
             },
           ],
@@ -228,7 +228,7 @@ describe("tool servers and tools", () => {
     expect(await apiClient.mcpServers.list()).toEqual([
       {
         ref: "kagent/kagent-tool-server",
-        groupKind: "RemoteMCPServer.kagent.dev",
+        groupKind: "RemoteMCPServer.api.kagent.dev",
         discoveredTools: [{ name: "k8s_get_resources", description: "read" }],
       },
     ]);
@@ -242,7 +242,7 @@ describe("tool servers and tools", () => {
           received = request;
           return {
             resource: {
-              apiVersion: "kagent.dev/v1alpha3",
+              apiVersion: "api.kagent.dev/v1alpha3",
               kind: "RemoteMCPServer",
               value: { metadata: { name: "extra", namespace: "kagent" } },
             },
@@ -267,13 +267,43 @@ describe("tool servers and tools", () => {
     expect(received).toMatchObject({
       type: "RemoteMCPServer",
       ref: { namespace: "kagent", name: "extra" },
-      resource: { kind: "RemoteMCPServer" },
+      resource: { kind: "RemoteMCPServer", apiVersion: "api.kagent.dev/v1alpha3" },
     });
     expect(created.ref).toBe("kagent/extra");
-    expect(created.groupKind).toBe("RemoteMCPServer.kagent.dev");
+    expect(created.groupKind).toBe("RemoteMCPServer.api.kagent.dev");
     // Empty because it is: the controller has not handshaken with the server yet,
     // and inventing tools here would put unconfirmed ones on screen.
     expect(created.discoveredTools).toEqual([]);
+  });
+
+  it("keeps KMCP servers in their own API group", async () => {
+    let received: unknown;
+    serve(({ service }) => {
+      service(ToolService, {
+        createToolServer: (request) => {
+          received = request;
+          return { resource: request.resource };
+        },
+      });
+    });
+
+    const created = await apiClient.mcpServers.create({
+      type: "MCPServer",
+      mcpServer: {
+        metadata: { name: "local", namespace: "kagent" },
+        spec: {
+          deployment: { image: "example.com/mcp:latest", port: 8080 },
+          transportType: "stdio",
+          stdioTransport: {},
+        },
+      },
+    });
+
+    expect(received).toMatchObject({
+      type: "MCPServer",
+      resource: { kind: "MCPServer", apiVersion: "kagent.dev/v1alpha1" },
+    });
+    expect(created.groupKind).toBe("MCPServer.kagent.dev");
   });
 
   /**
@@ -293,7 +323,7 @@ describe("tool servers and tools", () => {
                 value: {
                   id: "k8s_get_resources",
                   server_name: "kagent-tool-server",
-                  group_kind: "RemoteMCPServer.kagent.dev",
+                  group_kind: "RemoteMCPServer.api.kagent.dev",
                   created_at: "2026-01-01T00:00:00Z",
                   updated_at: "2026-01-01T00:00:00Z",
                   description: "read resources",

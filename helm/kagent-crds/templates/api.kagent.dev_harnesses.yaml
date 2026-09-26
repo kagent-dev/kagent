@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: harnesses.kagent.dev
+  name: harnesses.api.kagent.dev
 spec:
-  group: kagent.dev
+  group: api.kagent.dev
   names:
     categories:
     - kagent

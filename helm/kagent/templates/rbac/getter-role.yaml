@@ -1,15 +1,13 @@
 {{- define "kagent.getter.rules" -}}
 - apiGroups:
-  - kagent.dev
+  - api.kagent.dev
   resources:
   - harnesses
   - agents
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs
-  - toolservers
   - remotemcpservers
-  - mcpservers
   verbs:
   - get
   - list
@@ -17,24 +15,42 @@
 - apiGroups:
   - kagent.dev
   resources:
+  - mcpservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - api.kagent.dev
+  resources:
   - harnesses/finalizers
   - agents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
-  - toolservers/finalizers
   - remotemcpservers/finalizers
-  - mcpservers/finalizers
   verbs:
   - update
 - apiGroups:
   - kagent.dev
   resources:
+  - mcpservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - api.kagent.dev
+  resources:
   - harnesses/status
   - agents/status
   - modelconfigs/status
   - modelproviderconfigs/status
-  - toolservers/status
   - remotemcpservers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kagent.dev
+  resources:
   - mcpservers/status
   verbs:
   - get

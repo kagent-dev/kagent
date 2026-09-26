@@ -6,7 +6,7 @@ as JSON in a same-namespace ConfigMap selected by `spec.outputSchemaFrom`. The
 two fields are mutually exclusive.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   name: data-extractor

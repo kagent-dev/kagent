@@ -381,7 +381,11 @@ const toolServers: Pick<
           },
           // The envelope's kind is the server type, which is what the handler
           // checks it against (`decodeCreateToolServerResource`).
-          resource: wrap(payload.type, server),
+          resource: wrap(
+            payload.type,
+            server,
+            payload.type === "MCPServer" ? "kagent.dev/v1alpha1" : KAGENT_API_VERSION,
+          ),
           secrets: payload.secrets ?? [],
         },
         call("mcpServers.create", options),

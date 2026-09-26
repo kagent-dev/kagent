@@ -6,7 +6,7 @@ This file defines the repository-wide rules for agents working on kagent. Read t
 
 Kagent is a Kubernetes-native control plane for defining, running, and invoking AI agents.
 
-- `Agent`, `Harness`, and `AgentTemplate` are `kagent.dev/v1alpha3` Kubernetes APIs. Agent composes inline or referenced behavior and runtime configuration. AgentTemplate is reusable behavior; Harness selects how it runs.
+- `Agent`, `Harness`, and `AgentTemplate` are `api.kagent.dev/v1alpha3` Kubernetes APIs. Agent composes inline or referenced behavior and runtime configuration. AgentTemplate is reusable behavior; Harness selects how it runs.
 - `Session` is PostgreSQL-backed control-plane state exposed through gRPC. It is not a Kubernetes resource.
 - Upstream A2A owns task, interaction, streaming, and history semantics. Do not create parallel session or task models.
 - Substrate Actors are the compute backend. Durable directories own private runtime state that must survive actor replacement.

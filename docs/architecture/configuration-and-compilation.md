@@ -23,9 +23,15 @@ Each subagent selects exactly one of `templateRef` (Shared) or `agentRef`
 Agent with its own Harness and conversation. Dedicated execution remains
 unsupported and is rejected during compilation.
 
-All three are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
+All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
 API.
+
+The `api.kagent.dev` group keeps these definitions separate from legacy
+`kagent.dev` resources, including the old `Agent`. `ModelConfig`,
+`ModelProviderConfig`, and `RemoteMCPServer` use the new group too. KMCP's
+`MCPServer` retains `kagent.dev/v1alpha1`. When both agent APIs are installed,
+use qualified resource names such as `kubectl get agents.api.kagent.dev`.
 
 ### kagent workload overrides
 
@@ -188,7 +194,7 @@ credentials, egress, and provenance.
 Both reusable references:
 
 ```yaml
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: assistant

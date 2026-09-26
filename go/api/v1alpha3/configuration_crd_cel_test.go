@@ -24,8 +24,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
@@ -39,6 +41,22 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	cfg, err := testEnv.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = testEnv.Stop() })
+
+	t.Run("publishes only the new API group", func(t *testing.T) {
+		discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+		require.NoError(t, err)
+		resources, err := discoveryClient.ServerResourcesForGroupVersion("api.kagent.dev/v1alpha3")
+		require.NoError(t, err)
+		var names []string
+		for _, resource := range resources.APIResources {
+			if !strings.Contains(resource.Name, "/") {
+				names = append(names, resource.Name)
+			}
+		}
+		require.ElementsMatch(t, []string{"agents", "agenttemplates", "harnesses", "modelconfigs", "modelproviderconfigs", "remotemcpservers"}, names)
+		_, err = discoveryClient.ServerResourcesForGroupVersion("kagent.dev/v1alpha3")
+		require.True(t, apierrors.IsNotFound(err), "the new CRDs must not publish the legacy group: %v", err)
+	})
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))

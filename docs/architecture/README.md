@@ -9,9 +9,9 @@ the agent processes.
 
 | Resource                      | Owner                                    | Purpose                                                                       |
 | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `Agent` | Kubernetes (`kagent.dev/v1alpha3`) | Explicit inline-or-reference template/Harness pairing, readiness, and revision selection |
-| `Harness`                     | Kubernetes (`kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
-| `AgentTemplate`               | Kubernetes (`kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
+| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Explicit inline-or-reference template/Harness pairing, readiness, and revision selection |
+| `Harness`                     | Kubernetes (`api.kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
+| `AgentTemplate`               | Kubernetes (`api.kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | prepared revision             | PostgreSQL and ate-api                   | Immutable compiled runtime input and its Substrate ActorTemplate              |
 | `Session`               | PostgreSQL, exposed by gRPC              | Stable conversation identity and runtime lifecycle                                      |
 | A2A context, task, and events | PostgreSQL, exposed by A2A               | Durable interaction and audit history                                         |

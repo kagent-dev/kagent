@@ -109,7 +109,7 @@ export function saveToolServer(
 ): ToolServerResponse {
   const server: ToolServerResponse = {
     ref: `${metadata?.namespace ?? "kagent"}/${metadata?.name ?? "unnamed"}`,
-    groupKind: `${type}.kagent.dev`,
+    groupKind: type === "RemoteMCPServer" ? "RemoteMCPServer.api.kagent.dev" : "MCPServer.kagent.dev",
     // Empty until the controller has handshaken with the server, which is the
     // honest state immediately after a create. Claiming otherwise would put tools
     // on screen that nothing has confirmed exist.
