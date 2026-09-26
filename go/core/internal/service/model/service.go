@@ -145,9 +145,12 @@ func (s *Service) createOwnedSecrets(ctx context.Context, modelConfig *v1alpha3.
 }
 
 // Update keeps its own write because the owned Secrets must land between the
-// authorized read and the retrying ModelConfig write.
+// authorized read and the retrying ModelConfig write; the update is authorized first.
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.ModelConfig, error) {
-	modelConfig, err := s.modelConfigs.GetForUpdate(ctx, request.Ref)
+	if err := s.modelConfigs.Authorize(ctx, auth.VerbUpdate, request.Ref); err != nil {
+		return nil, err
+	}
+	modelConfig, err := s.modelConfigs.Get(ctx, request.Ref)
 	if err != nil {
 		return nil, err
 	}
