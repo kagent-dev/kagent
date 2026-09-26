@@ -413,12 +413,14 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
-{{/* The managed guest uses the same image settings and defaults as the controller. */}}
+{{/* Pass the configured guest digest through to Substrate. */}}
 {{- define "kagent.sandboxGuestImage" -}}
 {{- $image := .Values.controller.sandbox.guestImage -}}
-{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "tag" (coalesce .Values.tag $image.tag .Chart.Version) "digest" $image.digest -}}
+{{- if $image.digest -}}
+{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "digest" $image.digest -}}
 {{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

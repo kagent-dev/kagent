@@ -17,8 +17,6 @@ import (
 type sandboxCollections struct {
 	states       krt.Collection[sandboxReconciliation]
 	observations krt.StaticCollection[sandboxRuntimeObservation]
-	guestImage   krt.StaticSingleton[string]
-	policy       substrate.SandboxPolicy
 }
 
 type sandboxReconciliation struct {
@@ -27,7 +25,6 @@ type sandboxReconciliation struct {
 	SourceSnapshot        json.RawMessage
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
-	NeedsGuestImage       bool
 	CompilationError      string
 	Failure               *ReconciliationFailure
 }
@@ -81,7 +78,6 @@ func (s sandboxRuntimeObservation) Equals(other sandboxRuntimeObservation) bool 
 
 func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, opts krt.OptionsBuilder) sandboxCollections {
 	observations := krt.NewStaticCollection[sandboxRuntimeObservation](nil, nil, opts.WithName("SandboxRuntimeObservations")...)
-	guestImage := krt.NewStatic[string](nil, true, opts.WithName("SandboxGuestImage")...)
 	states := krt.NewCollection(inputs.SandboxTemplates, func(ctx krt.HandlerContext, template *kagentv1alpha3.SandboxTemplate) *sandboxReconciliation {
 		state := &sandboxReconciliation{Template: template}
 		if !template.DeletionTimestamp.IsZero() {
@@ -90,13 +86,9 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
-		} else if image := krt.FetchOne(ctx, guestImage.AsCollection()); image == nil {
-			state.NeedsGuestImage = true
 		} else {
-			resolvedPolicy := policy
-			resolvedPolicy.GuestImage = *image
 			var err error
-			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, resolvedPolicy)
+			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy)
 			if err != nil {
 				state.CompilationError = err.Error()
 				state.Failure = &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage}
@@ -113,5 +105,5 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		}
 		return state
 	}, opts.WithName("SandboxReconciliations")...)
-	return sandboxCollections{states: states, observations: observations, guestImage: guestImage, policy: policy}
+	return sandboxCollections{states: states, observations: observations}
 }

@@ -1,10 +1,9 @@
 # End-to-end tests
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
-The guest image defaults to the controller release. For local builds, override
-`controller.sandbox.guestImage.registry`, `.repository`, and `.tag` with the guest
-image built for the test. Setting `.digest` instead of `.tag` avoids registry
-resolution from the controller.
+Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
+guest image built for the test. The controller passes the pinned image reference
+unchanged to Substrate.
 It creates and cleans up its own SandboxTemplates. Run from `go/`:
 
 ```sh
@@ -27,9 +26,8 @@ Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the test
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
 Preparation and runtime failures also fail the tests. CI builds the guest image
-separately and passes its digest to Helm before installing. This avoids resolving
-the runner's `localhost:5001` registry from inside the controller pod; Substrate
-rewrites the pinned image's registry address when workers pull it.
+separately and passes its digest to Helm before installing. Substrate rewrites
+the runner's `localhost:5001` registry address when workers pull the image.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness

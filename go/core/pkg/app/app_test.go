@@ -11,7 +11,6 @@ import (
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -95,22 +94,6 @@ func TestLeaderElectionConfiguration(t *testing.T) {
 	t.Setenv("LEADER_ELECT", "false")
 	if kagentenv.LeaderElect.Get() {
 		t.Fatal("an explicit false must be preserved for startup validation")
-	}
-}
-
-func TestSandboxGuestImageDefaultAndOverride(t *testing.T) {
-	for _, image := range []string{"", "registry.example.com/guest:custom"} {
-		t.Run(image, func(t *testing.T) {
-			t.Setenv(kagentenv.SandboxGuestImage.Name(), image)
-			got := env(kagentenv.SandboxGuestImage.Name(), kagentenv.SandboxGuestImage.DefaultValue())
-			want := image
-			if want == "" {
-				want = "ghcr.io/kagent-dev/kagent/sandbox-guest:" + version.Version
-			}
-			if got != want {
-				t.Fatalf("guest image = %q, want %q", got, want)
-			}
-		})
 	}
 }
 

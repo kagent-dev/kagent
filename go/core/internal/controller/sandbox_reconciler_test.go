@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
@@ -12,9 +11,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/google/go-containerregistry/pkg/v1/empty"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -146,10 +142,8 @@ func syncSandboxTemplate(t *testing.T, reconciler *SandboxReconciler, templates 
 	return template
 }
 
-func TestSandboxPreparationPinsBeforeBackendAndPublishesAfterPersistence(t *testing.T) {
-	registry := httptest.NewServer(registry.New())
-	t.Cleanup(registry.Close)
-	guestImage := strings.TrimPrefix(registry.URL, "http://") + "/sandbox-guest:v1.2.3"
+func TestSandboxPreparationPublishesAfterPersistence(t *testing.T) {
+	guestImage := "unreachable.invalid/guest@sha256:" + strings.Repeat("b", 64)
 	s, templates, _ := newSandboxTestReconciler(t, guestImage)
 	store := s.store.(*sandboxTestStore)
 	actors := s.actors.(*sandboxTestActors)
@@ -159,30 +153,15 @@ func TestSandboxPreparationPinsBeforeBackendAndPublishesAfterPersistence(t *test
 	require.Empty(t, actors.templates)
 	template := syncSandboxTemplate(t, s, templates)
 	require.Contains(t, template.Finalizers, sandboxPreparationFinalizer)
-	require.ErrorContains(t, s.reconcile(t.Context(), key), "resolve sandbox guest image")
-	require.Empty(t, actors.templates)
-	require.True(t, strings.HasPrefix(store.desired.DesiredRevision, "pending:"))
-	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
-	require.NoError(t, s.reconcileStatus(t.Context(), key))
-	template = syncSandboxTemplate(t, s, templates)
-	require.Equal(t, sandboxPreparationFailed, apimeta.FindStatusCondition(template.Status.Conditions, "Ready").Reason)
-
-	require.NoError(t, crane.Push(empty.Image, guestImage, crane.WithContext(t.Context())))
-	require.NoError(t, s.reconcile(t.Context(), key))
-	waitFor(t, func() bool { return s.collections.states.GetKey(key).DesiredActorTemplate != nil })
 	require.NoError(t, s.reconcile(t.Context(), key))
 	state := s.collections.states.GetKey(key)
 	ref := state.DesiredActorTemplate.Metadata
 	observed, err := actors.GetActorTemplate(t.Context(), ref.Atespace, ref.Name)
 	require.NoError(t, err)
-	digest, err := empty.Image.Digest()
-	require.NoError(t, err)
-	require.Equal(t, strings.TrimSuffix(guestImage, ":v1.2.3")+"@"+digest.String(), observed.Volumes[1].Image.Reference)
+	require.Equal(t, guestImage, observed.Volumes[1].Image.Reference)
 	require.Contains(t, string(store.revision.SourceSnapshot), observed.Volumes[1].Image.Reference)
-	require.NotContains(t, string(store.revision.SourceSnapshot), guestImage)
 	require.Equal(t, store.desired.DesiredRevision, store.revision.Revision)
 	require.False(t, store.ready)
-	registry.Close() // Subsequent preparations use the already-resolved guest digest.
 
 	actors.templates[ref.Atespace+"/"+ref.Name].Status = sandboxGoldenStatus()
 	store.recordErr = errors.New("database unavailable with private details")
@@ -266,8 +245,6 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	require.NoError(t, s.reconcile(t.Context(), key))
 	syncSandboxTemplate(t, s, templates)
 	require.NoError(t, s.reconcile(t.Context(), key))
-	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != "" })
-	require.NoError(t, s.reconcile(t.Context(), key))
 	ref := s.collections.states.GetKey(key).DesiredActorTemplate.Metadata
 	observed := s.actors.(*sandboxTestActors).templates[ref.Atespace+"/"+ref.Name]
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "snapshot backend unavailable"}}
@@ -284,18 +261,6 @@ func TestSandboxPreparationRetriesGoldenFailureAndRejectsImmutableConflict(t *te
 	require.Nil(t, s.collections.states.GetKey(key).ObservedActorTemplate)
 }
 
-func TestResolveGuestImageDigestNeedsNoRegistry(t *testing.T) {
-	image := "unreachable.invalid/guest@sha256:" + strings.Repeat("b", 64)
-	got, err := resolveGuestImage(t.Context(), image)
-	require.NoError(t, err)
-	require.Equal(t, image, got)
-}
-
-func TestResolveGuestImageRejectsMalformedReference(t *testing.T) {
-	_, err := resolveGuestImage(t.Context(), "invalid image")
-	require.ErrorContains(t, err, "parse sandbox guest image")
-}
-
 // A ready runtime may outlive an exhausted status queue. Recovery must not need
 // another Kubernetes edit or backend readiness change to publish Ready.
 func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
@@ -303,8 +268,6 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 	const key = "team-a/scratch"
 	require.NoError(t, s.reconcile(t.Context(), key))
 	syncSandboxTemplate(t, s, templates)
-	require.NoError(t, s.reconcile(t.Context(), key))
-	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != "" })
 	s.actors.(*sandboxTestActors).autoReady = true
 	require.NoError(t, s.reconcile(t.Context(), key))
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })

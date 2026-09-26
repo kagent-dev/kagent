@@ -82,12 +82,10 @@ flowchart LR
     ROU --> A
 ```
 
-Registry, database, Substrate, finalizer, and status writes run outside KRT
-transforms in queued workers. The configured guest image tag resolves once per
-controller lifetime and its digest feeds back into the graph; a digest override
-requires no registry lookup. To adopt a changed tag, restart the controller or
-roll out a new guest-image setting. Only pending preparation and cleanup work
-is polled, including recovery from transient failures.
+Database, Substrate, finalizer, and status writes run outside KRT transforms in
+queued workers. The configured guest digest is an immutable compilation input;
+changing it produces a new prepared revision. Only pending preparation and
+cleanup work is polled, including recovery from transient failures.
 
 The controller persists a deletion finalizer before allocating inputs, then
 persists the desired revision before backend creation. It publishes a ready
@@ -105,12 +103,12 @@ pin the runtime artifacts they need.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.
-The binary defaults the guest image to
-`ghcr.io/kagent-dev/kagent/sandbox-guest:<controller-version>`. Helm exposes
-`controller.sandbox.guestImage.registry`, `.repository`, `.tag`, and `.digest`
-through the shared image helper, with the chart's normal global overrides.
-Preparation resolves guest tags to digests before recording revisions. An
-explicit digest avoids registry resolution from the controller.
+Configure `SANDBOX_GUEST_IMAGE` with an `image@sha256:...` reference, or set
+`controller.sandbox.guestImage.digest` in Helm alongside its registry and
+repository. The guest image is required for sandbox preparation and passes
+unchanged to Substrate. The controller does not resolve tags or contact image
+registries. Helm applies the normal registry overrides; the global image tag
+does not affect the guest digest.
 
 The remaining `controller.sandbox` settings configure CPU, memory, and default/max
 TTL. Helm supplies these through the controller ConfigMap. Defaults are one CPU,

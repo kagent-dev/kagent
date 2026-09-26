@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/google/go-containerregistry/pkg/name"
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -98,7 +96,7 @@ func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statu
 					statuses.Add(state.ResourceName())
 				}
 				if !state.Template.DeletionTimestamp.IsZero() || !slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) ||
-					state.NeedsGuestImage || (state.Failure != nil && state.Failure.Retryable) || (state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil) {
+					(state.Failure != nil && state.Failure.Retryable) || (state.canPrepare() && state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() == nil) {
 					preparations.Add(state.ResourceName())
 				}
 			}
@@ -139,18 +137,6 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(),
 	}); err != nil {
 		return s.observeError(*state, fmt.Errorf("store SandboxTemplate %s definition: %w", key, err), true)
-	}
-	if state.NeedsGuestImage {
-		// Resolve a configured tag once per controller lifetime. The shared
-		// observation pins every compilation to the same guest digest.
-		if s.collections.guestImage.Get() == nil {
-			image, err := resolveGuestImage(ctx, s.collections.policy.GuestImage)
-			if err != nil {
-				return s.observeError(*state, err, true)
-			}
-			s.collections.guestImage.Set(&image)
-		}
-		return nil
 	}
 	if state.DesiredActorTemplate == nil {
 		s.collections.observations.DeleteObject(key)
@@ -235,23 +221,4 @@ func sandboxStatusWithTransitionTimes(state sandboxReconciliation) kagentv1alpha
 	desired.ObservedGeneration = state.Template.Generation
 	apimeta.SetStatusCondition(&desired.Conditions, condition)
 	return desired
-}
-
-// Resolve tags before computing the revision so actor replacement keeps the same
-// guest binary. Digest overrides need no registry access from the controller.
-func resolveGuestImage(ctx context.Context, image string) (string, error) {
-	ref, err := name.ParseReference(image)
-	if err != nil {
-		return "", fmt.Errorf("parse sandbox guest image: %w", err)
-	}
-	if _, pinned := ref.(name.Digest); pinned {
-		return image, nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	digest, err := crane.Digest(image, crane.WithContext(ctx))
-	if err != nil {
-		return "", fmt.Errorf("resolve sandbox guest image %q: %w", image, err)
-	}
-	return ref.Context().Digest(digest).Name(), nil
 }

@@ -414,12 +414,11 @@ controller:
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:
-    # Preparation resolves tags and stores a digest-pinned revision.
+    # Supply a pinned guest image to prepare sandboxes.
     guestImage:
       registry: "" # Defaults to the top-level registry; global.imageRegistry overrides both.
       repository: kagent-dev/kagent/sandbox-guest
-      tag: "" # The top-level tag takes precedence; otherwise defaults to Chart version.
-      digest: "" # Optional sha256 digest, takes precedence over the tag.
+      digest: "" # Required for sandbox preparation: sha256:<digest>.
     cpu: "1"
     memory: "1Gi"
     defaultTTL: "1h"
