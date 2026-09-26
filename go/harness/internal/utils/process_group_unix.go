@@ -13,6 +13,14 @@ func ConfigureProcessGroup(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// RunAs makes the command run as uid:gid with no supplementary groups.
+func RunAs(command *exec.Cmd, uid, gid uint32) {
+	if command.SysProcAttr == nil {
+		command.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	command.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, NoSetGroups: true}
+}
+
 // InterruptProcessGroup interrupts the process group.
 func InterruptProcessGroup(process *os.Process) error {
 	return syscall.Kill(-process.Pid, syscall.SIGINT)

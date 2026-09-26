@@ -104,3 +104,18 @@ func ReplacePrivateFile(path string, contents []byte) (returnErr error) {
 	renamed = true
 	return nil
 }
+
+// ChownTree hands root and everything under it to uid:gid without following
+// symlinks. A missing root is left alone.
+func ChownTree(root string, uid, gid int) error {
+	err := filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, uid, gid)
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}

@@ -41,7 +41,15 @@ const (
 	VertexRegionEnvName                 = "CLOUD_ML_REGION"
 	SandboxEnvName                      = "IS_SANDBOX"
 	PropagateTokenEnvName               = "KAGENT_PROPAGATE_TOKEN"
+	HomeEnvName                         = "HOME"
 	MCPCredentialEnvPrefix              = "KAGENT_CLAUDE_MCP_CREDENTIAL_"
+)
+
+// UnprivilegedUID and UnprivilegedGID are the image's kagent user. A harness
+// that runs as root starts Claude Code as this user.
+const (
+	UnprivilegedUID = 65532
+	UnprivilegedGID = 65532
 )
 
 // OwnsEnvironment reports whether the compiler or adapter reserves name for

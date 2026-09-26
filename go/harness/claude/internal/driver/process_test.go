@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -286,5 +287,19 @@ func TestProcessDriverBindsTheCallerCredentialPerTurn(t *testing.T) {
 	}
 	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear,bind:Bearer second-sender,clear" {
 		t.Fatalf("the resuming call's credential must replace the first: binder events = %q", got)
+	}
+}
+
+func TestProcessDriverRunsClaudeAsTheConfiguredUser(t *testing.T) {
+	d := NewProcessDriver(ProcessConfig{Executable: "claude", Workspace: t.TempDir(), RunAs: &Identity{UID: 65532, GID: 65532}})
+	cmd := exec.Command("claude")
+	d.runAs(cmd)
+	if cmd.SysProcAttr == nil || cmd.SysProcAttr.Credential == nil || cmd.SysProcAttr.Credential.Uid != 65532 || cmd.SysProcAttr.Credential.Gid != 65532 {
+		t.Fatalf("Claude does not run as the configured user: %#v", cmd.SysProcAttr)
+	}
+	plain := exec.Command("claude")
+	NewProcessDriver(ProcessConfig{Executable: "claude"}).runAs(plain)
+	if plain.SysProcAttr != nil {
+		t.Fatalf("a driver without RunAs changes the process credential: %#v", plain.SysProcAttr)
 	}
 }

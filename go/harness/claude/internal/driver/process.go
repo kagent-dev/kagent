@@ -21,15 +21,17 @@ import (
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
 // process. Actor-owned paths and environment are supplied by the adapter.
 type ProcessConfig struct {
-	Executable           string
-	ExpectedVersion      string
-	StrictVersion        bool
-	Workspace            string
-	Model                string
-	AppendSystemPrompt   string
-	AgentsJSON           string
-	MCPConfigPath        string
-	SettingsPath         string
+	Executable         string
+	ExpectedVersion    string
+	StrictVersion      bool
+	Workspace          string
+	Model              string
+	AppendSystemPrompt string
+	AgentsJSON         string
+	MCPConfigPath      string
+	SettingsPath       string
+	// RunAs, when set, is the user Claude Code runs as.
+	RunAs                *Identity
 	PermissionPromptTool string
 	SkillRoot            string
 	PluginDirs           []string
@@ -96,6 +98,11 @@ func (s resumedEventSink) TextDelta(event runtime.TextDelta) error {
 	return s.EventSink.TextDelta(event)
 }
 
+// Identity is a POSIX user and group.
+type Identity struct {
+	UID, GID uint32
+}
+
 // NewProcessDriver constructs a Claude Code process driver.
 func NewProcessDriver(config ProcessConfig) *ProcessDriver {
 	return &ProcessDriver{config: config}
@@ -108,6 +115,7 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 		return fmt.Errorf("find Claude executable %q: %w", d.config.Executable, err)
 	}
 	cmd := exec.CommandContext(ctx, path, "--version")
+	d.runAs(cmd)
 	cmd.Dir = d.config.Workspace
 	cmd.Env = append([]string(nil), d.config.Environment...)
 	output, err := cmd.CombinedOutput()
@@ -167,6 +175,12 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	return args
 }
 
+func (d *ProcessDriver) runAs(cmd *exec.Cmd) {
+	if d.config.RunAs != nil {
+		utils.RunAs(cmd, d.config.RunAs.UID, d.config.RunAs.GID)
+	}
+}
+
 // Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 	if strings.TrimSpace(turn.Prompt) == "" {
@@ -188,6 +202,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
+	d.runAs(cmd)
 	cmd.Dir = d.config.Workspace
 	cmd.Env = environment
 	stdin, err := cmd.StdinPipe()

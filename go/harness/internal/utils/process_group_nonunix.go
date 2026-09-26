@@ -10,6 +10,9 @@ import (
 // ConfigureProcessGroup is a no-op on platforms without Unix process groups.
 func ConfigureProcessGroup(*exec.Cmd) {}
 
+// RunAs is a no-op where processes carry no POSIX credential.
+func RunAs(*exec.Cmd, uint32, uint32) {}
+
 // InterruptProcessGroup interrupts the process.
 func InterruptProcessGroup(process *os.Process) error {
 	return process.Signal(os.Interrupt)

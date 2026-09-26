@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -150,6 +151,14 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 		}
 	}
+	runAs, err := unprivileged(input, skillRoot)
+	if err != nil {
+		closeListeners()
+		return nil, err
+	}
+	if runAs != nil {
+		environment = setEnvironment(environment, config.HomeEnvName, input.DurableDir)
+	}
 	processConfig := driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
@@ -157,7 +166,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		SettingsPath: settingsPath, PermissionPromptTool: permissionPromptTool, ApprovalBroker: approvalBroker,
 		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
-		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
+		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry, RunAs: runAs,
 	}
 	if forwarder != nil {
 		processConfig.CallerCredentials = forwarder
@@ -246,6 +255,27 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 		return nil, fmt.Errorf("materialize Google credentials: %w", err)
 	}
 	return setEnvironment(filtered, config.GoogleApplicationCredentialsEnvName, path), nil
+}
+
+// unprivileged returns the user Claude Code runs as when the harness runs as
+// root, after handing it every directory Claude reads or writes; nil when the
+// harness is already unprivileged. The harness process keeps root, so the
+// turn's credential in its memory is out of reach of Claude and its tools.
+func unprivileged(input Input, skillRoot string) (*driver.Identity, error) {
+	if os.Geteuid() != 0 {
+		return nil, nil
+	}
+	claudeDir := filepath.Join(input.DurableDir, "claude")
+	roots := []string{input.Workspace, claudeDir, input.EphemeralDir}
+	if skillRoot != "" {
+		roots = append(roots, skillRoot)
+	}
+	for _, root := range roots {
+		if err := utils.ChownTree(root, config.UnprivilegedUID, config.UnprivilegedGID); err != nil {
+			return nil, fmt.Errorf("hand %s to the unprivileged user: %w", root, err)
+		}
+	}
+	return &driver.Identity{UID: config.UnprivilegedUID, GID: config.UnprivilegedGID}, nil
 }
 
 // nativeTelemetryEnvironment turns on Claude Code telemetry for the signals the
