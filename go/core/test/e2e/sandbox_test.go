@@ -44,9 +44,7 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 	t.Helper()
 	target := interactionTarget(t)
 	image := os.Getenv("KAGENT_E2E_SANDBOX_IMAGE")
-	if image == "" {
-		t.Skip("KAGENT_E2E_SANDBOX_IMAGE is not set")
-	}
+	require.NotEmpty(t, image, "KAGENT_E2E_SANDBOX_IMAGE must be set to a digest-pinned tools image")
 	namespace := os.Getenv("KAGENT_E2E_SANDBOX_NAMESPACE")
 	if namespace == "" {
 		namespace = "kagent"

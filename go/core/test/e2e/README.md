@@ -22,8 +22,10 @@ The controller restart test needs a stable service endpoint (NodePort or ingress
 public gRPC/MCP calls, owner isolation, binary files, process execution/output,
 suspend/resume, expiration, template revision retention, and controller restart.
 The agent test uses a deterministic local model and a real Go ADK Session to
-create a sandbox through MCP as its invoking user. Missing image settings skip
-those fixtures; configured preparation and runtime failures fail the tests.
+create a sandbox through MCP as its invoking user. Once a cluster API URL is set,
+missing image settings fail the tests before provisioning, as do preparation and
+runtime failures. CI builds the guest and uses its digest-pinned Go ADK image as
+the tools image too.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness

@@ -137,7 +137,7 @@ jobs:
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
           make buildx-create
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a | xargs -P4 -n1 bash -c '
+          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
             image="$1"
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
@@ -153,6 +153,8 @@ jobs:
           RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
           test -n "$RUNTIME_DIGEST"
           export KAGENT_E2E_RUNTIME_IMAGE="localhost:5001/kagent-dev/kagent/golang-adk@${RUNTIME_DIGEST}"
+          # The Go ADK image also supplies the shell and tools used by sandbox tests.
+          export KAGENT_E2E_SANDBOX_IMAGE="$KAGENT_E2E_RUNTIME_IMAGE"
           BYO_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/byo-a2a:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
           test -n "$BYO_DIGEST"
           export KAGENT_E2E_BYO_IMAGE="localhost:5001/kagent-dev/kagent/byo-a2a@${BYO_DIGEST}"

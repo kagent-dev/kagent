@@ -22,10 +22,9 @@ import (
 )
 
 func TestSandboxAgentMCP(t *testing.T) {
+	target := interactionTarget(t)
 	image := os.Getenv("KAGENT_E2E_RUNTIME_IMAGE")
-	if image == "" {
-		t.Skip("KAGENT_E2E_RUNTIME_IMAGE is not set")
-	}
+	require.NotEmpty(t, image, "KAGENT_E2E_RUNTIME_IMAGE must be set to a digest-pinned Go ADK image")
 	f := newSandboxFixture(t)
 	prepared := f.create(t, 5*time.Minute)
 	_, err := f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: prepared.Id})
@@ -78,7 +77,7 @@ func TestSandboxAgentMCP(t *testing.T) {
 		},
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
-	conn, err := grpc.NewClient(interactionTarget(t), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
 	instances := apiv1alpha1.NewSessionServiceClient(conn)
