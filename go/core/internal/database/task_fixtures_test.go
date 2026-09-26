@@ -51,8 +51,8 @@ func finishSessionOperation(ctx context.Context, client *Client, id string, kind
 	if err != nil {
 		return nil, err
 	}
-	if work.Session.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		return work.Session, nil
+	if work.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+		return work.Instance, nil
 	}
 	executor := uuid.New()
 	claimed, err := client.ClaimSessionOperation(ctx, id, work.ID, executor)

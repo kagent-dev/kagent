@@ -115,7 +115,7 @@ func deleteSession(
 		SessionId: cfg.SessionID,
 	})
 	if status.Code(err) == codes.Aborted {
-		return fmt.Errorf("delete Session: another lifecycle operation is in progress; retry after it completes: %w", err)
+		return fmt.Errorf("delete Session: lifecycle work is active or pending; inspect the Session and retry its pending operation: %w", err)
 	}
 	if err != nil {
 		return fmt.Errorf("delete Session: %w", err)

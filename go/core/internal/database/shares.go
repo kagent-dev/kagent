@@ -42,7 +42,7 @@ func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.Sess
 	}
 	row, err := queryOne(ctx, c.db, `
 		INSERT INTO session_share (id, session_id, permission, token_hash, data)
-		SELECT $1, id, $3, $4, $5 FROM session
+		SELECT $1, id, $3, $4, $5 FROM session_record
 		WHERE id = $2 AND user_id = $6 AND state <> 'RUNTIME_STATE_DELETED'
 		FOR UPDATE
 		RETURNING id, session_id, permission, data
@@ -63,7 +63,7 @@ func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byt
 	row, err := queryOne(ctx, c.db, `
 		SELECT s.id, s.session_id, s.permission, s.data, i.user_id AS owner_user_id
 		FROM session_share s
-		JOIN session i ON i.id = s.session_id
+		JOIN session_record i ON i.id = s.session_id
 		WHERE s.token_hash = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
 	`, pgx.RowToStructByName[sessionShareRow], tokenHash)
 	if err != nil {
@@ -82,7 +82,7 @@ func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byt
 func (c *Client) ListSessionShares(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1alpha1.SessionShare, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT s.id, s.session_id, s.permission, s.data FROM session_share s
-		JOIN session i ON i.id = s.session_id
+		JOIN session_record i ON i.id = s.session_id
 		WHERE s.session_id = $1 AND i.user_id = $2 AND i.state <> 'RUNTIME_STATE_DELETED'
 		  AND (NULLIF($3::text, '') IS NULL OR s.id > NULLIF($3::text, '')::uuid)
 		ORDER BY s.id
@@ -109,7 +109,7 @@ func (c *Client) ListSessionShares(ctx context.Context, sessionID, userID, after
 func (c *Client) DeleteSessionShare(ctx context.Context, id, userID string) error {
 	count, err := c.db.Exec(ctx, `
 		DELETE FROM session_share s
-		USING session i
+		USING session_record i
 		WHERE s.id = $1
 		  AND i.id = s.session_id AND i.user_id = $2
 	`, id, userID)

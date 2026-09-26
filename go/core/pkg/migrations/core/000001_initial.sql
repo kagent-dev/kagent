@@ -29,9 +29,8 @@ CREATE INDEX idx_toolserver_deleted_at ON toolserver(deleted_at);
 
 CREATE TABLE runtime_revision (
     revision                 TEXT        PRIMARY KEY,
+    kind                     TEXT        NOT NULL CHECK (kind IN ('agent', 'sandbox')),
     namespace                TEXT        NOT NULL,
-    agent_name               TEXT        NOT NULL DEFAULT '',
-    agent_uid                TEXT        NOT NULL DEFAULT '',
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
     credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
@@ -40,11 +39,25 @@ CREATE TABLE runtime_revision (
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    agent_card               BYTEA       NOT NULL,
     -- Logical deletion; retain the row until ActorTemplate cleanup completes.
     deleted_at               TIMESTAMPTZ,
     CONSTRAINT runtime_revision_actor_template_namespace_actor_template_na_key
         UNIQUE (actor_template_atespace, actor_template_name)
+);
+
+CREATE TABLE agent_revision (
+    revision TEXT PRIMARY KEY,
+    agent_name TEXT NOT NULL,
+    agent_uid TEXT NOT NULL,
+    agent_card BYTEA NOT NULL,
+    FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
+);
+
+CREATE TABLE sandbox_revision (
+    revision TEXT PRIMARY KEY,
+    sandbox_template_name TEXT NOT NULL,
+    sandbox_template_uid TEXT NOT NULL,
+    FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
 
 CREATE TABLE agent_definition (
@@ -52,7 +65,7 @@ CREATE TABLE agent_definition (
     agent_name                   TEXT        NOT NULL,
     agent_uid                    TEXT        NOT NULL,
     desired_revision             TEXT        NOT NULL,
-    latest_successful_revision   TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
+    latest_successful_revision   TEXT        REFERENCES agent_revision(revision) ON DELETE RESTRICT,
     retired_at                   TIMESTAMPTZ,
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -60,6 +73,19 @@ CREATE TABLE agent_definition (
 );
 CREATE UNIQUE INDEX agent_definition_active_name_idx
     ON agent_definition (namespace, agent_name) WHERE retired_at IS NULL;
+
+CREATE TABLE sandbox_template_definition (
+    namespace TEXT NOT NULL,
+    sandbox_template_name TEXT NOT NULL,
+    sandbox_template_uid TEXT NOT NULL,
+    desired_revision TEXT NOT NULL,
+    latest_successful_revision TEXT REFERENCES sandbox_revision(revision) ON DELETE RESTRICT,
+    retired_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (namespace, sandbox_template_uid)
+);
+CREATE UNIQUE INDEX sandbox_template_definition_active_name_idx
+    ON sandbox_template_definition (namespace, sandbox_template_name) WHERE retired_at IS NULL;
 
 CREATE TABLE a2a_context (
     id         UUID        PRIMARY KEY,
@@ -81,7 +107,7 @@ CREATE TABLE session_checkpoint (
     state                  TEXT        NOT NULL,
     data                   BYTEA       NOT NULL,
     source_history_id      UUID        NOT NULL REFERENCES a2a_context(id) ON DELETE RESTRICT,
-    prepared_revision      TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
+    prepared_revision      TEXT        REFERENCES agent_revision(revision) ON DELETE RESTRICT,
     CHECK (snapshot_content_scope IN ('FULL', 'DATA')),
     CHECK (state IN ('CREATING', 'READY', 'FAILED', 'DELETING')),
     UNIQUE (user_id, request_id)
@@ -92,47 +118,56 @@ CREATE UNIQUE INDEX session_checkpoint_one_creating_idx
     ON session_checkpoint (source_session_id)
     WHERE state = 'CREATING';
 
+CREATE TABLE runtime_instance (
+    id UUID PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('agent', 'sandbox')),
+    user_id TEXT NOT NULL CHECK (user_id <> ''),
+    request_id TEXT NOT NULL,
+    prepared_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
+    state TEXT NOT NULL CHECK (state IN ('RUNTIME_STATE_CREATING', 'RUNTIME_STATE_READY', 'RUNTIME_STATE_SUSPENDED', 'RUNTIME_STATE_FAILED', 'RUNTIME_STATE_DELETING', 'RUNTIME_STATE_DELETED')),
+    operation TEXT NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE' CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE', 'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE')),
+    operation_id UUID,
+    executor_id UUID,
+    executor_expires_at TIMESTAMPTZ,
+    UNIQUE (kind, user_id, request_id),
+    CHECK (executor_id IS NULL OR (operation_id IS NOT NULL AND operation <> 'RUNTIME_OPERATION_NONE' AND state <> 'RUNTIME_STATE_DELETED')),
+    CHECK (state <> 'RUNTIME_STATE_DELETED' OR (prepared_revision IS NULL AND operation = 'RUNTIME_OPERATION_NONE'))
+);
+CREATE INDEX runtime_instance_owner_idx ON runtime_instance (kind, user_id, id)
+    WHERE state <> 'RUNTIME_STATE_DELETED';
+
 CREATE TABLE session (
     id                   UUID        PRIMARY KEY,
-    user_id              TEXT        NOT NULL CHECK (user_id <> ''),
-    request_id           TEXT        NOT NULL,
-    prepared_revision    TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
-    state                TEXT        NOT NULL,
     data                 BYTEA       NOT NULL,
-    operation            TEXT        NOT NULL DEFAULT 'RUNTIME_OPERATION_NONE',
     context_id           UUID        NOT NULL CHECK (context_id = id),
     -- Retain fork request identity after deletion without retaining the checkpoint.
     source_checkpoint_id UUID,
-    pinned_checkpoint_id UUID GENERATED ALWAYS AS (
-        CASE WHEN state <> 'RUNTIME_STATE_DELETED' THEN source_checkpoint_id END
-    ) STORED REFERENCES session_checkpoint(id) ON DELETE RESTRICT,
+    pinned_checkpoint_id UUID        REFERENCES session_checkpoint(id) ON DELETE RESTRICT,
     -- Immutable identity of the actor created for this session.
     actor_uid            TEXT CHECK (actor_uid IS NULL OR actor_uid <> ''),
-    operation_id         UUID,
-    executor_id          UUID,
     -- Fences gateway dispatch until its first active task save. Expiry only
     -- revokes unaccepted work; it never transfers native execution ownership.
     dispatch_id          UUID,
     dispatch_expires_at  TIMESTAMPTZ,
     CHECK ((dispatch_id IS NULL) = (dispatch_expires_at IS NULL)),
-    CHECK (executor_id IS NULL OR (operation_id IS NOT NULL
-        AND operation <> 'RUNTIME_OPERATION_NONE'
-        AND state <> 'RUNTIME_STATE_DELETED')),
-    CHECK (state <> 'RUNTIME_STATE_DELETED' OR
-        (prepared_revision IS NULL AND operation = 'RUNTIME_OPERATION_NONE')),
     history_id           UUID        NOT NULL,
     CONSTRAINT session_context_binding_fkey
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
     CONSTRAINT session_history_key UNIQUE (history_id),
-    CONSTRAINT session_operation_check
-        CHECK (operation IN ('RUNTIME_OPERATION_NONE', 'RUNTIME_OPERATION_CREATE',
-            'RUNTIME_OPERATION_SUSPEND', 'RUNTIME_OPERATION_RESUME', 'RUNTIME_OPERATION_DELETE')),
-    CHECK (state IN ('RUNTIME_STATE_CREATING', 'RUNTIME_STATE_READY',
-        'RUNTIME_STATE_SUSPENDED', 'RUNTIME_STATE_FAILED', 'RUNTIME_STATE_DELETED')),
-    UNIQUE (user_id, request_id)
+    FOREIGN KEY (id) REFERENCES runtime_instance(id) ON DELETE CASCADE
 );
-CREATE INDEX session_user_id_id_idx
-    ON session (user_id, id) WHERE state <> 'RUNTIME_STATE_DELETED';
+
+CREATE TABLE sandbox (
+    id UUID PRIMARY KEY,
+    data BYTEA NOT NULL,
+    namespace TEXT NOT NULL,
+    sandbox_template_name TEXT NOT NULL,
+    revision_receipt TEXT NOT NULL,
+    request_hash BYTEA NOT NULL CHECK (octet_length(request_hash) = 32),
+    expires_at TIMESTAMPTZ NOT NULL,
+    FOREIGN KEY (id) REFERENCES runtime_instance(id) ON DELETE CASCADE
+);
+CREATE INDEX sandbox_expiration_idx ON sandbox (expires_at, id);
 
 CREATE TABLE session_share (
     id          UUID        PRIMARY KEY,
@@ -269,33 +304,51 @@ CREATE INDEX scheduled_run_execution_history_idx ON scheduled_run_execution (sch
 CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (next_attempt_at, id)
     WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING');
 
+CREATE VIEW agent_runtime_revision AS
+    SELECT r.*, a.agent_name, a.agent_uid, a.agent_card
+    FROM runtime_revision r JOIN agent_revision a USING (revision) WHERE r.kind = 'agent';
+
+CREATE VIEW session_record AS
+    SELECT r.id, r.user_id, r.request_id, r.prepared_revision, r.state, r.operation, r.operation_id, r.executor_id,
+        a.data, a.context_id, a.history_id, a.source_checkpoint_id, a.pinned_checkpoint_id,
+        a.actor_uid, a.dispatch_id, a.dispatch_expires_at
+    FROM runtime_instance r JOIN session a USING (id) WHERE r.kind = 'agent';
+
+CREATE VIEW sandbox_record AS
+    SELECT r.id, r.user_id, r.request_id, r.prepared_revision, r.state, r.operation, r.operation_id, r.executor_id,
+        s.data, s.namespace, s.sandbox_template_name, s.revision_receipt, s.request_hash, s.expires_at
+    FROM runtime_instance r JOIN sandbox s USING (id) WHERE r.kind = 'sandbox';
+
 CREATE VIEW unreferenced_runtime_revision AS
 SELECT r.revision FROM runtime_revision r
-WHERE NOT EXISTS (
-    SELECT 1 FROM agent_definition p
-    WHERE p.retired_at IS NULL
-      AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
-)
-AND NOT EXISTS (
-    SELECT 1 FROM session i WHERE i.prepared_revision = r.revision
-)
-AND NOT EXISTS (
-    SELECT 1 FROM session_checkpoint c WHERE c.prepared_revision = r.revision
-);
+WHERE NOT EXISTS (SELECT 1 FROM agent_definition p WHERE p.retired_at IS NULL
+    AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision))
+AND NOT EXISTS (SELECT 1 FROM sandbox_template_definition p WHERE p.retired_at IS NULL
+    AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision))
+AND NOT EXISTS (SELECT 1 FROM runtime_instance i WHERE i.prepared_revision = r.revision)
+AND NOT EXISTS (SELECT 1 FROM session_checkpoint c WHERE c.prepared_revision = r.revision);
 
 -- +goose Down
 
+DROP VIEW unreferenced_runtime_revision;
+DROP VIEW sandbox_record;
+DROP VIEW session_record;
+DROP VIEW agent_runtime_revision;
+
 DROP TABLE scheduled_run_execution;
 DROP TABLE scheduled_run;
-DROP VIEW unreferenced_runtime_revision;
-
 DROP TABLE session_share;
 DROP TABLE session_task_event;
 DROP TABLE session_task;
+DROP TABLE sandbox;
 DROP TABLE session;
+DROP TABLE runtime_instance;
 DROP TABLE session_checkpoint;
 DROP TABLE a2a_context;
+DROP TABLE sandbox_template_definition;
 DROP TABLE agent_definition;
+DROP TABLE sandbox_revision;
+DROP TABLE agent_revision;
 DROP TABLE runtime_revision;
 DROP TABLE toolserver;
 DROP TABLE tool;

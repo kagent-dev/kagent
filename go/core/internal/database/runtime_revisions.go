@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -38,19 +39,26 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 		}
 		// Lock Agents before revisions. Validate the resulting definition, including
 		// its retained last-good pointer when reactivating a retired identity.
-		deletedAt, err := queryMany(ctx, tx, `
-			SELECT r.deleted_at FROM runtime_revision r
+		type revisionStatus struct {
+			Kind      string
+			DeletedAt *time.Time
+		}
+		revisions, err := queryMany(ctx, tx, `
+			SELECT r.kind, r.deleted_at FROM runtime_revision r
 			JOIN agent_definition p
 			  ON r.revision IN (p.desired_revision, p.latest_successful_revision)
 			WHERE p.namespace = $1 AND p.agent_uid = $2
 			ORDER BY r.revision
 			FOR UPDATE OF r
-		`, pgx.RowTo[*time.Time], definition.Namespace, definition.AgentUID)
+		`, pgx.RowToStructByName[revisionStatus], definition.Namespace, definition.AgentUID)
 		if err != nil {
 			return err
 		}
-		for _, timestamp := range deletedAt {
-			if timestamp != nil {
+		for _, revision := range revisions {
+			if revision.Kind != "agent" {
+				return fmt.Errorf("agent preparation references a %s revision: %w", revision.Kind, ErrConflict)
+			}
+			if revision.DeletedAt != nil {
 				return ErrObjectDeleting
 			}
 		}
@@ -70,17 +78,13 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 	if err != nil {
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
-	credentials := revision.Credentials
-	if credentials == nil {
-		credentials = []egress.Credential{}
-	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		if ready {
 			// Match GC finalization's lock order: definition before revision. Use the
 			// stored identity when present, since revision inputs are immutable.
 			_, err := queryOne(ctx, tx, `
 				SELECT 1 FROM agent_definition p
-				LEFT JOIN runtime_revision r ON r.revision = $1
+				LEFT JOIN agent_runtime_revision r ON r.revision = $1
 				WHERE p.namespace = COALESCE(r.namespace, $2)
 				  AND p.agent_uid = COALESCE(r.agent_uid, $3)
 				FOR UPDATE OF p
@@ -89,28 +93,18 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 				return err
 			}
 		}
-		result, err := tx.Exec(ctx, `
-			INSERT INTO runtime_revision (
-			    revision, namespace, agent_name, agent_uid, source_snapshot, agent_card, egress_destinations,
-			    actor_template_atespace, actor_template_name, actor_template_uid, credentials
-			) VALUES (
-			    $1, $2, $3, $4, $5, $6, $7, $8,
-			    $9, $10, $11
-			)
-			ON CONFLICT (revision) DO UPDATE SET
-			    actor_template_uid = EXCLUDED.actor_template_uid,
-			    updated_at = NOW()
-			WHERE runtime_revision.deleted_at IS NULL
-		`,
-			revision.Revision, revision.Namespace, revision.AgentName, revision.AgentUID,
-			revision.SourceSnapshot, card, revision.EgressDestinations,
-			revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, credentials,
-		)
-		if err != nil {
-			return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
+		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
+			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
+				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
+			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials,
+		}); err != nil {
+			return err
 		}
-		if result.RowsAffected() == 0 {
-			return ErrObjectDeleting
+		if err := execSQL(ctx, tx, `
+			INSERT INTO agent_revision (revision, agent_name, agent_uid, agent_card)
+			VALUES ($1, $2, $3, $4) ON CONFLICT (revision) DO NOTHING
+		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
+			return err
 		}
 		if !ready {
 			return nil
@@ -118,7 +112,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		return execSQL(ctx, tx, `
 			UPDATE agent_definition p
 			SET latest_successful_revision = r.revision, updated_at = NOW()
-			FROM runtime_revision r
+			FROM agent_runtime_revision r
 			WHERE r.revision = $1
 			  AND p.namespace = r.namespace
 			  AND p.agent_uid = r.agent_uid
@@ -134,7 +128,7 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_name, agent_uid,
 		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-		    agent_card, deleted_at FROM runtime_revision WHERE revision = $1
+		    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
@@ -187,60 +181,90 @@ func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name s
 }
 
 // ListUnreferencedRuntimeRevisions lists revisions unused by active Agents,
-// sessions, or checkpoints, including deletions still awaiting compute cleanup.
-func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error) {
-	rows, err := queryMany(ctx, c.db, `
-		SELECT revision, namespace, agent_name, agent_uid,
-		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-		    agent_card, deleted_at FROM runtime_revision r
-		WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision)
-	`, pgx.RowToStructByName[runtimeRevisionRow])
-	if err != nil {
-		return nil, fmt.Errorf("list unreferenced runtime revisions: %w", err)
-	}
-	result := make([]RuntimeRevision, 0, len(rows))
-	for _, row := range rows {
-		revision, err := toRuntimeRevision(row)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, *revision)
-	}
-	return result, nil
+// instances, or checkpoints, including deletions still awaiting compute cleanup.
+func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeArtifact, error) {
+	return queryMany(ctx, c.db, `
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, deleted_at
+		FROM runtime_revision WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
+	`, pgx.RowToStructByName[RuntimeArtifact])
 }
 
-// getRuntimeRevisionForUpdate locks a revision until the supplied transaction ends.
-// Missing revisions return pgx.ErrNoRows. Check eligibility in a separate statement
-// after this lock so references committed during a lock wait are visible.
-func getRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revision string) (runtimeRevisionRow, error) {
+func getRuntimeArtifactForUpdate(ctx context.Context, tx pgx.Tx, revision string) (RuntimeArtifact, error) {
 	return queryOne(ctx, tx, `
-		SELECT revision, namespace, agent_name, agent_uid,
-		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
-		    agent_card, deleted_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
-	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
+		SELECT revision, kind, namespace, actor_template_atespace, actor_template_name, actor_template_uid, deleted_at
+		FROM runtime_revision WHERE revision = $1 FOR UPDATE
+	`, pgx.RowToStructByName[RuntimeArtifact], revision)
 }
 
-// getAvailableRuntimeRevisionForUpdate locks a revision for reference acquisition.
-// The caller must commit the reference in this transaction. Missing revisions return
-// ErrNotFound; logically deleted revisions return ErrObjectDeleting.
+// getAvailableRuntimeRevisionForUpdate pins agent inputs in the caller's transaction.
 func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revision string) (runtimeRevisionRow, error) {
-	row, err := getRuntimeRevisionForUpdate(ctx, tx, revision)
+	if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindAgent); err != nil {
+		return runtimeRevisionRow{}, err
+	}
+	return queryOne(ctx, tx, `
+  SELECT revision, namespace, agent_name, agent_uid,
+   source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
+   agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
+ `, pgx.RowToStructByName[runtimeRevisionRow], revision)
+}
+
+// lockRuntimeRevisionForReference excludes artifact cleanup until the new
+// reference commits. Kind checks belong to the owning transactional write.
+func lockRuntimeRevisionForReference(ctx context.Context, tx pgx.Tx, revision, kind string) error {
+	artifact, err := getRuntimeArtifactForUpdate(ctx, tx, revision)
 	if err != nil {
-		return row, notFoundOr(err)
+		return notFoundOr(err)
 	}
-	if row.DeletedAt != nil {
-		return row, ErrObjectDeleting
+	if artifact.Kind != kind {
+		return fmt.Errorf("expected %s revision, got %s: %w", kind, artifact.Kind, ErrConflict)
 	}
-	return row, nil
+	if artifact.DeletedAt != nil {
+		return ErrObjectDeleting
+	}
+	return nil
+}
+
+type runtimeRevisionRecord struct {
+	RuntimeArtifact
+	SourceSnapshot     json.RawMessage
+	EgressDestinations []string
+	Credentials        []egress.Credential
+}
+
+// recordRuntimeRevision writes immutable common inputs with mutable artifact
+// status. The caller writes its typed extension and promotion pointer in this
+// transaction, holding preparation locks before taking the revision lock.
+func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevisionRecord) error {
+	if revision.Credentials == nil {
+		revision.Credentials = []egress.Credential{}
+	}
+	if revision.EgressDestinations == nil {
+		revision.EgressDestinations = []string{}
+	}
+	result, err := tx.Exec(ctx, `
+  INSERT INTO runtime_revision (revision, kind, namespace, source_snapshot, egress_destinations,
+   actor_template_atespace, actor_template_name, actor_template_uid, credentials)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid, updated_at = NOW()
+  WHERE runtime_revision.deleted_at IS NULL AND runtime_revision.kind = EXCLUDED.kind
+ `, revision.Revision, revision.Kind, revision.Namespace, revision.SourceSnapshot, revision.EgressDestinations,
+		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials)
+	if err != nil {
+		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
+	}
+	if result.RowsAffected() != 0 {
+		return nil
+	}
+	return lockRuntimeRevisionForReference(ctx, tx, revision.Revision, revision.Kind)
 }
 
 // BeginRuntimeRevisionDeletion marks an unreferenced revision as deleting,
 // preventing new references before runtime cleanup. Retrying returns the pending
 // revision; nil means the revision is missing or still referenced.
-func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision string) (*RuntimeRevision, error) {
-	var result *RuntimeRevision
+func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision string) (*RuntimeArtifact, error) {
+	var result *RuntimeArtifact
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := getRuntimeRevisionForUpdate(ctx, tx, revision)
+		row, err := getRuntimeArtifactForUpdate(ctx, tx, revision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -255,8 +279,8 @@ func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision stri
 		if err != nil || updated.RowsAffected() == 0 {
 			return err
 		}
-		result, err = toRuntimeRevision(row)
-		return err
+		result = &row
+		return nil
 	})
 	return result, err
 }
@@ -275,7 +299,14 @@ func (c *Client) DeleteRuntimeRevision(ctx context.Context, revision, actorTempl
 		`, pgx.RowTo[int], revision); err != nil {
 			return err
 		}
-		row, err := getRuntimeRevisionForUpdate(ctx, tx, revision)
+		if _, err := queryMany(ctx, tx, `
+			SELECT 1 FROM sandbox_template_definition
+			WHERE retired_at IS NOT NULL AND latest_successful_revision = $1
+			ORDER BY namespace, sandbox_template_uid FOR UPDATE
+		`, pgx.RowTo[int], revision); err != nil {
+			return err
+		}
+		row, err := getRuntimeArtifactForUpdate(ctx, tx, revision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -291,6 +322,12 @@ func (c *Client) DeleteRuntimeRevision(ctx context.Context, revision, actorTempl
 			WHERE retired_at IS NOT NULL AND latest_successful_revision = $1
 		`, revision); err != nil {
 			return fmt.Errorf("release retired runtime revision references: %w", err)
+		}
+		if err := execSQL(ctx, tx, `
+			UPDATE sandbox_template_definition SET latest_successful_revision = NULL, updated_at = NOW()
+			WHERE retired_at IS NOT NULL AND latest_successful_revision = $1
+		`, revision); err != nil {
+			return err
 		}
 		return execSQL(ctx, tx, `
 			DELETE FROM runtime_revision WHERE revision = $1 AND deleted_at IS NOT NULL

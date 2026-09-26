@@ -441,8 +441,8 @@ func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kin
 	if err != nil {
 		return nil, err
 	}
-	if operation.Session.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
-		return operation.Session, nil
+	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+		return operation.Instance, nil
 	}
 	executor := uuid.New()
 	claimed, err := w.store.ClaimSessionOperation(ctx, id, operation.ID, executor)
