@@ -975,6 +975,36 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
+  it("renders an unpaired rejection carrying the person's reason as not run", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "rejected",
+            parts: [
+              data({
+                name: "k8s_get_resources",
+                response: {
+                  error: "Tool call was rejected by user. Reason: What does this tool do?",
+                  isError: true,
+                },
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0].parts).toEqual([
+      expect.objectContaining({ kind: "data", dataKind: "tool_not_run" }),
+    ]);
+  });
+
   it("hides a rejected FunctionResponse when the structured decision records it", async () => {
     serveTasks([
       {

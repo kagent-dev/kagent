@@ -240,8 +240,8 @@ type ControlFlowResult = "confirmation_required" | "rejected";
  *
  * ADK currently reports confirmation as an errored FunctionResponse. Those
  * responses are instructions to the runtime, not failed tool executions. Match
- * only the two complete compatibility strings observed on the wire; a broad
- * substring check could hide a real tool error that merely discusses approval.
+ * only the complete strings observed on the wire; a broad substring check could
+ * hide a real tool error that merely discusses approval.
  */
 function visibleParts(
   parts: readonly ChatPart[],
@@ -289,8 +289,16 @@ function controlFlowResult(part: ChatDataPart): ControlFlowResult | undefined {
   if (confirmation && (!name || confirmation[1] === name)) return "confirmation_required";
   const rejected = /^error tool "([^"]+)" call is rejected$/.exec(error);
   if (rejected && (!name || rejected[1] === name)) return "rejected";
+  if (REJECTED_BY_USER.test(error)) return "rejected";
   return undefined;
 }
+
+/**
+ * What a runtime says when a person rejected the call, and the reason they gave
+ * when they gave one. It names the person rather than the tool, so there is no
+ * tool name in it to correlate.
+ */
+const REJECTED_BY_USER = /^Tool call was rejected by user\.(?: Reason: [\s\S]+)?$/;
 
 /** The prose of a set of parts, for comparing a reply against the artifact repeating it. */
 function textOf(parts: readonly ChatPart[]): string {

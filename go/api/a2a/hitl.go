@@ -56,6 +56,11 @@ type ToolApproval struct {
 	RejectionReason string `json:"rejection_reason,omitempty"`
 }
 
+// ToolConfirmationRejectionReasonKey is the key a harness adapter carries a
+// rejected decision's reason under in the native confirmation payload, so that
+// the runtime resuming the turn can tell the model why the person said no.
+const ToolConfirmationRejectionReasonKey = "rejection_reason"
+
 // ToolApprovalResponse is the public response payload for tool approvals.
 type ToolApprovalResponse struct {
 	Type      string         `json:"type"`
