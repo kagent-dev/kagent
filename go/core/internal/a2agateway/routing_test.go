@@ -53,9 +53,9 @@ func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessi
 	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{})
 }
 
-func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer runtimeDialer, url string) a2asrv.RequestHandler {
-	return New(Config{Store: store, Dialer: dialer, GatewayURL: url,
-		Agents: gatewayTestAgents{store, authorizer}, Sessions: newTestSessions(store, authorizer)})
+func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
+	interactions := sessionsvc.NewInteractionService(store, dialer, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer))
+	return New(interactions, url)
 }
 
 func (s *gatewayTestStore) SessionForTask(context.Context, string) (string, error) {
@@ -66,26 +66,6 @@ func (s *gatewayTestStore) SessionForTask(context.Context, string) (string, erro
 		return "", database.ErrNotFound
 	}
 	return s.session.Id, nil
-}
-
-// Creation idempotency belongs to the session service; the gateway supplies a
-// stable request key scoped to the Agent and initial message.
-type creatingTestSessions struct {
-	*sessionsvc.Service
-	store   *gatewayTestStore
-	created map[string]*apiv1alpha1.Session
-}
-
-func (s *creatingTestSessions) Create(_ context.Context, ref *apiv1alpha1.ResourceReference, requestID, _ string) (*apiv1alpha1.Session, error) {
-	if existing := s.created[requestID]; existing != nil {
-		return existing, nil
-	}
-	session := gatewayTestSession()
-	session.Id = uuid.NewString()
-	session.ContextId, session.Agent = session.Id, ref
-	s.created[requestID] = session
-	s.store.session = session
-	return session, nil
 }
 
 func TestGatewayTaskRoutingAndAgentIsolation(t *testing.T) {

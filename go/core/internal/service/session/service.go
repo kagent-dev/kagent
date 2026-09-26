@@ -118,13 +118,13 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	return s.Access(ctx, id, auth.VerbGet)
+	return s.getAuthorized(ctx, id, auth.VerbGet)
 }
 
-// Access loads a Session authorized for the requested operation. Reads are
+// getAuthorized loads a Session authorized for the requested operation. Reads are
 // independent of runtime readiness: viewing a suspended conversation must not
 // provision a worker. Lifecycle and A2A operations use this same access policy.
-func (s *Service) Access(ctx context.Context, id string, verb auth.Verb) (*apiv1alpha1.Session, error) {
+func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) (*apiv1alpha1.Session, error) {
 	parsed, err := uuid.Parse(id)
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
@@ -185,7 +185,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 	if share, shared := auth.ShareContextFrom(ctx); shared {
 		// Even an all-creators request is limited to the shared conversation.
-		session, err := s.Access(ctx, share.SessionID, auth.VerbGet)
+		session, err := s.getAuthorized(ctx, share.SessionID, auth.VerbGet)
 		if err != nil {
 			return ListResult{}, err
 		}
@@ -239,7 +239,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 }
 
 func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	session, err := s.Access(ctx, id, auth.VerbDelete)
+	session, err := s.getAuthorized(ctx, id, auth.VerbDelete)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, 
 }
 
 func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	session, err := s.Access(ctx, id, auth.VerbUpdate)
+	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session,
 }
 
 func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	session, err := s.Access(ctx, id, auth.VerbUpdate)
+	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
 	}

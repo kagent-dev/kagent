@@ -26,27 +26,30 @@ IDs. ListTasks without a context lists only authorized conversations of that Age
 a share restricts the list to its own conversation. Authorization precedes totals
 and pagination. Card discovery does not create a session.
 
-The Session service owns authentication, ownership, and share permissions for
-both A2A and lifecycle calls. Its `Access` operation authorizes and loads a Session
-without waking its runtime. The gateway checks that the returned Session belongs
-to the selected Agent and maps service errors to A2A errors. The service also
-restricts shared listings to one conversation and filters denied Sessions before
-pagination. The gateway's `gatewayStore` dependency handles task/revision reads
-and dispatch transactions; it does not decide Session access policy.
+The gateway resolves the transport's Agent route and calls complete operations on
+the Session `InteractionService`: send, cancel, get/list, subscribe, and Agent Card
+discovery. The service receives the selected Agent explicitly, authorizes the
+operation, verifies Session membership, and owns dispatch and task observation.
+Ownership and share policy are private implementation details shared with the Session
+lifecycle service; callers never select authorization verbs. Shared listings are
+restricted to one conversation and denied Sessions are filtered before pagination.
+The store owns persistence and dispatch transactions. Public Agent Card URLs and
+SDK transport handling remain in the gateway.
 
 The runtime owns execution and persists updates through the private gRPC
-`TaskStoreService`. The gateway owns each caller's observation connection.
+`TaskStoreService`. The interaction service owns each caller's observation connection.
 Disconnecting a client or gateway does not cancel the native runner or remove
 its persistence writer. Public authentication and authorization stay in the
-API/gateway; the runtime SDK serializes execution and continues waiting tasks.
+API services; the runtime SDK serializes execution and continues waiting tasks.
 
 ```mermaid
 flowchart LR
-    CLIENT[client] --> GATEWAY[authorized public A2A gateway]
-    GATEWAY -->|send / cancel / live subscribe| RUNTIME[agent A2A runtime]
+    CLIENT[client] --> GATEWAY[public A2A gateway]
+    GATEWAY -->|Agent + operation| INTERACTIONS[Session interaction service]
+    INTERACTIONS -->|send / cancel / live subscribe| RUNTIME[agent A2A runtime]
     RUNTIME -->|private TaskStore gRPC| API[API]
     API --> DB[(PostgreSQL)]
-    GATEWAY -->|stored get / list| DB
+    INTERACTIONS -->|stored get / list| DB
     DB -->|idle session| WORKER[Session lifecycle worker]
     WORKER --> SUBSTRATE[Substrate pause / suspend]
 ```
@@ -70,14 +73,14 @@ An independent Session lifecycle worker pauses waiting actors or suspends
 terminal ones and records their matching snapshot. A new turn can supersede idle
 work that has not been claimed. Once claimed, pause/suspend blocks new execution,
 explicit lifecycle changes, and checkpoint capture until its outcome is recorded.
-The gateway reserves dispatch on the session before forwarding input. A reservation
+The interaction service reserves dispatch on the session before forwarding input. A reservation
 blocks idle work, checkpoint capture, and explicit lifecycle operations until the
 runtime saves an active task. Continuations may first save input while waiting;
 the reservation stays held until their active save. Each attempt expires after two
 minutes, and late first saves are rejected before native work. This timeout never
 transfers permission to execute running native work.
 
-The gateway waits up to ten seconds for a claimed idle operation before forwarding.
+The interaction service waits up to ten seconds for a claimed idle operation before forwarding.
 A rejected send carries A2A `ErrorInfo.metadata.reason=KAGENT_SEND_NOT_ACCEPTED`
 (and `retryAfterMs=100`) only if no dispatch occurred, or the unused attempt was
 atomically revoked and its input was never persisted. Clients may retry that
@@ -106,8 +109,9 @@ The persistence model enforces:
 Tasks contain current materialized A2A state. Complete message history is rebuilt
 from ordered event rows, not stored as one history blob.
 
-The implementation is in
-[`go/core/internal/a2agateway`](../../go/core/internal/a2agateway).
+The operations are implemented in
+[`go/core/internal/service/session`](../../go/core/internal/service/session), with
+transport adapters in [`go/core/internal/a2agateway`](../../go/core/internal/a2agateway).
 
 ## Runtime SDK adapters
 
@@ -141,7 +145,7 @@ cancellation, continuation, disconnects, and slow subscribers.
 Get/List serve committed state without waking the runtime. Subscribe returns
 current stored state for quiescent tasks; otherwise the runtime supplies its
 initial task followed by live updates. If completion races subscription setup,
-the gateway recovers the committed public result. Unary sends also recover the
+the interaction service recovers the committed public result. Unary sends also recover the
 task containing the input if suspension interrupts the response; ambiguous message
 IDs and protocol errors are not recovered. Cancellation recovers only a terminal
 task. An interrupted request with unfinished work

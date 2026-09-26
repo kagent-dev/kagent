@@ -231,7 +231,8 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
-		gateway := a2agateway.New(a2agateway.Config{Store: store, Sessions: sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), Dialer: taskStoreRuntimeDialer{runtimeListener}, GatewayURL: "http://gateway.test"})
+		interactions := sessionsvc.NewInteractionService(store, taskStoreRuntimeDialer{runtimeListener}, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil))
+		gateway := a2agateway.New(interactions, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
 			Authenticator: &authimpl.UnsecureAuthenticator{},

@@ -92,13 +92,10 @@ func newGatewayTestTransport(t *testing.T, address string, protocol a2atype.Tran
 func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		t.Run(string(protocol), func(t *testing.T) {
-			store := &gatewayTestStore{}
-			sessions := &creatingTestSessions{newTestSessions(store, &gatewayTestAuthorizer{}), store, map[string]*apiv1alpha1.Session{}}
+			store := &gatewayTestStore{created: map[string]*apiv1alpha1.Session{}}
 			runtime := &gatewayTestRuntime{}
 			authorizer := &gatewayTestAuthorizer{}
-			gateway := New(Config{Store: store,
-				Agents: gatewayTestAgents{store, authorizer}, Sessions: sessions,
-				Dialer: &gatewayTestDialer{client: gatewayTestClient(t, runtime)}})
+			gateway := newTestGateway(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 			transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
 			tenant := ""
 			if protocol == a2atype.TransportProtocolGRPC {
@@ -120,7 +117,7 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, first, retry)
 			require.Equal(t, 1, runtime.sendCalls)
-			require.Len(t, sessions.created, 1)
+			require.Len(t, store.created, 1)
 			// Task-only requests must resolve the same Session without a context ID.
 			persisted, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{Tenant: tenant, ID: task.ID})
 			require.NoError(t, err)
@@ -133,7 +130,7 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 			second, err := transport.SendMessage(t.Context(), params, request("second"))
 			require.NoError(t, err)
 			require.NotEqual(t, task.ContextID, second.(*a2atype.Task).ContextID)
-			require.Len(t, sessions.created, 2)
+			require.Len(t, store.created, 2)
 		})
 	}
 }

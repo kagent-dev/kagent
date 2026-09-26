@@ -475,7 +475,7 @@ func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	}
 }
 
-func TestServiceAccessScopesReadsToAuthorizedIdentity(t *testing.T) {
+func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
 	for _, test := range []struct {
 		name     string
@@ -528,7 +528,7 @@ func TestServiceAccessScopesReadsToAuthorizedIdentity(t *testing.T) {
 	}
 }
 
-func TestServiceAccessMapsErrors(t *testing.T) {
+func TestServiceGetMapsErrors(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		id   string
@@ -542,9 +542,9 @@ func TestServiceAccessMapsErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &serviceTestStore{getErr: test.err}
 			service := NewService(store, serviceTestAuthorizer{}, nil)
-			_, err := service.Access(serviceTestContext("alice"), test.id, auth.VerbGet)
+			_, err := service.Get(serviceTestContext("alice"), test.id)
 			if !serviceerrors.IsCode(err, test.code) {
-				t.Fatalf("Access() = %v, want %s", err, test.code)
+				t.Fatalf("Get() = %v, want %s", err, test.code)
 			}
 			if test.code == serviceerrors.CodeInvalidArgument && store.getID != "" {
 				t.Fatal("invalid identity reached storage")
@@ -563,7 +563,6 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{name: "send", call: func() error { _, err := service.Access(ctx, id, auth.VerbCreate); return err }},
 		{name: "suspend", call: func() error { _, err := service.Suspend(ctx, id); return err }},
 		{name: "resume", call: func() error { _, err := service.Resume(ctx, id); return err }},
 		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},

@@ -62,6 +62,7 @@ type gatewayTestStore struct {
 	id, userID    string
 	unscoped      bool
 	settledRead   func() error
+	created       map[string]*apiv1alpha1.Session
 }
 
 func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialID string) error {
@@ -87,8 +88,18 @@ func (s *gatewayTestStore) GetSession(_ context.Context, id, userID string) (*ap
 	return s.session, s.err
 }
 
-func (s *gatewayTestStore) CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error) {
-	return s.session, true, s.err
+func (s *gatewayTestStore) CreateSession(_ context.Context, request *apiv1alpha1.Session, requestID string) (*apiv1alpha1.Session, bool, error) {
+	if s.created == nil {
+		return s.session, true, s.err
+	}
+	key := request.Creator + "/" + requestID
+	if existing := s.created[key]; existing != nil {
+		return existing, false, nil
+	}
+	session := gatewayTestSession()
+	session.Id, session.ContextId, session.Agent, session.Creator = request.Id, request.Id, request.Agent, request.Creator
+	s.created[key], s.session = session, session
+	return session, true, nil
 }
 
 func (s *gatewayTestStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1alpha1.Session, error) {
@@ -315,9 +326,6 @@ func (r *endingRuntime) Destroy() error {
 }
 
 func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
-	previous := runtimeDrainTimeout
-	runtimeDrainTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { runtimeDrainTimeout = previous })
 	tests := []struct {
 		name      string
 		hold      bool
@@ -545,26 +553,6 @@ func TestGatewayBuildsAgentCardFromAgentRevision(t *testing.T) {
 	}
 }
 
-func TestQuiescentTaskStates(t *testing.T) {
-	for _, state := range []a2atype.TaskState{
-		a2atype.TaskStateCompleted,
-		a2atype.TaskStateCanceled,
-		a2atype.TaskStateFailed,
-		a2atype.TaskStateRejected,
-		a2atype.TaskStateInputRequired,
-		a2atype.TaskStateAuthRequired,
-	} {
-		if !isQuiescent(state) {
-			t.Errorf("isQuiescent(%s) = false", state)
-		}
-	}
-	if isQuiescent(a2atype.TaskStateWorking) {
-		t.Error("working task is quiescent")
-	}
-}
-
-// A denying authorizer, so "the share is what let this through" is provable rather
-// than merely consistent with the result.
 type gatewayDenyAuthorizer struct{ called bool }
 
 func (a *gatewayDenyAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
@@ -687,7 +675,8 @@ func TestRuntimeAgentCardAfterBinaryRoundTrip(t *testing.T) {
 func TestGatewayContextMatchesSessionAndTask(t *testing.T) {
 	session := gatewayTestSession()
 	store := &gatewayTestStore{session: session, tasks: []*a2atype.Task{{ID: "task", ContextID: session.Id}}}
-	gateway := &Gateway{store: store, sessions: newTestSessions(store, &gatewayTestAuthorizer{}), agents: gatewayTestAgents{store, &gatewayTestAuthorizer{}}}
+	runtime := &gatewayTestRuntime{}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 	for _, contextID := range []string{"", session.Id} {
 		listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{ContextID: contextID})
 		require.NoError(t, err)
@@ -696,12 +685,12 @@ func TestGatewayContextMatchesSessionAndTask(t *testing.T) {
 	request := gatewayTestRequest()
 	request.Message.TaskID = "task"
 	request.Message.ContextID = uuid.NewString()
-	_, err := gateway.prepareSend(gatewayTestContext(), request)
+	_, err := gateway.SendMessage(gatewayTestContext(), request)
 	require.ErrorIs(t, err, a2atype.ErrInvalidRequest)
 	request.Message.ContextID = ""
-	prepared, err := gateway.prepareSend(gatewayTestContext(), request)
+	prepared, err := gateway.SendMessage(gatewayTestContext(), request)
 	require.NoError(t, err)
-	require.Equal(t, session.Id, prepared.Id)
+	require.Equal(t, session.Id, prepared.(*a2atype.Task).ContextID)
 	require.Equal(t, session.Id, request.Message.ContextID)
 }
 
@@ -769,14 +758,14 @@ func TestGatewayRecoversUnaryResponseLostDuringFinalization(t *testing.T) {
 							t.Fatal("recovery retained the runtime connection")
 						}
 						reads++
-						if isQuiescent(state) && reads == 1 {
+						if state != a2atype.TaskStateWorking && reads == 1 {
 							return database.ErrConflict
 						}
 						return nil
 					}
 					gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
-					if failure.recover && isQuiescent(state) {
+					if failure.recover && state != a2atype.TaskStateWorking {
 						if err != nil || result != current || reads != 2 {
 							t.Fatalf("recovery = %v, %v; reads = %d", result, err, reads)
 						}
