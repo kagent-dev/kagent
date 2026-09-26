@@ -26,10 +26,12 @@ func TestSandboxAgentMCP(t *testing.T) {
 	image := os.Getenv("KAGENT_E2E_RUNTIME_IMAGE")
 	require.NotEmpty(t, image, "KAGENT_E2E_RUNTIME_IMAGE must be set to a digest-pinned Go ADK image")
 	f := newSandboxFixture(t)
+	kube := interactionKubeClient(t)
+	server := &v1alpha3.RemoteMCPServer{}
+	require.NoError(t, kube.Get(f.ctx, ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: "kagent-api"}, server), "Helm must install the kagent-api RemoteMCPServer")
 	prepared := f.create(t, 5*time.Minute)
 	_, err := f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: prepared.Id})
 	require.NoError(t, err)
-	kube := interactionKubeClient(t)
 	source := &v1alpha3.SandboxTemplate{}
 	require.NoError(t, kube.Get(f.ctx, ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: f.template.Name}, source))
 	harness := &v1alpha3.Harness{
@@ -59,16 +61,6 @@ func TestSandboxAgentMCP(t *testing.T) {
 	}
 	require.NoError(t, kube.Create(f.ctx, model))
 	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), model)) })
-	endpoint := os.Getenv("KAGENT_E2E_SANDBOX_MCP_URL")
-	if endpoint == "" {
-		endpoint = "http://kagent-controller." + f.template.Namespace + ".svc:8083/mcp"
-	}
-	server := &v1alpha3.RemoteMCPServer{
-		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-tools-", Namespace: f.template.Namespace},
-		Spec:       v1alpha3.RemoteMCPServerSpec{Description: "Sandbox tools", Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: endpoint},
-	}
-	require.NoError(t, kube.Create(f.ctx, server))
-	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), server)) })
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-caller-", Namespace: f.template.Namespace},
 		Spec: v1alpha3.AgentTemplateSpec{

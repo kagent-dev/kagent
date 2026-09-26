@@ -243,6 +243,27 @@ There is no separate lifecycle or guest tool server. gRPC file transfers are
 bounded at 64 MiB. MCP file transfers and output reads are bounded at 1 MiB,
 use base64 for bytes, and expose continuation offsets for output reads.
 
+Helm installs a `RemoteMCPServer` named `<fullname>-api` (`kagent-api` for the
+standard release) in the controller namespace. It points at the controller's
+`/mcp` endpoint using the configured service name, namespace, port, and TLS scheme.
+This registration exposes Session and checkpoint tools alongside sandbox tools.
+AgentTemplates opt in through their existing tool bindings, for example:
+
+```yaml
+tools:
+  - mcp:
+      server:
+        kind: RemoteMCPServer
+        name: kagent-api
+      tools:
+        - create_sandbox
+        - delete_sandbox
+```
+
+Bindings reference a server in the AgentTemplate's namespace; other namespaces
+need their own registration. Caller credential propagation still needs to be
+configured on the Harness as described above.
+
 Each StartProcess call launches a new command. There is no process request ID or
 durable receipt. After a timeout or lost response, callers must account for the
 possibility that the command started; retrying may execute it again. Process IDs,
