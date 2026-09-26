@@ -45,32 +45,38 @@ func (gatewayTestAuthSession) Principal() auth.Principal {
 
 type gatewayTestStore struct {
 	*database.Client
-	reserveErr    error
-	initialID     string
-	listedIDs     []string
-	revoked       bool
-	session       *apiv1alpha1.Session
-	revision      *database.RuntimeRevision
-	err           error
-	task          *a2atype.Task
-	tasks         []*a2atype.Task
-	total         int
-	historyLength *int
-	taskErr       error
-	replay        *a2atype.Task
-	stored        []a2atype.Event
-	id, userID    string
-	unscoped      bool
-	settledRead   func() error
-	created       map[string]*apiv1alpha1.Session
+	reserveCalls     int
+	revokeCalls      int
+	revokeContextErr error
+	reserveErr       error
+	initialID        string
+	listedIDs        []string
+	revoked          bool
+	session          *apiv1alpha1.Session
+	revision         *database.RuntimeRevision
+	err              error
+	task             *a2atype.Task
+	tasks            []*a2atype.Task
+	total            int
+	historyLength    *int
+	taskErr          error
+	replay           *a2atype.Task
+	stored           []a2atype.Event
+	id, userID       string
+	unscoped         bool
+	settledRead      func() error
+	created          map[string]*apiv1alpha1.Session
 }
 
 func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialID string) error {
+	s.reserveCalls++
 	s.initialID = initialID
 	return s.reserveErr
 }
 
-func (s *gatewayTestStore) RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error) {
+func (s *gatewayTestStore) RevokeSessionDispatch(ctx context.Context, _ string, _ uuid.UUID, _ string) (bool, error) {
+	s.revokeCalls++
+	s.revokeContextErr = ctx.Err()
 	return s.revoked, nil
 }
 
@@ -867,4 +873,97 @@ func (s *gatewayTestStore) GetSessionTaskByMessage(context.Context, string, stri
 		return s.replay, nil
 	}
 	return nil, database.ErrNotFound
+}
+
+func TestQuiescentTaskStates(t *testing.T) {
+	for _, state := range []a2atype.TaskState{
+		a2atype.TaskStateCompleted,
+		a2atype.TaskStateCanceled,
+		a2atype.TaskStateFailed,
+		a2atype.TaskStateRejected,
+		a2atype.TaskStateInputRequired,
+		a2atype.TaskStateAuthRequired,
+	} {
+		if !isQuiescent(state) {
+			t.Errorf("isQuiescent(%s) = false", state)
+		}
+	}
+	if isQuiescent(a2atype.TaskStateWorking) {
+		t.Error("working task is quiescent")
+	}
+}
+
+// A denying authorizer, so "the share is what let this through" is provable rather
+// than merely consistent with the result.
+
+// A successful send/cancel may need persisted results after its actor connection
+// closes. That recovery must not silently add Get or Update permission to a send.
+type gatewayOperationAuthorizer struct{ verb auth.Verb }
+
+func (a gatewayOperationAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, _ auth.Resource) error {
+	if verb != a.verb {
+		return errors.New("operation not permitted")
+	}
+	return nil
+}
+
+func TestGatewayRecoveryUsesOriginalOperationPermission(t *testing.T) {
+	for _, operation := range []string{"send", "stream", "cancel"} {
+		t.Run(operation, func(t *testing.T) {
+			task := &a2atype.Task{ID: "task", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+			store := &gatewayTestStore{session: gatewayTestSession(), task: task, replay: task}
+			runtime := &gatewayTestRuntime{task: task}
+			verb := auth.VerbCreate
+			if operation == "cancel" {
+				verb = auth.VerbUpdate
+				task.Status.State = a2atype.TaskStateWorking
+				runtime.cancelErr = a2atype.ErrInternalError
+				store.settledRead = func() error { task.Status.State = a2atype.TaskStateCanceled; return nil }
+			} else {
+				runtime.onSend = func() error { return a2atype.ErrInternalError }
+			}
+			gateway := newTestGateway(store, gatewayOperationAuthorizer{verb}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
+			ctx := gatewayTestContext()
+			switch operation {
+			case "send":
+				result, err := gateway.SendMessage(ctx, gatewayTestRequest())
+				require.NoError(t, err)
+				require.Equal(t, task, result)
+			case "stream":
+				count := 0
+				for event, err := range gateway.SendStreamingMessage(ctx, gatewayTestRequest()) {
+					require.NoError(t, err)
+					require.Equal(t, task, event)
+					count++
+				}
+				require.Equal(t, 1, count)
+			case "cancel":
+				result, err := gateway.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: task.ID})
+				require.NoError(t, err)
+				require.Equal(t, a2atype.TaskStateCanceled, result.Status.State)
+			}
+			require.True(t, runtime.destroyed)
+		})
+	}
+}
+
+func TestGatewayReleasesDispatchAfterCallerDisconnects(t *testing.T) {
+	ctx, cancel := context.WithCancel(gatewayTestContext())
+	defer cancel()
+	store := &gatewayTestStore{session: gatewayTestSession()}
+	runtime := &gatewayTestRuntime{onSend: func() error { cancel(); return context.Canceled }}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
+	_, err := gateway.SendMessage(ctx, gatewayTestRequest())
+	require.Error(t, err)
+	require.Positive(t, store.revokeCalls)
+	require.NoError(t, store.revokeContextErr)
+}
+
+func TestGatewayUnusedStreamDoesNotReserveDispatch(t *testing.T) {
+	store := &gatewayTestStore{session: gatewayTestSession()}
+	dialer := &gatewayTestDialer{}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, dialer, "")
+	_ = gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
+	require.Zero(t, store.reserveCalls)
+	require.Nil(t, dialer.session)
 }

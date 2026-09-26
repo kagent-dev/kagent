@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"errors"
-	"iter"
 	"testing"
 	"time"
 
@@ -39,11 +38,14 @@ func (s *interactionTestStore) ListAgentTasks(context.Context, []string, string,
 	return []*a2atype.Task{s.task}, 1, nil
 }
 
-func firstInteractionError(events iter.Seq2[a2atype.Event, error]) error {
-	for _, err := range events {
-		return err
-	}
-	return errors.New("operation returned no result")
+func (s *interactionTestStore) GetSettledSessionTask(context.Context, string, string, *int) (*a2atype.Task, error) {
+	s.taskReads++
+	return s.task, nil
+}
+
+func (s *interactionTestStore) GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error) {
+	s.taskReads++
+	return s.task, nil
 }
 
 func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
@@ -54,6 +56,26 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 		verb auth.Verb
 		call func(context.Context, *InteractionService, types.NamespacedName) error
 	}{
+		{name: "settled task", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.GetSettledTask(ctx, agent, id, "task", nil)
+			return err
+		}},
+		{name: "send result", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.GetSendResult(ctx, agent, &a2atype.Message{ID: "input", ContextID: id}, "task", nil)
+			return err
+		}},
+		{name: "cancel result", verb: auth.VerbUpdate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.GetCancelResult(ctx, agent, "task")
+			return err
+		}},
+		{name: "accepted message", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.GetTaskByMessage(ctx, agent, &a2atype.Message{ID: "input", ContextID: id})
+			return err
+		}},
+		{name: "revoke send", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.RevokeSend(ctx, agent, &a2atype.Message{ID: "input", ContextID: id}, uuid.New())
+			return err
+		}},
 		{name: "get", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
 			_, err := s.GetTask(ctx, agent, &a2atype.GetTaskRequest{ID: "task"})
 			return err
@@ -63,25 +85,20 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			return err
 		}},
 		{name: "subscribe", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			return firstInteractionError(s.SubscribeToTask(ctx, agent, &a2atype.SubscribeToTaskRequest{ID: "task"}))
+			_, _, err := s.PrepareTaskSubscription(ctx, agent, &a2atype.SubscribeToTaskRequest{ID: "task"})
+			return err
 		}},
 		{name: "cancel", verb: auth.VerbUpdate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			_, err := s.CancelTask(ctx, agent, &a2atype.CancelTaskRequest{ID: "task"})
+			_, _, err := s.PrepareCancelTask(ctx, agent, &a2atype.CancelTaskRequest{ID: "task"})
 			return err
 		}},
 		{name: "send", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			_, err := s.SendMessage(ctx, agent, &a2atype.SendMessageRequest{Message: &a2atype.Message{ID: "input", ContextID: id}})
+			_, err := s.PrepareSend(ctx, agent, &a2atype.SendMessageRequest{Message: &a2atype.Message{ID: "input", ContextID: id}})
 			return err
 		}},
 		{name: "reply", verb: auth.VerbUpdate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			_, err := s.SendMessage(ctx, agent, &a2atype.SendMessageRequest{Message: &a2atype.Message{ID: "input", TaskID: "task"}})
+			_, err := s.PrepareSend(ctx, agent, &a2atype.SendMessageRequest{Message: &a2atype.Message{ID: "input", TaskID: "task"}})
 			return err
-		}},
-		{name: "stream", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			return firstInteractionError(s.SendStreamingMessage(ctx, agent, &a2atype.SendMessageRequest{Message: &a2atype.Message{ID: "input", ContextID: id}}))
-		}},
-		{name: "stream reply", verb: auth.VerbUpdate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			return firstInteractionError(s.SendStreamingMessage(ctx, agent, &a2atype.SendMessageRequest{Message: &a2atype.Message{ID: "input", TaskID: "task"}}))
 		}},
 	} {
 		for _, test := range []struct {
@@ -102,7 +119,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				sessionStore := &serviceTestStore{getResult: stored}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
-				service := NewInteractionService(tasks, nil, nil, NewService(sessionStore, authorizer, nil))
+				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil))
 				want := test.want
 				if test.name == "read-only share" && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
@@ -130,7 +147,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 }
 
 func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
-	service := NewInteractionService(nil, nil, nil, nil)
+	service := NewInteractionService(nil, nil, nil)
 	for _, agent := range []types.NamespacedName{
 		{},
 		{Namespace: "team-a"},
@@ -143,24 +160,3 @@ func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
 		}
 	}
 }
-
-func TestQuiescentTaskStates(t *testing.T) {
-	for _, state := range []a2atype.TaskState{
-		a2atype.TaskStateCompleted,
-		a2atype.TaskStateCanceled,
-		a2atype.TaskStateFailed,
-		a2atype.TaskStateRejected,
-		a2atype.TaskStateInputRequired,
-		a2atype.TaskStateAuthRequired,
-	} {
-		if !isQuiescent(state) {
-			t.Errorf("isQuiescent(%s) = false", state)
-		}
-	}
-	if isQuiescent(a2atype.TaskStateWorking) {
-		t.Error("working task is quiescent")
-	}
-}
-
-// A denying authorizer, so "the share is what let this through" is provable rather
-// than merely consistent with the result.

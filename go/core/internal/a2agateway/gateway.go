@@ -1,4 +1,4 @@
-// Package a2agateway adapts public A2A transports to Session interaction operations.
+// Package a2agateway routes public A2A calls to actors and persisted Session state.
 package a2agateway
 
 import (
@@ -7,8 +7,11 @@ import (
 	"strings"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/uuid"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -16,26 +19,36 @@ import (
 type interactionService interface {
 	GetTask(context.Context, types.NamespacedName, *a2a.GetTaskRequest) (*a2a.Task, error)
 	ListTasks(context.Context, types.NamespacedName, *a2a.ListTasksRequest) (*a2a.ListTasksResponse, error)
-	CancelTask(context.Context, types.NamespacedName, *a2a.CancelTaskRequest) (*a2a.Task, error)
-	SendMessage(context.Context, types.NamespacedName, *a2a.SendMessageRequest) (a2a.SendMessageResult, error)
-	SendStreamingMessage(context.Context, types.NamespacedName, *a2a.SendMessageRequest) iter.Seq2[a2a.Event, error]
-	SubscribeToTask(context.Context, types.NamespacedName, *a2a.SubscribeToTaskRequest) iter.Seq2[a2a.Event, error]
+	PrepareSend(context.Context, types.NamespacedName, *a2a.SendMessageRequest) (*sessionsvc.PreparedSend, error)
+	PrepareCancelTask(context.Context, types.NamespacedName, *a2a.CancelTaskRequest) (*apiv1alpha1.Session, *a2a.Task, error)
+	PrepareTaskSubscription(context.Context, types.NamespacedName, *a2a.SubscribeToTaskRequest) (*apiv1alpha1.Session, *a2a.Task, error)
+	RevokeSend(context.Context, types.NamespacedName, *a2a.Message, uuid.UUID) (bool, error)
+	GetTaskByMessage(context.Context, types.NamespacedName, *a2a.Message) (*a2a.Task, error)
+	GetSendResult(context.Context, types.NamespacedName, *a2a.Message, a2a.TaskID, *int) (*a2a.Task, error)
+	GetCancelResult(context.Context, types.NamespacedName, a2a.TaskID) (*a2a.Task, error)
+	GetSettledTask(context.Context, types.NamespacedName, string, a2a.TaskID, *int) (*a2a.Task, error)
 	GetAgentCard(context.Context, types.NamespacedName) (*a2a.AgentCard, error)
 }
 
-// Gateway resolves the transport's Agent route and delegates complete operations.
-// Session policy, persistence, and runtime orchestration belong to the service.
+type runtimeDialer interface {
+	Dial(context.Context, *apiv1alpha1.Session) (*a2aclient.Client, error)
+}
+
+// Gateway owns actor dispatch and live observation for both public transports.
+// Session policy, resolution, and persistence stay behind the service boundary.
 type Gateway struct {
 	interactions interactionService
+	dialer       runtimeDialer
 	gatewayURL   string
 }
 
+var _ runtimeDialer = (*RuntimeDialer)(nil)
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 var _ interactionService = (*sessionsvc.InteractionService)(nil)
 
-func New(interactions interactionService, gatewayURL string) a2asrv.RequestHandler {
+func New(interactions interactionService, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
-		Handler:      &Gateway{interactions: interactions, gatewayURL: gatewayURL},
+		Handler:      &Gateway{interactions: interactions, dialer: dialer, gatewayURL: gatewayURL},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
 }
@@ -61,7 +74,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2a.CancelTaskRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	return g.interactions.CancelTask(ctx, agent, req)
+	return g.cancelTask(ctx, agent, req)
 }
 
 func (g *Gateway) SendMessage(ctx context.Context, req *a2a.SendMessageRequest) (a2a.SendMessageResult, error) {
@@ -69,7 +82,7 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2a.SendMessageRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return g.interactions.SendMessage(ctx, agent, req)
+	return g.sendMessage(ctx, agent, req)
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2a.SendMessageRequest) iter.Seq2[a2a.Event, error] {
@@ -77,7 +90,7 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2a.SendMessage
 	if err != nil {
 		return func(yield func(a2a.Event, error) bool) { yield(nil, err) }
 	}
-	return g.interactions.SendStreamingMessage(ctx, agent, req)
+	return g.sendStreamingMessage(ctx, agent, req)
 }
 
 func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2a.SubscribeToTaskRequest) iter.Seq2[a2a.Event, error] {
@@ -85,7 +98,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2a.SubscribeToTaskR
 	if err != nil {
 		return func(yield func(a2a.Event, error) bool) { yield(nil, err) }
 	}
-	return g.interactions.SubscribeToTask(ctx, agent, req)
+	return g.subscribeToTask(ctx, agent, req)
 }
 
 func (g *Gateway) GetTaskPushConfig(ctx context.Context, req *a2a.GetTaskPushConfigRequest) (*a2a.PushConfig, error) {

@@ -26,18 +26,29 @@ IDs. ListTasks without a context lists only authorized conversations of that Age
 a share restricts the list to its own conversation. Authorization precedes totals
 and pagination. Card discovery does not create a session.
 
-The gateway resolves the transport's Agent route and calls complete operations on
-the Session `InteractionService`: send, cancel, get/list, subscribe, and Agent Card
-discovery. The service receives the selected Agent explicitly, authorizes the
-operation, verifies Session membership, and owns dispatch and task observation.
-Ownership and share policy are private implementation details shared with the Session
-lifecycle service; callers never select authorization verbs. Shared listings are
-restricted to one conversation and denied Sessions are filtered before pagination.
-The store owns persistence and dispatch transactions. Public Agent Card URLs and
-SDK transport handling remain in the gateway.
+The gateway resolves the transport's Agent route and owns actor communication:
+send, cancel, live subscription, connection cleanup, and response recovery. The
+Session `InteractionService` owns authorization, Session resolution, dispatch
+reservations, and persisted task reads. It receives the selected Agent explicitly
+and verifies Session membership before returning a target or task. It has no actor
+client. These operations form the persistence boundary for a separate API service.
+
+The service prepares a send by creating or resolving its Session and reserving a
+dispatch, or returning the task for an already accepted initial message. The gateway
+forwards the reservation to the actor and asks the service to release it afterward.
+The store enforces acceptance and revocation atomically; no database lock is held
+across an actor call. Cancellation and subscription preparation return an authorized
+Session target and stored task. The gateway serves terminal cancellations and
+quiescent subscriptions from storage without contacting the actor.
+
+Ownership and share policy stay private to the services; callers never select
+authorization verbs. Result recovery uses the original operation's permissions.
+Shared listings are restricted to one conversation and denied Sessions are filtered
+before pagination. Public Agent Card URLs and SDK transport handling belong to the
+gateway.
 
 The runtime owns execution and persists updates through the private gRPC
-`TaskStoreService`. The interaction service owns each caller's observation connection.
+`TaskStoreService`. The gateway owns each caller's observation connection.
 Disconnecting a client or gateway does not cancel the native runner or remove
 its persistence writer. Public authentication and authorization stay in the
 API services; the runtime SDK serializes execution and continues waiting tasks.
@@ -45,11 +56,11 @@ API services; the runtime SDK serializes execution and continues waiting tasks.
 ```mermaid
 flowchart LR
     CLIENT[client] --> GATEWAY[public A2A gateway]
-    GATEWAY -->|Agent + operation| INTERACTIONS[Session interaction service]
-    INTERACTIONS -->|send / cancel / live subscribe| RUNTIME[agent A2A runtime]
+    GATEWAY -->|resolve / reserve / stored reads| INTERACTIONS[Session interaction service]
+    GATEWAY -->|send / cancel / live subscribe| RUNTIME[agent A2A runtime]
     RUNTIME -->|private TaskStore gRPC| API[API]
     API --> DB[(PostgreSQL)]
-    INTERACTIONS -->|stored get / list| DB
+    INTERACTIONS -->|queries / transactions| DB
     DB -->|idle session| WORKER[Session lifecycle worker]
     WORKER --> SUBSTRATE[Substrate pause / suspend]
 ```
@@ -73,7 +84,7 @@ An independent Session lifecycle worker pauses waiting actors or suspends
 terminal ones and records their matching snapshot. A new turn can supersede idle
 work that has not been claimed. Once claimed, pause/suspend blocks new execution,
 explicit lifecycle changes, and checkpoint capture until its outcome is recorded.
-The interaction service reserves dispatch on the session before forwarding input. A reservation
+The gateway obtains a dispatch reservation from the interaction service before forwarding input. A reservation
 blocks idle work, checkpoint capture, and explicit lifecycle operations until the
 runtime saves an active task. Continuations may first save input while waiting;
 the reservation stays held until their active save. Each attempt expires after two
@@ -109,9 +120,10 @@ The persistence model enforces:
 Tasks contain current materialized A2A state. Complete message history is rebuilt
 from ordered event rows, not stored as one history blob.
 
-The operations are implemented in
-[`go/core/internal/service/session`](../../go/core/internal/service/session), with
-transport adapters in [`go/core/internal/a2agateway`](../../go/core/internal/a2agateway).
+Actor communication is implemented in
+[`go/core/internal/a2agateway`](../../go/core/internal/a2agateway). Authorization and
+persistence operations live in
+[`go/core/internal/service/session`](../../go/core/internal/service/session).
 
 ## Runtime SDK adapters
 
@@ -145,7 +157,7 @@ cancellation, continuation, disconnects, and slow subscribers.
 Get/List serve committed state without waking the runtime. Subscribe returns
 current stored state for quiescent tasks; otherwise the runtime supplies its
 initial task followed by live updates. If completion races subscription setup,
-the interaction service recovers the committed public result. Unary sends also recover the
+the gateway recovers the committed public result through the interaction service. Unary sends also recover the
 task containing the input if suspension interrupts the response; ambiguous message
 IDs and protocol errors are not recovered. Cancellation recovers only a terminal
 task. An interrupted request with unfinished work
