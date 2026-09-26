@@ -1,108 +1,178 @@
-import { test, expect } from "@playwright/test";
-import {
-  dataRows,
-  expectNoLoadFailure,
-  liveRoutes,
-  loadLive,
-  rowNamed,
-  throwawayName,
-} from "./helpers/live";
+import { test, expect, type Page } from "@playwright/test";
+import { expectNoLoadFailure, liveRoutes, loadLive, rowNamed } from "./helpers/live";
+import { liveApi, type HarnessSpecShape } from "./helpers/api";
 
 /**
- * Creating and deleting an agent, on a real cluster, through the UI.
+ * Agent CRUD on a real cluster, through the UI, for each template/harness source.
  *
- * This is the journey the mock suite cannot vouch for. Both halves of it were
- * broken against a real controller while the mock suite was green: the form sent
- * the model as a `namespace/name` ref where the controller wanted a bare name, so
- * every create was rejected; and the page read the created agent out of a wrapper
- * the create response does not have, so a create that *had* worked reported failure
- * and stayed on the form. Neither could be seen without a cluster.
- *
- * The agent is deleted in teardown as well as in the spec body, because a run that
- * dies midway would otherwise leave a real resource behind.
+ * Needs the `assistant` Agent and AgentTemplate, the `kagent` Harness and
+ * `default-model-config` in `kagent`. Inline harnesses copy that harness's image,
+ * pool and snapshot store.
  */
 
-const AGENT = throwawayName("agent");
 const NAMESPACE = "kagent";
+const TEMPLATE = "assistant";
+const HARNESS = "kagent";
+const MODEL = "default-model-config";
+const RUN = Date.now().toString(36);
+const READY_TIMEOUT = 180_000;
 
-test.afterEach(async ({ request, baseURL }) => {
-  // Deleting through the API rather than the UI: teardown runs after a failure, when
-  // the page may be anywhere at all, and a cleanup that depends on the UI working is
-  // exactly the cleanup that fails when the UI does not.
-  const response = await request.delete(
-    `${baseURL}/api/agents/${NAMESPACE}/${AGENT}`,
-    { failOnStatusCode: false },
-  );
-  // 404 is the goal state: either the spec deleted it, or it was never created.
-  expect(
-    [200, 204, 404],
-    `teardown could not remove ${NAMESPACE}/${AGENT} (${response.status()})`,
-  ).toContain(response.status());
+type Source = "reference" | "inline";
+const CASES: { template: Source; harness: Source; slug: string }[] = [
+  { template: "reference", harness: "reference", slug: "rr" },
+  { template: "inline", harness: "reference", slug: "ir" },
+  { template: "reference", harness: "inline", slug: "ri" },
+  { template: "inline", harness: "inline", slug: "ii" },
+];
+
+const created = new Set<string>();
+let harnessSpec: HarnessSpecShape;
+
+test.beforeAll(async ({ baseURL }) => {
+  harnessSpec = await liveApi(baseURL!).harnessSpec(NAMESPACE, HARNESS);
 });
 
-test("live: an agent can be created and deleted through the UI", async ({ page }) => {
-  await test.step("1. the create form opens with the cluster's models offered", async () => {
-    await loadLive(page, liveRoutes.agentNew);
-    await expectNoLoadFailure(page);
+// Through the API, not the UI: teardown runs after failures, when the page may be anywhere.
+test.afterAll(async ({ baseURL }) => {
+  const api = liveApi(baseURL!);
+  for (const name of created) await api.removeAgent(NAMESPACE, name);
+});
 
-    await page.getByTestId("agent-form-name").fill(AGENT);
-    await page.getByTestId("agent-form-namespace").fill(NAMESPACE);
-    await page
-      .getByTestId("agent-form-description")
-      .fill("Created by the live end-to-end suite; safe to delete.");
-    // Required, and the form says so rather than letting a create fail at the API —
-    // which is the client-side validation `playwright/DEFERRED.md` records as lost
-    // coverage. It is not lost; this spec relies on it.
-    await page
-      .getByTestId("agent-form-system-message")
-      .fill("You are a test agent created by an end-to-end run. Answer briefly.");
+async function pick(page: Page, testId: string, title: string) {
+  await page.getByTestId(testId).click();
+  await page.locator(`.ant-select-dropdown:visible .ant-select-item-option[title="${title}"]`).click();
+}
 
-    // The options come from the cluster's own ModelConfigs, so an empty list here is
-    // a real failure rather than a slow render: the install ships one.
-    await page.getByTestId("agent-form-model").click();
-    const option = page.locator(".ant-select-item-option").first();
-    await expect(option, "the cluster offered no model configurations").toBeVisible({
-      timeout: 30_000,
+async function chooseSource(page: Page, kind: "template" | "harness", source: Source) {
+  await page
+    .getByTestId(`agent-form-${kind}-source`)
+    .getByText(source === "inline" ? "Inline" : "Reference", { exact: true })
+    .click();
+}
+
+async function fillInlineTemplate(page: Page, description: string) {
+  await chooseSource(page, "template", "inline");
+  await pick(page, "template-form-model", MODEL);
+  await page.getByTestId("template-form-description").fill(description);
+  await page.getByTestId("template-form-prompt").fill("You are a concise assistant. Answer in one sentence.");
+}
+
+async function createAgent(page: Page, name: string, template: Source, harness: Source) {
+  await loadLive(page, liveRoutes.agentNew);
+  await expectNoLoadFailure(page);
+  await page.getByTestId("agent-form-name").fill(name);
+  if (template === "inline") await fillInlineTemplate(page, `Live ${name}`);
+  else await pick(page, "agent-form-template-ref", TEMPLATE);
+  if (harness === "inline") {
+    await chooseSource(page, "harness", "inline");
+    await page.getByTestId("harness-image").fill(harnessSpec.workload.image);
+    await page.getByTestId("harness-worker-pool").fill(harnessSpec.substrate.workerPoolRef.name);
+    await page.getByTestId("harness-snapshot").fill(`${harnessSpec.substrate.snapshotPolicy.location.replace(/\/$/, "")}/e2e-${name}`);
+  } else {
+    await pick(page, "agent-form-harness-ref", HARNESS);
+  }
+  created.add(name);
+  await page.getByTestId("agent-form-submit").click();
+  await expect(page).toHaveURL(/\/agents\?tab=agents$/, { timeout: 60_000 });
+}
+
+/** Re-reads the list until the controller has observed the latest edit and it succeeded. */
+async function expectReady(page: Page, name: string) {
+  const status = page.getByTestId(`agent-revision-${NAMESPACE}/${name}`);
+  await expect
+    .poll(
+      async () => {
+        await page.getByRole("button", { name: /Refresh/ }).click();
+        return status.getAttribute("data-revision-state");
+      },
+      { timeout: READY_TIMEOUT, message: `${name} never became Ready` },
+    )
+    .toBe("ready");
+}
+
+for (const { template, harness, slug } of CASES) {
+  const name = `e2e-${slug}-${RUN}`;
+
+  test(`live: agent CRUD with a ${template} template and a ${harness} harness`, async ({ page, baseURL }) => {
+    test.setTimeout(READY_TIMEOUT * 2 + 120_000);
+
+    await test.step("1. create it through the form", async () => {
+      await createAgent(page, name, template, harness);
     });
-    await option.click();
-  });
 
-  await test.step("2. submitting reaches the controller and reports success", async () => {
-    await page.getByTestId("agent-form-submit").click();
+    await test.step("2. it is listed with its sources and becomes Ready", async () => {
+      await expect(rowNamed(page, name)).toHaveCount(1, { timeout: 60_000 });
+      await expect(page.getByTestId(`agent-template-${NAMESPACE}/${name}`)).toHaveAttribute("data-source", template);
+      await expect(page.getByTestId(`agent-harness-${NAMESPACE}/${name}`)).toHaveAttribute("data-source", harness);
+      await expectReady(page, name);
+    });
 
-    // Success is leaving the form. A create that failed keeps the user on it with an
-    // error, which is the shape the earlier defect produced for an agent that had in
-    // fact been created.
-    await expect(page).toHaveURL(/\/agents$/, { timeout: 60_000 });
-  });
+    await test.step("3. opening it lands on its new chat", async () => {
+      await page.getByTestId(`agent-link-${NAMESPACE}-${name}`).click();
+      await expect(page).toHaveURL(new RegExp(`/agents/${NAMESPACE}/${name}/new$`));
+      await expect(page.getByTestId("chat-input")).toBeEditable();
+    });
 
-  await test.step("3. the agent is listed, read back from the cluster", async () => {
-    await expectNoLoadFailure(page);
-    await expect(rowNamed(page, AGENT)).toHaveCount(1, { timeout: 60_000 });
-  });
+    await test.step("4. an edit is saved, read back and becomes a new revision", async () => {
+      const before = await liveApi(baseURL!).latestRevision(NAMESPACE, name);
+      await loadLive(page, liveRoutes.agents);
+      await page.getByTestId(`edit-${name}`).click();
+      await expect(page.getByTestId("agent-form-name")).toBeDisabled();
+      // A referenced template is switched to inline; an inline one gets a new description.
+      await fillInlineTemplate(page, `Edited ${name}`);
+      await page.getByTestId("agent-form-submit").click();
+      await expect(page).toHaveURL(/\/agents\?tab=agents$/, { timeout: 60_000 });
+      await expect(rowNamed(page, name)).toHaveCount(1);
+      await expect(rowNamed(page, name)).toContainText(`Edited ${name}`);
+      await expect(page.getByTestId(`agent-template-${NAMESPACE}/${name}`)).toHaveAttribute("data-source", "inline");
+      await expectReady(page, name);
+      expect(await liveApi(baseURL!).latestRevision(NAMESPACE, name)).not.toBe(before);
+    });
 
-  await test.step("4. deleting it asks first, and names what it will delete", async () => {
-    const before = await dataRows(page).count();
-
-    await page.getByTestId(`delete-${AGENT}`).click();
-    const confirm = page.locator(".ant-popconfirm").filter({ hasText: AGENT });
-    await expect(confirm, "the confirmation did not name the agent").toBeVisible();
-
-    await page.getByRole("button", { name: "Delete", exact: true }).last().click();
-
-    await test.step("and the row is gone from the list a reader looks at", async () => {
-      await expect(rowNamed(page, AGENT)).toHaveCount(0, { timeout: 60_000 });
-      await expect(dataRows(page)).toHaveCount(before - 1);
+    await test.step("5. delete asks first, then the row is gone and the rest remain", async () => {
+      await page.getByTestId(`delete-${name}`).click();
+      await page.locator(".ant-popconfirm:visible").getByRole("button", { name: "Delete" }).click();
+      await expect(rowNamed(page, name)).toHaveCount(0, { timeout: 60_000 });
+      // Other specs add and remove rows in parallel, so check a fixed neighbour, not a count.
+      await expect(page.getByTestId(`agent-link-${NAMESPACE}-assistant`)).toBeVisible();
     });
   });
+}
 
-  await test.step("5. the cluster agrees it is gone", async () => {
-    // The list could be stale; the controller cannot be. This is what makes the
-    // previous step evidence of a delete rather than of a re-render.
-    const response = await page.request.get(
-      `/api/agents/${NAMESPACE}/${AGENT}`,
-      { failOnStatusCode: false },
-    );
-    expect(response.status()).toBe(404);
+test("live: two agents with the same template and harness keep separate conversations", async ({ page }) => {
+  test.setTimeout(READY_TIMEOUT * 2 + 240_000);
+  const [first, second] = [`e2e-twin-a-${RUN}`, `e2e-twin-b-${RUN}`];
+  let chatId = "";
+
+  await test.step("1. create both from the same refs", async () => {
+    await createAgent(page, first, "reference", "reference");
+    await createAgent(page, second, "reference", "reference");
+    await expectReady(page, first);
+    await expectReady(page, second);
+  });
+
+  await test.step("2. chat with the first and get a real reply", async () => {
+    await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
+    await page.getByTestId("chat-input").fill("Say hello in three words.");
+    await page.getByTestId("chat-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 60_000 });
+    chatId = new URL(page.url()).pathname.split("/")[2];
+    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]')).toHaveCount(1, { timeout: 180_000 });
+    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 180_000 });
+    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible();
+  });
+
+  await test.step("3. the second agent does not list that chat", async () => {
+    await loadLive(page, liveRoutes.agents);
+    await page.getByTestId(`agent-link-${NAMESPACE}-${second}`).click();
+    await expect(page.getByTestId("agent-rail-identity")).toContainText(second);
+    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId(`chat-session-${chatId}`)).toHaveCount(0);
+  });
+
+  await test.step("4. and the first still does", async () => {
+    await loadLive(page, liveRoutes.agents);
+    await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
+    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible({ timeout: 60_000 });
   });
 });

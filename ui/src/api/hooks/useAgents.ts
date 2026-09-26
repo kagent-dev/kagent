@@ -1,6 +1,7 @@
 import type { Agent } from "../domain/agents";
 import { apiClient } from "../client";
 import { useApiResource } from "./useApiResource";
+import { useInvalidateKeys } from "./useInvalidateKeys";
 
 export function useAgent(namespace: string | undefined, name: string | undefined) {
   return useApiResource(
@@ -33,4 +34,11 @@ export function useAgentsAcrossNamespaces(namespaces: readonly string[] | undefi
     }
     return { agents, refused };
   });
+}
+
+const KEYS = ["agents."];
+
+/** Re-reads every Agent list and detail on screen. */
+export function useInvalidateAgents(): () => Promise<void> {
+  return useInvalidateKeys(KEYS);
 }

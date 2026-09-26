@@ -35,9 +35,8 @@ import {
   isNotFound,
   useAgentTemplate,
   useInvalidateAgentTemplates,
-  type AgentSummary,
+  type Agent,
   useAgentsAcrossNamespaces,
-  agentSummariesFrom,
 } from "@/api";
 import { agentRevisionCondition } from "./agentRevision";
 
@@ -113,8 +112,8 @@ export function AgentTemplateDetailsPage() {
   const missing = template.error !== undefined && isNotFound(template.error);
 
   const agents = useAgentsAcrossNamespaces(namespace ? [namespace] : undefined);
-  const agentSummaries = useMemo(() => agentSummariesFrom((agents.data?.agents ?? []).filter(agent =>
-    agent.resource.spec.templateRef?.name === name)), [agents.data, name]);
+  const templateAgents = useMemo(() => (agents.data?.agents ?? []).filter(agent =>
+    agent.resource.spec.templateRef?.name === name), [agents.data, name]);
 
   /** Leaves edit mode, discarding the draft. Asks first when there is one to lose. */
   function stopEditing() {
@@ -188,7 +187,7 @@ export function AgentTemplateDetailsPage() {
 
   const problems = draft ? draftProblems(draft, { isCreate: false }) : [];
 
-  const agentColumns = useMemo<ColumnsType<AgentSummary>>(
+  const agentColumns = useMemo<ColumnsType<Agent>>(
     () => [
       {
         // Each row links to an explicit Agent referencing this template.
@@ -221,7 +220,7 @@ export function AgentTemplateDetailsPage() {
         title: "Revision state",
         key: "state",
         render: (_, row) => {
-          const conditions = row.definition?.resource.status?.conditions ?? [];
+          const conditions = row.resource.status?.conditions ?? [];
           const condition = agentRevisionCondition(conditions);
           if (!condition) {
             return (
@@ -261,8 +260,8 @@ export function AgentTemplateDetailsPage() {
           // The revision an agent would be cut from *now*. `desiredRevision` without a
           // successful one means the Agent is still being prepared, which is a different
           // state from having none — so they are shown as different things.
-          const successful = row.latestSuccessfulRevision;
-          const desired = row.definition?.resource.status?.desiredRevision;
+          const successful = row.resource.status?.latestSuccessfulRevision;
+          const desired = row.resource.status?.desiredRevision;
           if (successful) {
             return (
               <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
@@ -282,10 +281,10 @@ export function AgentTemplateDetailsPage() {
         title: "Conversations",
         key: "conversations",
         width: 160,
-        render: (_: unknown, summary: AgentSummary) => (
+        render: (_: unknown, agent: Agent) => (
           <AgentConversationCount
             namespace={template.data?.namespace}
-            name={summary.name}
+            name={agent.name}
           />
         ),
       },
@@ -439,7 +438,7 @@ export function AgentTemplateDetailsPage() {
                 },
                 {
                   key: "agents",
-                  label: `Agents (${agentSummaries.length})`,
+                  label: `Agents (${templateAgents.length})`,
                   children: (
                     <Space
                       orientation="vertical"
@@ -452,11 +451,11 @@ export function AgentTemplateDetailsPage() {
                         Agents that directly reference this reusable template. Child-template references can also reuse it.
                       </Paragraph>
 
-                      <Table<AgentSummary>
+                      <Table<Agent>
                         data-testid="template-agents-table"
                         rowKey={(row) => row.name}
                         columns={agentColumns}
-                        dataSource={agentSummaries}
+                        dataSource={templateAgents}
                         pagination={false}
                         locale={{
                           emptyText:

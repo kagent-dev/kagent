@@ -93,12 +93,22 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
 
 /** The draft a form opens with when editing an existing template. */
 export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
-  const spec = template.resource.spec;
+  return {
+    ...draftFromSpec(template.resource.spec, template.namespace),
+    name: template.name,
+    labels: Object.entries(template.resource.metadata.labels ?? {}).map(
+      ([key, value]) => ({ key, value }),
+    ),
+  };
+}
+
+/** The draft for a bare spec, such as an Agent's inline template, which has no name or labels. */
+export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): AgentTemplateDraft {
   const tools = spec.tools ?? [];
 
   return {
-    name: template.name,
-    namespace: template.namespace,
+    name: "",
+    namespace,
     modelConfig: spec.modelConfig?.name ?? "",
     description: spec.description ?? "",
     // Which one is in use is read from the resource rather than defaulted, so
@@ -133,9 +143,7 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
         templateName: binding.subAgent?.templateRef.name ?? "",
         isolation: binding.subAgent?.isolation ?? "Shared",
       })),
-    labels: Object.entries(template.resource.metadata.labels ?? {}).map(
-      ([key, value]) => ({ key, value }),
-    ),
+    labels: [],
   };
 }
 
