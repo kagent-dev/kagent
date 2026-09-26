@@ -268,7 +268,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		inputJSON string
 	})
 	var stopReason anthropic.StopReason
-	var inputTokens, outputTokens int64
+	var inputTokens, outputTokens, cacheReadInputTokens int64
 
 	for stream.Next() {
 		event := stream.Current()
@@ -276,6 +276,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		switch e := event.AsAny().(type) {
 		case anthropic.MessageStartEvent:
 			inputTokens = e.Message.Usage.InputTokens
+			cacheReadInputTokens = e.Message.Usage.CacheReadInputTokens
 		case anthropic.ContentBlockStartEvent:
 			idx := int(e.Index)
 			if e.ContentBlock.Type == "tool_use" {
@@ -313,6 +314,9 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		case anthropic.MessageDeltaEvent:
 			stopReason = e.Delta.StopReason
 			outputTokens = e.Usage.OutputTokens
+			if e.Usage.JSON.CacheReadInputTokens.Valid() {
+				cacheReadInputTokens = e.Usage.CacheReadInputTokens
+			}
 		}
 	}
 
@@ -343,10 +347,11 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 	}
 
 	var usage *genai.GenerateContentResponseUsageMetadata
-	if inputTokens > 0 || outputTokens > 0 {
+	if inputTokens > 0 || outputTokens > 0 || cacheReadInputTokens > 0 {
 		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(inputTokens),
-			CandidatesTokenCount: int32(outputTokens),
+			PromptTokenCount:        int32(inputTokens),
+			CandidatesTokenCount:    int32(outputTokens),
+			CachedContentTokenCount: cachedTokenCount(cacheReadInputTokens),
 		}
 	}
 	resp := &model.LLMResponse{
@@ -389,10 +394,11 @@ func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params ant
 
 	// Build usage metadata
 	var usage *genai.GenerateContentResponseUsageMetadata
-	if message.Usage.InputTokens > 0 || message.Usage.OutputTokens > 0 {
+	if message.Usage.InputTokens > 0 || message.Usage.OutputTokens > 0 || message.Usage.CacheReadInputTokens > 0 {
 		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(message.Usage.InputTokens),
-			CandidatesTokenCount: int32(message.Usage.OutputTokens),
+			PromptTokenCount:        int32(message.Usage.InputTokens),
+			CandidatesTokenCount:    int32(message.Usage.OutputTokens),
+			CachedContentTokenCount: cachedTokenCount(message.Usage.CacheReadInputTokens),
 		}
 	}
 

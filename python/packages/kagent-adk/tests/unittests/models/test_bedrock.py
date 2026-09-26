@@ -235,12 +235,15 @@ class TestKAgentBedrockLlm:
             KAgentBedrockLlm(model="meta.llama3-8b-instruct-v1:0", **{field: value})
 
     @pytest.mark.asyncio
-    async def test_generate_calls_converse(self):
+    @pytest.mark.parametrize(
+        "cached,want", [({}, 0), ({"cacheReadInputTokens": 8}, 8), ({"cacheReadInputTokens": -1}, 0)]
+    )
+    async def test_generate_calls_converse(self, cached, want):
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
         converse_response = {
             "output": {"message": {"role": "assistant", "content": [{"text": "hello"}]}},
             "stopReason": "end_turn",
-            "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+            "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15, "cacheWriteInputTokens": 3, **cached},
         }
         mock_client = mock.MagicMock()
         mock_client.converse.return_value = converse_response
@@ -261,16 +264,30 @@ class TestKAgentBedrockLlm:
 
         assert len(responses) == 1
         assert responses[0].content.parts[0].text == "hello"
+        assert responses[0].usage_metadata.cached_content_token_count == want
 
     @pytest.mark.asyncio
-    async def test_streaming_captures_usage_metadata(self):
+    @pytest.mark.parametrize(
+        "cached,want", [({}, 0), ({"cacheReadInputTokens": 8}, 8), ({"cacheReadInputTokens": -1}, 0)]
+    )
+    async def test_streaming_captures_usage_metadata(self, cached, want):
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
 
         stream_events = [
             {"contentBlockStart": {"start": {}}},
             {"contentBlockDelta": {"delta": {"text": "hello"}}},
             {"messageStop": {"stopReason": "end_turn"}},
-            {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+            {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 10,
+                        "outputTokens": 5,
+                        "totalTokens": 15,
+                        "cacheWriteInputTokens": 3,
+                        **cached,
+                    }
+                }
+            },
         ]
         mock_client = mock.MagicMock()
         mock_client.converse_stream.return_value = {"stream": stream_events}
@@ -294,6 +311,7 @@ class TestKAgentBedrockLlm:
         assert final.usage_metadata.prompt_token_count == 10
         assert final.usage_metadata.candidates_token_count == 5
         assert final.usage_metadata.total_token_count == 15
+        assert final.usage_metadata.cached_content_token_count == want
 
     @pytest.mark.asyncio
     async def test_dot_tool_name_sanitized_to_bedrock_and_remapped_in_response(self):
