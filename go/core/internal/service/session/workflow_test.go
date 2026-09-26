@@ -32,7 +32,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || created.GetA2AAuthority() == "" {
+	if created.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || created.GetA2AAuthority() == "" {
 		t.Fatalf("created session = %+v", created)
 	}
 	if len(actors.actors) != 1 {
@@ -52,7 +52,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
+	if created.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
 		t.Fatalf("quiesced session = %+v, boundary = %+v", created, boundary)
 	}
 
@@ -60,7 +60,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if suspended.GetState() != apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if suspended.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		t.Fatalf("suspended session = %+v", suspended)
 	}
 	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
@@ -71,7 +71,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY || resumed.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if resumed.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || resumed.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		t.Fatalf("resumed session = %+v", resumed)
 	}
 
@@ -81,7 +81,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 	_, err = store.GetSessionByID(t.Context(), session.Id)
 	require.ErrorIs(t, err, database.ErrNotFound)
-	if deleted.GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED || len(actors.actors) != 0 {
+	if deleted.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED || len(actors.actors) != 0 {
 		t.Fatalf("deleted session = %+v, actors = %v", deleted, actors.actors)
 	}
 }
@@ -123,7 +123,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]
-	if fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY ||
+	if fork.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY ||
 		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
 		actor.GetSourceTag().GetName() != "checkpoint-"+checkpointID {
 		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
@@ -331,7 +331,7 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_CREATING, current.State)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING, current.State)
 			require.Empty(t, current.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
 			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
@@ -340,32 +340,30 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.Equal(t, []string{"api.example.com"}, base.policy.Rules[0].GetHostnames().GetPatterns())
 			require.Equal(t, []string{"192.0.2.1/32"}, base.policy.Rules[2].GetCidrs().GetCidrs())
 
-			// The Actor was created, but policy setup may still be running.
-			// Another caller must neither repeat effects nor publish readiness.
+			// Retry completes policy setup for the existing Actor before readiness.
 			base.policyErr = nil
-			_, err = workflow.Create(t.Context(), session)
-			require.ErrorIs(t, err, database.ErrConflict)
-			_, err = workflow.Delete(t.Context(), session)
-			require.ErrorIs(t, err, database.ErrConflict)
+			ready, err := workflow.Create(t.Context(), session)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.State)
 			require.EqualValues(t, 1, actors.mutations.Load())
-			require.Equal(t, callsBefore+1, base.policyCalls)
+			require.Equal(t, callsBefore+2, base.policyCalls)
 		})
 	}
 }
 
 func TestActorEgressPolicy(t *testing.T) {
-	policy, err := actorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"}, nil)
+	policy, err := substrate.ActorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, policy.Metadata)
 	require.Len(t, policy.Rules, 2)
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
 	require.Equal(t, []string{"192.0.2.1/32", "2001:db8::1/128"}, policy.Rules[1].GetCidrs().GetCidrs())
-	policy, err = actorEgressPolicy("team-a", nil, nil)
+	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
 	for _, destination := range []string{"", "*", "https://api.example.com", "api.example.com:443", "192.0.2.0/24", "fe80::1%eth0"} {
 		t.Run(destination, func(t *testing.T) {
-			_, err := actorEgressPolicy("team-a", []string{destination}, nil)
+			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)
 		})
 	}
@@ -376,9 +374,9 @@ func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"},
 		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://kubernetes.io/team/auth/key"},
 	}
-	_, err := actorEgressPolicy("team", []string{"other.example.com"}, bindings)
+	_, err := substrate.ActorEgressPolicy("team", []string{"other.example.com"}, bindings)
 	require.ErrorContains(t, err, "is not allowed")
-	policy, err := actorEgressPolicy("team", []string{"api.example.com", "other.example.com"}, bindings)
+	policy, err := substrate.ActorEgressPolicy("team", []string{"api.example.com", "other.example.com"}, bindings)
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 2)
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
@@ -403,7 +401,7 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
 	deleted, err := service.Delete(ctx, session.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_DELETED, deleted.State)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 	require.Empty(t, deleted.A2AAuthority)
 	mutations = actors.mutations.Load()
 	_, err = service.Create(ctx, fixture.Agent, "retry-request", "")

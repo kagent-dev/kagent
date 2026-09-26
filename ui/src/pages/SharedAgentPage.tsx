@@ -5,6 +5,7 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { useAgentInstanceShareToken } from "@/api/shareToken";
+import { useAgentInstance } from "@/api";
 import { useChat } from "@/api/hooks/useChat";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { shortInstanceId } from "@/components/agent-instances/instanceLabels";
@@ -59,9 +60,11 @@ export function SharedAgentPage() {
   const [searchParams] = useSearchParams();
   const mayReply = searchParams.has("reply");
 
-  const conversation = id ? { id } : undefined;
+  const instance = useAgentInstance(id);
+  const conversation = id && instance.data?.agent ? { id, agent: instance.data.agent } : undefined;
 
   const chat = useChat(conversation);
+  const error = instance.error ?? chat.historyError;
 
   /*
    * The owner is writing to this conversation too, so it has to keep up.
@@ -96,7 +99,7 @@ export function SharedAgentPage() {
         css={{ marginBottom: theme.space(4) }}
       />
 
-      {chat.historyError ? (
+      {error ? (
         <Alert
           type="error"
           showIcon
@@ -105,9 +108,9 @@ export function SharedAgentPage() {
           // The backend's own wording: a revoked token, an expired one and a
           // conversation that no longer exists are different problems for whoever
           // sent the link.
-          description={chat.historyError.message}
+          description={error.message}
         />
-      ) : chat.isLoadingHistory ? (
+      ) : instance.isLoading || chat.isLoadingHistory ? (
         <Skeleton active paragraph={{ rows: 6 }} data-testid="shared-agent-loading" />
       ) : (
         // A column with a bounded height, so the transcript inside it has something to

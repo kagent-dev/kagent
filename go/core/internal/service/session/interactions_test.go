@@ -114,7 +114,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, want: a2atype.ErrUnauthorized},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
-				stored := &apiv1alpha1.Session{Id: id, ContextId: id, State: apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED,
+				stored := &apiv1alpha1.Session{Id: id, ContextId: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED,
 					Agent: &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
 				sessionStore := &serviceTestStore{getResult: stored}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}

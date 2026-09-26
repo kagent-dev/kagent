@@ -285,7 +285,7 @@ func gatewayTestSession() *apiv1alpha1.Session {
 		PreparedRevision: "revision-1",
 		Agent:            &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 		A2AAuthority:     "private-runtime-authority",
-		State:            apiv1alpha1.SessionState_SESSION_STATE_READY,
+		State:            apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
 	}
 }
 
@@ -489,13 +489,13 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
  *
  * It became a real fault once conversations started giving their workers back at the
  * end of every turn: opening one to re-read what was said reported "Session is
- * SESSION_STATE_SUSPENDED" as though the transcript had been lost. Resuming on
+ * SUSPENDED" as though the transcript had been lost. Resuming on
  * open would have claimed a worker every time somebody glanced at one, which is the
  * thing suspending them exists to avoid.
  */
 func TestGatewayReadsTasksWhileSuspended(t *testing.T) {
 	session := gatewayTestSession()
-	session.State = apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED
+	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED
 	task := &a2atype.Task{ID: gatewayTestID, ContextID: gatewayTestContextID}
 	store := &gatewayTestStore{session: session, task: task, tasks: []*a2atype.Task{task}, total: 1}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)

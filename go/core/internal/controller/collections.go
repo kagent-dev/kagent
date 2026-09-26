@@ -15,8 +15,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// Collections contains Kubernetes inputs and the compiled state of each Agent.
+// Collections contains shared Kubernetes inputs and compiled Agent state.
 type Collections struct {
+	SandboxTemplates         krt.Collection[*kagentv1alpha3.SandboxTemplate]
 	Agents                   krt.Collection[*kagentv1alpha3.Agent]
 	AgentTemplates           krt.Collection[*kagentv1alpha3.AgentTemplate]
 	Harnesses                krt.Collection[*kagentv1alpha3.Harness]
@@ -60,6 +61,7 @@ func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
 func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) Collections {
+	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
 	harnesses := typedCollection[*kagentv1alpha3.Harness](client, watchNamespaces, "Harnesses", opts)
@@ -78,6 +80,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{
+		SandboxTemplates:         sandboxTemplates,
 		Agents:                   agents,
 		AgentTemplates:           agentTemplates,
 		Harnesses:                harnesses,

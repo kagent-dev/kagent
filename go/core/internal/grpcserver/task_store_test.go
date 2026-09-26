@@ -522,7 +522,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1alpha1.S
 		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}, uuid.NewString())
 	require.NoError(t, err)
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE)
+	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := store.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)

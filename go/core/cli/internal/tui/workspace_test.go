@@ -65,7 +65,7 @@ func testWorkspace(t *testing.T, lister sessionLister) *workspaceModel {
 	return m
 }
 
-func workspaceSession(id, template string, state apiv1alpha1.SessionState, created time.Time) *apiv1alpha1.Session {
+func workspaceSession(id, template string, state apiv1alpha1.RuntimeState, created time.Time) *apiv1alpha1.Session {
 	return &apiv1alpha1.Session{
 		Id: id,
 
@@ -77,7 +77,7 @@ func workspaceSession(id, template string, state apiv1alpha1.SessionState, creat
 }
 
 func readySession(id, template string) *apiv1alpha1.Session {
-	return workspaceSession(id, template, apiv1alpha1.SessionState_SESSION_STATE_READY, testTime)
+	return workspaceSession(id, template, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, testTime)
 }
 
 func page(nextToken string, sessions ...*apiv1alpha1.Session) *apiv1alpha1.ListSessionsResponse {
@@ -155,7 +155,7 @@ func TestWorkspaceLoadsSessions(t *testing.T) {
 }
 
 func TestWorkspaceSortsNewestFirstAndOpensOne(t *testing.T) {
-	older := workspaceSession("old", "a", apiv1alpha1.SessionState_SESSION_STATE_READY, testTime.Add(-time.Hour))
+	older := workspaceSession("old", "a", apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, testTime.Add(-time.Hour))
 	newer := readySession("new", "b")
 	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", older, newer)}})
 
@@ -170,13 +170,13 @@ func TestWorkspaceSortsNewestFirstAndOpensOne(t *testing.T) {
 func TestWorkspaceSelectSession(t *testing.T) {
 	tests := []struct {
 		name       string
-		state      apiv1alpha1.SessionState
+		state      apiv1alpha1.RuntimeState
 		wantChat   bool
 		wantStatus string
 	}{
-		{name: "ready opens a chat", state: apiv1alpha1.SessionState_SESSION_STATE_READY, wantChat: true},
+		{name: "ready opens a chat", state: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, wantChat: true},
 		// The gateway rejects every call for a non-READY session, so the workspace must not dial one.
-		{name: "suspended is not dialed", state: apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED, wantStatus: "SUSPENDED"},
+		{name: "suspended is not dialed", state: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, wantStatus: "SUSPENDED"},
 	}
 
 	for _, tt := range tests {

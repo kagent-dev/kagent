@@ -87,3 +87,15 @@ type SessionTaskSnapshot struct {
 	URI          string
 	ContentScope string
 }
+
+// RuntimeArtifact identifies backend resources retained by either runtime kind.
+// Agent configuration and SandboxTemplate provenance stay in their extensions.
+type RuntimeArtifact struct {
+	Revision              string
+	Kind                  string
+	Namespace             string
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUID      string
+	DeletedAt             *time.Time
+}

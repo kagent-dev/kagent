@@ -68,7 +68,7 @@ func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, leas
 
 func (w *scheduledControllerWorkflow) Create(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	authority := substrate.ActorHost("team", substrate.ActorName(session.GetId()), "")
-	return w.finish(ctx, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE, authority)
+	return w.finish(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE, authority)
 }
 
 func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
@@ -80,7 +80,7 @@ func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv
 }
 
 func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.finish(ctx, session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE, "")
+	return w.finish(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 }
 
 func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Session) (*database.SessionTaskSnapshot, error) {
@@ -436,13 +436,13 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	}
 }
 
-func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1alpha1.SessionOperation, authority string) (*apiv1alpha1.Session, error) {
+func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1alpha1.RuntimeOperation, authority string) (*apiv1alpha1.Session, error) {
 	operation, err := w.store.BeginSessionOperation(ctx, id, kind)
 	if err != nil {
 		return nil, err
 	}
-	if operation.Session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
-		return operation.Session, nil
+	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+		return operation.Instance, nil
 	}
 	executor := uuid.New()
 	claimed, err := w.store.ClaimSessionOperation(ctx, id, operation.ID, executor)
@@ -453,7 +453,7 @@ func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kin
 		return nil, database.ErrConflict
 	}
 	actorUID := ""
-	if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
+	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		actorUID = "actor-" + id
 	}
 	return w.store.FinishSessionOperation(ctx, id, operation.ID, executor, authority, actorUID, "")

@@ -231,7 +231,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 
 func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	gateway := &fakeGateway{}
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
+	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 
 func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	gateway := &fakeGateway{completeOnDrain: true}
-	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
+	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +531,7 @@ func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv
 
 func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error) {
 	return []*apiv1alpha1.Session{{
-		Id: testSessionID, State: apiv1alpha1.SessionState_SESSION_STATE_READY,
+		Id: testSessionID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
 		Agent: &apiv1alpha1.ResourceReference{Name: "assistant"},
 	}}, nil
 }

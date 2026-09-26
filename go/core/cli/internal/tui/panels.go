@@ -110,15 +110,15 @@ func (i sessionItem) FilterValue() string {
 }
 
 // stateGlyph uses shape, not colour alone, so it survives a monochrome terminal.
-func stateGlyph(state apiv1alpha1.SessionState) (string, lipgloss.AdaptiveColor) {
+func stateGlyph(state apiv1alpha1.RuntimeState) (string, lipgloss.AdaptiveColor) {
 	switch state {
-	case apiv1alpha1.SessionState_SESSION_STATE_READY:
+	case apiv1alpha1.RuntimeState_RUNTIME_STATE_READY:
 		return "●", theme.ColorReady
-	case apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED:
+	case apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED:
 		return "○", theme.ColorMuted
-	case apiv1alpha1.SessionState_SESSION_STATE_FAILED:
+	case apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED:
 		return "✗", theme.ColorError
-	case apiv1alpha1.SessionState_SESSION_STATE_CREATING:
+	case apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING:
 		return "◐", theme.ColorMuted
 	default:
 		return "·", theme.ColorMuted
@@ -126,7 +126,7 @@ func stateGlyph(state apiv1alpha1.SessionState) (string, lipgloss.AdaptiveColor)
 }
 
 // stateBadge renders a lifecycle state as a coloured glyph and label.
-func stateBadge(state apiv1alpha1.SessionState) string {
+func stateBadge(state apiv1alpha1.RuntimeState) string {
 	glyph, colour := stateGlyph(state)
 	return lipgloss.NewStyle().Foreground(colour).Render(glyph + " " + sessionview.StateLabel(state))
 }

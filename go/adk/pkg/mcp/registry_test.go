@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
@@ -487,6 +488,35 @@ func TestPropagateToken_DoesNotForwardWhenDisabled(t *testing.T) {
 
 	if capturedAuth != "" {
 		t.Errorf("Authorization should not be forwarded when propagateToken=false, got %q", capturedAuth)
+	}
+}
+
+func TestPropagateTokenCarriesAuthenticatedOwner(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		ctx := auth.WithUserID(a2aCtx(map[string][]string{"X-User-Id": {"untrusted"}}), "alice")
+		var got string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = r.Header.Get("X-User-Id")
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(srv.Close)
+		rt := &headerRoundTripper{base: newTestTransport(t), propagateToken: enabled}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := rt.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		want := ""
+		if enabled {
+			want = "alice"
+		}
+		if got != want {
+			t.Fatalf("propagateToken=%v: user = %q, want %q", enabled, got, want)
+		}
 	}
 }
 

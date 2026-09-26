@@ -66,10 +66,10 @@ func (c *controllerTestCleanup) Suspend(_ context.Context, session *apiv1alpha1.
 func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
-		state apiv1alpha1.SessionState
+		state apiv1alpha1.RuntimeState
 	}{
-		{"creating timeout", apiv1alpha1.SessionState_SESSION_STATE_CREATING},
-		{"running timeout", apiv1alpha1.SessionState_SESSION_STATE_READY},
+		{"creating timeout", apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING},
+		{"running timeout", apiv1alpha1.RuntimeState_RUNTIME_STATE_READY},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deadline := time.Now().Add(-time.Minute)
@@ -201,7 +201,7 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 		State:    apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING,
 		Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}
-	store := controllerTestStore{session: &apiv1alpha1.Session{Id: "session", State: apiv1alpha1.SessionState_SESSION_STATE_READY}}
+	store := controllerTestStore{session: &apiv1alpha1.Session{Id: "session", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}}
 	reads := 0
 	gateway := taskLookupGateway{listTasks: func(*a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
 		reads++

@@ -10,9 +10,8 @@
  *
  * ## What a conversation is
  *
- * The gateway routes and scopes history by the instance ID header. Its bound
- * A2A context ID is separate and survives a fork. Chat caches use the instance
- * ID so branches sharing a context cannot share a transcript.
+ * The Agent tenant selects the agent; the Session UUID selects its conversation.
+ * Forks have their own Session and context IDs, and chat caches use that identity.
  *
  * ## Why this is so much shorter than the client it replaces
  *
@@ -83,9 +82,6 @@ import type {
   ChatTurnState,
   SendMessageInput,
 } from "./types";
-
-/** The gateway requires exactly one instance ID header and validates it as a UUID. */
-const INSTANCE_ID_HEADER = "x-kagent-agent-instance-id";
 
 /** The header the controller validates a share token from. */
 const SHARE_HEADER = "X-Share-Token";
@@ -316,15 +312,10 @@ export class A2AGrpcChatClient implements ChatClient {
   readonly protocolVersion = "A2A 1.0 over gRPC-Web";
 
   /**
-   * The call metadata addressing one conversation.
-   *
-   * Every RPC on this client carries it — there is no other way to say which
-   * agent is meant, and a call without it is refused by the gateway rather than
-   * defaulting to anything.
+   * Carry the conversation share token and human-in-the-loop extension metadata.
    */
   private callOptions(conversation: ChatConversationRef, signal?: AbortSignal) {
     const headers: Record<string, string> = {
-      [INSTANCE_ID_HEADER]: conversation.id,
       /*
        * Activate the human-in-the-loop extension, on every call.
        *
@@ -373,8 +364,8 @@ export class A2AGrpcChatClient implements ChatClient {
       for (let page = 0; page < HISTORY_PAGE_LIMIT; page += 1) {
         const response = await client.listTasks(
           {
-            // History is scoped by the instance header; context is an optional filter.
-            contextId: conversation.contextId,
+            tenant: conversation.agent,
+            contextId: conversation.id,
             pageToken,
             // Artifacts carry the final text of a reply, which for a completed turn
             // may be the only place it exists.
@@ -424,6 +415,7 @@ export class A2AGrpcChatClient implements ChatClient {
     const client = serviceClient(A2AService);
 
     const request = {
+      tenant: conversation.agent,
       message: create(MessageSchema, {
         // The caller's id when it has one. It has already put this message on
         // screen under that id, and the gateway files it in the task's history
@@ -433,8 +425,8 @@ export class A2AGrpcChatClient implements ChatClient {
         messageId: input.messageId || nextId("msg"),
         role: Role.USER,
         parts: [{ content: { case: "text" as const, value: text } }],
-        // An omitted context resolves to the routed instance's bound context.
-        contextId: conversation.contextId,
+        // Select the existing Session rather than opening a new conversation.
+        contextId: conversation.id,
         /*
          * An answer declares the extension on the message itself.
          *
@@ -685,7 +677,7 @@ export class A2AGrpcChatClient implements ChatClient {
   async cancel(conversation: ChatConversationRef, taskId: string): Promise<void> {
     try {
       await serviceClient(A2AService).cancelTask(
-        { id: taskId },
+        { tenant: conversation.agent, id: taskId },
         this.callOptions(conversation),
       );
     } catch (error) {

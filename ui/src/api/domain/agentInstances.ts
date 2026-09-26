@@ -33,7 +33,7 @@
 /**
  * Where an instance is in its life.
  *
- * The six named values are `AgentInstanceState` in the proto, in its order.
+ * The six named values are `RuntimeState` in the proto, in its order.
  * `"unknown"` is this client's, for an enum member added after this build.
  */
 export type AgentInstanceState =

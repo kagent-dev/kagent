@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const statePrefix = "SESSION_STATE_"
+const statePrefix = "RUNTIME_STATE_"
 
 // shortIDLength tells sessions apart in a narrow column; the full ID stays copyable elsewhere.
 const shortIDLength = 8
@@ -24,13 +24,13 @@ func ShortID(id string) string {
 }
 
 // StateLabel renders a lifecycle state without its protobuf enum prefix.
-func StateLabel(state apiv1alpha1.SessionState) string {
+func StateLabel(state apiv1alpha1.RuntimeState) string {
 	return strings.TrimPrefix(state.String(), statePrefix)
 }
 
 // Ready reports whether a Session can serve A2A calls; the gateway rejects every other state.
 func Ready(session *apiv1alpha1.Session) bool {
-	return session.GetState() == apiv1alpha1.SessionState_SESSION_STATE_READY
+	return session.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
 }
 
 // Age renders elapsed time; an absent timestamp renders empty rather than as the Unix epoch.

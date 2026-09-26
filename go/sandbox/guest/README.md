@@ -5,10 +5,9 @@ This image builds kagent's [guest command](cmd/main.go), using the public
 owns the entrypoint, flags, logging, HTTP listener, readiness, and shutdown.
 Upstream provides the gRPC process and filesystem services. No AX code is used.
 
-The image is the first runtime component of the
-[sandbox design](https://gist.github.com/EItanya/8867e70fbde9618e5d7c5432491d2e92). Sandbox
-creation, authorization, expiration, shared runtime persistence, and MCP tools
-still need control-plane implementation. Sessions do not run this guest.
+The image provides the runtime for [standalone sandboxes](../../../docs/architecture/sandboxes.md). The control plane owns
+sandbox creation, authorization, expiration, persistence, and MCP access.
+Sessions do not run this guest.
 
 ## Runtime contract
 
@@ -25,7 +24,7 @@ still need control-plane implementation. Sessions do not run this guest.
   observers, before cleaning up the guest services and exiting.
 
 The guest is a private runtime endpoint, with no caller authentication or resource
-ownership enforcement. The future kagent sandbox service must authorize and admit
+ownership enforcement. The kagent sandbox service authorizes and admits
 calls before routing them to it. The workspace path is a convenience boundary;
 processes can access files allowed by their OS permissions, and filesystem path
 checks do not provide isolation from symlinks. The Actor supplies isolation.
@@ -43,8 +42,10 @@ ENTRYPOINT ["/usr/local/bin/kagent-sandbox-guest"]
 CMD ["--listen=:80", "--workspace=/data/workspace", "--log-dir=/data/guest-logs"]
 ```
 
-Use an immutable guest image digest for reproducible packaging. Automatic image
-volume injection and SandboxTemplate preparation are later integration work.
+Use an immutable guest image digest for reproducible packaging. SandboxTemplate
+preparation mounts that image and starts its binary in the selected tools image;
+copying it into each workload image is unnecessary. The launcher creates the
+workspace before readiness, including when `/data` masks the image's directories.
 
 ## Build and verify
 
@@ -65,8 +66,8 @@ go test -race ./sandbox/guest/... -count=1 -v
 The tests run the server in-process on a local listener and require no image or
 Docker daemon. They cover readiness, process service registration, file transfer
 in the configured workspace, startup failures, and cancellation-driven shutdown.
-The existing Go unit-test job runs them. Image-level and live Substrate router
-and snapshot validation remain follow-up work.
+The existing Go unit-test job runs them. The sandbox E2E suite also exercises the
+image through the Substrate router, preparation snapshots, and suspend/resume.
 
 ## Upstream semantics
 

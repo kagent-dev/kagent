@@ -16,8 +16,8 @@ import (
 const runtimeRevisionGCInterval = time.Minute
 
 type runtimeRevisionGCStore interface {
-	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
-	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
+	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeArtifact, error)
+	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeArtifact, error)
 	DeleteRuntimeRevision(context.Context, string, string) error
 }
 

@@ -170,9 +170,6 @@ func mapError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := status.FromError(err); ok {
-		return err
-	}
 	if errors.Is(err, context.Canceled) {
 		return status.Error(codes.Canceled, "request canceled")
 	}
@@ -184,6 +181,9 @@ func mapError(err error) error {
 			return status.Error(codes.Internal, "internal server error")
 		}
 		return status.Error(serviceErrorCode(code), serviceerrors.MessageOf(err))
+	}
+	if _, ok := status.FromError(err); ok {
+		return err
 	}
 	return status.Error(codes.Internal, "internal server error")
 }

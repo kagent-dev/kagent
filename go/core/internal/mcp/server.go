@@ -12,8 +12,11 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -62,7 +65,7 @@ type InvokeSessionOutput struct {
 	Text      string `json:"text,omitempty"`
 }
 
-func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler) (*Handler, error) {
+func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler, sandboxes *sandbox.Service, templates *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]) (*Handler, error) {
 	if sessions == nil || checkpoints == nil || gateway == nil {
 		return nil, fmt.Errorf("session service, checkpoint service, and A2A gateway are required")
 	}
@@ -82,6 +85,7 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 		Description: "Invoke a Session through the public A2A gateway",
 	}, h.invokeSession)
 	h.registerCheckpointTools(server)
+	registerSandboxTools(server, sandboxes, templates)
 	server.AddReceivingMiddleware(h.taskAwareToolCall)
 	if err := h.registerTaskMethods(server); err != nil {
 		return nil, err
@@ -103,7 +107,7 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 	output := ListSessionsOutput{Sessions: []SessionSummary{}, NextPageToken: result.NextPageToken}
 	for _, session := range result.Sessions {
-		if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 			continue
 		}
 		output.Sessions = append(output.Sessions, sessionSummary(session))

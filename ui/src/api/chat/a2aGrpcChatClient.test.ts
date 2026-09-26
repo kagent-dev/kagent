@@ -30,7 +30,8 @@ import type { ChatEvent, ChatMessage } from "./types";
 
 const CONVERSATION = {
   id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  contextId: "8f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  contextId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  agent: "team-a/assistant",
 };
 
 afterEach(() => setApiTransport(undefined));
@@ -722,7 +723,7 @@ describe("A2AGrpcChatClient.send", () => {
     expect(states).toContain("failed");
   });
 
-  it("addresses the conversation by contextId and routes on the instance headers", async () => {
+  it("routes to the Agent tenant and selects the Session by contextId", async () => {
     let sent: SendMessageRequest | undefined;
     let namespaceHeader: string | null = null;
     let idHeader: string | null = null;
@@ -748,18 +749,39 @@ describe("A2AGrpcChatClient.send", () => {
       expect(event).toBeDefined();
     }
 
-    // Both halves of the address, because the gateway routes on the metadata rather
-    // than on a path — a gRPC method has no path to put them in.
+    // Agent routing lives in the request tenant; the old instance headers are absent.
     expect(namespaceHeader).toBeNull();
-    expect(idHeader).toBe(CONVERSATION.id);
-    // The instance's own id is the conversation's context, and the gateway refuses a
-    // value that is neither empty nor its own.
+    expect(idHeader).toBeNull();
+    expect(sent?.tenant).toBe(CONVERSATION.agent);
+    // The Session ID selects the existing conversation.
     expect(sent?.message?.contextId).toBe(CONVERSATION.contextId);
     expect(sent?.message?.role).toBe(Role.USER);
   });
 });
 
 describe("A2AGrpcChatClient.history", () => {
+  it("routes history and cancellation to the conversation's Agent", async () => {
+    const seen: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        listTasks: (request) => {
+          seen.push({ tenant: request.tenant, contextId: request.contextId });
+          return { tasks: [] };
+        },
+        cancelTask: (request) => {
+          seen.push({ tenant: request.tenant, id: request.id });
+          return {};
+        },
+      });
+    });
+    const client = new A2AGrpcChatClient();
+    await client.history(CONVERSATION);
+    await client.cancel(CONVERSATION, "task-1");
+    expect(seen).toEqual([
+      { tenant: CONVERSATION.agent, contextId: CONVERSATION.id },
+      { tenant: CONVERSATION.agent, id: "task-1" },
+    ]);
+  });
   function serveTasks(tasks: unknown[]): void {
     serve(({ service }) => {
       service(A2AService, {

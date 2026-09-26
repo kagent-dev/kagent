@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -315,8 +316,13 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	req = req.Clone(req.Context())
 
 	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
-	// A2A request independently of allowedHeaders.
+	// A2A request independently of allowedHeaders. Carry the authenticated user
+	// alongside it so kagent callbacks preserve ownership in unsecure and
+	// trusted-proxy deployments. This remains opt-in for all configured servers.
 	if rt.propagateToken {
+		if userID := auth.UserIDFromContext(req.Context()); userID != "" {
+			req.Header.Set("X-User-Id", userID)
+		}
 		if callCtx, ok := a2asrv.CallContextFrom(req.Context()); ok {
 			if meta := callCtx.ServiceParams(); meta != nil {
 				if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
