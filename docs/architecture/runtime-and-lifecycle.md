@@ -125,3 +125,28 @@ Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
+
+## Runtime revision cleanup metrics
+
+GC uses the controller's shared OpenTelemetry provider and configured OTLP export.
+Prometheus scraping is opt-in through `controller.metrics.enabled`.
+
+| OTel metric | Instrument / unit | Prometheus name | Meaning |
+| --- | --- | --- | --- |
+| `kagent.runtime_revision.gc.pending` | Observable integer gauge / `{revision}` | `kagent_runtime_revision_gc_pending` | Eligible persisted revisions from the last successful discovery. No application attributes. |
+| `kagent.runtime_revision.gc.duration` | Histogram / `s` | `kagent_runtime_revision_gc_duration_seconds` | Each discovery or collection attempt, including claim, Substrate read/delete, and finalization. `kagent.gc.stage=discovery\|collection`; `error.type` only on failure: a Substrate gRPC code name or `_OTHER`. Parent cancellation is excluded; operation deadlines count as failures. |
+
+Pending is absent before successful discovery, on standby replicas, and after GC
+stops. Do not fill absence with zero: zero means a successful empty discovery.
+Discovery errors retain the last count. Scrapes only read the cache; restart
+reconstructs pending from PostgreSQL and resets process-local histogram totals.
+
+- **Growing pending:** compare attempt rates, failure ratios, and latency on the
+  active controller before diagnosing churn versus slow or failing cleanup.
+  Let GC retry; never bypass reference/UID protections or clear deletion markers.
+- **Rising failure ratio or latency:** use reset-aware `rate` on histogram
+  `_count` (failed attempts have `error_type`), grouped by `kagent_gc_stage`,
+  and `_bucket` quantiles. Discovery errors point to the database; collection
+  errors require checking the bounded error type and logs (`revision`,
+  `actor_template_atespace`, `actor_template_name`, `error`) to identify the
+  failing dependency and repeated same-object failures.

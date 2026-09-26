@@ -215,9 +215,16 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			} else {
 				templates.deleteErr, templates.deletedBeforeError = deleteErr, test.deletedBeforeError
 			}
-			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
-			collector := NewRuntimeRevisionGC(gcStore, templates)
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail agent reconciliation")
+			collector, registry := newTestRuntimeRevisionGC(t, gcStore, templates)
+			_, err = collector.discover(ctx)
+			require.NoError(t, err)
+			before := gatherRuntimeRevisionGCMetrics(t, registry)
+			require.Equal(t, int64(1), before.gauges[gcPendingMetric])
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
+			failed := gatherRuntimeRevisionGCMetrics(t, registry)
+			require.Equal(t, uint64(1), failed.attempts["collection"])
+			require.Equal(t, int64(1), failed.failures["collection"])
 			if test.finalizeFailure || test.deletedBeforeError {
 				require.Nil(t, templates.template)
 			}
@@ -228,9 +235,19 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.NoError(t, err)
 			_, _, err = store.CreateSession(ctx, request, "replacement-session")
 			require.ErrorIs(t, err, database.ErrNotFound)
+			restarted, restartedRegistry := newTestRuntimeRevisionGC(t, database.NewClient(pool), templates)
+			_, err = restarted.discover(ctx)
+			require.NoError(t, err)
+			afterRestart := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
+			require.Equal(t, int64(1), afterRestart.gauges[gcPendingMetric])
+			require.Empty(t, afterRestart.failures, "new process histogram totals are not durable backlog state")
+			require.Equal(t, map[string]uint64{"discovery": 1}, afterRestart.attempts)
 			templates.deleteErr = nil
-			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)
 			restarted.sweep(ctx)
+			collected := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
+			require.Equal(t, map[string]int64{gcPendingMetric: 0}, collected.gauges)
+			require.Equal(t, map[string]uint64{"discovery": 3, "collection": 1}, collected.attempts)
+			require.Empty(t, collected.failures)
 			require.Nil(t, templates.template)
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())

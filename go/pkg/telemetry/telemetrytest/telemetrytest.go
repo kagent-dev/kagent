@@ -109,9 +109,13 @@ func FindMetric(data metricdata.ResourceMetrics, name string) (MetricShape, bool
 			case metricdata.Histogram[int64]:
 				shape.Kind, sets = "histogram", histogramSets(data.DataPoints)
 			case metricdata.Sum[float64]:
-				shape.Kind, sets = "sum", sumSets(data.DataPoints)
+				shape.Kind, sets = "sum", dataPointSets(data.DataPoints)
 			case metricdata.Sum[int64]:
-				shape.Kind, sets = "sum", sumSets(data.DataPoints)
+				shape.Kind, sets = "sum", dataPointSets(data.DataPoints)
+			case metricdata.Gauge[float64]:
+				shape.Kind, sets = "gauge", dataPointSets(data.DataPoints)
+			case metricdata.Gauge[int64]:
+				shape.Kind, sets = "gauge", dataPointSets(data.DataPoints)
 			default:
 				shape.Kind = fmt.Sprintf("%T", data)
 			}
@@ -137,7 +141,7 @@ func histogramSets[N int64 | float64](points []metricdata.HistogramDataPoint[N])
 	return sets
 }
 
-func sumSets[N int64 | float64](points []metricdata.DataPoint[N]) []attribute.Set {
+func dataPointSets[N int64 | float64](points []metricdata.DataPoint[N]) []attribute.Set {
 	sets := make([]attribute.Set, 0, len(points))
 	for _, point := range points {
 		sets = append(sets, point.Attributes)
