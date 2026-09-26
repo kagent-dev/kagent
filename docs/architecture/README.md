@@ -78,6 +78,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [A2A gateway](a2a-gateway.md)
 - [A2A metadata](a2a-metadata.md)
+- [OIDC proxy authentication](oidc-proxy-authentication.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)
 - [MCP](mcp.md)
 - [A2A agent tools](a2a-subagents.md)
