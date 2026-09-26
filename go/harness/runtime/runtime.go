@@ -92,7 +92,10 @@ type Outcome struct {
 type Usage struct {
 	TotalCostUSD float64
 	NumTurns     int
+	// InputTokens counts every prompt token, CachedTokens the part of them
+	// read from the provider's prompt cache.
 	InputTokens  int
+	CachedTokens int
 	OutputTokens int
 }
 

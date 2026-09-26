@@ -81,8 +81,10 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 		Cost      float64 `json:"total_cost_usd"`
 		NumTurns  int     `json:"num_turns"`
 		Usage     struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens         int `json:"input_tokens"`
+			CacheReadTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationTokens int `json:"cache_creation_input_tokens"`
+			OutputTokens        int `json:"output_tokens"`
 		} `json:"usage"`
 		Event   json.RawMessage `json:"event"`
 		Message json.RawMessage `json:"message"`
@@ -111,7 +113,9 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 		p.terminal = true
 		usage := &runtime.Usage{
 			TotalCostUSD: envelope.Cost, NumTurns: envelope.NumTurns,
-			InputTokens: envelope.Usage.InputTokens, OutputTokens: envelope.Usage.OutputTokens,
+			InputTokens:  envelope.Usage.InputTokens + envelope.Usage.CacheReadTokens + envelope.Usage.CacheCreationTokens,
+			CachedTokens: envelope.Usage.CacheReadTokens,
+			OutputTokens: envelope.Usage.OutputTokens,
 		}
 		// A turn that reached one of its own limits is a completed turn: the work
 		// so far is kept, the session continues on the next turn, and the limit

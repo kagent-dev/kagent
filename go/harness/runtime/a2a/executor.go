@@ -754,12 +754,8 @@ func safeFailure(message string) string {
 var _ runtime.EventSink = (*executionSink)(nil)
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
-// TurnUsageMetadataType marks the completed status message that carries a
-// turn's usage; UsageMetadataKey holds it.
-const (
-	TurnUsageMetadataType = "turn_usage"
-	UsageMetadataKey      = "kagent_usage"
-)
+// StoppedByMetadataKey names the limit that ended a completed turn.
+const StoppedByMetadataKey = "stopped_by"
 
 func limitNotice(stoppedBy string) string {
 	switch stoppedBy {
@@ -772,15 +768,22 @@ func limitNotice(stoppedBy string) string {
 	}
 }
 
+// usageMetadata carries a turn's usage under the canonical usage key, in the
+// token fields every runtime reports, plus the cost and model turns Claude Code
+// also reports, and the limit that stopped the turn.
 func usageMetadata(outcome runtime.Outcome) map[string]any {
-	metadata := map[string]any{apia2a.PartTypeMetadataKey: TurnUsageMetadataType}
+	metadata := map[string]any{}
 	if outcome.StoppedBy != "" {
-		metadata["stopped_by"] = outcome.StoppedBy
+		metadata[StoppedByMetadataKey] = outcome.StoppedBy
 	}
 	if usage := outcome.Usage; usage != nil {
-		metadata[UsageMetadataKey] = map[string]any{
-			"total_cost_usd": usage.TotalCostUSD, "num_turns": usage.NumTurns,
-			"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens,
+		metadata[apia2a.UsageMetadataKey] = map[string]any{
+			"promptTokenCount":        usage.InputTokens,
+			"cachedContentTokenCount": usage.CachedTokens,
+			"candidatesTokenCount":    usage.OutputTokens,
+			"totalTokenCount":         usage.InputTokens + usage.OutputTokens,
+			"costUsd":                 usage.TotalCostUSD,
+			"numTurns":                usage.NumTurns,
 		}
 	}
 	return metadata

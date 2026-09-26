@@ -570,11 +570,11 @@ func TestExecuteReportsALimitedTurnAsCompletedWithUsage(t *testing.T) {
 	if message == nil || !strings.Contains(message.Parts[0].Text(), "budget") {
 		t.Fatalf("a limited turn names its limit: %#v", message)
 	}
-	if message.Metadata[apia2a.PartTypeMetadataKey] != TurnUsageMetadataType || message.Metadata["stopped_by"] != runtime.LimitBudget {
+	if message.Metadata[StoppedByMetadataKey] != runtime.LimitBudget {
 		t.Fatalf("message metadata = %#v", message.Metadata)
 	}
-	usage, _ := message.Metadata[UsageMetadataKey].(map[string]any)
-	if usage["total_cost_usd"] != 0.05 || usage["num_turns"] != 3 {
+	usage, _ := message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
+	if usage["costUsd"] != 0.05 || usage["numTurns"] != 3 {
 		t.Fatalf("usage metadata = %#v", usage)
 	}
 }
