@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
+import "kagent/api/v1alpha1/runtime.proto";
+import "kagent/api/v1alpha1/sessions.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// SandboxService owns standalone scratch environments. Guest calls cannot target
+// Sessions. Execution uses the upstream ateenv.v1alpha ProcessService and
+// FileSystemService on the same apiserver, with kagent-sandbox-id metadata.
+// Suspension may interrupt running commands and file transfers.
+// Lifecycle mutations execute inline. After a retryable error, repeat the same
+// mutation; CreateSandbox retries must keep the same request_id and input.
+// GetSandbox only observes state and never retries pending work.
+// Canceling an RPC does not roll back effects or erase durable intent.
+// Conflicting active attempts return ABORTED. After an attempt ends, a new
+// suspend/resume/delete request may supersede pending intent. Expiration is automatic.
+service SandboxService {
+  rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
+  rpc GetSandbox(GetSandboxRequest) returns (GetSandboxResponse);
+  rpc ListSandboxes(ListSandboxesRequest) returns (ListSandboxesResponse);
+  rpc SuspendSandbox(SuspendSandboxRequest) returns (SuspendSandboxResponse);
+  rpc ResumeSandbox(ResumeSandboxRequest) returns (ResumeSandboxResponse);
+  rpc DeleteSandbox(DeleteSandboxRequest) returns (DeleteSandboxResponse);
+}
+
+message GuestCapabilities {
+  bool process_execution = 1;
+  bool file_access = 2;
+}
+
+message Sandbox {
+  string id = 1;
+  string creator = 2;
+  ResourceReference sandbox_template = 3;
+  string prepared_revision = 4;
+  RuntimeState state = 5;
+  RuntimeOperation operation = 6;
+  Failure failure = 7;
+  string name = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp expires_at = 11;
+  GuestCapabilities guest = 12;
+}
+
+message CreateSandboxRequest {
+  ResourceReference sandbox_template = 1 [(buf.validate.field).required = true];
+  string request_id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
+  string name = 3 [(buf.validate.field).string.max_len = 200];
+  // Omission uses the operator's default. Lifetime is not extended by activity.
+  google.protobuf.Duration ttl = 4 [(buf.validate.field).duration = {
+    gte: {seconds: 1}
+    lte: {seconds: 86400}
+  }];
+}
+message CreateSandboxResponse {
+  Sandbox sandbox = 1;
+}
+message GetSandboxRequest {
+  string sandbox_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetSandboxResponse {
+  Sandbox sandbox = 1;
+}
+message ListSandboxesRequest {
+  PageRequest page = 1;
+  ResourceReference sandbox_template = 2;
+}
+message ListSandboxesResponse {
+  repeated Sandbox sandboxes = 1;
+  PageResponse page = 2;
+}
+message SuspendSandboxRequest {
+  string sandbox_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message SuspendSandboxResponse {
+  Sandbox sandbox = 1;
+}
+message ResumeSandboxRequest {
+  string sandbox_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message ResumeSandboxResponse {
+  Sandbox sandbox = 1;
+}
+message DeleteSandboxRequest {
+  string sandbox_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message DeleteSandboxResponse {
+  Sandbox sandbox = 1;
+}

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// RuntimeState is shared by Sessions and Sandboxes. Its names are also the
+// persisted lifecycle values.
+enum RuntimeState {
+  RUNTIME_STATE_UNSPECIFIED = 0;
+  RUNTIME_STATE_CREATING = 1;
+  RUNTIME_STATE_READY = 2;
+  RUNTIME_STATE_SUSPENDED = 3;
+  RUNTIME_STATE_FAILED = 4;
+  RUNTIME_STATE_DELETING = 5;
+  RUNTIME_STATE_DELETED = 6;
+}
+
+// RuntimeOperation identifies active lifecycle work. RUNTIME_OPERATION_NONE means
+// no operation.
+enum RuntimeOperation {
+  RUNTIME_OPERATION_NONE = 0;
+  RUNTIME_OPERATION_CREATE = 1;
+  RUNTIME_OPERATION_SUSPEND = 2;
+  RUNTIME_OPERATION_RESUME = 3;
+  RUNTIME_OPERATION_DELETE = 4;
+}

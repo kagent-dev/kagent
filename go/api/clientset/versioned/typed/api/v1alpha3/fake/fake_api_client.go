@@ -32,6 +32,10 @@ func (c *FakeApiV1alpha3) RemoteMCPServers(namespace string) v1alpha3.RemoteMCPS
 	return newFakeRemoteMCPServers(c, namespace)
 }
 
+func (c *FakeApiV1alpha3) SandboxTemplates(namespace string) v1alpha3.SandboxTemplateInterface {
+	return newFakeSandboxTemplates(c, namespace)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeApiV1alpha3) RESTClient() rest.Interface {
