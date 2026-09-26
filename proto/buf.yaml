@@ -10,6 +10,11 @@ lint:
   ignore:
     - a2a.proto
     - ateapi.proto
+    - ateenv/v1alpha/guest.proto
+  # An omitted runtime operation means no operation is active.
+  ignore_only:
+    ENUM_ZERO_VALUE_SUFFIX:
+      - kagent/api/v1alpha1/runtime.proto
 breaking:
   use:
     - FILE
