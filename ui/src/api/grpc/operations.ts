@@ -51,13 +51,13 @@ import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harne
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
 import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
 import {
-  AgentInstanceOperation as PbAgentInstanceOperation,
-  AgentInstanceService,
-  AgentInstanceSharePermission as PbSharePermission,
-  AgentInstanceState as PbAgentInstanceState,
-} from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
-import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
-import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
+  SessionOperation as PbSessionOperation,
+  SessionService,
+  SessionSharePermission as PbSharePermission,
+  SessionState as PbSessionState,
+} from "@/generated/kagent/api/v1alpha1/sessions_pb";
+import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1alpha1/sessions_pb";
+import type { Session as PbSession } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
@@ -541,29 +541,29 @@ function toPromptDetail(template: {
  * place that would otherwise keep quiet about it and render the new state as a
  * blank cell.
  */
-const INSTANCE_STATE_BY_ENUM: Record<PbAgentInstanceState, AgentInstanceState> = {
-  [PbAgentInstanceState.UNSPECIFIED]: "unspecified",
-  [PbAgentInstanceState.CREATING]: "creating",
-  [PbAgentInstanceState.READY]: "ready",
-  [PbAgentInstanceState.SUSPENDED]: "suspended",
-  [PbAgentInstanceState.FAILED]: "failed",
-  [PbAgentInstanceState.DELETING]: "deleting",
-  [PbAgentInstanceState.DELETED]: "deleted",
+const INSTANCE_STATE_BY_ENUM: Record<PbSessionState, AgentInstanceState> = {
+  [PbSessionState.UNSPECIFIED]: "unspecified",
+  [PbSessionState.CREATING]: "creating",
+  [PbSessionState.READY]: "ready",
+  [PbSessionState.SUSPENDED]: "suspended",
+  [PbSessionState.FAILED]: "failed",
+  [PbSessionState.DELETING]: "deleting",
+  [PbSessionState.DELETED]: "deleted",
 };
 
 const INSTANCE_OPERATION_BY_ENUM: Record<
-  PbAgentInstanceOperation,
+  PbSessionOperation,
   AgentInstanceOperation
 > = {
-  [PbAgentInstanceOperation.UNSPECIFIED]: "unspecified",
-  [PbAgentInstanceOperation.CREATE]: "create",
-  [PbAgentInstanceOperation.SUSPEND]: "suspend",
-  [PbAgentInstanceOperation.RESUME]: "resume",
-  [PbAgentInstanceOperation.DELETE]: "delete",
+  [PbSessionOperation.UNSPECIFIED]: "unspecified",
+  [PbSessionOperation.CREATE]: "create",
+  [PbSessionOperation.SUSPEND]: "suspend",
+  [PbSessionOperation.RESUME]: "resume",
+  [PbSessionOperation.DELETE]: "delete",
 };
 
 /**
- * One `AgentInstance` message as the record every instance screen reads.
+ * Map a Session protobuf into the existing conversation view model.
  *
  * Nothing is unwrapped here: an instance is a row in the controller's database
  * rather than a custom resource, so there is no `StructuredObject` in the way —
@@ -575,7 +575,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
  * `undefined`. Falling through to `"unknown"` puts that on screen as an unknown
  * state instead of an empty cell.
  */
-function toAgentInstance(instance: PbAgentInstance): AgentInstance {
+function toAgentInstance(instance: PbSession): AgentInstance {
   return {
     id: instance.id,
     contextId: instance.contextId,
@@ -641,10 +641,10 @@ const SHARE_PERMISSION_FROM_PB: Partial<
  * `READ_WRITE` as read-only. A build newer than this one adding a permission must
  * not have it silently widen access here.
  */
-function toAgentInstanceShare(share: PbAgentInstanceShare): AgentInstanceShare {
+function toAgentInstanceShare(share: PbSessionShare): AgentInstanceShare {
   return {
     id: share.id,
-    agentInstanceId: share.agentInstanceId,
+    agentInstanceId: share.sessionId,
     permission: SHARE_PERMISSION_FROM_PB[share.permission] ?? "readOnly",
     createdAt: isoFrom(share.createdAt),
   };
@@ -668,7 +668,7 @@ const CHECKPOINT_STATE_FROM_PB: Partial<Record<PbCheckpointState, CheckpointStat
 function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
   return {
     id: checkpoint.id,
-    agentInstanceId: checkpoint.agentInstanceId,
+    agentInstanceId: checkpoint.sessionId,
     name: checkpoint.name,
     headTaskId: checkpoint.headTaskId,
     state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
@@ -697,13 +697,13 @@ const agentInstances: Pick<
   | "agentInstances.resume"
 > = {
   "agentInstances.list": async (input, options) => {
-    const name = "AgentInstanceService/ListAgentInstances";
+    const name = "SessionService/ListSessions";
     const rows: AgentInstance[] = [];
     let pageToken = "";
 
     for (let page = 0; page < INSTANCE_PAGE_LIMIT; page += 1) {
       const response = await rpc(name, options.signal, () =>
-        serviceClient(AgentInstanceService).listAgentInstances(
+        serviceClient(SessionService).listSessions(
           {
             allCreators: input.allCreators ?? false,
             // Filter by Agent on the server before pagination, so conversations
@@ -717,7 +717,7 @@ const agentInstances: Pick<
         ),
       );
 
-      rows.push(...list(response.agentInstances).map(toAgentInstance));
+      rows.push(...list(response.sessions).map(toAgentInstance));
 
       const next = response.page?.nextPageToken ?? "";
       if (!next) return rows;
@@ -740,9 +740,9 @@ const agentInstances: Pick<
   },
 
   "agentInstances.create": async (input, options) => {
-    const name = "AgentInstanceService/CreateAgentInstance";
+    const name = "SessionService/CreateSession";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).createAgentInstance(
+      serviceClient(SessionService).createSession(
         {
           agent: input.agent,
           requestId: input.requestId,
@@ -755,7 +755,7 @@ const agentInstances: Pick<
         call("agentInstances.create", options),
       ),
     );
-    return toAgentInstance(required(response.agentInstance, name, "created agent instance"));
+    return toAgentInstance(required(response.session, name, "created agent instance"));
   },
 
   /*
@@ -772,14 +772,14 @@ const agentInstances: Pick<
    * identified by its id.
    */
   "agentInstances.rename": async (input, options) => {
-    const name = "AgentInstanceService/UpdateAgentInstanceName";
+    const name = "SessionService/UpdateSessionName";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).updateAgentInstanceName(
-        { agentInstanceId: input.id, name: input.name },
+      serviceClient(SessionService).updateSessionName(
+        { sessionId: input.id, name: input.name },
         call("agentInstances.rename", options),
       ),
     );
-    return toAgentInstance(required(response.agentInstance, name, "renamed agent instance"));
+    return toAgentInstance(required(response.session, name, "renamed agent instance"));
   },
 
   /*
@@ -799,7 +799,7 @@ const agentInstances: Pick<
       try {
         created = await rpc(name, options.signal, () =>
           serviceClient(CheckpointService).createCheckpoint(
-            { agentInstanceId: input.id, requestId: input.requestId, expectedHeadTaskId: input.expectedHeadTaskId },
+            { sessionId: input.id, requestId: input.requestId, expectedHeadTaskId: input.expectedHeadTaskId },
             call("agentInstances.checkpoints.create", options),
           ),
         );
@@ -830,7 +830,7 @@ const agentInstances: Pick<
     const name = "CheckpointService/ListCheckpoints";
     const response = await rpc(name, options.signal, () =>
       serviceClient(CheckpointService).listCheckpoints(
-        { agentInstanceId: input.id },
+        { sessionId: input.id },
         call("agentInstances.checkpoints.list", options),
       ),
     );
@@ -842,20 +842,20 @@ const agentInstances: Pick<
   /*
    * The fork of a boundary saved earlier, which is where the history it holds stops.
    *
-   * `ForkAgentInstance` names the fork after the snapshot, so the chat sends no name
+   * `ForkSession` names the fork after the snapshot, so the chat sends no name
    * and takes that. `name` is for the caller that wants something else — duplicating a
    * conversation from the rail, which titles the copy after the conversation — and it
    * costs a second call because the fork RPC has nowhere to put it.
    */
   "agentInstances.checkpoints.fork": async (input, options) => {
-    const name = "CheckpointService/ForkAgentInstance";
+    const name = "CheckpointService/ForkSession";
     const forked = await rpc(name, options.signal, () =>
-      serviceClient(CheckpointService).forkAgentInstance(
+      serviceClient(CheckpointService).forkSession(
         { checkpointId: input.checkpointId, requestId: input.requestId },
         call("agentInstances.checkpoints.fork", options),
       ),
     );
-    const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
+    const instance = toAgentInstance(required(forked.session, name, "forked agent instance"));
     if (!input.name) return instance;
     return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
   },
@@ -911,19 +911,19 @@ const agentInstances: Pick<
    * nothing left to show, and handing back a row invites rendering one.
    */
   "agentInstances.delete": async (input, options) => {
-    await rpc("AgentInstanceService/DeleteAgentInstance", options.signal, () =>
-      serviceClient(AgentInstanceService).deleteAgentInstance(
-        { agentInstanceId: input.id },
+    await rpc("SessionService/DeleteSession", options.signal, () =>
+      serviceClient(SessionService).deleteSession(
+        { sessionId: input.id },
         call("agentInstances.delete", options),
       ),
     );
   },
 
   "agentInstances.shares.list": async (input, options) => {
-    const name = "AgentInstanceService/ListAgentInstanceShares";
+    const name = "SessionService/ListSessionShares";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).listAgentInstanceShares(
-        { agentInstanceId: input.id },
+      serviceClient(SessionService).listSessionShares(
+        { sessionId: input.id },
         call("agentInstances.shares.list", options),
       ),
     );
@@ -931,11 +931,11 @@ const agentInstances: Pick<
   },
 
   "agentInstances.shares.create": async (input, options) => {
-    const name = "AgentInstanceService/CreateAgentInstanceShare";
+    const name = "SessionService/CreateSessionShare";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).createAgentInstanceShare(
+      serviceClient(SessionService).createSessionShare(
         {
-          agentInstanceId: input.id,
+          sessionId: input.id,
           permission: SHARE_PERMISSION_TO_PB[input.permission],
         },
         call("agentInstances.shares.create", options),
@@ -950,8 +950,8 @@ const agentInstances: Pick<
   },
 
   "agentInstances.shares.revoke": async (input, options) => {
-    await rpc("AgentInstanceService/RevokeAgentInstanceShare", options.signal, () =>
-      serviceClient(AgentInstanceService).revokeAgentInstanceShare(
+    await rpc("SessionService/RevokeSessionShare", options.signal, () =>
+      serviceClient(SessionService).revokeSessionShare(
         { shareId: input.shareId },
         call("agentInstances.shares.revoke", options),
       ),
@@ -959,14 +959,14 @@ const agentInstances: Pick<
   },
 
   "agentInstances.get": async (input, options) => {
-    const name = "AgentInstanceService/GetAgentInstance";
+    const name = "SessionService/GetSession";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).getAgentInstance(
-        { agentInstanceId: input.id },
+      serviceClient(SessionService).getSession(
+        { sessionId: input.id },
         call("agentInstances.get", options),
       ),
     );
-    return toAgentInstance(required(response.agentInstance, name, "agent instance"));
+    return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
   /*
@@ -977,25 +977,25 @@ const agentInstances: Pick<
    * something it already has.
    */
   "agentInstances.suspend": async (input, options) => {
-    const name = "AgentInstanceService/SuspendAgentInstance";
+    const name = "SessionService/SuspendSession";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).suspendAgentInstance(
-        { agentInstanceId: input.id },
+      serviceClient(SessionService).suspendSession(
+        { sessionId: input.id },
         call("agentInstances.suspend", options),
       ),
     );
-    return toAgentInstance(required(response.agentInstance, name, "agent instance"));
+    return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
   "agentInstances.resume": async (input, options) => {
-    const name = "AgentInstanceService/ResumeAgentInstance";
+    const name = "SessionService/ResumeSession";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).resumeAgentInstance(
-        { agentInstanceId: input.id },
+      serviceClient(SessionService).resumeSession(
+        { sessionId: input.id },
         call("agentInstances.resume", options),
       ),
     );
-    return toAgentInstance(required(response.agentInstance, name, "agent instance"));
+    return toAgentInstance(required(response.session, name, "agent instance"));
   },
 };
 

@@ -230,7 +230,7 @@ test("extension points: configured components mount where the point promises", a
 });
 
 
-test("extension rail receives Agent identity before a conversation exists", async ({ page }) => {
+test("extension points: rail receives Agent identity before a conversation exists", async ({ page }) => {
   for (const path of [agentPage(agents.k8s), `${agentPage(agents.k8s)}/new`]) {
     await loadPage(page, path);
     await expect(page.getByTestId("agent-rail-example")).toHaveAttribute(

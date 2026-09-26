@@ -463,7 +463,7 @@ test("agents: an agent whose conversations cannot be read says so, and is not em
 
     const alert = page.getByTestId("conversations-error");
     await expect(alert).toBeVisible();
-    await expect(alert).toContainText("AgentInstanceService/ListAgentInstances");
+    await expect(alert).toContainText("SessionService/ListSessions");
   });
 
   await test.step("2. and it is not reported as an agent nobody has talked to", async () => {

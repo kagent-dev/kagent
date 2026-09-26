@@ -4,7 +4,7 @@ import { optionNamed } from "../../helpers/resource";
 
 for (const template of ["reference", "inline"]) {
   for (const harness of ["reference", "inline"]) {
-    test(`Agent definition: ${template} template and ${harness} Harness`, async ({ page }) => {
+    test(`agents: definition: ${template} template and ${harness} Harness`, async ({ page }) => {
       await loadPage(page, routes.agents);
       await page.getByRole("button", {name:"New Agent", exact:true}).click();
       const modal = page.getByRole("dialog");
@@ -44,7 +44,7 @@ for (const template of ["reference", "inline"]) {
   }
 }
 
-test("Agent descriptions resolve from shared templates and remain searchable", async ({ page }) => {
+test("agents: descriptions resolve from shared templates and remain searchable", async ({ page }) => {
   await loadPage(page, routes.agents);
   await expect(page.getByText("One configuration, run on two different runtimes.", {exact: true})).toHaveCount(2);
   await page.getByPlaceholder("Search agents").fill("One configuration");

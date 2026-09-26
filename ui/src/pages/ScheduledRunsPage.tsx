@@ -226,8 +226,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
-          { title: "Conversation", key: "conversation", render: (_, row) => row.agentInstanceId
-            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.agentInstanceId })}
+          { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
+            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.sessionId })}
               css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Open conversation<ExternalLink size={14} /></Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
@@ -307,7 +307,7 @@ function executionText(row: ScheduledRunExecution) {
        matches. */
     columns: [time(row.createdAt), triggerLabel(row), executionStateLabel(row.state),
       time(row.completedAt), row.failureReason || "—",
-      row.agentInstanceId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
+      row.sessionId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
     panel: [row.prompt, time(row.deadline), row.taskId || "Not assigned"].join(" ").toLowerCase(),
   };
 }
