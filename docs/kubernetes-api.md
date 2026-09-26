@@ -1,19 +1,19 @@
 # Kubernetes API type conventions
 
 Use this guide when adding or changing configuration types under
-`go/api/v1alpha3`. The [system overview](architecture/README.md) explains what
-belongs in Kubernetes; the [protobuf guide](protobuf-api.md) describes the
-implemented gRPC contracts.
+`go/api/v1alpha3`. These are design and review guidelines; resource-specific
+behavior belongs in [docs/architecture](architecture/README.md). See the
+[protobuf guide](protobuf-api.md) for gRPC API design and
+[STYLE.md](../STYLE.md#crd-api-design) for Go conventions.
 
-These are target conventions for new APIs and the pre-release cleanup. **Must**
-rules are review requirements; departures need a domain reason documented here.
-Go API types are the source of truth; regenerate CRD schemas from them.
+Go API types are the source of truth. Regenerate CRD schemas from them rather
+than editing generated manifests.
 
-## Object shape
+## Object shape and ownership
 
 Use native Kubernetes objects with `TypeMeta`, `ObjectMeta`, and `Spec`. Add
-`Status` when the resource owns observed state; AgentTemplate has none. List
-types use `ListMeta` and `Items`. New CRD surface belongs in `v1alpha3`.
+`Status` only when the resource owns observed state. List types use `ListMeta`
+and `Items`.
 
 | Part | Owner and purpose |
 | --- | --- |
@@ -21,61 +21,39 @@ types use `ListMeta` and `Items`. New CRD surface belongs in `v1alpha3`.
 | `spec` | User-authored desired configuration |
 | `status` | Controller-observed results and conditions |
 
-Agent is the runnable definition: it composes portable behavior with a Harness
-and owns compilation, readiness, and revision selection. AgentTemplate contains
-reusable behavior; Harness contains runtime configuration and policy. There is
-no implicit label-based pairing or Harness admission selector.
-
-Creating an Agent prepares its configuration; it does not create a conversation.
-Sessions are PostgreSQL-backed, exposed through gRPC, and pin immutable prepared
-revisions. Later Agent or referenced-configuration edits affect future
-preparation and Session creation, not existing Sessions.
-
-## Agent composition
-
-Each side of [AgentSpec](../go/api/v1alpha3/agent_types.go) independently selects
-exactly one source:
-
-| Side | Reference | Inline value |
-| --- | --- | --- |
-| Behavior | `spec.templateRef` names an AgentTemplate | `spec.template` contains a complete AgentTemplateSpec |
-| Runtime | `spec.harnessRef` names a Harness | `spec.harness` contains a complete HarnessSpec |
-
-All four combinations are supported. Inline specs are complete configurations,
-not overrides, and create no synthetic Kubernetes objects. References within
-inline specs resolve in the Agent's namespace, just like the top-level
-references. Reusing a template or Harness does not merge Agent identities;
-switching between inline and referenced configuration preserves the Agent's
-identity. See [configuration and compilation](architecture/configuration-and-compilation.md)
-for examples and the preparation pipeline.
+Give each resource a clear responsibility. Reusable configuration does not need
+runtime status merely because another resource consumes it. Keep implementation
+details out of the public API unless callers need them to express intent.
 
 ## Identity and references
 
 Namespace and name identify an object; UID distinguishes deletion and recreation.
 Validate names according to the referenced kind, not a universal DNS-label rule.
-Use native structured reference types such as `LocalObjectReference`,
-`TypedLocalObjectReference`, and `SecretKeySelector`. References are same-namespace
-unless a separately designed authorization policy allows otherwise.
+Use native structured types such as `LocalObjectReference`,
+`TypedLocalObjectReference`, and `SecretKeySelector`. Start with same-namespace
+references; crossing namespaces requires an explicit authorization policy.
 
-Do not encode references as `"namespace/name"` strings or embed another resource's
-full spec as a reference. Agent's explicit inline fields carry spec values,
-separately from its reference fields. Keep secret values out of spec and status;
-use credential references resolved at the owning boundary. An object reference
-grants no access by itself.
+Do not encode references as `"namespace/name"` strings. Keep inline configuration
+and references in separate, typed fields. If both forms are supported, define
+which combinations are valid, how nested references resolve, and whether inline
+values are complete configurations or overrides.
+
+Keep secret values out of spec and status. Resolve credential references at the
+owning boundary. An object reference grants no access by itself.
 
 ## Fields and presence
 
-- Use named, typed fields with lowerCamelCase JSON names. Do not add arbitrary
-  JSON, generic extension maps, or embedded Pod specs for future flexibility.
+- Use named, typed fields with lowerCamelCase JSON names. Avoid arbitrary JSON,
+  generic extension maps, and embedded Pod specs added for future flexibility.
 - Every field declares `+required` or `+optional`. Optional scalar and struct
   fields use pointers and `omitempty`. Maps and slices use `omitempty` without
-  pointer wrappers. Requiredness is explicit in the generated schema.
+  pointer wrappers. Requiredness must be explicit in the generated schema.
 - Declare defaults and bounds with kubebuilder markers. Explain the meaning of
   absent, empty, and zero values; defaults must pass validation.
-- Prefer native Kubernetes types, including quantities, selectors, references,
-  and conditions, when their semantics match.
+- Prefer native Kubernetes quantities, selectors, references, and conditions
+  when their semantics match.
 - Declare list/map semantics, keys, and uniqueness where merge behavior matters.
-  Use inline embedded structs only for actual shared sub-specs.
+  Use inline embedded structs for shared sub-specs.
 - Interfaces in API packages carry `+kubebuilder:object:generate=false`.
 
 Read the generated schema after generation. Go pointer choices, JSON tags, and
@@ -83,88 +61,70 @@ admission rules together determine what clients can send.
 
 ## Validation and unions
 
-Enforce request-intrinsic rules through structural schemas and CEL `XValidation`:
-requiredness, bounds, enums, immutable fields, and relationships between fields.
-Exclusive variants use typed sibling fields with exactly-one or at-most-one CEL
-validation. Do not leave union checks to reconciliation or add a second
-discriminator that can contradict the selected branch.
+Enforce rules that depend only on the submitted object through structural schemas
+and CEL `XValidation`: requiredness, bounds, enums, immutable fields, and
+relationships between fields. Exclusive variants use typed sibling fields with
+exactly-one or at-most-one CEL validation. Avoid a second discriminator that can
+contradict the selected branch.
 
-Agent requires exactly one of `template`/`templateRef` and exactly one of
-`harness`/`harnessRef`. A tool binding selects exactly one of `mcp` and `subAgent`.
-Within `subAgent`, exactly one of `templateRef` and `agentRef` is required:
-
-- `templateRef` selects a Shared child template compiled into the parent's
-  runtime under the parent's Harness.
-- `agentRef` selects a Dedicated Agent with its own Harness and Session.
-  Dedicated execution is not implemented and compilation rejects it.
-
-There is no separate `isolation` field. Admission rejects both-set and neither-set
-values. Tests must exercise the generated schema, not only Go constructors.
+Admission must reject invalid combinations. Test both-set and neither-set cases
+against the generated schema, not only Go constructors. Defaults must not turn
+invalid input into an apparently valid choice.
 
 Checks requiring other objects or external systems belong to the owning
-controller/service. Report unresolved references and incompatible configuration
-through status. Do not silently default invalid configuration into a usable one.
+controller or service. Report unresolved references and incompatible
+configuration through status.
 
 ## Status and reconciliation
 
 Enable the status subresource for resources that own observed state. Controllers
 update it without rewriting the user's spec. Use `observedGeneration` and
-`[]metav1.Condition` with stable types/reasons and `meta.SetStatusCondition`.
+`[]metav1.Condition` with stable types and reasons, updated through
+`meta.SetStatusCondition`.
 
-Agent status owns `desiredRevision`, `latestSuccessfulRevision`, warnings, and the
-`Accepted`, `ResolvedRefs`, `Compatible`, and `Ready` conditions. AgentTemplate
-has no runtime status or per-Harness preparation entries. Harness status reports
-adapter capabilities and health rather than an Agent's readiness.
+Readiness describes the observed generation and the operation users can perform.
+Unknown or stale status must not appear healthy. When applying a new
+configuration fails, distinguish the failed desired state from any previously
+applied state that remains usable.
 
-Readiness must describe the observed generation and the operation users can
-perform. Unknown or stale status must not appear healthy. Keep the last successful
-prepared revision available when a newer revision fails, and report the failed
-desired revision separately.
+Status may contain necessary resolved references and reconciliation results.
+Avoid convenience booleans that duplicate conditions. Never expose credentials
+or private backend routing details. Security-sensitive operations must enforce
+current authorization rather than treating status as proof of access.
 
-Status may contain necessary resolved references, capabilities, and preparation
-results. Avoid convenience booleans that duplicate conditions. Never expose
-credentials or private Actor routing details. Status reports observations;
-security-sensitive operations still enforce current authorization and policy.
-
-Reconciliation must tolerate retries and restart. Compilers produce inputs;
-controllers and adapters apply them. Do not hold database locks across external
-calls. Define cleanup and retention before introducing external resources or
-finalizers, and use finalizers only for actual cleanup obligations.
+Reconciliation must tolerate retries and restart. Requeue for external state
+changes instead of blocking until they finish. Define ownership, cleanup, and
+retention before creating dependent resources; use owner references for garbage
+collection and finalizers for cleanup that Kubernetes cannot perform itself.
 
 ## Updates and deletion
 
 Preserve Kubernetes update, patch, server-side apply, and field-ownership
-semantics. `resourceVersion` is opaque; never parse it as a numeric public version.
-Identity is immutable, and immutable spec fields must be validated as such.
+semantics. `resourceVersion` is opaque. Keep identity immutable and validate
+immutable spec fields explicitly. Editors preserve fields outside their scope;
+status writes use the status subresource.
 
-The target contract for gRPC replacement updates requires the client's UID and
-resourceVersion. Do not fetch the latest metadata and attach it to a stale
-replacement spec. Current adapters do not yet enforce those caller guards; see
+Replacement updates through gRPC should carry the client's UID and
+resourceVersion and reject stale writes. Fetching current metadata and attaching
+it to a stale replacement spec defeats that protection. See
 [Kubernetes objects over gRPC](protobuf-api.md#kubernetes-objects-over-grpc).
-Editors preserve fields outside their scope. Status writes use the status
-subresource and cannot be smuggled into a spec update.
+These are design requirements, not guarantees about every existing adapter.
 
 Create retains native namespace/name collision behavior. Delete honors supplied
-UID/resourceVersion preconditions. Acceptance of a Kubernetes deletion request is
-not proof that finalizers have finished; adapters must state their completion
-contract. Document which external resources and retained revisions survive
-configuration deletion.
-
-Deleting an Agent retires its definition while Sessions and checkpoints retain
-their pinned revisions. Recreating its namespace/name creates a new Kubernetes
-UID and cannot inherit the deleted Agent's latest successful revision.
+UID/resourceVersion preconditions. Distinguish acceptance of deletion from
+completion of finalizers, and document which external resources survive deletion.
+A recreated object must not silently inherit state belonging to a previous UID.
 
 ## Review and generation
 
-An API PR explains field ownership, presence/defaults, admission rules, status
-meaning, and update/deletion behavior. Include valid and invalid manifests and
-tests for admission, reconciliation, and affected runtime behavior. Update real
-clients and fixtures from the generated schema.
+An API change explains field ownership, presence/defaults, admission rules,
+status meaning, and update/deletion behavior. Include valid and invalid manifests
+and focused tests for changed admission and reconciliation behavior. Review
+compatibility with stored objects and update affected clients and fixtures.
 
-Run `make controller-manifests`, Go/API lint, and relevant tests. Check generated
-deepcopy code, CRDs, Helm copies, and RBAC as applicable; never edit generated
-outputs directly. Coordinate pre-release schema changes with stored objects and
-clients.
+Run `make controller-manifests`, relevant Go/API lint and tests, and any additional
+generation required by the change. Review generated deepcopy code, CRDs, Helm
+copies, and RBAC as applicable; never edit generated outputs directly.
 
 Use [Gateway API](https://github.com/kubernetes-sigs/gateway-api) as prior art when
 a Kubernetes modeling choice needs a worked example.
