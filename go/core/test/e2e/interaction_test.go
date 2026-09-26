@@ -6,7 +6,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -1220,27 +1219,22 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 			t.Errorf("delete Agent: %v", err)
 		}
 	})
-	var lastReady *metav1.Condition
+	// Independent informers can observe the Agent before its references. False
+	// conditions are intermediate observations; wait for the current generation
+	// to become ready and retain all conditions for timeout diagnostics.
 	err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent); err != nil {
 			return false, err
 		}
-		for index := range agent.Status.Conditions {
-			condition := &agent.Status.Conditions[index]
-			if condition.Status == metav1.ConditionFalse && (condition.Type != v1alpha3.AgentConditionReady || condition.Reason != "ActorTemplatePending") {
-				return false, fmt.Errorf("Agent %s/%s condition %s failed: %s: %s", agent.Namespace, agent.Name, condition.Type, condition.Reason, condition.Message)
-			}
-			if condition.Type == v1alpha3.AgentConditionReady {
-				lastReady = condition.DeepCopy()
-				if condition.Status == metav1.ConditionTrue {
-					return true, nil
-				}
+		for _, condition := range agent.Status.Conditions {
+			if condition.Type == v1alpha3.AgentConditionReady && condition.ObservedGeneration == agent.Generation {
+				return condition.Status == metav1.ConditionTrue, nil
 			}
 		}
 		return false, nil
 	})
 	if err != nil {
-		t.Fatalf("wait for Agent %s/%s: %v; last Ready: %+v", agent.Namespace, agent.Name, err, lastReady)
+		t.Fatalf("wait for Agent %s/%s: %v; last conditions: %+v", agent.Namespace, agent.Name, err, agent.Status.Conditions)
 	}
 }
 

@@ -41,14 +41,14 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
 	}
 	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}}}, opts.WithName("ModelConfigs")...)
+	templates := krt.NewStaticCollection[*kagentv1alpha3.AgentTemplate](nil, nil, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
-		template,
 		matchingHarness,
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
 	})
 
 	collections := Collections{
-		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+		AgentTemplates:           templates,
 		Harnesses:                krttest.GetMockCollection[*kagentv1alpha3.Harness](mock),
 		ModelConfigs:             modelConfigs,
 		RemoteMCPServers:         krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
@@ -67,6 +67,19 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		}, collections.AgentRuntimeObservations, opts,
 	)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
+
+	// The Agent informer can observe a new Agent before the template informer
+	// observes its reference. Adding the template must clear the failure without
+	// changing or re-enqueuing the Agent explicitly.
+	waitFor(t, func() bool {
+		updates := collections.AgentStatuses.List()
+		if len(updates) != 1 {
+			return false
+		}
+		condition := apimeta.FindStatusCondition(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionResolvedRefs)
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == "ReferenceResolutionFailed"
+	})
+	templates.UpdateObject(template)
 
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
