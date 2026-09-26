@@ -457,7 +457,8 @@ helm-install-provider: helm-version check-api-key
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
-		--set kmcp.enabled=$(KMCP_ENABLED)
+		--set kmcp.enabled=$(KMCP_ENABLED) \
+		--set substrate.enabled=$(SUBSTRATE_ENABLED)
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
@@ -480,6 +481,8 @@ helm-install-provider: helm-version check-api-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
+		--set substrate.enabled=$(SUBSTRATE_ENABLED) \
+		--set controller.substrate.enabled=$(SUBSTRATE_ENABLED) \
 		--set database.postgres.bundled.image.repository=pgvector \
 		--set database.postgres.bundled.image.name=pgvector \
 		--set database.postgres.bundled.image.tag=pg18-trixie \
