@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -516,7 +517,15 @@ func makeAfterToolCallback(logger *slog.Logger) llmagent.AfterToolCallback {
 	}
 }
 
-// makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors.
+// Keys of the function response of a tool call that failed: adk-go's own
+// {"error": text} shape, and the flag kagent's clients read on every runtime.
+const (
+	toolResponseErrorKey   = "error"
+	toolResponseIsErrorKey = "isError"
+)
+
+// makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors
+// and marks the function response of a failed call with isError.
 func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 	return func(ctx agent.Context, t tool.Tool, args map[string]any, err error) (map[string]any, error) {
 		logger.ErrorContext(ctx, "tool execution failed", "error", err,
@@ -525,8 +534,24 @@ func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 			"session_id", ctx.SessionID(),
 			"invocation_id", ctx.InvocationID(),
 		)
-		return nil, nil
+		return toolErrorResponse(err), nil
 	}
+}
+
+// toolErrorResponse is the function response for a tool call that failed: the
+// {"error": text} adk-go builds on its own, plus isError, the flag the harness
+// runtimes set beside a failed result (harness/runtime/a2a) and clients read to
+// show a step as failed. adk-go's MCP toolset collapses a CallToolResult with
+// IsError into a Go error before it reaches the flow, so this callback is the
+// one place that still knows the call failed. A confirmation request travels
+// as an error too, but it is a pause, not a failure: it keeps the plain shape,
+// which clients tell apart by its text. A nil map hands the error back to
+// adk-go's default handling.
+func toolErrorResponse(err error) map[string]any {
+	if err == nil || errors.Is(err, tool.ErrConfirmationRequired) {
+		return nil
+	}
+	return map[string]any{toolResponseErrorKey: err.Error(), toolResponseIsErrorKey: true}
 }
 
 // mapKeys returns the top-level keys of a map for logging without exposing values.
