@@ -42,10 +42,10 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
 	resource := &v1alpha3.SandboxTemplate{Spec: v1alpha3.SandboxTemplateSpec{
 		Workload: v1alpha3.SandboxTemplateWorkload{Image: testHarnessImage},
-		Env:      []v1alpha3.HarnessEnvVar{{Name: "LANG", Value: new("C.UTF-8")}},
-		Substrate: v1alpha3.HarnessSubstratePolicy{
+		Env:      []v1alpha3.RuntimeEnvVar{{Name: "LANG", Value: new("C.UTF-8")}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
-			SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "s3://snapshots"},
+			SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 		},
 	}}
 	request := &apiv1alpha1.CreateSandboxTemplateRequest{

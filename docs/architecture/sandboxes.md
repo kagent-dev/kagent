@@ -16,8 +16,9 @@ The agent and sandbox APIs have separate configuration and lifecycle ownership:
 
 `Harness` owns agent startup and runtime configuration. `SandboxTemplate` owns
 the standalone workload image, environment, WorkerPool reference, and snapshot
-policy. It shares Go field types with Harness where the semantics match, but
-neither resource references or inherits from the other.
+policy. Both resources use `RuntimeEnvVar`, `RuntimeSubstratePolicy`, and
+`RuntimeSnapshotPolicy` from `go/api/v1alpha3/runtime_types.go` for their shared
+configuration. Neither resource references or inherits from the other.
 
 Sessions do not run the sandbox guest. An agent can create an independent Sandbox
 through MCP, using the same service as a human caller. Its conversation and the

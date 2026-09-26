@@ -14,7 +14,7 @@ import (
 func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	template := &v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch", UID: "uid"}, Spec: v1alpha3.SandboxTemplateSpec{
 		Workload:  v1alpha3.SandboxTemplateWorkload{Image: "tools@sha256:" + strings.Repeat("a", 64)},
-		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "s3://snapshots/"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
 	}}
 	policy := SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}
 	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy)
@@ -46,11 +46,11 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 			require.NotEqual(t, digest, changed)
 		})
 	}
-	template.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "TOKEN", CredentialRef: &corev1.SecretKeySelector{}}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "TOKEN", CredentialRef: &corev1.SecretKeySelector{}}}
 	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "credential")
 	require.Nil(t, actor)
-	template.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "SSL_CERT_FILE", Value: new("/untrusted")}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: new("/untrusted")}}
 	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "reserved")
 	require.Nil(t, actor)
