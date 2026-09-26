@@ -8,7 +8,7 @@ import { linkInk } from "@/components/common/linkStyles";
 import { rowClickHandler } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { buildPath, paths } from "@/router/routes";
-import { schedulesFor, type SchedulePair } from "./scheduleTargets";
+import { schedulesFor, type ScheduledAgentRef } from "./scheduleTargets";
 
 const { Text } = Typography;
 
@@ -21,7 +21,7 @@ const { Text } = Typography;
  * Last on the page deliberately: it is a second read, and anything below it would be
  * pushed down as that read lands.
  */
-export function AgentSchedules({ pair }: { pair: SchedulePair }) {
+export function AgentSchedules({ agent }: { agent: ScheduledAgentRef }) {
   const theme = useTheme();
   const navigate = useNavigate();
 
@@ -31,7 +31,7 @@ export function AgentSchedules({ pair }: { pair: SchedulePair }) {
     invoke("scheduledRuns.list", { page: { limit: 100 } }),
   );
 
-  const rows = schedulesFor(schedules.data?.scheduledRuns ?? [], pair);
+  const rows = schedulesFor(schedules.data?.scheduledRuns ?? [], agent);
 
   return (
     <Card title="Schedules" size="small" data-testid="agent-schedules">

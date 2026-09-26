@@ -14,9 +14,9 @@ import (
 func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	instance, waiting := waitingTaskFixture(t, client)
-	first, err := client.GetAgentInstanceTask(ctx, instance.Id, string(waiting.ID), nil)
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, waiting := waitingTaskFixture(t, client)
+	first, err := client.GetSessionTask(ctx, session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
 	created, ok := apia2a.TaskCreatedAt(first)
 	require.True(t, ok)
@@ -24,16 +24,16 @@ func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
 
 	// Runtime metadata and subsequent status timestamps cannot replace the
 	// creation timestamp supplied by the store to public Get/List callers.
-	task, version, err := client.GetVersionedAgentInstanceTask(ctx, instance.Id, string(waiting.ID))
+	task, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(waiting.ID))
 	require.NoError(t, err)
 	later := created.Add(time.Hour)
 	task.Status.Timestamp = &later
 	apia2a.SetTaskCreatedAt(task, later)
-	_, err = client.UpdateAgentInstanceTask(ctx, instance.Id, version, taskMutationHash("later status"), task, task, "")
+	_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("later status"), task, task, "")
 	require.NoError(t, err)
-	got, err := client.GetAgentInstanceTask(ctx, instance.Id, string(waiting.ID), nil)
+	got, err := client.GetSessionTask(ctx, session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
-	listed, _, err := client.ListAgentInstanceTasks(ctx, instance.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
+	listed, _, err := client.ListSessionTasks(ctx, session.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	for _, task := range []*a2a.Task{got, listed[0]} {
@@ -44,28 +44,28 @@ func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
 	}
 }
 
-func TestTaskHistoryLimitsAndInstanceScope(t *testing.T) {
+func TestTaskHistoryLimitsAndSessionScope(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	other, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	other, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
 
-	_, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime.example")
+	_, err = markSessionReady(ctx, client, session.Id, "runtime.example")
 	require.NoError(t, err)
 
 	for _, id := range []string{"first", "second"} {
-		task := newAgentInstanceTask(id, id+"-1")
-		task.ContextID = instance.ContextId
+		task := newSessionTask(id, id+"-1")
+		task.ContextID = session.ContextId
 		task.Status.State = a2a.TaskStateCompleted
 		for _, suffix := range []string{"-2", "-3"} {
 			message := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(suffix))
 			message.ID = id + suffix
 			task.History = append(task.History, message)
 		}
-		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
+		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
 	}
 	for _, test := range []struct {
 		name  string
@@ -79,9 +79,9 @@ func TestTaskHistoryLimitsAndInstanceScope(t *testing.T) {
 		{name: "negative is unlimited", limit: new(-1), want: []string{"-1", "-2", "-3"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			task, err := client.GetAgentInstanceTask(ctx, instance.Id, "first", test.limit)
+			task, err := client.GetSessionTask(ctx, session.Id, "first", test.limit)
 			require.NoError(t, err)
-			tasks, total, err := client.ListAgentInstanceTasks(ctx, instance.Id, "", a2a.TaskStateUnspecified, nil, 10, test.limit)
+			tasks, total, err := client.ListSessionTasks(ctx, session.Id, "", a2a.TaskStateUnspecified, nil, 10, test.limit)
 			require.NoError(t, err)
 			require.Equal(t, 2, total)
 			require.Len(t, tasks, 2)
@@ -90,29 +90,29 @@ func TestTaskHistoryLimitsAndInstanceScope(t *testing.T) {
 				for i, suffix := range test.want {
 					require.Equal(t, string(got.ID)+suffix, got.History[i].ID)
 					require.Equal(t, got.ID, got.History[i].TaskID)
-					require.Equal(t, instance.ContextId, got.History[i].ContextID)
+					require.Equal(t, session.ContextId, got.History[i].ContextID)
 				}
 			}
 		})
 	}
-	_, err = client.GetAgentInstanceTask(ctx, other.Id, "first", nil)
+	_, err = client.GetSessionTask(ctx, other.Id, "first", nil)
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = client.GetAgentInstanceTask(ctx, uuid.NewString(), "first", nil)
+	_, err = client.GetSessionTask(ctx, uuid.NewString(), "first", nil)
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = client.GetAgentInstanceTask(ctx, instance.Id, "absent", nil)
+	_, err = client.GetSessionTask(ctx, session.Id, "absent", nil)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestZeroTaskHistoryDoesNotQueryMessages(t *testing.T) {
 	task := &a2a.Task{ID: "task", History: []*a2a.Message{{ID: "inline"}}}
 	// No executor is needed when the caller asks to omit history.
-	require.NoError(t, loadAgentInstanceTaskHistories(context.Background(), nil, uuid.New(), []*a2a.Task{task}, new(0), false))
+	require.NoError(t, loadSessionTaskHistories(context.Background(), nil, uuid.New(), []*a2a.Task{task}, new(0), false))
 	require.Empty(t, task.History)
 }
 
 func TestTaskHistoryLimitWithInlineMessages(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	task := &a2a.Task{ID: "task", History: []*a2a.Message{{ID: "first"}, {ID: "second"}, {ID: "third"}}}
-	require.NoError(t, loadAgentInstanceTaskHistories(t.Context(), client.db, uuid.New(), []*a2a.Task{task}, new(2), false))
+	require.NoError(t, loadSessionTaskHistories(t.Context(), client.db, uuid.New(), []*a2a.Task{task}, new(2), false))
 	require.Equal(t, []*a2a.Message{{ID: "second"}, {ID: "third"}}, task.History)
 }

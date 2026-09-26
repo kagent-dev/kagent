@@ -13,7 +13,7 @@ type checkpointServer struct {
 }
 
 func (s *checkpointServer) CreateCheckpoint(ctx context.Context, request *apiv1alpha1.CreateCheckpointRequest) (*apiv1alpha1.CreateCheckpointResponse, error) {
-	checkpoint, err := s.service.Create(ctx, request.GetAgentInstanceId(), request.GetRequestId(), request.GetExpectedHeadTaskId())
+	checkpoint, err := s.service.Create(ctx, request.GetSessionId(), request.GetRequestId(), request.GetExpectedHeadTaskId())
 	return &apiv1alpha1.CreateCheckpointResponse{Checkpoint: checkpoint}, err
 }
 
@@ -25,8 +25,8 @@ func (s *checkpointServer) GetCheckpoint(ctx context.Context, request *apiv1alph
 func (s *checkpointServer) ListCheckpoints(ctx context.Context, request *apiv1alpha1.ListCheckpointsRequest) (*apiv1alpha1.ListCheckpointsResponse, error) {
 	page := request.GetPage()
 	result, err := s.service.List(ctx, checkpoint.ListRequest{
-		InstanceID: request.GetAgentInstanceId(),
-		PageSize:   int(page.GetLimit()), PageToken: page.GetPageToken(),
+		SessionID: request.GetSessionId(),
+		PageSize:  int(page.GetLimit()), PageToken: page.GetPageToken(),
 	})
 	return &apiv1alpha1.ListCheckpointsResponse{
 		Checkpoints: result.Checkpoints,
@@ -44,7 +44,7 @@ func (s *checkpointServer) UpdateCheckpointName(ctx context.Context, request *ap
 	return &apiv1alpha1.UpdateCheckpointNameResponse{Checkpoint: checkpoint}, err
 }
 
-func (s *checkpointServer) ForkAgentInstance(ctx context.Context, request *apiv1alpha1.ForkAgentInstanceRequest) (*apiv1alpha1.ForkAgentInstanceResponse, error) {
-	instance, err := s.service.Fork(ctx, request.GetCheckpointId(), request.GetRequestId())
-	return &apiv1alpha1.ForkAgentInstanceResponse{AgentInstance: instance}, err
+func (s *checkpointServer) ForkSession(ctx context.Context, request *apiv1alpha1.ForkSessionRequest) (*apiv1alpha1.ForkSessionResponse, error) {
+	session, err := s.service.Fork(ctx, request.GetCheckpointId(), request.GetRequestId())
+	return &apiv1alpha1.ForkSessionResponse{Session: session}, err
 }

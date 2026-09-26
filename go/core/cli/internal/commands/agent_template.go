@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -21,7 +20,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
@@ -200,25 +198,14 @@ func getAgentTemplates(
 
 func writeAgentTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, list bool, nextPageToken string) error {
 	tw := table.NewWriter()
-	tw.AppendHeader(table.Row{"NAME", "HARNESS", "READY", "CREATED"})
+	tw.AppendHeader(table.Row{"NAME", "CREATED"})
 	for i := range templates {
 		template := &templates[i]
 		created := ""
 		if !template.CreationTimestamp.IsZero() {
 			created = template.CreationTimestamp.Time.UTC().Format(time.RFC3339)
 		}
-		if len(template.Status.Harnesses) == 0 {
-			tw.AppendRow(table.Row{template.Name, "", "UNKNOWN", created})
-			continue
-		}
-		for j := range template.Status.Harnesses {
-			harness := &template.Status.Harnesses[j]
-			ready := "UNKNOWN"
-			if condition := meta.FindStatusCondition(harness.Conditions, apiv1alpha3.AgentTemplateConditionReady); condition != nil {
-				ready = strings.ToUpper(string(condition.Status))
-			}
-			tw.AppendRow(table.Row{template.Name, harness.Harness, ready, created})
-		}
+		tw.AppendRow(table.Row{template.Name, created})
 	}
 
 	output := tw.Render()

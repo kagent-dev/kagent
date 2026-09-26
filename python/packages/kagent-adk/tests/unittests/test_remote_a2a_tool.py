@@ -283,7 +283,7 @@ class TestFirstCall:
         assert result == "something broke"
 
     async def test_context_id_sent_in_outgoing_message(self):
-        """The tool's pre-generated context_id is sent on the outgoing A2A message."""
+        """The receiving Agent assigns the first conversation ID."""
         tool = _make_tool()
         task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
         sent: list[SendMessageRequest] = []
@@ -298,7 +298,8 @@ class TestFirstCall:
         finally:
             p.stop()
 
-        assert sent[0].message.context_id == tool._last_context_id
+        assert sent[0].message.context_id == ""
+        assert tool._last_context_id == task.context_id
 
     async def test_shared_session_reuses_context_id_across_calls(self):
         """The default mode keeps stateful sub-agent calls in one session."""
@@ -319,7 +320,8 @@ class TestFirstCall:
             p.stop()
 
         assert len(sent) == 2
-        assert sent[0].message.context_id == sent[1].message.context_id
+        assert sent[0].message.context_id == ""
+        assert sent[1].message.context_id == task.context_id
 
     async def test_isolated_session_mints_context_id_per_call(self):
         """Isolation gives each sub-agent invocation a distinct session."""
@@ -340,9 +342,10 @@ class TestFirstCall:
             p.stop()
 
         assert len(sent) == 2
-        assert sent[0].message.context_id != sent[1].message.context_id
-        assert first["subagent_session_id"] == sent[0].message.context_id
-        assert second["subagent_session_id"] == sent[1].message.context_id
+        assert sent[0].message.context_id == sent[1].message.context_id == ""
+        assert sent[0].message.message_id != sent[1].message.message_id
+        assert first["subagent_session_id"] == task.context_id
+        assert second["subagent_session_id"] == task.context_id
 
     async def test_user_id_forwarded_in_call_context(self):
         """The parent session's user_id is forwarded via ClientCallContext."""

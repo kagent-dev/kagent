@@ -14,7 +14,7 @@ import (
 // runInteractive launches the workspace; the TUI reads raw keys, so a redirected stream is an error.
 func runInteractive(cmd *cobra.Command, _ []string) (err error) {
 	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
-		return errors.New("kagent requires a terminal; use `kagent get agent-instance` and `kagent invoke` for non-interactive use")
+		return errors.New("kagent requires a terminal; use `kagent get session` and `kagent invoke` for non-interactive use")
 	}
 
 	options, err := connection.OptionsFromCommand(cmd)

@@ -28,7 +28,6 @@ function templateWithExtras(): AgentTemplate {
     name: "rich",
     modelConfigRef: "kagent/gpt",
     description: "A template with fields no form shows.",
-    admittingHarnesses: ["runner"],
     resource: {
       metadata: {
         name: "rich",
@@ -178,7 +177,7 @@ describe("the agent template draft", () => {
     const draft = emptyDraft("kagent");
     draft.modelConfig = "gpt";
     draft.mcpTools = [{ serverRef: "kagent/tools", tools: [] }];
-    draft.agentTools = [
+    draft.subAgentTools = [
       { name: "", description: "", templateName: "other", isolation: "Shared" },
     ];
 
@@ -189,6 +188,16 @@ describe("the agent template draft", () => {
         },
       },
     ]);
+  });
+
+  it("round-trips subagent template bindings through the editor", () => {
+    const template = templateWithExtras();
+    template.resource.spec.tools = [{subAgent: {
+      name: "review", description: "Review changes", templateRef: {name: "review-context"}, isolation: "Shared",
+    }}];
+    const draft = draftFromTemplate(template);
+    expect(draft.subAgentTools[0].templateName).toBe("review-context");
+    expect(specFromDraft(draft, template.resource.spec).tools).toEqual(template.resource.spec.tools);
   });
 
   it("round-trips an MCP binding that exposes every server tool", () => {

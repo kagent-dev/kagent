@@ -301,10 +301,6 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     }
   } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
     spec.apiKeySecret = draft.apiKeySecret.trim();
-    // apiKeySecretKey is required by the CRD whenever apiKeySecret is set
-    // (Bedrock and SAPAICore are the only exemptions), so an empty field has
-    // to be filled in rather than omitted or admission rejects the save.
-    // Ollama Cloud always authenticates with OLLAMA_API_KEY.
     spec.apiKeySecretKey =
       draft.apiKeySecretKey.trim() || "OLLAMA_API_KEY";
   }

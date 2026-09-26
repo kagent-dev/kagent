@@ -80,7 +80,7 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 	if result.RequeueAfter != 5*time.Minute {
 		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
 	}
-	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.kagent.dev" {
+	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.api.kagent.dev" {
 		t.Fatalf("discovery ref = %#v", discoverer.ref)
 	}
 

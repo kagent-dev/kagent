@@ -39,6 +39,7 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		Listener:             listener,
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
+		AgentService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent"),
 		AgentTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 	})
@@ -108,13 +109,8 @@ func assertCode(t *testing.T, err error, want codes.Code) {
 }
 
 func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
-	// The existing template carries controller-written status so the response
-	// can be checked for the admitting-harness denormalisation, which a caller
-	// cannot derive from the template alone.
 	existing := testAgentTemplate("team", "z-existing", "gpt")
-	existing.Status = v1alpha3.AgentTemplateStatus{
-		Harnesses: []v1alpha3.AgentTemplateHarnessStatus{{Harness: "shared", DesiredRevision: "rev-1"}},
-	}
+
 	client := apiv1alpha1.NewAgentTemplateServiceClient(newTemplateAndHarnessConnection(t, existing))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
 	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "a-created"}
@@ -178,9 +174,6 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	}
 	if name := listed.GetAgentTemplates()[0].GetRef().GetName(); name != "a-created" {
 		t.Fatalf("ListAgentTemplates()[0] = %q, want a-created first", name)
-	}
-	if harnesses := listed.GetAgentTemplates()[1].GetAdmittingHarnesses(); len(harnesses) != 1 || harnesses[0] != "shared" {
-		t.Fatalf("ListAgentTemplates()[1].admittingHarnesses = %v, want [shared]", harnesses)
 	}
 
 	// A resource whose metadata names a different object must be rejected rather

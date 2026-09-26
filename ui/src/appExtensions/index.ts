@@ -73,6 +73,7 @@ export type {
   ChatPartRendererProps,
   ExtensionChatPartRenderers,
   ExtensionAgentLinks,
+  ExtensionAgentInstanceRef,
   ExtensionAgentRef,
   ExtensionAgentRailItemContribution,
   ExtensionAgentRailItemProps,

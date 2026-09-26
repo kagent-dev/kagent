@@ -14,20 +14,20 @@ import (
 )
 
 const (
-	createCheckpointToolName  = "create_agent_instance_checkpoint"
-	listCheckpointsToolName   = "list_agent_instance_checkpoints"
-	forkAgentInstanceToolName = "fork_agent_instance"
+	createCheckpointToolName = "create_session_checkpoint"
+	listCheckpointsToolName  = "list_session_checkpoints"
+	forkSessionToolName      = "fork_session"
 )
 
 type CreateCheckpointInput struct {
-	AgentInstanceID    string `json:"agent_instance_id" jsonschema:"AgentInstance UUID"`
+	SessionID          string `json:"session_id" jsonschema:"Session UUID"`
 	ExpectedHeadTaskID string `json:"expected_head_task_id" jsonschema:"Terminal task ID to save; fails if the conversation has advanced"`
 	RequestID          string `json:"request_id,omitempty" jsonschema:"Optional stable request ID for idempotency"`
 }
 
 type CheckpointSummary struct {
 	ID              string          `json:"id"`
-	AgentInstanceID string          `json:"agent_instance_id"`
+	SessionID       string          `json:"session_id"`
 	Name            string          `json:"name,omitempty"`
 	HeadTaskID      string          `json:"head_task_id,omitempty"`
 	HistorySequence uint64          `json:"history_sequence"`
@@ -46,9 +46,9 @@ type CreateCheckpointOutput struct {
 }
 
 type ListCheckpointsInput struct {
-	AgentInstanceID string `json:"agent_instance_id" jsonschema:"AgentInstance UUID"`
-	PageSize        int    `json:"page_size,omitempty" jsonschema:"Maximum number of checkpoints to return"`
-	PageToken       string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	SessionID string `json:"session_id" jsonschema:"Session UUID"`
+	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of checkpoints to return"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
 }
 
 type ListCheckpointsOutput struct {
@@ -56,23 +56,23 @@ type ListCheckpointsOutput struct {
 	NextPageToken string              `json:"next_page_token,omitempty"`
 }
 
-type ForkAgentInstanceInput struct {
+type ForkSessionInput struct {
 	CheckpointID string `json:"checkpoint_id" jsonschema:"Checkpoint UUID"`
 	RequestID    string `json:"request_id,omitempty" jsonschema:"Optional stable request ID for idempotency"`
 }
 
-type ForkAgentInstanceOutput struct {
-	AgentInstance AgentInstanceSummary `json:"agent_instance"`
+type ForkSessionOutput struct {
+	Session SessionSummary `json:"session"`
 }
 
 func (h *Handler) registerCheckpointTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{Name: createCheckpointToolName, Description: "Create a checkpoint at an AgentInstance turn boundary"}, h.createCheckpoint)
-	mcp.AddTool(server, &mcp.Tool{Name: listCheckpointsToolName, Description: "List checkpoints for an AgentInstance"}, h.listCheckpoints)
-	mcp.AddTool(server, &mcp.Tool{Name: forkAgentInstanceToolName, Description: "Create an AgentInstance from a checkpoint"}, h.forkAgentInstance)
+	mcp.AddTool(server, &mcp.Tool{Name: createCheckpointToolName, Description: "Create a checkpoint at a Session turn boundary"}, h.createCheckpoint)
+	mcp.AddTool(server, &mcp.Tool{Name: listCheckpointsToolName, Description: "List checkpoints for a Session"}, h.listCheckpoints)
+	mcp.AddTool(server, &mcp.Tool{Name: forkSessionToolName, Description: "Create a Session from a checkpoint"}, h.forkSession)
 }
 
 func (h *Handler) createCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CreateCheckpointInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
-	created, err := h.checkpoints.Create(ctx, input.AgentInstanceID, stableRequestID(input.RequestID), input.ExpectedHeadTaskID)
+	created, err := h.checkpoints.Create(ctx, input.SessionID, stableRequestID(input.RequestID), input.ExpectedHeadTaskID)
 	if err != nil {
 		result := toolError(err)
 		for _, detail := range status.Convert(err).Details() {
@@ -88,8 +88,8 @@ func (h *Handler) createCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, 
 
 func (h *Handler) listCheckpoints(ctx context.Context, _ *mcp.CallToolRequest, input ListCheckpointsInput) (*mcp.CallToolResult, ListCheckpointsOutput, error) {
 	listed, err := h.checkpoints.List(ctx, checkpoint.ListRequest{
-		InstanceID: input.AgentInstanceID,
-		PageSize:   input.PageSize, PageToken: input.PageToken,
+		SessionID: input.SessionID,
+		PageSize:  input.PageSize, PageToken: input.PageToken,
 	})
 	if err != nil {
 		return toolError(err), ListCheckpointsOutput{}, nil
@@ -101,13 +101,13 @@ func (h *Handler) listCheckpoints(ctx context.Context, _ *mcp.CallToolRequest, i
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Found %d checkpoints", len(output.Checkpoints))}}}, output, nil
 }
 
-func (h *Handler) forkAgentInstance(ctx context.Context, _ *mcp.CallToolRequest, input ForkAgentInstanceInput) (*mcp.CallToolResult, ForkAgentInstanceOutput, error) {
-	instance, err := h.checkpoints.Fork(ctx, input.CheckpointID, stableRequestID(input.RequestID))
+func (h *Handler) forkSession(ctx context.Context, _ *mcp.CallToolRequest, input ForkSessionInput) (*mcp.CallToolResult, ForkSessionOutput, error) {
+	session, err := h.checkpoints.Fork(ctx, input.CheckpointID, stableRequestID(input.RequestID))
 	if err != nil {
-		return toolError(err), ForkAgentInstanceOutput{}, nil
+		return toolError(err), ForkSessionOutput{}, nil
 	}
-	output := ForkAgentInstanceOutput{AgentInstance: agentInstanceSummary(instance)}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Created AgentInstance %s", instance.GetId())}}}, output, nil
+	output := ForkSessionOutput{Session: sessionSummary(session)}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Created Session %s", session.GetId())}}}, output, nil
 }
 
 func stableRequestID(id string) string {
@@ -119,7 +119,7 @@ func stableRequestID(id string) string {
 
 func checkpointSummary(value *apiv1alpha1.Checkpoint) CheckpointSummary {
 	result := CheckpointSummary{
-		ID: value.GetId(), AgentInstanceID: value.GetAgentInstanceId(), Name: value.GetName(),
+		ID: value.GetId(), SessionID: value.GetSessionId(), Name: value.GetName(),
 		HeadTaskID: value.GetHeadTaskId(), HistorySequence: value.GetHistorySequence(), State: value.GetState().String(),
 	}
 	if value.GetCreatedAt() != nil {
@@ -131,10 +131,10 @@ func checkpointSummary(value *apiv1alpha1.Checkpoint) CheckpointSummary {
 	return result
 }
 
-func agentInstanceSummary(instance *apiv1alpha1.AgentInstance) AgentInstanceSummary {
-	return AgentInstanceSummary{
-		ID:            instance.GetId(),
-		AgentTemplate: instance.GetAgentTemplate().GetName(), Harness: instance.GetHarness().GetName(),
-		State: instance.GetState().String(),
+func sessionSummary(session *apiv1alpha1.Session) SessionSummary {
+	return SessionSummary{
+		ID:    session.GetId(),
+		Agent: session.GetAgent().GetName(),
+		State: session.GetState().String(),
 	}
 }

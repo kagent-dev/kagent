@@ -2,6 +2,8 @@
 
 package v1alpha3
 
+type AgentExpansion interface{}
+
 type AgentTemplateExpansion interface{}
 
 type HarnessExpansion interface{}

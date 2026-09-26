@@ -5,9 +5,9 @@ import { useTheme } from "@emotion/react";
 import { Search } from "lucide-react";
 import {
   useNamespaces,
-  useAgentTemplatesAcrossNamespaces,
-  agentPairsFrom,
-  type AgentPair,
+  useAgentsAcrossNamespaces,
+  agentSummariesFrom,
+  type AgentSummary,
 } from "@/api";
 import { agentNewChatUrl } from "./agentUrl";
 import { rowStyles, searchInputStyles } from "./controlStyles";
@@ -38,7 +38,7 @@ export function AgentSwitcher({
   onPicked,
 }: {
   /** The agent the rail is scoped to: a template and the harness that runs it. */
-  current: { namespace: string; agentTemplate?: string; harness?: string };
+  current: { namespace: string; name?: string };
   onPicked: () => void;
 }) {
   const theme = useTheme();
@@ -48,22 +48,11 @@ export function AgentSwitcher({
     () => (namespaces.data ?? []).map((entry) => entry.name),
     [namespaces.data],
   );
-  /*
-   * Agents, not conversations.
-   *
-   * This listed `AgentInstance`s — so switching "agent" moved between *conversations*,
-   * and one agent with nine of them filled the switcher nine times over with rows a
-   * reader could not tell apart. An agent is a `(template, harness)` pair, which is
-   * what the agents page lists, and what somebody opening a switcher labelled "agent"
-   * is looking for.
-   *
-   * Free to read: the pairs come from each template's `status.harnesses`, which is the
-   * same read the agents page makes.
-   */
-  const templates = useAgentTemplatesAcrossNamespaces(namespaceNames);
+
+  const definitions = useAgentsAcrossNamespaces(namespaceNames);
   const agents = useMemo(
-    () => agentPairsFrom(templates.data?.templates ?? []),
-    [templates.data],
+    () => agentSummariesFrom(definitions.data?.agents ?? []),
+    [definitions.data],
   );
   const [query, setQuery] = useState("");
 
@@ -119,8 +108,7 @@ export function AgentSwitcher({
       (row) =>
         !(
           row.namespace === current.namespace &&
-          row.agentTemplate === current.agentTemplate &&
-          (current.harness === undefined || row.harness === current.harness)
+          row.name === current.name
         ),
     );
 
@@ -128,11 +116,11 @@ export function AgentSwitcher({
     if (!needle) return others;
 
     return others.filter((row) =>
-      `${row.namespace}/${row.agentTemplate}/${row.harness}`.toLowerCase().includes(needle),
+      `${row.namespace}/${row.name}/${row.harness}`.toLowerCase().includes(needle),
     );
-  }, [agents, query, current.namespace, current.agentTemplate, current.harness]);
+  }, [agents, query, current.namespace, current.name]);
 
-  function pick(row: AgentPair) {
+  function pick(row: AgentSummary) {
     onPicked();
     // To the call to action for that agent — a conversation that does not exist yet.
     // Picking an agent is the start of talking to it, and nothing is created until a
@@ -164,9 +152,9 @@ export function AgentSwitcher({
         css={searchInputStyles(theme)}
       />
 
-      {templates.error ? (
+      {definitions.error ? (
         <Text data-testid="agent-switcher-error" css={{ fontSize: 12, color: theme.color.danger }}>
-          Could not list agents. {templates.error.message}
+          Could not list agents. {definitions.error.message}
         </Text>
       ) : null}
 
@@ -201,12 +189,11 @@ export function AgentSwitcher({
       >
         {matches.map((row) => {
           const namespace = row.namespace;
-          // The agent this rail is scoped to, which is the pair — not the conversation
+          // The agent this rail is scoped to, which is the named Agent
           // that happens to be open within it.
           const isCurrent =
             namespace === current.namespace &&
-            row.agentTemplate === current.agentTemplate &&
-            row.harness === current.harness;
+            row.name === current.name;
 
           return (
             <button
@@ -215,7 +202,7 @@ export function AgentSwitcher({
               type="button"
               onClick={() => pick(row)}
               aria-current={isCurrent}
-              data-testid={`agent-switcher-option-${row.agentTemplate}-${row.harness}`}
+              data-testid={`agent-switcher-option-${row.name}-${row.harness}`}
               css={{
                 /*
                  * The same row idiom as the rail's conversation list, which sits
@@ -258,7 +245,7 @@ export function AgentSwitcher({
                   letterSpacing: 0.3,
                 }}
               >
-                {row.agentTemplate.slice(0, 2).toUpperCase()}
+                {row.name.slice(0, 2).toUpperCase()}
               </span>
 
               <Text
@@ -269,7 +256,7 @@ export function AgentSwitcher({
                   color: isCurrent ? theme.color.primaryText : theme.color.text,
                 }}
               >
-                {row.agentTemplate}
+                {row.name}
               </Text>
               <Text
                 ellipsis
@@ -283,14 +270,14 @@ export function AgentSwitcher({
 
         {/*
           Rows of the same size as the real ones while they are on their way.
-          
+
           The list rendered nothing at all until the agents arrived, so the panel opened
           at the height of its search field and then jumped to the height of a list —
           under a pointer that was already moving toward where the first row was about
           to be. Standing in for three rows is enough to hold the shape: the panel
           scrolls beyond that anyway, so being wrong about the count costs nothing.
         */}
-        {templates.isLoading
+        {definitions.isLoading
           ? [0, 1, 2].map((row) => (
               <div
                 key={row}
@@ -306,7 +293,7 @@ export function AgentSwitcher({
             ))
           : null}
 
-        {!templates.isLoading && matches.length === 0 ? (
+        {!definitions.isLoading && matches.length === 0 ? (
           <Text
             data-testid="agent-switcher-empty"
             css={{ fontSize: 12, color: theme.color.textMuted, padding: theme.space(2) }}

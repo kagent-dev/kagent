@@ -12,6 +12,7 @@ import (
 
 type ApiV1alpha3Interface interface {
 	RESTClient() rest.Interface
+	AgentsGetter
 	AgentTemplatesGetter
 	HarnessesGetter
 	ModelConfigsGetter
@@ -21,6 +22,10 @@ type ApiV1alpha3Interface interface {
 // ApiV1alpha3Client is used to interact with features provided by the api group.
 type ApiV1alpha3Client struct {
 	restClient rest.Interface
+}
+
+func (c *ApiV1alpha3Client) Agents(namespace string) AgentInterface {
+	return newAgents(c, namespace)
 }
 
 func (c *ApiV1alpha3Client) AgentTemplates(namespace string) AgentTemplateInterface {

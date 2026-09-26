@@ -5,16 +5,34 @@
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
 environment and credential references, WorkerPool configuration, snapshot
-location, and an admission selector.
+location.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared or
-Dedicated agent bindings. Model configuration may be omitted for BYO images;
-pair compilation rejects managed harness combinations without one.
+Dedicated subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
+Agent compilation rejects managed harness combinations without one.
 
-Both are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
+`Agent` pairs one template and one Harness. Each side independently selects either
+an inline spec (`template`, `harness`) or a local reference (`templateRef`,
+`harnessRef`), with exactly one choice required per side. Inline specs are complete
+values, not overrides. References, including those inside inline specs, resolve in
+the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
+with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
+Each subagent selects exactly one of `templateRef` (Shared) or `agentRef`
+(Dedicated); there is no separate `isolation` field. An `agentRef` selects an
+Agent with its own Harness and conversation. Dedicated execution remains
+unsupported and is rejected during compilation.
+
+All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
 API.
+
+The `api.kagent.dev` group keeps these definitions separate from legacy
+`kagent.dev` resources, including the old `Agent`. `ModelConfig`,
+`ModelProviderConfig`, and `RemoteMCPServer` use the new group too. KMCP's
+`MCPServer` retains `kagent.dev/v1alpha1`. Examples assume a fresh installation
+and use `kubectl get agent`. If both agent APIs are installed, use a qualified
+resource name such as `kubectl get agents.api.kagent.dev` to select this API.
 
 ### kagent workload overrides
 
@@ -36,18 +54,18 @@ spec:
 ```
 
 Command and argument changes participate in revision identity. They affect newly
-prepared revisions, not existing AgentInstances pinned to an older revision.
+prepared revisions, not existing Sessions pinned to an older revision.
 
 ## Prepared revision pipeline
 
-The v2 controller collects admitted Harness/AgentTemplate pairs and compiles each
-pair through one pipeline:
+The controller compiles each Agent through one pipeline:
 
 ```mermaid
 flowchart TD
-    H[Harness] --> MATCH{admission selector matches}
-    AT[AgentTemplate] --> MATCH
-    MATCH --> RESOLVE[resolve template tree and references]
+    A[Agent] --> T[template or templateRef]
+    A --> H[harness or harnessRef]
+    T --> RESOLVE[resolve template tree and references]
+    H --> RESOLVE
     RESOLVE --> INPUTS[build explicit inputs]
     INPUTS --> REGISTRY{runtime type}
     REGISTRY --> K[kagent compiler]
@@ -63,7 +81,7 @@ flowchart TD
     REV --> ATE[ate-api ActorTemplate]
     ATE --> GOLDEN[golden snapshot]
     GOLDEN -->|ready| LATEST[latest successful revision]
-    RESOLVE -->|error| STATUS[pair status]
+    RESOLVE -->|error| STATUS[Agent status]
     ATE -->|error| STATUS
 ```
 
@@ -75,11 +93,16 @@ flowchart TD
 5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and apply
    it as an ate-api ActorTemplate.
 6. Wait for the golden snapshot to become ready.
-7. Persist the revision and advance the pair's latest-successful pointer.
+7. Persist the revision and advance the Agent's latest-successful pointer.
+
+Agent owns readiness, warnings, the desired revision, and the latest successful
+revision. AgentTemplate is shared context with no runtime status. Child template
+references are resolved under the root Agent's Harness; they do not require
+separate Agents or matching Harness references.
 
 A failed compile or apply leaves the previous successful revision available.
-AgentInstances pin a prepared revision, so later template edits do not mutate a
-running instance.
+Sessions pin a prepared revision, so later template edits do not mutate a
+running session.
 
 Harness compilers only translate inputs. The controller and Substrate adapter own
 application and readiness. The central entry points are
@@ -95,7 +118,7 @@ semantics.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Harness/AgentTemplate namespace. The pool's `spec.sandboxClass` selects
+in the Agent namespace. The pool's `spec.sandboxClass` selects
 the ActorTemplate's sandbox configuration:
 
 | WorkerPool class | ActorTemplate sandbox class | SandboxConfig name |
@@ -117,12 +140,12 @@ selector is unchanged. WorkerPool updates are tracked through KRT and recompute
 the desired revision. Empty and explicit `gvisor` preserve the previous digest
 byte-for-byte; `microvm` participates in the digest, so its prepared runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
-original digest. Existing AgentInstances remain pinned to their revisions.
+original digest. Existing Sessions remain pinned to their revisions.
 
 Unresolved inputs still replace the persisted desired pointer with the requested
 identity shown in status, without creating a runtime revision. This releases
 abandoned preparations for garbage collection while preserving the current
-pair's last-successful runtime.
+Agent's last-successful runtime.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
@@ -166,3 +189,57 @@ portable template. The kagent compiler applies it to every root agent the
 Harness runs. A summarizer `ModelConfig` other than the agent's own is resolved
 from the Harness namespace like the memory model and joins the revision's
 credentials, egress, and provenance.
+
+## Explicit Agent examples
+
+For a single agent, inline both specs:
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: assistant
+  namespace: kagent
+spec:
+  template:
+    modelConfig:
+      name: default-model-config
+    systemPrompt: You are a helpful assistant.
+  harness:
+    kagent: {}
+    workload:
+      image: example.com/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: s3://snapshots/kagent/
+```
+
+Use a real runtime image digest and snapshot location in place of the examples.
+The referenced ModelConfig and WorkerPool must already exist.
+
+To reuse existing configuration, replace either inline spec with its reference:
+
+```yaml
+spec:
+  templateRef:
+    name: shared-context
+  harnessRef:
+    name: kagent
+```
+
+These choices are independent: both inline, either side referenced, or both
+referenced are supported. No synthetic Kubernetes objects are created for inline
+specs.
+
+Create a session with `kagent create session --agent assistant -n kagent`.
+The gRPC create request and ScheduledRun target one `agent` resource reference.
+The controller selects that Agent's latest successful revision. Deleting an Agent
+retires its definition; sessions and checkpoints retain their pinned revisions.
+Recreating the same name creates a new identity and cannot inherit the old
+Agent's last successful revision.
+
+This replaces implicit label selection and the old template/Harness inputs as a
+breaking API change. SandboxTemplate hosting configuration is not part of this
+change.

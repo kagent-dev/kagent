@@ -14,19 +14,19 @@ import (
 func TestCheckpointSummary(t *testing.T) {
 	created := time.Date(2026, time.August, 26, 10, 0, 0, 123, time.UTC)
 	got := checkpointSummary(&apiv1alpha1.Checkpoint{
-		Id:              "22222222-2222-4222-8222-222222222222",
-		AgentInstanceId: testInstanceID, HeadTaskId: testTaskID, HistorySequence: 7,
+		Id:        "22222222-2222-4222-8222-222222222222",
+		SessionId: testSessionID, HeadTaskId: testTaskID, HistorySequence: 7,
 		State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, CreatedAt: timestamppb.New(created),
 		Failure: &apiv1alpha1.Failure{Message: "failed"},
 	})
-	if got.ID != "22222222-2222-4222-8222-222222222222" || got.AgentInstanceID != testInstanceID ||
+	if got.ID != "22222222-2222-4222-8222-222222222222" || got.SessionID != testSessionID ||
 		got.HistorySequence != 7 || got.State != "CHECKPOINT_STATE_READY" || got.CreatedAt != created.Format(time.RFC3339Nano) || got.Failure.Message != "failed" {
 		t.Fatalf("checkpointSummary() = %#v", got)
 	}
 }
 
 func TestCheckpointToolsAreRegistered(t *testing.T) {
-	h, err := New(testAgentInstanceService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}})
+	h, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestCheckpointToolsAreRegistered(t *testing.T) {
 	defer server.Close()
 	response := rawMCPCall(t, server.URL, "tools/list", map[string]any{}, false)
 	tools := response["result"].(map[string]any)["tools"].([]any)
-	want := map[string]bool{createCheckpointToolName: false, listCheckpointsToolName: false, forkAgentInstanceToolName: false}
+	want := map[string]bool{createCheckpointToolName: false, listCheckpointsToolName: false, forkSessionToolName: false}
 	for _, value := range tools {
 		tool := value.(map[string]any)
 		if _, ok := want[tool["name"].(string)]; ok {
@@ -50,7 +50,7 @@ func TestCheckpointToolsAreRegistered(t *testing.T) {
 
 func TestCheckpointToolErrorsAreToolResults(t *testing.T) {
 	h := &Handler{checkpoints: testCheckpointService()}
-	result, _, err := h.createCheckpoint(t.Context(), nil, CreateCheckpointInput{AgentInstanceID: "invalid"})
+	result, _, err := h.createCheckpoint(t.Context(), nil, CreateCheckpointInput{SessionID: "invalid"})
 	if err != nil || !result.IsError {
 		t.Fatalf("createCheckpoint() result = %#v, error = %v", result, err)
 	}

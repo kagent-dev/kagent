@@ -37,7 +37,7 @@ async def wait_public(store, task_id, state):
 
 async def measure_persistence(store):
     """Optional loopback cost probe, independent of native/model latency."""
-    instance_id = await store._instance_id()
+    session_id = await store._session_id()
     service = store.client.task_store_service
     task = a2a.Task(
         id=str(uuid4()),
@@ -46,7 +46,7 @@ async def measure_persistence(store):
         history=[send(str(uuid4())).message],
     )
     created = await store._call(
-        service.CreateTask, storage.TaskStoreServiceCreateTaskRequest(agent_instance_id=instance_id, task=task)
+        service.CreateTask, storage.TaskStoreServiceCreateTaskRequest(session_id=session_id, task=task)
     )
     version = created.version
     task.status.state = a2a.TASK_STATE_WORKING
@@ -58,7 +58,7 @@ async def measure_persistence(store):
         for _ in range(50):
             task.status.timestamp.GetCurrentTime()
             request = storage.TaskStoreServiceUpdateTaskRequest(
-                agent_instance_id=instance_id, task=task, expected_version=version
+                session_id=session_id, task=task, expected_version=version
             )
             started = perf_counter()
             saved = await store._call(service.UpdateTask, request)
@@ -83,13 +83,11 @@ async def measure_persistence(store):
     task.status.state = a2a.TASK_STATE_COMPLETED
     saved = await store._call(
         service.UpdateTask,
-        storage.TaskStoreServiceUpdateTaskRequest(agent_instance_id=instance_id, task=task, expected_version=version),
+        storage.TaskStoreServiceUpdateTaskRequest(session_id=session_id, task=task, expected_version=version),
     )
     await store._call(
         service.SettleTask,
-        storage.TaskStoreServiceSettleTaskRequest(
-            agent_instance_id=instance_id, task_id=task.id, version=saved.version
-        ),
+        storage.TaskStoreServiceSettleTaskRequest(session_id=session_id, task_id=task.id, version=saved.version),
     )
     await wait_public(store, task.id, a2a.TASK_STATE_COMPLETED)
     print(json.dumps(measurements))  # noqa: T201 - command-line measurement report

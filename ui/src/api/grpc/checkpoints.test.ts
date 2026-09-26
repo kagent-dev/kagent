@@ -18,13 +18,27 @@ it("retries only a pending snapshot with the original request and task", async (
             { desc: ErrorInfoSchema, value: { domain: "kagent.dev", reason: "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" } },
           ]);
         }
-        return { checkpoint: { id: "checkpoint", agentInstanceId: request.agentInstanceId, headTaskId: request.expectedHeadTaskId, state: CheckpointState.READY } };
+        return { checkpoint: { id: "checkpoint", sessionId: request.sessionId, headTaskId: request.expectedHeadTaskId, state: CheckpointState.READY } };
       },
     });
   }));
   const result = await defaultOperations["agentInstances.checkpoints.create"]({ id: "instance", requestId: "request", expectedHeadTaskId: "turn-a" }, {});
+  expect(result.agentInstanceId).toBe("instance");
   expect(result.headTaskId).toBe("turn-a");
   expect(calls).toEqual([["request", "turn-a"], ["request", "turn-a"]]);
+});
+
+it("forks through Session RPCs and reads the new conversation identity", async () => {
+  setApiTransport(createRouterTransport((router) => {
+    router.service(CheckpointService, {
+      forkSession(request) {
+        expect(request).toMatchObject({ checkpointId: "checkpoint", requestId: "fork-request" });
+        return { session: { id: "forked-session", contextId: "forked-session", name: "Saved turn" } };
+      },
+    });
+  }));
+  const result = await defaultOperations["agentInstances.checkpoints.fork"]({ checkpointId: "checkpoint", requestId: "fork-request" }, {});
+  expect(result).toMatchObject({ id: "forked-session", contextId: "forked-session", name: "Saved turn" });
 });
 
 it.each(["KAGENT_CHECKPOINT_CONVERSATION_ADVANCED", undefined])("does not retry %s", async (reason) => {

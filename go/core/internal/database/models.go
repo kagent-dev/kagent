@@ -49,22 +49,19 @@ type AgentMemorySearchResult struct {
 	Score float64 `json:"score"`
 }
 
-type AgentTemplateHarnessPair struct {
-	Namespace         string
-	AgentTemplateName string
-	AgentTemplateUID  string
-	HarnessName       string
-	HarnessUID        string
-	DesiredRevision   string
+// AgentDefinition tracks the desired and last successful runtime for an Agent UID.
+type AgentDefinition struct {
+	Namespace       string
+	AgentName       string
+	AgentUID        string
+	DesiredRevision string
 }
 
 type RuntimeRevision struct {
 	Revision              string
 	Namespace             string
-	AgentTemplateName     string
-	AgentTemplateUID      string
-	HarnessName           string
-	HarnessUID            string
+	AgentName             string
+	AgentUID              string
 	SourceSnapshot        json.RawMessage
 	AgentCard             *a2apb.AgentCard
 	Credentials           []egress.Credential
@@ -74,23 +71,18 @@ type RuntimeRevision struct {
 	ActorTemplateUID      string
 }
 
-// AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
-// filter on this", so an empty query lists the caller's own instances.
-type AgentInstanceQuery struct {
+// SessionQuery narrows a page of sessions to an optional Agent.
+type SessionQuery struct {
 	UserID   string
 	AllUsers bool
-	// AgentTemplate and Harness name the agent whose conversations are wanted.
-	// They are matched against the (AgentTemplate, Harness) pair the instance's
-	// prepared revision was built from.
-	AgentTemplate *apiv1alpha1.ResourceReference
-	Harness       *apiv1alpha1.ResourceReference
-	AfterID       string
-	Limit         int
+	Agent    *apiv1alpha1.ResourceReference
+	AfterID  string
+	Limit    int
 }
 
-// AgentInstanceTaskSnapshot records the external snapshot at an A2A turn boundary.
+// SessionTaskSnapshot records the external snapshot at an A2A turn boundary.
 // Only an explicit checkpoint retains a copy after the Actor advances or is deleted.
-type AgentInstanceTaskSnapshot struct {
+type SessionTaskSnapshot struct {
 	Atespace     string
 	URI          string
 	ContentScope string

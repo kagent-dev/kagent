@@ -165,10 +165,10 @@ func applyTaskEvent(stored *a2apb.Task, event *a2apb.StreamResponse) (*a2apb.Tas
 // caller-selected boundary. It validates event identities and creation records and
 // restores creation order, retry metadata, and snapshot references. It does not read the
 // source's current task rows.
-func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]agentInstanceTaskRow, error) {
+func replayTaskEvents(events []sessionTaskEventRow, contextID string) ([]sessionTaskRow, error) {
 	tasks := make(map[string]*a2apb.Task)
 	indexes := make(map[string]int)
-	var rows []agentInstanceTaskRow
+	var rows []sessionTaskRow
 	var sequence int64
 	for _, source := range events {
 		if source.Sequence <= sequence || source.TaskID == "" {
@@ -200,7 +200,7 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 				return nil, fmt.Errorf("invalid creation event for task %s", id)
 			}
 			indexes[id] = len(rows)
-			rows = append(rows, agentInstanceTaskRow{
+			rows = append(rows, sessionTaskRow{
 				ID: id, Position: *source.TaskPosition, CreatedAt: source.CreatedAt,
 			})
 		} else if tasks[id] == nil {
@@ -229,7 +229,7 @@ func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]a
 			row.HistorySequence = &source.Sequence
 		}
 	}
-	slices.SortFunc(rows, func(a, b agentInstanceTaskRow) int {
+	slices.SortFunc(rows, func(a, b sessionTaskRow) int {
 		return cmp.Compare(a.Position, b.Position)
 	})
 	return rows, nil

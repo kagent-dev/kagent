@@ -52,7 +52,7 @@ export function ScheduledRunsPage() {
           : <span data-testid="schedules-empty">No schedules were found.</span> }} columns={[
           { title: "Name", key: "name", render: (_, row) => <Link data-testid={`schedule-link-${row.config?.name || row.id}`}
             to={buildPath(paths.scheduledRun, { id: row.id })}>{row.config?.name || row.id}</Link> },
-          { title: "Agent", key: "agent", render: (_, row) => `${row.agentTemplate?.name ?? "—"} on ${row.harness?.name ?? "—"}` },
+          { title: "Agent", key: "agent", render: (_, row) => `${row.agent?.name ?? "—"} on ${row.agent?.namespace ?? "—"}` },
           { title: "Schedule", key: "schedule", render: (_, row) => row.config ? scheduleDescription(row.config.schedule) : "—" },
           { title: "Time zone", key: "zone", render: (_, row) => row.config?.timeZone || "UTC" },
           { title: "Status", key: "status", render: (_, row) => scheduleStatusTag(row) },
@@ -191,9 +191,9 @@ function ScheduledRunDetails({ id }: { id: string }) {
       {notice && <Alert type="success" showIcon title={notice} />}
       {schedule?.deletedAt && <Alert data-testid="schedule-deleted-note" type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
       {schedule && config && <Descriptions data-testid="schedule-detail" bordered column={{ xs: 1, sm: 2 }} items={[
-        { key: "agent", label: "Agent", children: schedule.agentTemplate && schedule.harness
-          ? <Link to={buildPath(paths.agent, { namespace: schedule.agentTemplate.namespace, agentTemplate: schedule.agentTemplate.name, harness: schedule.harness.name })}>
-            {schedule.agentTemplate.namespace}/{schedule.agentTemplate.name} on {schedule.harness.name}</Link> : "—" },
+        { key: "agent", label: "Agent", children: schedule.agent
+          ? <Link to={buildPath(paths.agent, { namespace: schedule.agent.namespace, name: schedule.agent.name })}>
+            {schedule.agent.namespace}/{schedule.agent.name}</Link> : "—" },
         { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
         { key: "created", label: "Created", children: time(schedule.createdAt) },
         { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
@@ -226,8 +226,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
-          { title: "Conversation", key: "conversation", render: (_, row) => row.agentInstanceId
-            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.agentInstanceId })}
+          { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
+            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.sessionId })}
               css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Open conversation<ExternalLink size={14} /></Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
@@ -307,7 +307,7 @@ function executionText(row: ScheduledRunExecution) {
        matches. */
     columns: [time(row.createdAt), triggerLabel(row), executionStateLabel(row.state),
       time(row.completedAt), row.failureReason || "—",
-      row.agentInstanceId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
+      row.sessionId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
     panel: [row.prompt, time(row.deadline), row.taskId || "Not assigned"].join(" ").toLowerCase(),
   };
 }

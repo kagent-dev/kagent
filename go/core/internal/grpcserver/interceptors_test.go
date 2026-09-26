@@ -26,7 +26,7 @@ const (
 	createMethod = "/test.Service/Create"
 )
 
-var testInstanceID = uuid.MustParse("22222222-2222-4222-8222-222222222222")
+var testSessionID = uuid.MustParse("22222222-2222-4222-8222-222222222222")
 
 type testSession struct {
 	principal pkgauth.Principal
@@ -52,16 +52,16 @@ func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, pkgauth.P
 }
 
 type testShareStore struct {
-	instanceShare    *apiv1alpha1.AgentInstanceShare
-	instanceShareErr error
-	ownerUserID      string
+	sessionShare    *apiv1alpha1.SessionShare
+	sessionShareErr error
+	ownerUserID     string
 }
 
-func (s *testShareStore) GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error) {
-	if s.instanceShare == nil && s.instanceShareErr == nil {
+func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte) (*apiv1alpha1.SessionShare, string, error) {
+	if s.sessionShare == nil && s.sessionShareErr == nil {
 		return nil, "", database.ErrNotFound
 	}
-	return s.instanceShare, s.ownerUserID, s.instanceShareErr
+	return s.sessionShare, s.ownerUserID, s.sessionShareErr
 }
 
 func TestAuthenticationUnaryInterceptor(t *testing.T) {
@@ -128,9 +128,9 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("an AgentInstance share is attached to a read call", func(t *testing.T) {
+	t.Run("a Session share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
-			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
+			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
@@ -140,11 +140,11 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 				if !ok {
 					t.Fatal("no share context")
 				}
-				if !share.IsForAgentInstance(testInstanceID.String()) {
-					t.Errorf("share is not for instance-1: %#v", share)
+				if !share.IsForSession(testSessionID.String()) {
+					t.Errorf("share is not for session-1: %#v", share)
 				}
-				// The owner, not the visitor: the instance read runs as the owner or
-				// it finds nothing, because an instance is scoped to its creator.
+				// The owner, not the visitor: the session read runs as the owner or
+				// it finds nothing, because a session is scoped to its creator.
 				if share.UserID != "owner" {
 					t.Errorf("UserID = %q, want the owner", share.UserID)
 				}
@@ -159,9 +159,9 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a read-only AgentInstance share cannot create a catalog resource", func(t *testing.T) {
+	t.Run("a read-only Session share cannot create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
-			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
+			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
@@ -176,9 +176,9 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("a READ_WRITE AgentInstance share may create a catalog resource", func(t *testing.T) {
+	t.Run("a READ_WRITE Session share may create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
-			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
+			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		ran := false
@@ -202,7 +202,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	})
 
 	t.Run("invalid share token is denied", func(t *testing.T) {
-		store := &testShareStore{instanceShareErr: database.ErrNotFound}
+		store := &testShareStore{sessionShareErr: database.ErrNotFound}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "missing"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
@@ -217,9 +217,9 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
 	store := &testShareStore{
-		instanceShare: &apiv1alpha1.AgentInstanceShare{
-			AgentInstanceId: testInstanceID.String(),
-			Permission:      apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY,
+		sessionShare: &apiv1alpha1.SessionShare{
+			SessionId:  testSessionID.String(),
+			Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
 		},
 		ownerUserID: "owner",
 	}
@@ -235,8 +235,8 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 				t.Fatalf("A2A authorization must reach the gateway: %v", err)
 			}
 			share, ok := pkgauth.ShareContextFrom(ctx)
-			if !ok || !share.ReadOnly || !share.IsForAgentInstance(testInstanceID.String()) || share.UserID != "owner" {
-				t.Fatalf("validated share = %#v, want read-only authority for its owner and instance", share)
+			if !ok || !share.ReadOnly || !share.IsForSession(testSessionID.String()) || share.UserID != "owner" {
+				t.Fatalf("validated share = %#v, want read-only authority for its owner and session", share)
 			}
 			gotSession, ok := pkgauth.AuthSessionFrom(ctx)
 			if !ok || gotSession.Principal().User.ID != "visitor" {
@@ -249,7 +249,7 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 func TestInsecureRuntimeIdentityDoesNotAuthorizePublicAPI(t *testing.T) {
 	const runtimeMethod = "/test.TaskStore/Get"
 	policies := MethodPolicies{runtimeMethod: pkgauth.AccessRuntime, readMethod: pkgauth.AccessRead}
-	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/ai-"+uuid.NewString()+"/actor-uid"))
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/session-"+uuid.NewString()+"/actor-uid"))
 	public := &testAuthenticator{err: errors.New("public credentials required")}
 	for _, method := range []string{runtimeMethod, readMethod} {
 		_, err := authenticate(ctx, method, public, nil, nil, policies)

@@ -123,43 +123,28 @@ docker buildx build --push --platform "linux/${ARCH}" \
 HARNESS_DIGEST="$(docker buildx imagetools inspect localhost:5001/kagent-dev/kagent/golang-adk:dev \
   | awk '/^Digest:/{print $2; exit}')"
 
-step "9/10  A harness and an agent template, so the app has an agent in it"
-# An agent is a Harness x AgentTemplate pair, so both are needed before anything is
-# listed. The harness admits templates by label, and the template carries the label it
-# admits -- a template no harness admits is created successfully and then does nothing,
-# which is the single most confusing state to arrive in.
+step "9/10  An Agent with inline template and Harness"
 kubectl apply -f - <<EOF
-apiVersion: kagent.dev/v1alpha3
-kind: Harness
-metadata:
-  name: kagent
-  namespace: kagent
-spec:
-  kagent: {}
-  workload:
-    image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
-  substrate:
-    workerPoolRef:
-      name: kagent-default
-    snapshotPolicy:
-      location: s3://ate-snapshots/kagent
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/harness: kagent
----
-apiVersion: kagent.dev/v1alpha3
-kind: AgentTemplate
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
 metadata:
   name: assistant
   namespace: kagent
-  labels:
-    kagent.dev/harness: kagent
 spec:
-  modelConfig:
-    name: default-model-config
-  description: A general-purpose assistant.
-  systemPrompt: You are a helpful assistant running on kagent.
+  template:
+    modelConfig:
+      name: default-model-config
+    description: A general-purpose assistant.
+    systemPrompt: You are a helpful assistant running on kagent.
+  harness:
+    kagent: {}
+    workload:
+      image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: s3://ate-snapshots/kagent
 EOF
 
 # Ready means Substrate has booted the template's golden actor and snapshotted it, which
@@ -168,14 +153,14 @@ EOF
 # explains that it is a matter of waiting.
 printf 'waiting for the agent to become ready'
 for _ in $(seq 1 40); do
-  ready="$(kubectl get agenttemplate -n kagent assistant \
-    -o jsonpath='{.status.harnesses[0].conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+  ready="$(kubectl get agent -n kagent assistant \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
   [ "$ready" = "True" ] && break
   printf '.'; sleep 15
 done
 echo
-kubectl get agenttemplate -n kagent assistant \
-  -o jsonpath='agent assistant x kagent: Ready={.status.harnesses[0].conditions[?(@.type=="Ready")].status}{"\n"}'
+kubectl get agent -n kagent assistant \
+  -o jsonpath='agent assistant x kagent: Ready={.status.conditions[?(@.type=="Ready")].status}{"\n"}'
 
 step "10/10  Done"
 kubectl get pods -n kagent

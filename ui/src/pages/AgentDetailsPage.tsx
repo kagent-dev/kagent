@@ -14,7 +14,7 @@ import {
   relativeAge,
   stateAppearance,
 } from "@/components/agent-instances/instanceLabels";
-import { buildPath, paths } from "@/router/routes";
+import { paths } from "@/router/routes";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { bareName, isNotFound, useAgentInstance, useAgentInstances } from "@/api";
@@ -30,7 +30,7 @@ const { Paragraph, Text } = Typography;
  *
  * ## Where this sits now
  *
- * Between an agent and its chat. The agent — the `(AgentTemplate, Harness)` pair —
+ * Between an agent and its chat. The agent — the Agent definition —
  * lists its conversations; this is one of them, and it links back up to the agent
  * rather than to the whole agents list. That is item 3 of the review, and the whole
  * of it: navigation, not a filter. "Agents filtered by this template" was circular
@@ -58,19 +58,18 @@ export function AgentDetailsPage() {
   const instances = useAgentInstances();
 
   /*
-   * The agent this conversation belongs to, when the record names a pair.
+   * The agent this conversation belongs to, when the record names an Agent.
    *
    * `undefined` is a real answer rather than a missing one: an instance with no
-   * prepared revision belongs to no pair — the controller's own list query joins it
+   * prepared revision belongs to no Agent — the controller's own list query joins it
    * as NULL — so there is genuinely no agent page to link to, and rendering a link
    * anyway would point at one that does not exist.
    */
   const agentHref =
-    data?.harness && data.agentTemplate
+    data?.agent
       ? agentPageUrl({
-          namespace: data.agentTemplate.split("/")[0],
-          agentTemplate: bareName(data.agentTemplate),
-          harness: bareName(data.harness),
+          namespace: data.agent.split("/")[0],
+          name: bareName(data.agent),
         })
       : undefined;
 
@@ -112,39 +111,14 @@ export function AgentDetailsPage() {
               data-testid="instance-agent-link"
               css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
             >
-              {`${bareName(data.agentTemplate ?? "")} on ${bareName(data.harness ?? "")}`}
+              {data.agent}
             </Link>
           ) : (
             // Not a link and not a blank cell: an instance with no prepared revision
-            // belongs to no pair, which is a fact about the record rather than a
+            // belongs to no Agent, which is a fact about the record rather than a
             // link this page forgot to render.
             <ValueOrNotReported value={undefined} />
           ),
-        },
-        {
-          key: "agentTemplate",
-          label: "Agent template",
-          children: data.agentTemplate ? (
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: data.agentTemplate.split("/")[0],
-                name: bareName(data.agentTemplate),
-              })}
-              data-testid="instance-template-link"
-              css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
-            >
-              {data.agentTemplate}
-            </Link>
-          ) : (
-            <ValueOrNotReported value={undefined} />
-          ),
-        },
-        {
-          key: "harness",
-          label: "Harness",
-          // Not a link: `HarnessService` is read-only in this build, so there is no
-          // harness page to open. The template is the half a reader can change.
-          children: <ValueOrNotReported value={data.harness} mono />,
         },
         {
           key: "preparedRevision",
@@ -219,7 +193,7 @@ export function AgentDetailsPage() {
       >
         {id ? (
           <AgentRail
-            agentRef={{ id }}
+            instanceRef={{ id }}
             instance={data}
             instances={instances}
           />

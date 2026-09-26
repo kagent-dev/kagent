@@ -7,7 +7,7 @@ from kagent.api.v1alpha1 import task_store_pb2 as kagent_dot_api_dot_v1alpha1_do
 
 class TaskStoreServiceStub:
     """TaskStoreService is the private persistence API for agent runtimes. Every call
-    requires workload authority for the requested instance. Public user and share
+    requires workload authority for the requested session. Public user and share
     credentials do not grant access to this service.
     """
 
@@ -46,7 +46,7 @@ class TaskStoreServiceStub:
 
 class TaskStoreServiceServicer:
     """TaskStoreService is the private persistence API for agent runtimes. Every call
-    requires workload authority for the requested instance. Public user and share
+    requires workload authority for the requested session. Public user and share
     credentials do not grant access to this service.
     """
 
@@ -123,7 +123,7 @@ def add_TaskStoreServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class TaskStoreService:
     """TaskStoreService is the private persistence API for agent runtimes. Every call
-    requires workload authority for the requested instance. Public user and share
+    requires workload authority for the requested session. Public user and share
     credentials do not grant access to this service.
     """
 

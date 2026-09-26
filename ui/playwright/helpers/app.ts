@@ -48,32 +48,22 @@ export const instances = {
   someoneElses: "8e5f2b09-6c14-4a7d-83b0-9d1c7e40f5a6",
 } as const;
 
-/**
- * The fixture agents, which are `(AgentTemplate, Harness)` pairs.
- *
- * An agent is named by its template, so a pair is written the way the address reads:
- * the template, then the harness that runs it.
- */
+/** Explicit Agent definitions, including two that reuse the same template. */
 export const agents = {
   /** `instances.ready` and its siblings are conversations with this one. */
-  k8s: { template: "k8s-agent-7f3a91c", harness: "k8s-agent" },
-  /**
-   * One template, two harnesses — so two agents that share a name.
-   *
-   * The pair that makes an agent a pair rather than a template: keyed on the
-   * template alone, these two would be one row and their conversations would merge.
-   */
-  sharedOnK8s: { template: "shared-brain", harness: "k8s-agent" },
-  sharedOnFastLane: { template: "shared-brain", harness: "fast-lane" },
-  /** Admitted, but with no successful revision — so no conversation can start. */
-  preparing: { template: "support-triage-2b91d0e", harness: "support-triage" },
+  k8s: { name: "k8s-agent-7f3a91c", template: "k8s-agent-7f3a91c", harness: "k8s-agent" },
+  /** Two named Agents reuse one template with different Harnesses. */
+  sharedOnK8s: { name: "shared-brain", template: "shared-brain", harness: "k8s-agent" },
+  sharedOnFastLane: { name: "shared-brain-fast", template: "shared-brain", harness: "fast-lane" },
+  /** Defined, but with no successful revision — so no conversation can start. */
+  preparing: { name: "support-triage-2b91d0e", template: "support-triage-2b91d0e", harness: "support-triage" },
 } as const;
 
-/** Where one agent lives: its namespace, its template, and the harness it runs on. */
+/** Where one agent lives: its namespace and name. */
 export const agentPage = (
-  agent: { template: string; harness: string },
+  agent: { name?: string; template: string; harness: string },
   namespace = "kagent",
-) => `/agents/${namespace}/${agent.template}/on/${agent.harness}`;
+) => `/agents/${namespace}/${agent.name ?? agent.template}`;
 
 /**
  * Where clicking an agent's name goes: a conversation that does not exist yet.
@@ -83,14 +73,14 @@ export const agentPage = (
  * different addresses rather than the same one behaving differently.
  */
 export const agentNewChat = (
-  agent: { template: string; harness: string },
+  agent: { name?: string; template: string; harness: string },
   namespace = "kagent",
 ) => `${agentPage(agent, namespace)}/new`;
 
 /**
  * The other conversation with the same agent that the caller can actually see.
  *
- * Cut from the same `(Harness, AgentTemplate)` pair as `instances.ready`, so the rail
+ * Cut from the same Agent as `instances.ready`, so the rail
  * lists it as a sibling. It is the *suspended* one because the other siblings in the
  * fixtures were created by somebody else, and the list returns only the caller's own
  * instances unless `all_creators` is asked for — a sibling behind that switch would

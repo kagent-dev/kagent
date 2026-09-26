@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands"
-	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/agentinstance"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/db"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
+	sessioncli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -30,17 +30,18 @@ func Root() *cobra.Command {
 	createCmd := newResourceGroupCmd("create", "Create a kagent resource")
 	deleteCmd := newResourceGroupCmd("delete", "Delete a kagent resource")
 
-	getCmd.AddCommand(agentinstancecli.NewGetCmd())
+	getCmd.AddCommand(sessioncli.NewGetCmd())
 	getCmd.AddCommand(commands.NewGetAgentTemplateCmd())
-	createCmd.AddCommand(agentinstancecli.NewCreateCmd())
-	deleteCmd.AddCommand(agentinstancecli.NewDeleteCmd())
+	getCmd.AddCommand(commands.NewGetAgentCmd())
+	createCmd.AddCommand(sessioncli.NewCreateCmd())
+	deleteCmd.AddCommand(sessioncli.NewDeleteCmd())
 
 	rootCmd.AddCommand(
 		getCmd,
 		createCmd,
 		deleteCmd,
-		commands.NewApplyAgentTemplateCmd(),
-		agentinstancecli.NewInvokeCmd(),
+		commands.NewApplyAgentCmd(),
+		sessioncli.NewInvokeCmd(),
 		commands.NewInstallCmd(),
 		commands.NewUninstallCmd(),
 		commands.NewBugReportCmd(),

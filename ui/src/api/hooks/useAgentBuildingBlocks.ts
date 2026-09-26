@@ -1,14 +1,7 @@
-/**
- * The two halves an agent is made of, for the pickers that choose them.
- *
- * A `Harness` says how an agent runs; an `AgentTemplate` says what it is.
- * `CreateAgentInstance` names one of each, so creating an agent is choosing a
- * pair — which is why these are read together and why the create form is two
- * pickers rather than a spec form.
- */
+/** Reusable Harness and AgentTemplate resources used to define Agents. */
 
 import { apiClient } from "../client";
-import { admitsHarness, type AgentTemplate } from "../domain/agentTemplates";
+import { type AgentTemplate } from "../domain/agentTemplates";
 import type { Harness } from "../domain/harnesses";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
@@ -159,33 +152,4 @@ export function useAgentTemplate(
     namespace && name ? ["agentTemplates.get", namespace, name] : null,
     () => apiClient.agentBuildingBlocks.agentTemplate(namespace ?? "", name ?? ""),
   );
-}
-
-/**
- * The templates a given harness will accept, and the ones it will not.
- *
- * Both halves, because a picker that silently showed only the admitted templates
- * would leave a reader who cannot find theirs with nothing to read: the reason a
- * template is missing is that no harness admits it yet, and that is a sentence
- * worth putting on screen rather than an absence to puzzle over.
- *
- * `harnessName` is the bare name. A harness admits templates in its own namespace
- * only, so `admitting_harnesses` carries names and comparing full refs would never
- * match.
- */
-export function partitionByAdmission(
-  templates: readonly AgentTemplate[],
-  harnessName: string | undefined,
-): { admitted: AgentTemplate[]; rejected: AgentTemplate[] } {
-  // With no harness chosen there is nothing to admit against, so everything is
-  // still on offer rather than nothing being.
-  if (!harnessName) return { admitted: [...templates], rejected: [] };
-
-  const admitted: AgentTemplate[] = [];
-  const rejected: AgentTemplate[] = [];
-  for (const template of templates) {
-    if (admitsHarness(template, harnessName)) admitted.push(template);
-    else rejected.push(template);
-  }
-  return { admitted, rejected };
 }

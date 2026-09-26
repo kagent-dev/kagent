@@ -17,12 +17,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestAgentInstanceHTTPInteraction(t *testing.T) {
+func TestSessionHTTPInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		client, ctx := discoverHTTPAgent(t, fixture)
 		request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?"))}
+		request.Message.ContextID = fixture.sessionID
 		result, err := client.SendMessage(ctx, request)
 		require.NoError(t, err)
 		task, ok := result.(*a2atype.Task)
@@ -36,6 +37,7 @@ func TestAgentInstanceHTTPInteraction(t *testing.T) {
 		require.Equal(t, task, persisted)
 
 		request.Message = a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?"))
+		request.Message.ContextID = fixture.sessionID
 		var streamedID a2atype.TaskID
 		var completed bool
 		for event, err := range client.SendStreamingMessage(ctx, request) {
@@ -57,7 +59,7 @@ func TestAgentInstanceHTTPInteraction(t *testing.T) {
 	})
 }
 
-func TestAgentInstanceHTTPResubscribeAndCancel(t *testing.T) {
+func TestSessionHTTPResubscribeAndCancel(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
@@ -65,6 +67,7 @@ func TestAgentInstanceHTTPResubscribeAndCancel(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, target, modelURL)
 		client, ctx := discoverHTTPAgent(t, fixture)
 		request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Wait for cancellation"))}
+		request.Message.ContextID = fixture.sessionID
 		next, stop := iter.Pull2(client.SendStreamingMessage(ctx, request))
 		defer stop()
 		first, err, ok := next()
@@ -123,7 +126,7 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 	t.Helper()
 	target := interactionTarget(t)
 	request, err := http.NewRequestWithContext(fixture.ctx, http.MethodGet,
-		"http://"+target+"/agents/"+fixture.instanceID+a2asrv.WellKnownAgentCardPath, nil)
+		"http://"+target+"/agents/"+fixture.tenant+a2asrv.WellKnownAgentCardPath, nil)
 	require.NoError(t, err)
 	request.Header.Set("X-User-Id", "e2e")
 	response, err := http.DefaultClient.Do(request)
@@ -134,7 +137,7 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
 	require.Len(t, card.SupportedInterfaces, 2)
 	require.Equal(t, a2atype.TransportProtocolJSONRPC, card.SupportedInterfaces[0].ProtocolBinding)
-	require.True(t, strings.HasSuffix(card.SupportedInterfaces[0].URL, "/agents/"+fixture.instanceID))
+	require.True(t, strings.HasSuffix(card.SupportedInterfaces[0].URL, "/agents/"+fixture.tenant))
 	require.Equal(t, a2atype.TransportProtocolGRPC, card.SupportedInterfaces[1].ProtocolBinding)
 
 	// The card advertises a cluster address. Dial through the test's port-forward

@@ -44,9 +44,10 @@ import (
 
 const (
 	conditionAccepted = "Accepted"
-	remoteGroupKind   = "RemoteMCPServer.kagent.dev"
 	refreshInterval   = 5 * time.Minute
 )
+
+var remoteGroupKind = v1alpha3.GroupVersion.WithKind("RemoteMCPServer").GroupKind().String()
 
 // ToolDiscoverer returns the tools currently advertised by one MCP server.
 type ToolDiscoverer interface {

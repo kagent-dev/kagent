@@ -6,21 +6,10 @@ export const paths = {
   dashboard: "/",
   login: "/login",
 
-  /*
-   * Agents, which are `(AgentTemplate, Harness)` pairs.
-   *
-   * There is no separate "agent instances" page: an `AgentInstance` is one
-   * *conversation* with an agent, so instances are listed inside an agent rather
-   * than beside them. See `api/domain/agentPairs` for why the pair is the agent.
-   *
-   * There is no `agentEdit` either. A pair has no spec of its own — what the agent
-   * *is* lives on its `AgentTemplate` and how it *runs* on its `Harness` — so
-   * changing an agent means changing one of those, which is what the template link
-   * on the agent's page is for.
-   */
+  // Named Agent definitions own configuration and group their conversations.
   agents: "/agents",
-  /** One Kubernetes template/harness pair, listing its conversations. */
-  agent: "/agents/:namespace/:agentTemplate/on/:harness",
+  /** One Kubernetes Agent, listing its conversations. */
+  agent: "/agents/:namespace/:name",
   /*
    * A conversation with this agent that does not exist yet.
    *
@@ -35,7 +24,7 @@ export const paths = {
    * reader waits in the meantime. It redirects to `agentChat` as soon as the create
    * returns.
    */
-  agentNewChat: "/agents/:namespace/:agentTemplate/on/:harness/new",
+  agentNewChat: "/agents/:namespace/:name/new",
   /*
    * Conversations that belong to no agent.
    *

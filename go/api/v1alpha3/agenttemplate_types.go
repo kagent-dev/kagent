@@ -65,17 +65,9 @@ type MCPToolBinding struct {
 	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
-// AgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.
-// +kubebuilder:validation:Enum=Shared;Dedicated
-type AgentToolIsolation string
-
-const (
-	AgentToolIsolationShared    AgentToolIsolation = "Shared"
-	AgentToolIsolationDedicated AgentToolIsolation = "Dedicated"
-)
-
-// AgentToolBinding exposes another same-namespace AgentTemplate as a logical tool.
-type AgentToolBinding struct {
+// SubAgentToolBinding exposes a same-namespace AgentTemplate or Agent as a logical tool.
+// +kubebuilder:validation:XValidation:rule="has(self.templateRef) != has(self.agentRef)",message="exactly one of templateRef or agentRef must be specified"
+type SubAgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
@@ -83,21 +75,24 @@ type AgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Description string `json:"description"`
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
-	// +required
-	TemplateRef corev1.LocalObjectReference `json:"templateRef"`
-	// +kubebuilder:default=Shared
+	// TemplateRef selects a Shared subagent compiled into the parent's runtime using its Harness.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
 	// +optional
-	Isolation AgentToolIsolation `json:"isolation,omitempty"`
+	TemplateRef *corev1.LocalObjectReference `json:"templateRef,omitempty"`
+	// AgentRef selects a Dedicated subagent with its own Harness and Session, invoked over A2A.
+	// Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="agentRef.name must not be empty"
+	// +optional
+	AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
 }
 
-// ToolBinding selects exactly one MCP or AgentTemplate-backed tool source.
-// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.agent)",message="exactly one of mcp or agent must be specified"
+// ToolBinding selects exactly one MCP or subagent tool source.
+// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.subAgent)",message="exactly one of mcp or subAgent must be specified"
 type ToolBinding struct {
 	// +optional
 	MCP *MCPToolBinding `json:"mcp,omitempty"`
 	// +optional
-	Agent *AgentToolBinding `json:"agent,omitempty"`
+	SubAgent *SubAgentToolBinding `json:"subAgent,omitempty"`
 }
 
 // AgentTemplateSkill identifies one standalone skill and its immutable source.
@@ -216,54 +211,9 @@ type AgentTemplateSpec struct {
 	Plugins []PluginBundle `json:"plugins,omitempty"`
 }
 
-const (
-	AgentTemplateConditionAccepted     = "Accepted"
-	AgentTemplateConditionResolvedRefs = "ResolvedRefs"
-	AgentTemplateConditionCompatible   = "Compatible"
-	AgentTemplateConditionReady        = "Ready"
-)
-
-// AgentTemplateHarnessStatus reports runtime revision state for one admitting Harness.
-type AgentTemplateHarnessStatus struct {
-	// Harness names a same-namespace Harness whose admission selector matches
-	// this AgentTemplate.
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Harness string `json:"harness"`
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	DesiredRevision string `json:"desiredRevision"`
-	// +kubebuilder:validation:MinLength=1
-	// +optional
-	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
-	// Warnings reports non-blocking compatibility decisions made while compiling
-	// this AgentTemplate for the Harness.
-	// +kubebuilder:validation:MaxItems=100
-	// +listType=set
-	// +optional
-	Warnings []string `json:"warnings,omitempty"`
-	// +kubebuilder:validation:MaxItems=4
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// AgentTemplateStatus is the controller-observed state for each admitting Harness.
-type AgentTemplateStatus struct {
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Harnesses has at most one entry for each admitting Harness.
-	// +listType=map
-	// +listMapKey=harness
-	// +optional
-	Harnesses []AgentTemplateHarnessStatus `json:"harnesses,omitempty"`
-}
-
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agenttemplates,singular=agenttemplate,categories=kagent
-// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // AgentTemplate defines portable agent behavior.
@@ -274,8 +224,6 @@ type AgentTemplate struct {
 
 	// +required
 	Spec AgentTemplateSpec `json:"spec"`
-	// +optional
-	Status AgentTemplateStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

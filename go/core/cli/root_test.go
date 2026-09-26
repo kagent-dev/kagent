@@ -85,18 +85,18 @@ func TestRootCommandInvokeContract(t *testing.T) {
 
 	invokeCmd, _, err := rootCmd.Find([]string{"invoke"})
 	require.NoError(t, err)
-	for _, flag := range []string{"agent-instance", "task", "file", "stream", "token"} {
+	for _, flag := range []string{"session", "task", "file", "stream", "token"} {
 		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
-	for _, legacyFlag := range []string{"agent", "session", "url-override"} {
+	for _, legacyFlag := range []string{"agent", "url-override"} {
 		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
 	}
 
-	getInstanceCmd, _, err := rootCmd.Find([]string{"get", "agent-instance"})
+	getSessionCmd, _, err := rootCmd.Find([]string{"get", "session"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-instance [ID]", getInstanceCmd.Use)
+	assert.Equal(t, "session [ID]", getSessionCmd.Use)
 	for _, flag := range []string{"page-size", "page-token"} {
-		assert.NotNil(t, getInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+		assert.NotNil(t, getSessionCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 }
 
@@ -110,23 +110,23 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 		assert.NotNil(t, getTemplateCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 
-	createInstanceCmd, _, err := rootCmd.Find([]string{"create", "agent-instance"})
+	createSessionCmd, _, err := rootCmd.Find([]string{"create", "session"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-instance", createInstanceCmd.Use)
-	for _, flag := range []string{"harness", "agent-template", "request-id"} {
-		assert.NotNil(t, createInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+	assert.Equal(t, "session", createSessionCmd.Use)
+	for _, flag := range []string{"agent", "request-id"} {
+		assert.NotNil(t, createSessionCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 
-	deleteInstanceCmd, _, err := rootCmd.Find([]string{"delete", "agent-instance"})
+	deleteSessionCmd, _, err := rootCmd.Find([]string{"delete", "session"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-instance ID", deleteInstanceCmd.Use)
+	assert.Equal(t, "session ID", deleteSessionCmd.Use)
 
 	applyCmd, _, err := rootCmd.Find([]string{"apply"})
 	require.NoError(t, err)
 	assert.Equal(t, "apply -f FILE", applyCmd.Use)
 	assert.NotNil(t, applyCmd.Flags().Lookup("file"))
 	for _, command := range []string{"suspend", "resume"} {
-		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
+		_, _, err := rootCmd.Find([]string{command, "session"})
 		assert.Error(t, err, "%s must not be exposed by the CLI", command)
 	}
 }
@@ -147,7 +147,7 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	createCmd, _, err := rootCmd.Find([]string{"create"})
 	require.NoError(t, err)
 	assert.Len(t, createCmd.Commands(), 1)
-	assert.Equal(t, "agent-instance", createCmd.Commands()[0].Name())
+	assert.Equal(t, "session", createCmd.Commands()[0].Name())
 
 	getCmd, _, err := rootCmd.Find([]string{"get"})
 	require.NoError(t, err)
@@ -155,9 +155,7 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range getCmd.Commands() {
 		getCommands = append(getCommands, command.Name())
 	}
-	for _, command := range []string{"agent", "session", "tool"} {
-		assert.NotContains(t, getCommands, command)
-	}
+	assert.NotContains(t, getCommands, "tool")
 }
 
 func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
@@ -177,12 +175,12 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	// An unparseable format is rejected before any command connects, so this
 	// reaches the run function without touching the network or a cluster.
 	for name, args := range map[string][]string{
-		"get agent-instance":    {"get", "agent-instance"},
-		"get agent-template":    {"get", "agent-template"},
-		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
-		"apply agent-template":  {"apply", "--file", "template.yaml"},
-		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
-		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
+		"get session":          {"get", "session"},
+		"get agent-template":   {"get", "agent-template"},
+		"create session":       {"create", "session", "--agent", "example"},
+		"apply agent-template": {"apply", "--file", "template.yaml"},
+		"delete session":       {"delete", "session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
+		"invoke":               {"invoke", "--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootCmd := cli.Root()
@@ -200,9 +198,9 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 
 func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
 	for name, want := range map[string]string{
-		"get":    "agent-instance, agent-template",
-		"create": "agent-instance",
-		"delete": "agent-instance",
+		"get":    "agent, agent-template, session",
+		"create": "session",
+		"delete": "session",
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootCmd := cli.Root()
