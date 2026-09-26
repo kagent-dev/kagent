@@ -203,7 +203,10 @@ class A2aAgentExecutor(AgentExecutor):
             runner = await self._resolve_runner()
 
             run_request = self._convert_request(context, _convert_public_a2a_part_to_genai_part)
-            user_token = request_user_id.set(run_request.user_id)
+            # ADK can synthesize a user ID for native session lookup. Only the
+            # passed-through caller may own memory or outgoing credentials.
+            caller = context.call_context.user if context.call_context else None
+            user_token = request_user_id.set(caller.user_name if caller else "")
             await self._prepare_session(context, run_request, runner)
 
             span_attributes = {

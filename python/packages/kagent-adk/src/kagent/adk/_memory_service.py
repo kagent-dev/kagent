@@ -22,6 +22,14 @@ from kagent.adk.types import EmbeddingConfig
 logger = logging.getLogger(__name__)
 
 
+def _memory_user_id() -> str:
+    # ADK user IDs are native storage keys, not the owner of long-term memory.
+    user_id = request_user_id.get()
+    if not user_id:
+        raise ValueError("memory requires caller identity")
+    return user_id
+
+
 class KagentMemoryService(BaseMemoryService):
     """Memory service that stores and retrieves memories via Kagent backend.
 
@@ -63,6 +71,9 @@ class KagentMemoryService(BaseMemoryService):
             session: The session to add to memory
             model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
+        # Validate before scheduling so the caller receives the error. The task
+        # inherits this request's ContextVars, even after the executor resets them.
+        _memory_user_id()
         asyncio.create_task(self._add_session_to_memory_background(session, model))
 
     async def _add_session_to_memory_background(self, session: Session, model: Optional[Any] = None) -> None:
@@ -75,7 +86,7 @@ class KagentMemoryService(BaseMemoryService):
             session: The session to add to memory
             model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
-        user_id = request_user_id.get() or session.user_id
+        user_id = _memory_user_id()
         try:
             # Extract content from session events
             raw_content = self._extract_session_content(session)
@@ -83,7 +94,7 @@ class KagentMemoryService(BaseMemoryService):
                 logger.debug("No content to add to memory from session %s", session.id)
                 return
 
-            logger.debug("Adding session %s to memory for user %s", session.id, session.user_id)
+            logger.debug("Adding session %s to memory for user %s", session.id, user_id)
 
             # Summarize content before embedding
             # Returns a list of strings (individual facts/memories)
@@ -137,7 +148,6 @@ class KagentMemoryService(BaseMemoryService):
         self,
         *,
         app_name: str,
-        user_id: str,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -145,11 +155,10 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             app_name: The application name
-            user_id: The user ID
             content: The text content to save
             metadata: Optional additional metadata
         """
-        user_id = request_user_id.get() or user_id
+        user_id = _memory_user_id()
         if not content:
             return
 
@@ -197,13 +206,13 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             app_name: The application name (used for filtering)
-            user_id: The user ID to search within
+            user_id: ADK compatibility parameter; ownership comes from request identity.
             query: The search query text
 
         Returns:
             SearchMemoryResponse containing matching MemoryEntry objects
         """
-        user_id = request_user_id.get() or user_id
+        user_id = _memory_user_id()
         # Generate embedding for the query
         if not self._embedding_client:
             logger.warning("No embedding client available for search")
