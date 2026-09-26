@@ -143,9 +143,11 @@ func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bo
 		return nil, err
 	}
 	message.ContextID = session.GetId()
-	routed := routeContext(ctx, session.GetAgent().GetNamespace()+"/"+session.GetAgent().GetName())
+	// Direct gateway calls carry the Agent tenant on the request, like A2A transports do.
+	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
+	routed := interactionContext(ctx)
 	var taskID a2atype.TaskID
-	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Message: message}) {
+	for event, err := range h.gateway.SendStreamingMessage(routed, &a2atype.SendMessageRequest{Tenant: tenant, Message: message}) {
 		if err != nil {
 			return nil, err
 		}
@@ -161,11 +163,10 @@ func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bo
 	}
 	// The runtime continues after this observer leaves. Public responses use
 	// the persisted task, including the lifecycle publication boundary.
-	return h.gateway.GetTask(routed, &a2atype.GetTaskRequest{ID: taskID})
+	return h.gateway.GetTask(routed, &a2atype.GetTaskRequest{Tenant: tenant, ID: taskID})
 }
 
-func routeContext(ctx context.Context, agent string) context.Context {
-	ctx = a2atype.AttachTenant(ctx, agent)
+func interactionContext(ctx context.Context) context.Context {
 	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {adka2a.HITLExtensionURI},
 	}))

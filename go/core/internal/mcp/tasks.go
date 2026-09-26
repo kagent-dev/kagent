@@ -147,7 +147,7 @@ func (h *Handler) getTask(ctx context.Context, _ *mcp.ServerSession, params *get
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, task, err := h.resolveTask(ctx, params.TaskID)
+	ref, _, task, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, task, err := h.resolveTask(ctx, params.TaskID)
+	_, tenant, task, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +182,8 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	events := h.gateway.SendStreamingMessage(
-		routeContext(ctx, ref.SessionID),
-		&a2atype.SendMessageRequest{Message: message},
+		interactionContext(ctx),
+		&a2atype.SendMessageRequest{Tenant: tenant, Message: message},
 	)
 	// Wait for admission to reach the runtime, then release this observer.
 	for _, err := range events {
@@ -202,13 +202,13 @@ func (h *Handler) cancelTask(ctx context.Context, _ *mcp.ServerSession, params *
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, err := decodeTaskReference(params.TaskID)
+	ref, tenant, _, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
-		return nil, invalidParams(err)
+		return nil, err
 	}
 	if _, err := h.gateway.CancelTask(
-		routeContext(ctx, ref.SessionID),
-		&a2atype.CancelTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
+		interactionContext(ctx),
+		&a2atype.CancelTaskRequest{Tenant: tenant, ID: a2atype.TaskID(ref.TaskID)},
 	); err != nil {
 		if errors.Is(err, a2atype.ErrTaskNotFound) {
 			return nil, invalidParams(err)
@@ -218,19 +218,27 @@ func (h *Handler) cancelTask(ctx context.Context, _ *mcp.ServerSession, params *
 	return &completeTaskResult{ResultType: "complete"}, nil
 }
 
-func (h *Handler) resolveTask(ctx context.Context, id string) (taskReference, *a2atype.Task, error) {
+func (h *Handler) resolveTask(ctx context.Context, id string) (taskReference, string, *a2atype.Task, error) {
 	ref, err := decodeTaskReference(id)
 	if err != nil {
-		return taskReference{}, nil, invalidParams(err)
+		return taskReference{}, "", nil, invalidParams(err)
 	}
+	session, err := h.sessions.Get(ctx, ref.SessionID)
+	if err != nil {
+		return taskReference{}, "", nil, err
+	}
+	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
 	task, err := h.gateway.GetTask(
-		routeContext(ctx, ref.SessionID),
-		&a2atype.GetTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
+		interactionContext(ctx),
+		&a2atype.GetTaskRequest{Tenant: tenant, ID: a2atype.TaskID(ref.TaskID)},
 	)
 	if errors.Is(err, a2atype.ErrTaskNotFound) {
 		err = invalidParams(err)
 	}
-	return ref, task, err
+	if err == nil && task.ContextID != ref.SessionID {
+		err = invalidParams(a2atype.ErrTaskNotFound)
+	}
+	return ref, tenant, task, err
 }
 
 func invalidParams(err error) error {

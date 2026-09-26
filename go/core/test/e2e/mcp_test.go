@@ -59,7 +59,7 @@ func TestMCPSessionInteraction(t *testing.T) {
 			t.Fatalf("MCP task result = %#v", result)
 		}
 
-		request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: a2atype.TaskID(structured["task_id"].(string))})
+		request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: fixture.tenant, ID: a2atype.TaskID(structured["task_id"].(string))})
 		if err != nil {
 			t.Fatal(err)
 		}

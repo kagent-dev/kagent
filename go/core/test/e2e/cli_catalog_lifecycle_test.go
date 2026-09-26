@@ -32,7 +32,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 		}
 
 		listedTemplates := run(t.Context(), "get", "agent")
-		if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "TRUE") {
+		if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "True") {
 			t.Fatalf("list Agents stdout = %q, want ready template %s", listedTemplates, templateName)
 		}
 		templateJSON := run(t.Context(), "--output-format", "json", "get", "agent", templateName)

@@ -446,6 +446,7 @@ type tracedTurn struct {
 func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) tracedTurn {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming traced A2A message: %v", err)

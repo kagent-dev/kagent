@@ -107,7 +107,7 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: message},
 	}}
-	h := &Handler{gateway: gateway}
+	h := &Handler{gateway: gateway, sessions: testSessionService()}
 	ref, err := encodeTaskReference(taskReference{
 		SessionID: testSessionID, TaskID: testTaskID,
 	})
@@ -174,7 +174,7 @@ func TestTaskUpdateRejectsMissingInputResponse(t *testing.T) {
 							State: a2atype.TaskStateInputRequired, Message: &a2atype.Message{ID: messageID},
 						},
 					}}
-					h := &Handler{gateway: gateway}
+					h := &Handler{gateway: gateway, sessions: testSessionService()}
 					result, err := h.updateTask(authContext(), nil, &updateTaskParams{
 						ParamsBase: taskParamsBase(), TaskID: ref, InputResponses: tt.responses,
 					})
@@ -205,7 +205,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: status},
 	}}
-	h := &Handler{gateway: gateway}
+	h := &Handler{gateway: gateway, sessions: testSessionService()}
 	ref, err := encodeTaskReference(taskReference{
 		SessionID: testSessionID, TaskID: testTaskID,
 	})
@@ -301,7 +301,7 @@ func TestCancelTaskUsesA2AGateway(t *testing.T) {
 		ID: testTaskID, ContextID: testSessionID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
 	}}
-	h := &Handler{gateway: gateway}
+	h := &Handler{gateway: gateway, sessions: testSessionService()}
 	ref, err := encodeTaskReference(taskReference{
 		SessionID: testSessionID, TaskID: testTaskID,
 	})
@@ -313,6 +313,24 @@ func TestCancelTaskUsesA2AGateway(t *testing.T) {
 	}
 	if gateway.task.Status.State != a2atype.TaskStateCanceled {
 		t.Fatalf("task state = %s", gateway.task.Status.State)
+	}
+}
+
+func TestCancelTaskRejectsMismatchedSession(t *testing.T) {
+	gateway := &fakeGateway{task: &a2atype.Task{
+		ID: testTaskID, ContextID: "another-session",
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+	}}
+	h := &Handler{gateway: gateway, sessions: testSessionService()}
+	ref, err := encodeTaskReference(taskReference{SessionID: testSessionID, TaskID: testTaskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.cancelTask(authContext(), nil, &cancelTaskParams{ParamsBase: taskParamsBase(), TaskID: ref}); err == nil {
+		t.Fatal("cancel accepted a task from another session")
+	}
+	if gateway.task.Status.State != a2atype.TaskStateWorking {
+		t.Fatalf("mismatched task state = %s", gateway.task.Status.State)
 	}
 }
 
@@ -409,7 +427,10 @@ type fakeGateway struct {
 
 var _ a2asrv.RequestHandler = (*fakeGateway)(nil)
 
-func (g *fakeGateway) GetTask(context.Context, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+func (g *fakeGateway) GetTask(_ context.Context, request *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	if request.Tenant != "team-a/assistant" {
+		return nil, a2atype.ErrInvalidParams
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.task, nil
@@ -419,7 +440,10 @@ func (*fakeGateway) ListTasks(context.Context, *a2atype.ListTasksRequest) (*a2at
 	return nil, a2atype.ErrUnsupportedOperation
 }
 
-func (g *fakeGateway) CancelTask(context.Context, *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+func (g *fakeGateway) CancelTask(_ context.Context, request *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+	if request.Tenant != "team-a/assistant" {
+		return nil, a2atype.ErrInvalidParams
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.task.Status.State = a2atype.TaskStateCanceled
@@ -435,6 +459,9 @@ func (*fakeGateway) SubscribeToTask(context.Context, *a2atype.SubscribeToTaskReq
 }
 
 func (g *fakeGateway) SendStreamingMessage(_ context.Context, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	if request.Tenant != "team-a/assistant" || request.Message.ContextID != testSessionID {
+		return func(yield func(a2atype.Event, error) bool) { yield(nil, a2atype.ErrInvalidParams) }
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if request.Message.TaskID != "" {
