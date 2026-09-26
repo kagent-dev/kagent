@@ -80,6 +80,7 @@ cleanup. AgentInstance lifecycle workers independently pause/suspend idle Actors
 - [Human in the loop](human-in-the-loop.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
+- [Caller context in traces](trace-context.md)
 - [Structured output](structured-output.md)
 
 The documents describe implemented behavior. Full cross-AgentInstance delegation

@@ -19,6 +19,9 @@ data:
   {{- if not (or .traces.enabled .metrics.enabled .logs.enabled $.Values.controller.metrics.enabled) }}
   OTEL_SDK_DISABLED: "true"
   {{- end }}
+  {{- with .traces.contextKeys }}
+  KAGENT_TRACE_CONTEXT_KEYS: {{ include "kagent.traceContextKeys" . | quote }}
+  {{- end }}
   OTEL_TRACES_EXPORTER: {{ ternary "otlp" "none" .traces.enabled | quote }}
   OTEL_METRICS_EXPORTER: {{ ternary "otlp" "none" .metrics.enabled | quote }}
   OTEL_LOGS_EXPORTER: {{ ternary "otlp" "none" .logs.enabled | quote }}

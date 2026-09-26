@@ -18,8 +18,18 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.util._importlib_metadata import entry_points
 
+from opentelemetry.processor.baggage import BaggageSpanProcessor
+
 from ..telemetry import _defaults
+from ._context_attributes import allowed_baggage_key_predicate
 from ._span_processor import KagentAttributesSpanProcessor
+
+
+def _add_caller_context_processors(provider: TracerProvider) -> None:
+    """Copy allowlisted baggage onto spans before runtime attributes win."""
+    predicate = allowed_baggage_key_predicate()
+    if predicate is not None:
+        provider.add_span_processor(BaggageSpanProcessor(predicate))
 
 
 def _resolve_otlp_protocol(signal: str) -> str:
@@ -275,12 +285,14 @@ def configure(
         if isinstance(current_provider, TracerProvider):
             # TracerProvider already exists, just add our processors to it
             current_provider.add_span_processor(processor)
+            _add_caller_context_processors(current_provider)
             current_provider.add_span_processor(KagentAttributesSpanProcessor())
             logging.info("Added OTLP processors to existing TracerProvider")
         else:
             # No provider set, create new one
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(processor)
+            _add_caller_context_processors(tracer_provider)
             tracer_provider.add_span_processor(KagentAttributesSpanProcessor())
             trace.set_tracer_provider(tracer_provider)
             logging.info("Created new TracerProvider")

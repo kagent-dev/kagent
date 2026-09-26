@@ -84,9 +84,13 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "PORT", Value: "80"},
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 	)
+	// Which caller-supplied context reaches traces is cluster-wide operator
+	// policy, so a Harness must be able to neither widen nor enable it.
+	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
 		AgentName: template.Name + "-" + harness.Name, AgentNamespace: template.Namespace,
 	}, harnessAttributes)...)
+	environment = append(environment, v2translator.OtelEnvFromProcess()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -137,4 +141,15 @@ func requireModels(input *v2translator.AgentInput) error {
 		}
 	}
 	return nil
+}
+
+func applyOperatorOnlyEnv(values []corev1.EnvVar, variable env.StringVar) []corev1.EnvVar {
+	name := variable.Name()
+	values = slices.DeleteFunc(values, func(item corev1.EnvVar) bool {
+		return item.Name == name
+	})
+	if value := variable.Get(); value != "" {
+		values = append(values, corev1.EnvVar{Name: name, Value: value})
+	}
+	return values
 }

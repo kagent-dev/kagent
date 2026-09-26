@@ -977,6 +977,17 @@ otel:
     # -- Full URL that overrides `otel.exporter.otlp.endpoint` for traces.
     endpoint: ""
     protocol: ""
+    # Allowlist of caller-supplied context keys copied from W3C baggage onto
+    # every agent span. A2A message.metadata values for the same keys are
+    # written into baggage at the executor. Empty (the default) disables
+    # promotion. Entries may be a key or a {from, to} mapping. Destination
+    # names are used as-is. Prefer an opaque identifier such as an OIDC
+    # subject for user.id. Renaming and hashing belong in the collector.
+    #
+    #   contextKeys:
+    #     - {from: sub, to: user.id}
+    #     - thread_id
+    contextKeys: []
   metrics:
     enabled: false
     # -- Full URL that overrides `otel.exporter.otlp.endpoint` for metrics.

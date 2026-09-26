@@ -218,7 +218,7 @@ func TestOwnsTelemetryEnvironment(t *testing.T) {
 			t.Errorf("OwnsTelemetryEnvironment(%q) = false", name)
 		}
 	}
-	for _, name := range []string{"OTEL_BSP_SCHEDULE_DELAY", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_TRACES_SAMPLER", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_PROPAGATORS"} {
+	for _, name := range []string{"OTEL_BSP_SCHEDULE_DELAY", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_TRACES_SAMPLER", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_PROPAGATORS", "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT"} {
 		if translator.OwnsTelemetryEnvironment(name) {
 			t.Errorf("OwnsTelemetryEnvironment(%q) = true", name)
 		}
@@ -245,6 +245,7 @@ func clearTelemetryEnvironment(t *testing.T) {
 		"KAGENT_OTEL_RESOURCE_ATTRIBUTES",
 		"KAGENT_OTEL_CAPTURE_RAW_API_BODIES",
 		"KAGENT_OTEL_MAX_CAPTURE_BYTES",
+		"OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT",
 	} {
 		t.Setenv(name, "")
 	}

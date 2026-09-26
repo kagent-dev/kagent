@@ -419,3 +419,15 @@ func resourceIdentity(identity tracing.RuntimeTelemetry) []attribute.KeyValue {
 	}
 	return attributes
 }
+
+// OtelEnvFromProcess returns extra OTEL_* settings TelemetryConfig does not
+// compile, so agent runtimes still inherit operator-set limits such as
+// OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT.
+func OtelEnvFromProcess() []corev1.EnvVar {
+	const name = "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT"
+	value, found := os.LookupEnv(name)
+	if !found || value == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: name, Value: value}}
+}

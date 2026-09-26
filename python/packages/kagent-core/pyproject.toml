@@ -20,6 +20,7 @@ dependencies = [
   "opentelemetry-instrumentation-httpx>=0.63b0,<0.64",
   "opentelemetry-instrumentation-fastapi>=0.63b0,<0.64",
   "opentelemetry-instrumentation-google-generativeai>=0.52.5,<0.53.0",
+  "opentelemetry-processor-baggage>=0.63b0,<0.64",
   "typing-extensions>=4.16.0",
 ]
 

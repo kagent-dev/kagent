@@ -248,11 +248,15 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		ctx = auth.WithUserID(ctx, userID)
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
-		// through the request attribute span processor.
+		// through the request attribute span processor. Allowlisted metadata
+		// is written into baggage first so baggagecopy stamps it on every
+		// descendant span. Fill-if-absent so existing baggage wins.
 		resumed := reqCtx.StoredTask != nil &&
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
+		ctx = telemetry.ContextWithPromotedMetadata(ctx, reqCtx.Message.Metadata)
 		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
+		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 
 		e.logger.InfoContext(ctx, "execute",
 			"task_id", reqCtx.TaskID,
