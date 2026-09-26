@@ -9,7 +9,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -237,16 +236,6 @@ func TestSandboxProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, input.ProtoReflect().GetUnknown(), created.ProtoReflect().GetUnknown())
 
-	// Simulate a resource written by a newer binary, including nested fields.
-	addUnknown(created.Guest)
-	require.NoError(t, client.withTx(ctx, func(tx pgx.Tx) error {
-		if _, err := lockSandbox(ctx, tx, created.Id); err != nil {
-			return err
-		}
-		_, err := saveSandboxPayload(ctx, tx, created)
-		return err
-	}))
-
 	for _, kind := range []apiv1alpha1.RuntimeOperation{
 		apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
 		apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND,
@@ -261,7 +250,6 @@ func TestSandboxProtobufPersistenceLifecycle(t *testing.T) {
 		require.True(t, proto.Equal(created.CreatedAt, observed.CreatedAt))
 		require.True(t, proto.Equal(created.ExpiresAt, observed.ExpiresAt))
 		require.True(t, proto.Equal(created.SandboxTemplate, observed.SandboxTemplate))
-		require.True(t, proto.Equal(created.Guest, observed.Guest))
 		require.Equal(t, created.ProtoReflect().GetUnknown(), observed.ProtoReflect().GetUnknown())
 		row, err := readSandbox(ctx, pool, created.Id)
 		require.NoError(t, err)

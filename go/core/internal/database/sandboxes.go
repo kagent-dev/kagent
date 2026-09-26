@@ -138,7 +138,6 @@ func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1alpha1.Sandbox,
 	instance.CreatedAt = timestamppb.New(createdAt)
 	instance.UpdatedAt = timestamppb.New(createdAt)
 	instance.ExpiresAt = timestamppb.New(createdAt.Add(options.TTL))
-	instance.Guest = &apiv1alpha1.GuestCapabilities{ProcessExecution: true, FileAccess: true}
 	data, err := proto.Marshal(instance)
 	if err != nil {
 		return sandboxRow{}, fmt.Errorf("encode Sandbox %s: %w", instance.Id, err)
