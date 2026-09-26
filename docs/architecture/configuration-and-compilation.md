@@ -30,8 +30,9 @@ API.
 The `api.kagent.dev` group keeps these definitions separate from legacy
 `kagent.dev` resources, including the old `Agent`. `ModelConfig`,
 `ModelProviderConfig`, and `RemoteMCPServer` use the new group too. KMCP's
-`MCPServer` retains `kagent.dev/v1alpha1`. When both agent APIs are installed,
-use qualified resource names such as `kubectl get agents.api.kagent.dev`.
+`MCPServer` retains `kagent.dev/v1alpha1`. Examples assume a fresh installation
+and use `kubectl get agent`. If both agent APIs are installed, use a qualified
+resource name such as `kubectl get agents.api.kagent.dev` to select this API.
 
 ### kagent workload overrides
 
@@ -191,7 +192,7 @@ credentials, egress, and provenance.
 
 ## Explicit Agent examples
 
-Both reusable references:
+For a single agent, inline both specs:
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -200,38 +201,37 @@ metadata:
   name: assistant
   namespace: kagent
 spec:
+  template:
+    modelConfig:
+      name: default-model-config
+    systemPrompt: You are a helpful assistant.
+  harness:
+    kagent: {}
+    workload:
+      image: example.com/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: s3://snapshots/kagent/
+```
+
+Use a real runtime image digest and snapshot location in place of the examples.
+The referenced ModelConfig and WorkerPool must already exist.
+
+To reuse existing configuration, replace either inline spec with its reference:
+
+```yaml
+spec:
   templateRef:
     name: shared-context
   harnessRef:
     name: kagent
 ```
 
-For an inline template, replace `templateRef` with the complete template spec:
-
-```yaml
-template:
-  modelConfig:
-    name: default-model-config
-  systemPrompt: You are a helpful assistant.
-```
-
-For an inline Harness, replace `harnessRef` with the complete Harness spec:
-
-```yaml
-harness:
-  kagent: {}
-  workload:
-    image: example.com/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
-  substrate:
-    workerPoolRef:
-      name: kagent-default
-    snapshotPolicy:
-      location: s3://snapshots/kagent/
-```
-
-These replacements are independent: both referenced, either side inline, or both
-inline are supported. No synthetic Kubernetes objects are created for inline
-specs. Use a real runtime image digest in place of the example.
+These choices are independent: both inline, either side referenced, or both
+referenced are supported. No synthetic Kubernetes objects are created for inline
+specs.
 
 Create a session with `kagent create session --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.

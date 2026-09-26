@@ -109,56 +109,42 @@ schema](https://learn.chatgpt.com/docs/app-server#message-schema).
 
 ## Example
 
+One `Agent` holds both the template and Harness inline. The referenced ModelConfig
+and RemoteMCPServer must already exist in `kagent`. Replace `${KAGENT_CODEX_IMAGE_DIGEST}`
+with the full harness image reference, including its `@sha256:` digest.
+
 ```yaml
-apiVersion: api.kagent.dev/v1alpha3
-kind: Harness
-metadata:
-  name: codex-harness
-  namespace: kagent
-spec:
-  codex: {}
-  workload:
-    image: ${KAGENT_CODEX_IMAGE_DIGEST}
-  substrate:
-    workerPoolRef:
-      name: kagent-default
-    snapshotPolicy:
-      location: gs://ate-snapshots/kagent/
----
-apiVersion: api.kagent.dev/v1alpha3
-kind: AgentTemplate
-metadata:
-  labels:
-    kagent.dev/e2e-runtime: codex
-  name: kagent-codex
-  namespace: kagent
-spec:
-  description: test
-  modelConfig:
-    name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
-  systemPrompt: |
-      Follow the selected skill and use the configured MCP tool.
-  tools:
-    - mcp:
-        server:
-          kind: RemoteMCPServer
-          name: kagent-tool-server
-  plugins:
-    - source:
-        git:
-          url: https://github.com/agentplugins/agent-plugins-example.git
-          commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
-      skills:
-        - migrate-agent-plugin
----
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: kagent-codex
   namespace: kagent
 spec:
-  templateRef:
-    name: kagent-codex
-  harnessRef:
-    name: codex-harness
+  template:
+    description: test
+    modelConfig:
+      name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
+    systemPrompt: |
+        Follow the selected skill and use the configured MCP tool.
+    tools:
+      - mcp:
+          server:
+            kind: RemoteMCPServer
+            name: kagent-tool-server
+    plugins:
+      - source:
+          git:
+            url: https://github.com/agentplugins/agent-plugins-example.git
+            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
+        skills:
+          - migrate-agent-plugin
+  harness:
+    codex: {}
+    workload:
+      image: ${KAGENT_CODEX_IMAGE_DIGEST}
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: gs://ate-snapshots/kagent/
 ```

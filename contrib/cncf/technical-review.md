@@ -452,7 +452,7 @@ kubectl get crds
 **3. Check Agents:**
 
 ```bash
-kubectl get agenttemplates.api.kagent.dev,harnesses.api.kagent.dev -n kagent
+kubectl get agenttemplates,harnesses -n kagent
 # Expected: admitted AgentTemplate/Harness pairs report ready revisions
 ```
 
