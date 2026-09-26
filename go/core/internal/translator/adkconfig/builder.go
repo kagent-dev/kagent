@@ -97,7 +97,14 @@ func HarnessEnvironment(harness *v2translator.HarnessConfiguration) []corev1.Env
 }
 
 func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	return c.compileAgent(ctx, input)
+	result, err := c.compileAgent(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	// The Python runtime needs an async SQLite driver; the Go runtime accepts
+	// this URL and strips the driver before opening the same durable database.
+	result.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
+	return result, nil
 }
 
 // ApplyCompaction translates the Harness's kagent compaction policy into the

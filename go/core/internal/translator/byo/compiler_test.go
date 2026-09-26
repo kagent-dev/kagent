@@ -44,6 +44,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
 	require.Nil(t, config.Model)
 	require.Equal(t, "be helpful", config.Instruction)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
 	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }
 
