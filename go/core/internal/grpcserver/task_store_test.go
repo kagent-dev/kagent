@@ -34,6 +34,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
@@ -230,7 +231,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
-		gateway := a2agateway.New(a2agateway.Config{Store: store, Authorizer: &auth.NoopAuthorizer{}, Dialer: taskStoreRuntimeDialer{runtimeListener}, GatewayURL: "http://gateway.test"})
+		gateway := a2agateway.New(a2agateway.Config{Store: store, Sessions: sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), Dialer: taskStoreRuntimeDialer{runtimeListener}, GatewayURL: "http://gateway.test"})
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
 			Authenticator: &authimpl.UnsecureAuthenticator{},

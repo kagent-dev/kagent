@@ -93,10 +93,10 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		t.Run(string(protocol), func(t *testing.T) {
 			store := &gatewayTestStore{}
-			sessions := &creatingTestSessions{gatewayTestSessions{store}, map[string]*apiv1alpha1.Session{}}
+			sessions := &creatingTestSessions{newTestSessions(store, &gatewayTestAuthorizer{}), store, map[string]*apiv1alpha1.Session{}}
 			runtime := &gatewayTestRuntime{}
 			authorizer := &gatewayTestAuthorizer{}
-			gateway := New(Config{Store: store, Authorizer: authorizer,
+			gateway := New(Config{Store: store,
 				Agents: gatewayTestAgents{store, authorizer}, Sessions: sessions,
 				Dialer: &gatewayTestDialer{client: gatewayTestClient(t, runtime)}})
 			transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)

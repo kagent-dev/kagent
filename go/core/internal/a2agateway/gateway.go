@@ -28,11 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-type sessionStore interface {
+type gatewayStore interface {
 	ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error
 	RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error)
-	GetSessionByID(context.Context, string) (*apiv1alpha1.Session, error)
-	GetSession(context.Context, string, string) (*apiv1alpha1.Session, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error)
 	GetSessionTask(context.Context, string, string, *int) (*a2atype.Task, error)
@@ -46,13 +44,13 @@ type agentService interface {
 }
 
 type sessionService interface {
+	Access(context.Context, string, auth.Verb) (*apiv1alpha1.Session, error)
 	Create(context.Context, *apiv1alpha1.ResourceReference, string, string) (*apiv1alpha1.Session, error)
 	List(context.Context, sessionsvc.ListRequest) (sessionsvc.ListResult, error)
 }
 
 type Config struct {
-	Store      sessionStore
-	Authorizer auth.Authorizer
+	Store      gatewayStore
 	Dialer     runtimeDialer
 	Agents     agentService
 	Sessions   sessionService
@@ -66,8 +64,7 @@ type runtimeDialer interface {
 // Gateway authorizes public A2A requests and routes them to the runtime. Reads
 // come from the central store; observers never become task writers or executors.
 type Gateway struct {
-	store      sessionStore
-	authorizer auth.Authorizer
+	store      gatewayStore
 	dialer     runtimeDialer
 	gatewayURL string
 	agents     agentService
@@ -82,75 +79,17 @@ var runtimeDrainTimeout = 2 * time.Second
 
 func New(config Config) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
-		Handler:      &Gateway{store: config.Store, authorizer: config.Authorizer, dialer: config.Dialer, gatewayURL: config.GatewayURL, agents: config.Agents, sessions: config.Sessions},
+		Handler:      &Gateway{store: config.Store, dialer: config.Dialer, gatewayURL: config.GatewayURL, agents: config.Agents, sessions: config.Sessions},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
 }
 
-/*
- * Resolves the routed session, whatever state it is in.
- *
- * Human callers read a session as its creator, and a share
- * token still only widens reach to the session it names. What is dropped is the
- * readiness requirement, because it was never this function's to impose: a task list
- * and a task come out of the store, and the store does not care whether the session
- * currently holds a worker.
- *
- * Requiring READY for those reads made a suspended conversation unreadable, which is a
- * real problem now that conversations give their workers back at the end of every turn:
- * opening one to re-read what was said reported "Session is
- * SESSION_STATE_SUSPENDED" as if the record had been lost. The alternative —
- * resuming on open — would claim a worker every time somebody glanced at a transcript,
- * which is exactly what suspending them was meant to stop.
- */
+// storedSession adapts the service's access errors to A2A and verifies that the
+// conversation belongs to the Agent selected by this endpoint.
 func (g *Gateway) storedSession(ctx context.Context, verb auth.Verb, agent *apiv1alpha1.ResourceReference, contextID string) (*apiv1alpha1.Session, error) {
-	parsed, err := uuid.Parse(contextID)
+	session, err := g.sessions.Access(ctx, contextID, verb)
 	if err != nil {
-		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "invalid context ID")
-	}
-	id := parsed.String()
-	authSession, ok := auth.AuthSessionFrom(ctx)
-	if !ok {
-		return nil, a2atype.NewError(a2atype.ErrUnauthenticated, "authentication is required")
-	}
-	principal := authSession.Principal()
-
-	/*
-	 * A share token is authority over one session, and only that one.
-	 *
-	 * The visitor is still authenticated as themselves — a share widens what an
-	 * account may reach, it does not replace authentication — so the ordinary
-	 * authorization check is skipped only when the token names *this* session, and
-	 * the record is then read as its owner. Reading it as the visitor would find
-	 * nothing, because a session is scoped to its creator.
-	 *
-	 * Share permissions are enforced here for every A2A transport. Transport
-	 * middleware only authenticates the caller and resolves the share token.
-	 */
-	creator := principal.User.ID
-	share, hasShare := auth.ShareContextFrom(ctx)
-	if hasShare && share.ReadOnly && verb != auth.VerbGet {
-		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "this share link is read-only")
-	}
-	if hasShare && share.IsForSession(id) {
-		creator = share.UserID
-	} else if err := g.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "Session", Name: id}); err != nil {
-		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
-	}
-	var session *apiv1alpha1.Session
-	// Only the authenticated internal session can read independently of ownership.
-	// Authorization above still evaluates the actual control-plane principal.
-	if _, controlPlane := authSession.(auth.ControlPlaneSession); controlPlane && !hasShare {
-		session, err = g.store.GetSessionByID(ctx, id)
-	} else {
-		session, err = g.store.GetSession(ctx, id, creator)
-	}
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
-	}
-	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to load session", "error", err, "session_id", id)
-		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Session")
+		return nil, serviceError(ctx, err)
 	}
 	if session.GetAgent().GetNamespace() != agent.Namespace || session.GetAgent().GetName() != agent.Name {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "context does not belong to this Agent")
@@ -659,10 +598,6 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	case req.Message.ContextID != "":
 		session, err = g.storedSession(ctx, auth.VerbCreate, agent, req.Message.ContextID)
 	default:
-		// Share authority permits access to its conversation, never implicit creation.
-		if _, shared := auth.ShareContextFrom(ctx); shared {
-			return nil, a2atype.ErrUnauthorized
-		}
 		if _, err = g.agents.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}); err != nil {
 			return nil, serviceError(ctx, err)
 		}

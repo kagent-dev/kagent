@@ -498,6 +498,10 @@ func (*fakeSessionStore) GetSession(_ context.Context, id, _ string) (*apiv1alph
 	return &apiv1alpha1.Session{Id: id, ContextId: id, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, nil
 }
 
+func (s *fakeSessionStore) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+	return s.GetSession(ctx, id, "")
+}
+
 func (*fakeSessionStore) ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error) {
 	return []*apiv1alpha1.Session{{
 		Id: testSessionID, State: apiv1alpha1.SessionState_SESSION_STATE_READY,

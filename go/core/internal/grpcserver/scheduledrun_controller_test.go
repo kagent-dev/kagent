@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
@@ -350,7 +351,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
-			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(a2agateway.Config{Store: store, Authorizer: scheduledControllerAuthorizer{}, Dialer: dialer, GatewayURL: "http://gateway.test"}))
+			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(a2agateway.Config{Store: store, Sessions: sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil), Dialer: dialer, GatewayURL: "http://gateway.test"}))
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
@@ -391,7 +392,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				ctx, cancel = context.WithCancel(t.Context())
 				defer cancel()
 				done = make(chan error, 1)
-				controller = scheduledrun.NewController(store, workflow, a2agateway.New(a2agateway.Config{Store: store, Authorizer: scheduledControllerAuthorizer{}, Dialer: dialer, GatewayURL: "http://gateway.test"}))
+				controller = scheduledrun.NewController(store, workflow, a2agateway.New(a2agateway.Config{Store: store, Sessions: sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil), Dialer: dialer, GatewayURL: "http://gateway.test"}))
 				go func() { done <- controller.Start(ctx) }()
 			}
 			var execution *apiv1alpha1.ScheduledRunExecution

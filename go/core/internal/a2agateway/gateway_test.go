@@ -44,6 +44,7 @@ func (gatewayTestAuthSession) Principal() auth.Principal {
 }
 
 type gatewayTestStore struct {
+	*database.Client
 	reserveErr    error
 	initialID     string
 	listedIDs     []string
@@ -84,6 +85,23 @@ func (s *gatewayTestStore) GetSession(_ context.Context, id, userID string) (*ap
 		return nil, database.ErrNotFound
 	}
 	return s.session, s.err
+}
+
+func (s *gatewayTestStore) CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error) {
+	return s.session, true, s.err
+}
+
+func (s *gatewayTestStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1alpha1.Session, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.session == nil || s.session.Id <= query.AfterID {
+		return nil, nil
+	}
+	if query.Agent != nil && (query.Agent.Namespace != s.session.GetAgent().GetNamespace() || query.Agent.Name != s.session.GetAgent().GetName()) {
+		return nil, nil
+	}
+	return []*apiv1alpha1.Session{s.session}, nil
 }
 
 func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
@@ -348,7 +366,7 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 		dialer  *gatewayTestDialer
 		message string
 	}{
-		{name: "store", store: &gatewayTestStore{err: errors.New("password=secret")}, dialer: &gatewayTestDialer{}, message: "failed to load Session"},
+		{name: "store", store: &gatewayTestStore{err: errors.New("password=secret")}, dialer: &gatewayTestDialer{}, message: a2atype.ErrInternalError.Error()},
 		{name: "dialer", store: &gatewayTestStore{session: session}, dialer: &gatewayTestDialer{err: errors.New("internal.host:1234")}, message: "failed to connect to Session runtime"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -669,7 +687,7 @@ func TestRuntimeAgentCardAfterBinaryRoundTrip(t *testing.T) {
 func TestGatewayContextMatchesSessionAndTask(t *testing.T) {
 	session := gatewayTestSession()
 	store := &gatewayTestStore{session: session, tasks: []*a2atype.Task{{ID: "task", ContextID: session.Id}}}
-	gateway := &Gateway{store: store, authorizer: &gatewayTestAuthorizer{}, sessions: gatewayTestSessions{store}, agents: gatewayTestAgents{store, &gatewayTestAuthorizer{}}}
+	gateway := &Gateway{store: store, sessions: newTestSessions(store, &gatewayTestAuthorizer{}), agents: gatewayTestAgents{store, &gatewayTestAuthorizer{}}}
 	for _, contextID := range []string{"", session.Id} {
 		listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{ContextID: contextID})
 		require.NoError(t, err)

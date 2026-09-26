@@ -25,6 +25,7 @@ const (
 type store interface {
 	CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error)
 	GetSession(context.Context, string, string) (*apiv1alpha1.Session, error)
+	GetSessionByID(context.Context, string) (*apiv1alpha1.Session, error)
 	ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error)
 	UpdateSessionName(context.Context, string, string, string) (*apiv1alpha1.Session, error)
 	CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error)
@@ -79,6 +80,10 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 	if err != nil {
 		return nil, err
 	}
+	// A share grants access to an existing conversation, never creation.
+	if _, shared := auth.ShareContextFrom(ctx); shared {
+		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
@@ -113,14 +118,32 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	if err := validateIdentity(id); err != nil {
-		return nil, err
+	return s.Access(ctx, id, auth.VerbGet)
+}
+
+// Access loads a Session authorized for the requested operation. Reads are
+// independent of runtime readiness: viewing a suspended conversation must not
+// provision a worker. Lifecycle and A2A operations use this same access policy.
+func (s *Service) Access(ctx context.Context, id string, verb auth.Verb) (*apiv1alpha1.Session, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return nil, serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
 	}
-	creator, err := s.authorize(ctx, auth.VerbGet, id)
+	id = parsed.String()
+	creator, err := s.authorize(ctx, verb, id)
 	if err != nil {
 		return nil, err
 	}
-	session, err := s.store.GetSession(ctx, id, creator)
+	var session *apiv1alpha1.Session
+	authSession, _ := auth.AuthSessionFrom(ctx)
+	_, shared := auth.ShareContextFrom(ctx)
+	// Internal controllers may access Sessions independently of ownership,
+	// after authorization. A share never grants that broader authority.
+	if _, controlPlane := authSession.(auth.ControlPlaneSession); controlPlane && !shared {
+		session, err = s.store.GetSessionByID(ctx, id)
+	} else {
+		session, err = s.store.GetSession(ctx, id, creator)
+	}
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Session not found", err)
 	}
@@ -149,15 +172,6 @@ func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.Ses
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	userID, err := s.authorize(ctx, auth.VerbGet, "")
-	if err != nil {
-		return ListResult{}, err
-	}
-	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
-			return ListResult{}, err
-		}
-	}
 	pageSize := request.PageSize
 	if pageSize == 0 {
 		pageSize = defaultPageSize
@@ -169,36 +183,65 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	sessions, err := s.store.ListSessions(ctx, database.SessionQuery{
-		UserID: userID, AllUsers: request.AllCreators,
-		Agent:   request.Agent,
-		AfterID: afterID, Limit: pageSize + 1,
-	})
+	if share, shared := auth.ShareContextFrom(ctx); shared {
+		// Even an all-creators request is limited to the shared conversation.
+		session, err := s.Access(ctx, share.SessionID, auth.VerbGet)
+		if err != nil {
+			return ListResult{}, err
+		}
+		result := ListResult{Sessions: []*apiv1alpha1.Session{}}
+		if session.Id > afterID && (request.Agent == nil ||
+			(session.GetAgent().GetNamespace() == request.Agent.Namespace && session.GetAgent().GetName() == request.Agent.Name)) {
+			result.Sessions = append(result.Sessions, session)
+		}
+		return result, nil
+	}
+	userID, err := s.authorize(ctx, auth.VerbGet, "")
 	if err != nil {
-		return ListResult{}, serviceerrors.NewInternal("Failed to list Sessions", err)
+		return ListResult{}, err
 	}
-	result := ListResult{Sessions: sessions}
-	if len(result.Sessions) > pageSize {
-		result.NextPageToken = encodePageToken(result.Sessions[pageSize-1].GetId())
-		result.Sessions = result.Sessions[:pageSize]
+	if request.AllCreators {
+		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
+			return ListResult{}, err
+		}
 	}
-	return result, nil
+	query := database.SessionQuery{
+		UserID: userID, AllUsers: request.AllCreators, Agent: request.Agent,
+		AfterID: afterID, Limit: pageSize + 1,
+	}
+	result := ListResult{Sessions: []*apiv1alpha1.Session{}}
+	for {
+		sessions, err := s.store.ListSessions(ctx, query)
+		if err != nil {
+			return ListResult{}, serviceerrors.NewInternal("Failed to list Sessions", err)
+		}
+		for _, session := range sessions {
+			query.AfterID = session.Id
+			// Authorize before pagination. A denied Session must not consume a
+			// result slot or become the cursor exposed to the caller.
+			if _, err := s.authorize(ctx, auth.VerbGet, session.Id); err != nil {
+				if serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+					continue
+				}
+				return ListResult{}, err
+			}
+			result.Sessions = append(result.Sessions, session)
+			if len(result.Sessions) > pageSize {
+				result.Sessions = result.Sessions[:pageSize]
+				result.NextPageToken = encodePageToken(result.Sessions[pageSize-1].Id)
+				return result, nil
+			}
+		}
+		if len(sessions) < query.Limit {
+			return result, nil
+		}
+	}
 }
 
 func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	if err := validateIdentity(id); err != nil {
-		return nil, err
-	}
-	creator, err := s.authorize(ctx, auth.VerbDelete, id)
+	session, err := s.Access(ctx, id, auth.VerbDelete)
 	if err != nil {
 		return nil, err
-	}
-	session, err := s.store.GetSession(ctx, id, creator)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Session not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
 	session, err = s.workflow.Delete(ctx, session)
 	if errors.Is(err, database.ErrFailedPrecondition) {
@@ -214,19 +257,9 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, 
 }
 
 func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	if err := validateIdentity(id); err != nil {
-		return nil, err
-	}
-	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
+	session, err := s.Access(ctx, id, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
-	}
-	session, err := s.store.GetSession(ctx, id, creator)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Session not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
 	session, err = s.workflow.Suspend(ctx, session)
 	if errors.Is(err, database.ErrFailedPrecondition) {
@@ -242,19 +275,9 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session,
 }
 
 func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
-	if err := validateIdentity(id); err != nil {
-		return nil, err
-	}
-	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
+	session, err := s.Access(ctx, id, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
-	}
-	session, err := s.store.GetSession(ctx, id, creator)
-	if errors.Is(err, database.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Session not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get Session", err)
 	}
 	session, err = s.workflow.Resume(ctx, session)
 	if errors.Is(err, database.ErrFailedPrecondition) {
@@ -346,30 +369,18 @@ func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
 	return nil
 }
 
-/*
- * Resolves who a Session call is made as, honouring a share over that session.
- *
- * The same rule the A2A gateway already applies, and it has to be the same: a share
- * token is authority over one session, the visitor stays authenticated as themselves,
- * and the record is then read as the share's owner — because a session is scoped to
- * its creator and reading it as the visitor finds nothing at all.
- *
- * Without this, everything a shared conversation offers beyond reading and sending was
- * refused: the visitor could talk to the agent through the gateway, which understands
- * shares, and could not suspend or resume it through this service, which did not. The
- * shared page ended up offering a live conversation with no way to give its worker
- * back — on a pool that is the reason suspending exists.
- *
- * Read-only shares are not a concern here and deliberately not re-checked: the
- * interceptor refuses any non-read RPC for one before this is reached, which is where
- * that rule belongs and where it is tested.
- */
+// authorize preserves the authenticated caller while allowing a matching share
+// to select the record's owner. Read-only restrictions live here so they apply
+// equally to transport calls and direct service callers.
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
+	if _, ok := auth.AuthSessionFrom(ctx); !ok {
+		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+	}
 	if share, ok := auth.ShareContextFrom(ctx); ok {
+		if share.ReadOnly && verb != auth.VerbGet {
+			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
+		}
 		if share.IsForSession(name) {
-			if _, ok := auth.AuthSessionFrom(ctx); !ok {
-				return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
-			}
 			return share.UserID, nil
 		}
 	}

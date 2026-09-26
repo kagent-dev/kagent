@@ -2,7 +2,6 @@ package a2agateway
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -52,14 +51,6 @@ func (g *Gateway) listSessions(ctx context.Context, agent *apiv1alpha1.ResourceR
 		}
 		return []string{session.Id}, nil
 	}
-	// A session share grants no access to other conversations of the Agent.
-	if share, ok := auth.ShareContextFrom(ctx); ok {
-		session, err := g.storedSession(ctx, auth.VerbGet, agent, share.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		return []string{session.Id}, nil
-	}
 	ids := []string{}
 	request := sessionsvc.ListRequest{Agent: agent, PageSize: 100}
 	for {
@@ -68,12 +59,6 @@ func (g *Gateway) listSessions(ctx context.Context, agent *apiv1alpha1.ResourceR
 			return nil, serviceError(ctx, err)
 		}
 		for _, session := range page.Sessions {
-			if _, err := g.storedSession(ctx, auth.VerbGet, agent, session.Id); err != nil {
-				if errors.Is(err, a2a.ErrUnauthorized) {
-					continue
-				}
-				return nil, err
-			}
 			ids = append(ids, session.Id)
 		}
 		if page.NextPageToken == "" {

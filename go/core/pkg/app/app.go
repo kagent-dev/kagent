@@ -317,7 +317,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	gateway := a2agateway.New(a2agateway.Config{Store: store, Authorizer: authorizer, Dialer: gatewayDialer,
+	gateway := a2agateway.New(a2agateway.Config{Store: store, Dialer: gatewayDialer,
 		Agents: agents, Sessions: sessions, GatewayURL: env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083")})
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {

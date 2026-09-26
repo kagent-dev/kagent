@@ -43,19 +43,19 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "revision-1"}}, nil
 }
 
-type gatewayTestSessions struct{ store *gatewayTestStore }
+type gatewayTestWorkflow struct{ *sessionsvc.ActorWorkflow }
 
-func (s gatewayTestSessions) Create(context.Context, *apiv1alpha1.ResourceReference, string, string) (*apiv1alpha1.Session, error) {
-	return s.store.session, s.store.err
+func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return session, nil
 }
 
-func (s gatewayTestSessions) List(context.Context, sessionsvc.ListRequest) (sessionsvc.ListResult, error) {
-	return sessionsvc.ListResult{Sessions: []*apiv1alpha1.Session{s.store.session}}, s.store.err
+func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessionsvc.Service {
+	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{})
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer runtimeDialer, url string) a2asrv.RequestHandler {
-	return New(Config{Store: store, Authorizer: authorizer, Dialer: dialer, GatewayURL: url,
-		Agents: gatewayTestAgents{store, authorizer}, Sessions: gatewayTestSessions{store}})
+	return New(Config{Store: store, Dialer: dialer, GatewayURL: url,
+		Agents: gatewayTestAgents{store, authorizer}, Sessions: newTestSessions(store, authorizer)})
 }
 
 func (s *gatewayTestStore) SessionForTask(context.Context, string) (string, error) {
@@ -71,7 +71,8 @@ func (s *gatewayTestStore) SessionForTask(context.Context, string) (string, erro
 // Creation idempotency belongs to the session service; the gateway supplies a
 // stable request key scoped to the Agent and initial message.
 type creatingTestSessions struct {
-	gatewayTestSessions
+	*sessionsvc.Service
+	store   *gatewayTestStore
 	created map[string]*apiv1alpha1.Session
 }
 

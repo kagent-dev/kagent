@@ -87,8 +87,8 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 	if share == nil {
 		return authenticatedContext, nil
 	}
-	// A2A owns share authorization in its transport-independent gateway. Other
-	// services still rely on the per-RPC policy for read-only share restrictions.
+	// A2A delegates Session share authorization to the Session service. Retain
+	// the coarse read-only gate for other RPCs, including non-Session services.
 	a2aMethod := strings.HasPrefix(fullMethod, "/"+a2apb.A2AService_ServiceDesc.ServiceName+"/")
 	if !a2aMethod && share.ReadOnly && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")

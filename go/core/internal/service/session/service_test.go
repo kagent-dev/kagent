@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -33,6 +34,7 @@ type serviceTestStore struct {
 	createErr    error
 	sessions     []*apiv1alpha1.Session
 	listQuery    database.SessionQuery
+	listCalls    int
 	share        *apiv1alpha1.SessionShare
 	tokenHash    []byte
 	shares       []*apiv1alpha1.SessionShare
@@ -43,6 +45,10 @@ type serviceTestStore struct {
 	renameUserID string
 	renameErr    error
 	getCreator   string
+	getID        string
+	unscoped     bool
+	getErr       error
+	getResult    *apiv1alpha1.Session
 	shareUserID  string
 	shareErr     error
 }
@@ -57,14 +63,32 @@ func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1alpha1
 	return session, true, nil
 }
 
-func (s *serviceTestStore) GetSession(_ context.Context, _, creator string) (*apiv1alpha1.Session, error) {
-	s.getCreator = creator
-	return &apiv1alpha1.Session{State: apiv1alpha1.SessionState_SESSION_STATE_READY}, nil
+func (s *serviceTestStore) GetSession(_ context.Context, id, creator string) (*apiv1alpha1.Session, error) {
+	s.getID, s.getCreator = id, creator
+	if s.getResult != nil || s.getErr != nil {
+		return s.getResult, s.getErr
+	}
+	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.SessionState_SESSION_STATE_READY}, nil
+}
+
+func (s *serviceTestStore) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+	s.unscoped = true
+	return s.GetSession(ctx, id, "")
 }
 
 func (s *serviceTestStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1alpha1.Session, error) {
 	s.listQuery = query
-	return s.sessions, nil
+	s.listCalls++
+	var result []*apiv1alpha1.Session
+	for _, session := range s.sessions {
+		if session.Id > query.AfterID {
+			result = append(result, session)
+			if len(result) == query.Limit {
+				break
+			}
+		}
+	}
+	return result, nil
 }
 
 func (s *serviceTestStore) UpdateSessionName(_ context.Context, id, userID, name string) (*apiv1alpha1.Session, error) {
@@ -375,8 +399,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
  * call succeeded. A call that authorized correctly and then looked the record up under
  * the wrong user would fail as "not found", which is the confusing half of this bug.
  *
- * Read-only shares are refused before reaching here, by the interceptor, and are tested
- * where that rule lives.
+ * The service enforces read-only restrictions for direct and transport callers alike.
  */
 func TestServiceSuspendAcceptsAShareOverThatSession(t *testing.T) {
 	sessionID := "11111111-1111-4111-8111-111111111111"
@@ -412,12 +435,17 @@ func TestServiceSuspendAcceptsAShareOverThatSession(t *testing.T) {
 }
 
 type recordingAuthorizer struct {
-	verb     auth.Verb
-	resource auth.Resource
+	verb      auth.Verb
+	resource  auth.Resource
+	principal auth.Principal
+	denied    map[string]bool
 }
 
-func (a *recordingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	a.verb, a.resource = verb, resource
+func (a *recordingAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.verb, a.resource, a.principal = verb, resource, principal
+	if a.denied[resource.Name] {
+		return errors.New("denied")
+	}
 	return nil
 }
 
@@ -444,5 +472,202 @@ func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	}
 	if share != nil || token != "" {
 		t.Fatal("failed share creation returned credentials")
+	}
+}
+
+func TestServiceAccessScopesReadsToAuthorizedIdentity(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	for _, test := range []struct {
+		name     string
+		ctx      context.Context
+		share    *auth.ShareContext
+		denied   bool
+		owner    string
+		unscoped bool
+		code     serviceerrors.Code
+	}{
+		{name: "owner", ctx: serviceTestContext("alice"), owner: "alice"},
+		{name: "denied owner", ctx: serviceTestContext("alice"), denied: true, code: serviceerrors.CodePermissionDenied},
+		{name: "unauthenticated", ctx: context.Background(), code: serviceerrors.CodeUnauthenticated},
+		{name: "empty caller ID stays scoped", ctx: serviceTestContext("")},
+		{name: "matching share", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: id, UserID: "owner", ReadOnly: true}, denied: true, owner: "owner"},
+		{name: "share without authentication", ctx: context.Background(), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, code: serviceerrors.CodeUnauthenticated},
+		{name: "unrelated share uses caller", ctx: serviceTestContext("alice"), share: &auth.ShareContext{SessionID: uuid.NewString(), UserID: "owner"}, owner: "alice"},
+		{name: "unrelated share grants no access", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: uuid.NewString(), UserID: "owner"}, denied: true, code: serviceerrors.CodePermissionDenied},
+		{name: "controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), unscoped: true},
+		{name: "denied controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), denied: true, code: serviceerrors.CodePermissionDenied},
+		{name: "controller with share stays scoped", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, owner: "owner"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := test.ctx
+			if test.share != nil {
+				ctx = auth.ShareContextTo(ctx, test.share)
+			}
+			stored := &apiv1alpha1.Session{Id: id, State: apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED}
+			store := &serviceTestStore{getResult: stored}
+			authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
+			// A suspended read must never touch a workflow.
+			service := NewService(store, authorizer, nil)
+			result, err := service.Get(ctx, id)
+			if test.code != "" {
+				if !serviceerrors.IsCode(err, test.code) || store.getID != "" {
+					t.Fatalf("Get() = %v, read ID = %q, want %s before storage", err, store.getID, test.code)
+				}
+				return
+			}
+			if err != nil || result != stored || store.getCreator != test.owner || store.unscoped != test.unscoped {
+				t.Fatalf("Get() = %v, owner = %q, unscoped = %v", err, store.getCreator, store.unscoped)
+			}
+			if test.share == nil || !test.share.IsForSession(id) {
+				caller, _ := auth.AuthSessionFrom(ctx)
+				if authorizer.verb != auth.VerbGet || authorizer.resource.Type != "Session" || authorizer.resource.Name != id || authorizer.principal.User.ID != caller.Principal().User.ID {
+					t.Fatalf("unexpected authorization: %+v", authorizer)
+				}
+			}
+		})
+	}
+}
+
+func TestServiceAccessMapsErrors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		id   string
+		err  error
+		code serviceerrors.Code
+	}{
+		{name: "invalid ID", id: "bad-id", code: serviceerrors.CodeInvalidArgument},
+		{name: "missing session", id: uuid.NewString(), err: database.ErrNotFound, code: serviceerrors.CodeNotFound},
+		{name: "store failure", id: uuid.NewString(), err: errors.New("database unavailable"), code: serviceerrors.CodeInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &serviceTestStore{getErr: test.err}
+			service := NewService(store, serviceTestAuthorizer{}, nil)
+			_, err := service.Access(serviceTestContext("alice"), test.id, auth.VerbGet)
+			if !serviceerrors.IsCode(err, test.code) {
+				t.Fatalf("Access() = %v, want %s", err, test.code)
+			}
+			if test.code == serviceerrors.CodeInvalidArgument && store.getID != "" {
+				t.Fatal("invalid identity reached storage")
+			}
+		})
+	}
+}
+
+func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
+	id := uuid.NewString()
+	ctx := auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner", ReadOnly: true})
+	// Nil dependencies prove denial happens before storage or lifecycle work,
+	// even though the caller's ordinary authorizer would permit the operation.
+	service := NewService(nil, serviceTestAuthorizer{}, nil)
+	for _, test := range []struct {
+		name string
+		call func() error
+	}{
+		{name: "send", call: func() error { _, err := service.Access(ctx, id, auth.VerbCreate); return err }},
+		{name: "suspend", call: func() error { _, err := service.Suspend(ctx, id); return err }},
+		{name: "resume", call: func() error { _, err := service.Resume(ctx, id); return err }},
+		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
+		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
+		{name: "share creation", call: func() error {
+			_, _, err := service.CreateShare(ctx, id, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE)
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.call(); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+				t.Fatalf("mutation = %v, want permission denied", err)
+			}
+		})
+	}
+}
+
+func TestServiceShareCannotCreateSession(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		ctx := auth.ShareContextTo(serviceTestContext("alice"), &auth.ShareContext{SessionID: uuid.NewString(), UserID: "alice", ReadOnly: readOnly})
+		service := NewService(nil, serviceTestAuthorizer{}, nil)
+		_, err := service.Create(ctx, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
+		if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+			t.Fatalf("Create(readOnly=%v) = %v, want permission denied", readOnly, err)
+		}
+	}
+}
+
+func TestServiceSharedListCannotBroadenAccess(t *testing.T) {
+	id := uuid.NewString()
+	agent := &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
+	ctx := auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner", ReadOnly: true})
+	for _, test := range []struct {
+		name    string
+		request ListRequest
+		count   int
+	}{
+		{name: "only shared conversation", count: 1},
+		{name: "all creators", request: ListRequest{AllCreators: true}, count: 1},
+		{name: "matching Agent", request: ListRequest{Agent: agent}, count: 1},
+		{name: "other Agent", request: ListRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "other"}}},
+		{name: "past shared conversation", request: ListRequest{PageToken: encodePageToken(id)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stored := &apiv1alpha1.Session{Id: id, Agent: agent}
+			store := &serviceTestStore{getResult: stored}
+			service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, nil)
+			result, err := service.List(ctx, test.request)
+			if err != nil || len(result.Sessions) != test.count || result.NextPageToken != "" {
+				t.Fatalf("List() = %+v, %v", result, err)
+			}
+			if store.listCalls != 0 || store.getCreator != "owner" || store.unscoped {
+				t.Fatal("shared listing escaped owner-scoped single-session lookup")
+			}
+			if test.count == 1 && result.Sessions[0] != stored {
+				t.Fatal("List() returned a different conversation")
+			}
+		})
+	}
+}
+
+func TestServiceListAuthorizesBeforePagination(t *testing.T) {
+	for _, allDenied := range []bool{false, true} {
+		t.Run(fmt.Sprintf("allDenied=%v", allDenied), func(t *testing.T) {
+			store := &serviceTestStore{}
+			authorizer := &recordingAuthorizer{denied: map[string]bool{}}
+			var want []string
+			for i := 1; i <= 10; i++ {
+				id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i)
+				store.sessions = append(store.sessions, &apiv1alpha1.Session{Id: id})
+				authorizer.denied[id] = allDenied || i%3 != 0
+				if !authorizer.denied[id] {
+					want = append(want, id)
+				}
+			}
+			service := NewService(store, authorizer, nil)
+			var got []string
+			request := ListRequest{PageSize: 2}
+			for page := 0; ; page++ {
+				if page > len(want) {
+					t.Fatal("pagination did not terminate")
+				}
+				result, err := service.List(serviceTestContext("alice"), request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, session := range result.Sessions {
+					got = append(got, session.Id)
+				}
+				if result.NextPageToken == "" {
+					break
+				}
+				afterID, err := decodePageToken(result.NextPageToken)
+				if err != nil || len(result.Sessions) != request.PageSize || afterID != result.Sessions[len(result.Sessions)-1].Id || authorizer.denied[afterID] {
+					t.Fatalf("cursor %q exposed a denied or unreturned Session", afterID)
+				}
+				request.PageToken = result.NextPageToken
+			}
+			if !slices.Equal(got, want) || store.listCalls < 4 {
+				t.Fatalf("List() = %v, want %v; storage batches = %d", got, want, store.listCalls)
+			}
+			if store.getID != "" {
+				t.Fatal("listing reread each Session instead of authorizing its stored record")
+			}
+		})
 	}
 }

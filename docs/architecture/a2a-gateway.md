@@ -26,6 +26,14 @@ IDs. ListTasks without a context lists only authorized conversations of that Age
 a share restricts the list to its own conversation. Authorization precedes totals
 and pagination. Card discovery does not create a session.
 
+The Session service owns authentication, ownership, and share permissions for
+both A2A and lifecycle calls. Its `Access` operation authorizes and loads a Session
+without waking its runtime. The gateway checks that the returned Session belongs
+to the selected Agent and maps service errors to A2A errors. The service also
+restricts shared listings to one conversation and filters denied Sessions before
+pagination. The gateway's `gatewayStore` dependency handles task/revision reads
+and dispatch transactions; it does not decide Session access policy.
+
 The runtime owns execution and persists updates through the private gRPC
 `TaskStoreService`. The gateway owns each caller's observation connection.
 Disconnecting a client or gateway does not cancel the native runner or remove
