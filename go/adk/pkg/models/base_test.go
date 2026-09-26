@@ -64,3 +64,52 @@ func TestMergeSystemInstructionFromConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractFunctionResponseContent(t *testing.T) {
+	tests := []struct {
+		name string
+		resp any
+		want string
+	}{
+		{
+			name: "plain string response",
+			resp: "hello",
+			want: "hello",
+		},
+		{
+			name: "content array with top-level text items",
+			resp: map[string]any{
+				"content": []any{
+					map[string]any{"type": "text", "text": "line1"},
+					map[string]any{"type": "text", "text": "line2"},
+				},
+			},
+			want: "line1\nline2",
+		},
+		{
+			name: "resource content nested under resource.text (GitHub MCP get_file_contents)",
+			resp: map[string]any{
+				"content": []any{
+					map[string]any{"type": "text", "text": "successfully downloaded text file (SHA: abc123)"},
+					map[string]any{
+						"type": "resource",
+						"resource": map[string]any{
+							"uri":  "repo://owner/repo/contents/path.yaml",
+							"text": "p, role:foo-developer, applications, get, *, allow",
+						},
+					},
+				},
+			},
+			want: "successfully downloaded text file (SHA: abc123)\np, role:foo-developer, applications, get, *, allow",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractFunctionResponseContent(tt.resp)
+			if got != tt.want {
+				t.Errorf("extractFunctionResponseContent() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
