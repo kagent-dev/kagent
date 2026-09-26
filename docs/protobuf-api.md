@@ -7,17 +7,20 @@ their implemented contracts and the conventions for extending them. The source
 completion, and persistence behavior.
 
 The protobuf package version is independent of the `kagent.dev/v1alpha3`
-Kubernetes API. Use the [system overview](architecture/README.md) to choose the
-owning component and the [Kubernetes guide](kubernetes-api.md) for CRD design.
-Upstream A2A owns task, interaction, streaming, and history semantics. Do not add
-a parallel public task or session model to the control-plane API.
+Kubernetes API. Agent is the Kubernetes definition; Session is its PostgreSQL-backed
+conversation and lifecycle resource. Use the [system overview](architecture/README.md)
+to choose the owning component and the [Kubernetes guide](kubernetes-api.md) for
+CRD design. Upstream A2A owns task, interaction, streaming, and history semantics;
+Session binds that conversation to its Agent and runtime without duplicating the
+interaction model.
 
 ## API surfaces
 
 | Schema | Responsibility |
 | --- | --- |
-| [agent_instances.proto](../proto/kagent/api/v1alpha1/agent_instances.proto) | Instance creation, reads, naming, lifecycle, and shares |
-| [checkpoints.proto](../proto/kagent/api/v1alpha1/checkpoints.proto) | Retained conversation boundaries, checkpoint naming, and instance forks |
+| [agents.proto](../proto/kagent/api/v1alpha1/agents.proto) | Runnable Agent definitions with inline or referenced configuration |
+| [sessions.proto](../proto/kagent/api/v1alpha1/sessions.proto) | Session creation, reads, naming, lifecycle, and shares |
+| [checkpoints.proto](../proto/kagent/api/v1alpha1/checkpoints.proto) | Retained conversation boundaries, checkpoint naming, and session forks |
 | [scheduled_runs.proto](../proto/kagent/api/v1alpha1/scheduled_runs.proto) | Creator-owned schedules and execution summaries |
 | [harnesses.proto](../proto/kagent/api/v1alpha1/harnesses.proto), [agent_templates.proto](../proto/kagent/api/v1alpha1/agent_templates.proto) | Kubernetes configuration catalogs and mutations |
 | [models.proto](../proto/kagent/api/v1alpha1/models.proto), [tools.proto](../proto/kagent/api/v1alpha1/tools.proto), [prompts.proto](../proto/kagent/api/v1alpha1/prompts.proto) | Model configuration, tool discovery and MCP apps, and prompt templates |
@@ -33,6 +36,12 @@ and runtime access. Resource authorization remains in services and workflows.
 TaskStore methods require runtime authority; public user and share credentials
 do not grant access.
 
+The [Session service](../go/core/internal/service/session/service.go) owns the
+shared access policy for lifecycle operations and A2A interactions. A share may
+select its Session's owner for lookup without replacing the authenticated
+principal; read-only restrictions apply to direct service callers as well as RPCs.
+Shares cannot create Sessions. Reads do not provision or wake a runtime.
+
 ## Resource and request shapes
 
 Reuse the existing resource message across reads and mutations where appropriate,
@@ -41,29 +50,54 @@ or universal `metadata`/`status` envelope.
 
 | Resource | Current shape |
 | --- | --- |
-| `AgentInstance` | Flat identity, creator, configuration references, prepared revision, A2A authority and context ID, lifecycle state, failure, timestamps, and `name` |
-| `Checkpoint` | Flat identity, source instance, saved task/history boundary, state, failure, timestamp, and `name` |
-| `ScheduledRun` | Identity, creator, immutable Harness/AgentTemplate references, mutable `ScheduledRunConfig config`, `etag`, and scheduling/deletion timestamps |
-| `ScheduledRunExecution` | Accepted invocation inputs, trigger, instance/task references, and execution summary; A2A remains authoritative for the transcript |
+| `Agent` | Kubernetes `ref` and complete `StructuredObject resource`, including inline/reference configuration and Agent status |
+| `Session` | Flat identity, creator, `agent` reference, prepared revision, A2A authority and context ID, lifecycle state, failure, timestamps, and `name` |
+| `Checkpoint` | Flat identity, source session, saved task/history boundary, state, failure, timestamp, and `name` |
+| `ScheduledRun` | Identity, creator, immutable `agent` reference, mutable `ScheduledRunConfig config`, `etag`, and scheduling/deletion timestamps |
+| `ScheduledRunExecution` | Accepted invocation inputs, trigger, session/task references, and execution summary; A2A remains authoritative for the transcript |
 
-Instance, checkpoint, schedule, execution, and share IDs are server-generated
+Session, checkpoint, schedule, execution, and share IDs are server-generated
 UUIDs; treat them as opaque. Display names use `name`, not resource identity.
-An instance's `context_id` is an A2A conversation identifier that forks preserve;
-route and authorize by instance ID.
+A Session's `context_id` equals its `id` and is its public A2A conversation ID.
+Forks receive fresh Session, context, and task IDs. Route A2A through the Agent
+and authorize against the resolved Session.
 Kubernetes references use `ResourceReference { namespace, name }`.
 
 Requests usually carry explicit operation inputs rather than a complete resource.
-For example, `CreateAgentInstanceRequest` contains Harness and AgentTemplate
-references, `request_id`, and an optional display name. Its response wraps
-`agent_instance`. Keep method-specific request and response messages, including
-empty responses where the current method uses them.
+For example, `CreateSessionRequest` contains one `agent` reference, `request_id`,
+and an optional display name. Its response wraps `session`. Keep method-specific
+request and response messages, including empty responses where the current
+method uses them.
 
 Implement meaningful operations rather than assuming every service has full CRUD.
-Harness currently exposes List, Create, and Delete. AgentInstance naming uses
-`UpdateAgentInstanceName`; checkpoint naming uses `UpdateCheckpointName`.
+Agent exposes List, Get, Create, Update, and Delete; Harness exposes List, Create,
+and Delete. Session naming uses `UpdateSessionName`; checkpoint naming uses
+`UpdateCheckpointName`.
 Suspend, Resume, Fork, and Trigger are explicit actions. Response shapes also
-vary: instance and schedule deletion return a resource, while checkpoint and
+vary: session and schedule deletion return a resource, while checkpoint and
 Kubernetes deletion return empty responses.
+
+## Agent routing and A2A identity
+
+HTTP/JSON-RPC selects an Agent at `/agents/{namespace}/{name}`. gRPC uses the
+upstream A2A `tenant` field, `namespace/name`. An HTTP request may omit `tenant`;
+if supplied, it must match the URL. Transport adapters resolve this selection
+before calling the [Session interaction service](../go/core/internal/service/session/interactions.go),
+which owns authorization, Session membership checks, dispatch, and observation.
+
+A message with neither a context ID nor a task ID creates a Session for the selected Agent.
+A context ID continues that Session; a task ID alone resolves its Session from
+the globally unique task ID. If both IDs are supplied they must agree, and the
+Session must belong to the selected Agent. A shared listing is restricted to its
+one conversation. Agent Card discovery creates no Session and uses the Agent's
+latest successful revision, or the pinned revision of a shared Session.
+
+For an initial send, authenticated creator, Agent, and message ID identify the
+creation retry. Repeating it reuses the Session and recovers accepted input
+without redispatching it. Once context/task IDs are known, that initial-send
+guarantee no longer applies: use task reads or subscriptions after an ambiguous
+continuation response. See [A2A transports](architecture/a2a-transports.md) and
+[gateway behavior](architecture/a2a-gateway.md) for the full contract.
 
 ## Fields and validation
 
@@ -76,8 +110,8 @@ Kubernetes deletion return empty responses.
   specific uses; they are not a reason to add arbitrary extension maps.
 - Declare request-intrinsic validation in `.proto` with `buf.validate`. Prefer
   standard rules for UUIDs, lengths, ranges, required messages, and enums; use
-  CEL for relationships such as matching Harness and AgentTemplate namespaces.
-  Do not duplicate those rules in transport handlers.
+  CEL for relationships such as requiring task and context IDs inside a
+  TaskStore task payload. Do not duplicate those rules in transport handlers.
 - Put authorization and checks involving stored objects or external systems in
   the owning service. Put transactional invariants in the store.
 
@@ -100,15 +134,15 @@ Concurrency is specific to the operation:
 
 | Operation | Input and concurrency contract |
 | --- | --- |
-| `UpdateAgentInstanceName` | Instance ID and name; no etag. Empty clears the name |
+| `UpdateSessionName` | Session ID and name; no etag. Empty clears the name |
 | `UpdateCheckpointName` | Checkpoint ID and name; no etag. Empty restores the generated name |
 | `UpdateScheduledRun` | Schedule ID, required UUID-shaped etag, and replacement config; stale etags return `ABORTED` |
-| TaskStore `UpdateTask` | Instance, task snapshot, and positive `expected_version`; conflicting updates return `ABORTED` |
+| TaskStore `UpdateTask` | Session, task snapshot, and positive `expected_version`; conflicting updates return `ABORTED` |
 | Kubernetes updates | Resource-specific adapters; see [Kubernetes objects over gRPC](#kubernetes-objects-over-grpc) |
 
 [ScheduledRun updates](../go/core/internal/database/scheduled_runs.go) compare the
 etag and replace config in one transaction, issuing a new etag on each accepted
-update. Harness and AgentTemplate references are outside that mutable config.
+update. The Agent reference is outside that mutable config.
 Changes affect subsequently reserved executions; accepted executions retain
 their inputs. The next occurrence is recalculated when schedule, time zone, or
 pause state changes. Prompt and name edits do not skip an already-due occurrence.
@@ -125,26 +159,30 @@ operation's deduplication and lifecycle rules.
 
 | Operation | Current retry identity |
 | --- | --- |
-| `CreateAgentInstance` | Creator and `request_id`; the Harness/AgentTemplate pair must match. Reusing the key does not rename the instance |
-| `CreateCheckpoint` | Owner and `request_id`; source instance and `expected_head_task_id` must match |
-| `ForkAgentInstance` | Owner and `request_id`; the source checkpoint must match |
+| `CreateSession` | Creator and `request_id`; the Agent reference must match. Reusing the key does not rename the Session |
+| `CreateCheckpoint` | Owner and `request_id`; source session and `expected_head_task_id` must match |
+| `ForkSession` | Owner and `request_id`; the source checkpoint must match |
 | `CreateScheduledRun` | Creator and `request_id`, checked against the original normalized creation inputs |
 | `TriggerScheduledRun` | Schedule and `request_id`; retries return the same accepted execution |
-| `CreateAgentInstanceShare` | No request ID or deduplication contract; each successful call creates a share and returns its token once |
+| `CreateSessionShare` | No request ID or deduplication contract; each successful call creates a share and returns its token once |
 
 Where these methods expose `request_id`, it is required, with a schema length
 of 1–128. Conflicting reuse returns `ALREADY_EXISTS`. Deduplication scope is
 operation-specific; do not assume separate key spaces for every RPC. Deleted
-instances and forks retain request identities and reject recreation with
+sessions and forks retain request identities and reject recreation with
 `FAILED_PRECONDITION`. Schedule creation retries can return the current edited
 or deleted schedule. Repeated schedule deletion returns its tombstone and retains
 execution history and deduplication state.
 
-Instance creation reserves durable state before provisioning through the
+Session creation reserves durable state before provisioning through the
 [lifecycle workflow](architecture/runtime-and-lifecycle.md). Schedule triggering
 reserves an execution; it does not wait for the agent's answer. Checkpoint
 creation names the intended terminal task explicitly: a pending snapshot permits
 retry with the same task, while an advanced conversation requires a new selection.
+Every task must be terminal before a checkpoint can be captured; paused input or
+authentication requests are not checkpointable. Forking rewrites public context
+and task references while copying saved events. Native runtime history remains
+usable under the new public IDs; no permanent task-ID translation table is added.
 See [persistence and checkpoints](architecture/persistence-checkpoints-and-forks.md)
 for retained state and fork behavior.
 
@@ -157,8 +195,9 @@ across a network call. Authorization applies on retries as well.
 ## Private TaskStore contract
 
 TaskStore stores upstream `lf.a2a.v1.Task` messages; it does not define another
-task model. `StoredTask.version` increases within an instance. Forks inherit A2A
-task IDs, but callers must reload storage versions in the fork's instance scope.
+task model. Every request carries `session_id`. `StoredTask.version` is opaque
+and scoped to that Session. After a fork, callers must reload its new public
+context/task IDs and storage versions; source-session receipts are not inherited.
 
 `CreateTask` retries with the same task and payload return the original version.
 `UpdateTask` carries the expected version, complete task snapshot, and an optional
@@ -179,11 +218,13 @@ Paginated control-plane methods reuse `PageRequest` and `PageResponse` from
 explicit limits are 1–100. Continue until `next_page_token` is empty, even if an
 intermediate page contains no items.
 
-Instance, share, checkpoint, schedule, and execution lists use ID cursors.
+Session, share, checkpoint, schedule, and execution lists use ID cursors.
 Clients must treat tokens as opaque and keep filters and scope unchanged while
 paging. These cursors do not encode or validate a binding to the original query;
-services reapply ownership and authorization on each request. Instance lists
-support Harness/AgentTemplate filters and separately authorize `all_creators`.
+services reapply ownership and authorization on each request. Session lists
+filter by `agent` and separately authorize `all_creators`. Denied Sessions are
+filtered before pagination so they consume neither result slots nor exposed
+cursors; a share restricts the list to its own Session.
 
 Substrate actor/worker lists preserve upstream ordering and continuation tokens.
 Worker namespace filtering applies to each upstream page, so a filtered page
@@ -231,11 +272,12 @@ checks the expected wrapper kind, payload size, and unknown JSON fields. It does
 not itself validate the API version or full CRD schema; Kubernetes admission
 enforces the schema when the object is written.
 
-Harness and AgentTemplate create requests carry both `ref` and `resource`.
+Agent, Harness, and AgentTemplate create requests carry both `ref` and `resource`.
 Their adapters fill missing name/namespace from `ref` and reject disagreement.
-For [AgentTemplate updates](../go/core/internal/grpcserver/agenttemplate.go), the
-adapter loads the live object, replaces spec and labels, and preserves its other
-metadata and status. It does not compare caller-supplied UID/resourceVersion.
+The [Agent](../go/core/internal/grpcserver/agent.go) and
+[AgentTemplate](../go/core/internal/grpcserver/agenttemplate.go) update adapters
+load the live object, replace spec and labels, and preserve other metadata and
+any status. They do not compare caller-supplied UID/resourceVersion.
 The shared [CRUD service](../go/core/internal/service/kubecrud/service.go) does
 not map Kubernetes update conflicts to `ABORTED`; they currently become
 `INTERNAL`. Delete requests carry only a reference, without caller preconditions,
@@ -246,6 +288,24 @@ a target in the Kubernetes guide. Do not promise it to clients. Kubernetes CRUD
 also has no database request-ID ledger. Prompt templates use `ref` and a typed
 data map; model/tool creation can carry separate secret material, which must
 remain outside public CRD specs and responses.
+
+## Current API cutover
+
+The Agent/Session cutover is a breaking change. `SessionService`, `ForkSession`,
+and `session_id` replace the AgentInstance RPC surface and field names. Session
+creation, Session filtering, and ScheduledRun creation now select one Agent;
+the former Harness/AgentTemplate fields are reserved. AgentTemplate's
+`admitting_harnesses` projection is also reserved; preparation belongs to Agent.
+
+Go and Python runtime contracts reflect the new API. The checked-in browser
+client and generated TypeScript still use the earlier AgentInstance contracts;
+their Session API and Agent-level A2A migration remains a separate change.
+Regenerating TypeScript alone does not migrate those callers.
+
+This pre-release reset folds schema changes into `000001_initial.sql` and requires
+recreating development databases. It provides no upgrade migration from the old
+AgentInstance tables or persisted protobuf data. Review and deploy the controller
+and its clients together.
 
 ## Generation and review
 

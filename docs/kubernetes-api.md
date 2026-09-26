@@ -11,8 +11,9 @@ Go API types are the source of truth; regenerate CRD schemas from them.
 
 ## Object shape
 
-Use native Kubernetes objects with `TypeMeta`, `ObjectMeta`, `Spec`, and `Status`.
-List types use `ListMeta` and `Items`. New CRD surface belongs in `v1alpha3`.
+Use native Kubernetes objects with `TypeMeta`, `ObjectMeta`, and `Spec`. Add
+`Status` when the resource owns observed state; AgentTemplate has none. List
+types use `ListMeta` and `Items`. New CRD surface belongs in `v1alpha3`.
 
 | Part | Owner and purpose |
 | --- | --- |
@@ -20,10 +21,33 @@ List types use `ListMeta` and `Items`. New CRD surface belongs in `v1alpha3`.
 | `spec` | User-authored desired configuration |
 | `status` | Controller-observed results and conditions |
 
-Harness owns runtime implementation and admission policy. AgentTemplate owns
-portable agent behavior. Creating either object prepares configuration; it does
-not create an AgentInstance. Existing instances pin immutable prepared revisions,
-so later spec edits affect future preparation and creation.
+Agent is the runnable definition: it composes portable behavior with a Harness
+and owns compilation, readiness, and revision selection. AgentTemplate contains
+reusable behavior; Harness contains runtime configuration and policy. There is
+no implicit label-based pairing or Harness admission selector.
+
+Creating an Agent prepares its configuration; it does not create a conversation.
+Sessions are PostgreSQL-backed, exposed through gRPC, and pin immutable prepared
+revisions. Later Agent or referenced-configuration edits affect future
+preparation and Session creation, not existing Sessions.
+
+## Agent composition
+
+Each side of [AgentSpec](../go/api/v1alpha3/agent_types.go) independently selects
+exactly one source:
+
+| Side | Reference | Inline value |
+| --- | --- | --- |
+| Behavior | `spec.templateRef` names an AgentTemplate | `spec.template` contains a complete AgentTemplateSpec |
+| Runtime | `spec.harnessRef` names a Harness | `spec.harness` contains a complete HarnessSpec |
+
+All four combinations are supported. Inline specs are complete configurations,
+not overrides, and create no synthetic Kubernetes objects. References within
+inline specs resolve in the Agent's namespace, just like the top-level
+references. Reusing a template or Harness does not merge Agent identities;
+switching between inline and referenced configuration preserves the Agent's
+identity. See [configuration and compilation](architecture/configuration-and-compilation.md)
+for examples and the preparation pipeline.
 
 ## Identity and references
 
@@ -34,9 +58,10 @@ Use native structured reference types such as `LocalObjectReference`,
 unless a separately designed authorization policy allows otherwise.
 
 Do not encode references as `"namespace/name"` strings or embed another resource's
-full spec as a reference. Keep secret values out of spec and status; use credential
-references resolved at the owning boundary. An object reference grants no access
-by itself.
+full spec as a reference. Agent's explicit inline fields carry spec values,
+separately from its reference fields. Keep secret values out of spec and status;
+use credential references resolved at the owning boundary. An object reference
+grants no access by itself.
 
 ## Fields and presence
 
@@ -64,9 +89,17 @@ Exclusive variants use typed sibling fields with exactly-one or at-most-one CEL
 validation. Do not leave union checks to reconciliation or add a second
 discriminator that can contradict the selected branch.
 
-For example, a tool binding selects exactly one of its typed `mcp` and `agent`
-branches. Admission rejects both-set and neither-set values. Tests must exercise
-the generated schema, not only Go constructors.
+Agent requires exactly one of `template`/`templateRef` and exactly one of
+`harness`/`harnessRef`. A tool binding selects exactly one of `mcp` and `subAgent`.
+Within `subAgent`, exactly one of `templateRef` and `agentRef` is required:
+
+- `templateRef` selects a Shared child template compiled into the parent's
+  runtime under the parent's Harness.
+- `agentRef` selects a Dedicated Agent with its own Harness and Session.
+  Dedicated execution is not implemented and compilation rejects it.
+
+There is no separate `isolation` field. Admission rejects both-set and neither-set
+values. Tests must exercise the generated schema, not only Go constructors.
 
 Checks requiring other objects or external systems belong to the owning
 controller/service. Report unresolved references and incompatible configuration
@@ -74,9 +107,14 @@ through status. Do not silently default invalid configuration into a usable one.
 
 ## Status and reconciliation
 
-Enable the status subresource. Controllers update observed state without rewriting
-the user's spec. Use `observedGeneration` and `[]metav1.Condition` with stable
-types/reasons and `meta.SetStatusCondition`.
+Enable the status subresource for resources that own observed state. Controllers
+update it without rewriting the user's spec. Use `observedGeneration` and
+`[]metav1.Condition` with stable types/reasons and `meta.SetStatusCondition`.
+
+Agent status owns `desiredRevision`, `latestSuccessfulRevision`, warnings, and the
+`Accepted`, `ResolvedRefs`, `Compatible`, and `Ready` conditions. AgentTemplate
+has no runtime status or per-Harness preparation entries. Harness status reports
+adapter capabilities and health rather than an Agent's readiness.
 
 Readiness must describe the observed generation and the operation users can
 perform. Unknown or stale status must not appear healthy. Keep the last successful
@@ -111,6 +149,10 @@ UID/resourceVersion preconditions. Acceptance of a Kubernetes deletion request i
 not proof that finalizers have finished; adapters must state their completion
 contract. Document which external resources and retained revisions survive
 configuration deletion.
+
+Deleting an Agent retires its definition while Sessions and checkpoints retain
+their pinned revisions. Recreating its namespace/name creates a new Kubernetes
+UID and cannot inherit the deleted Agent's latest successful revision.
 
 ## Review and generation
 
