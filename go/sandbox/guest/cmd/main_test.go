@@ -54,7 +54,7 @@ func TestServe(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	cfg := guest.Config{
-		Workspace: t.TempDir(), LogDir: t.TempDir(),
+		Workspace: filepath.Join(t.TempDir(), "workspace"), LogDir: t.TempDir(),
 		EnableProcess: true, EnableFileSystem: true,
 	}
 	done := make(chan struct{})
@@ -89,6 +89,16 @@ func TestServe(t *testing.T) {
 	// NotFound distinguishes a registered process service from Unimplemented.
 	_, err = ateenvv1alpha.NewProcessServiceClient(conn).GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: "missing"})
 	require.Equal(t, codes.NotFound, status.Code(err))
+	processes := ateenvv1alpha.NewProcessServiceClient(conn)
+	started, err := processes.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "printf initialized > first.txt"}})
+	require.NoError(t, err, "first operation must not depend on a preceding file write")
+	require.Eventually(t, func() bool {
+		result, err := processes.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: started.ProcessId})
+		return err == nil && result.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED
+	}, time.Second, 10*time.Millisecond)
+	first, err := os.ReadFile(filepath.Join(cfg.Workspace, "first.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "initialized", string(first))
 
 	files := ateenvv1alpha.NewFileSystemServiceClient(conn)
 	writer, err := files.WriteFile(ctx)

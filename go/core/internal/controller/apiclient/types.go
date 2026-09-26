@@ -49,6 +49,19 @@ func registerTypes() {
 		},
 	)
 	kubeclient.Register(
+		kagentv1alpha3.GroupVersion.WithResource("sandboxtemplates"),
+		kagentv1alpha3.GroupVersion.WithKind("SandboxTemplate"),
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
+			return c.(Client).Kagent().ApiV1alpha3().SandboxTemplates(namespace).List(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
+			return c.(Client).Kagent().ApiV1alpha3().SandboxTemplates(namespace).Watch(context.Background(), options)
+		},
+		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*kagentv1alpha3.SandboxTemplate] {
+			return c.(Client).Kagent().ApiV1alpha3().SandboxTemplates(namespace)
+		},
+	)
+	kubeclient.Register(
 		kagentv1alpha3.GroupVersion.WithResource("harnesses"),
 		kagentv1alpha3.GroupVersion.WithKind("Harness"),
 		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
