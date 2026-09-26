@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -89,15 +90,20 @@ func (f *sandboxFixture) create(t *testing.T, ttl time.Duration) *apiv1alpha1.Sa
 	t.Helper()
 	request := &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString(), Ttl: durationpb.New(ttl)}
 	var instance *apiv1alpha1.Sandbox
-	require.Eventually(t, func() bool {
-		response, err := f.client.CreateSandbox(f.ctx, request)
+	var lastErr error
+	err := wait.PollUntilContextTimeout(f.ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		response, err := f.client.CreateSandbox(ctx, request)
+		lastErr = err
 		if status.Code(err) == codes.FailedPrecondition {
-			return false
+			return false, nil
 		}
-		require.NoError(t, err)
+		if err != nil {
+			return false, err
+		}
 		instance = response.GetSandbox()
-		return true
-	}, 3*time.Minute, time.Second, "SandboxTemplate did not prepare")
+		return true, nil
+	})
+	require.NoError(t, err, "SandboxTemplate %s/%s did not prepare; last create error: %v", f.template.Namespace, f.template.Name, lastErr)
 	t.Logf("sandbox %s: %s (%s)", instance.Id, instance.State, instance.Operation)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
@@ -111,12 +117,15 @@ func (f *sandboxFixture) create(t *testing.T, ttl time.Duration) *apiv1alpha1.Sa
 func (f *sandboxFixture) wait(t *testing.T, id string, state apiv1alpha1.RuntimeState) *apiv1alpha1.Sandbox {
 	t.Helper()
 	var current *apiv1alpha1.Sandbox
-	require.Eventually(t, func() bool {
-		response, err := f.client.GetSandbox(f.ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: id})
-		require.NoError(t, err)
+	err := wait.PollUntilContextTimeout(f.ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		response, err := f.client.GetSandbox(ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: id})
+		if err != nil {
+			return false, err
+		}
 		current = response.GetSandbox()
-		return current.State == state && current.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
-	}, 2*time.Minute, time.Second, "sandbox %s did not reach %s", id, state)
+		return current.State == state && current.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, nil
+	})
+	require.NoError(t, err, "sandbox %s did not reach %s; last sandbox: %v", id, state, current)
 	return current
 }
 

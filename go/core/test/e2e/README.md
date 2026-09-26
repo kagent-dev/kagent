@@ -27,7 +27,9 @@ Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the test
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
 Preparation and runtime failures also fail the tests. CI builds the guest image
-separately.
+separately and passes its digest to Helm before installing. This avoids resolving
+the runner's `localhost:5001` registry from inside the controller pod; Substrate
+rewrites the pinned image's registry address when workers pull it.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness

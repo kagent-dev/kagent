@@ -142,6 +142,11 @@ jobs:
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
+          # Resolve the guest on the runner: localhost:5001 is not reachable
+          # from the controller pod. Substrate rewrites registry pulls on workers.
+          GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          test -n "$GUEST_DIGEST"
+          export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set-string controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
