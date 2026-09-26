@@ -895,7 +895,9 @@ const agentInstances: Pick<
    * retry cannot leave a second checkpoint or a second fork behind.
    */
   "agentInstances.fork": async (input, options) => {
-    const history = await getChatClient().history({ id: input.id }, options);
+    const source = await agentInstances["agentInstances.get"]({ id: input.id }, options);
+    const agent = required(source.agent, "SessionService/GetSession", "agent reference");
+    const history = await getChatClient().history({ id: input.id, agent }, options);
     const expectedHeadTaskId = history.messages.at(-1)?.taskId;
     if (!expectedHeadTaskId) throw new ApiError("There is no completed turn to fork.", { kind: "http", url: "CheckpointService/CreateCheckpoint", status: 400 });
     const checkpoint = await agentInstances["agentInstances.checkpoints.create"](
