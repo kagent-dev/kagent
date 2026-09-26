@@ -74,6 +74,12 @@ Do not add new work to legacy API versions unless the change is explicitly a com
 
 ## 6. Change Workflow
 
+Keep all planning documents, implementation trackers, and planning notes in the
+gitignored `.plans/` directory at the repository root. Create it when needed;
+do not use `docs/plans/` or commit plans. Merge lasting architecture decisions
+and design rationale into `docs/architecture/` as part of the relevant change.
+Tracked documentation must stand on its own without links to local plans.
+
 1. Trace the existing behavior and all callers before editing.
 2. Change the narrowest source of truth that fixes the behavior for every caller.
 3. Add focused unit coverage for semantic logic and E2E coverage for API, persistence, lifecycle, or runtime behavior.
