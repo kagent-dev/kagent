@@ -153,8 +153,6 @@ jobs:
           RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
           test -n "$RUNTIME_DIGEST"
           export KAGENT_E2E_RUNTIME_IMAGE="localhost:5001/kagent-dev/kagent/golang-adk@${RUNTIME_DIGEST}"
-          # The Go ADK image also supplies the shell and tools used by sandbox tests.
-          export KAGENT_E2E_SANDBOX_IMAGE="$KAGENT_E2E_RUNTIME_IMAGE"
           BYO_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/byo-a2a:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
           test -n "$BYO_DIGEST"
           export KAGENT_E2E_BYO_IMAGE="localhost:5001/kagent-dev/kagent/byo-a2a@${BYO_DIGEST}"

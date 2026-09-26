@@ -9,7 +9,6 @@ It creates and cleans up its own SandboxTemplates. Run from `go/`:
 
 ```sh
 KAGENT_E2E_API_URL=http://<controller-address>:8083 \
-KAGENT_E2E_SANDBOX_IMAGE=<digest-pinned-tools-image> \
 KAGENT_E2E_SANDBOX_NAMESPACE=kagent \
 KAGENT_E2E_SANDBOX_WORKER_POOL=kagent-default \
 KAGENT_E2E_RUNTIME_IMAGE=<digest-pinned-go-adk-image> \
@@ -23,9 +22,10 @@ public gRPC/MCP calls, owner isolation, binary files, process execution/output,
 suspend/resume, expiration, template revision retention, and controller restart.
 The agent test uses a deterministic local model and a real Go ADK Session to
 create a sandbox through MCP as its invoking user. Once a cluster API URL is set,
-missing image settings fail the tests before provisioning, as do preparation and
-runtime failures. CI builds the guest and uses its digest-pinned Go ADK image as
-the tools image too.
+missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests before provisioning. The same
+digest-pinned Go ADK image supplies both the agent runtime and sandbox tools.
+Preparation and runtime failures also fail the tests. CI builds the guest image
+separately.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
