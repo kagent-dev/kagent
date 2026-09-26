@@ -413,6 +413,14 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
+{{/* The managed guest uses the same image settings and defaults as the controller. */}}
+{{- define "kagent.sandboxGuestImage" -}}
+{{- $image := .Values.controller.sandbox.guestImage -}}
+{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "tag" (coalesce .Values.tag $image.tag .Chart.Version) "digest" $image.digest -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+
 {{/*
 global.imageRegistry, normalized. A trailing slash is an easy value to ship
 ("mirror.example/") and every consumer joins the registry onto a path with its

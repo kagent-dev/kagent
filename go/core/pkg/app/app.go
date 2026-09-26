@@ -36,6 +36,7 @@ import (
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -310,7 +311,7 @@ func Run(ctx context.Context, opts Options) error {
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow)
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		env("SUBSTRATE_ATENET_ROUTER_URL", substrate.DefaultAtenetRouterURL),
+		kagentenv.SubstrateAtenetRouterURL.Get(),
 		authenticator,
 	)
 	if err != nil {
@@ -327,7 +328,33 @@ func Run(ctx context.Context, opts Options) error {
 		gateway)); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
-	mcpHandler, err := v2mcp.New(sessions, checkpoints, gateway)
+	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
+	guests, err := sandboxservice.NewGuestDialer(kagentenv.SubstrateAtenetRouterURL.Get(), authenticator)
+	if err != nil {
+		return err
+	}
+	defer guests.Close()
+	policy := substrate.SandboxPolicy{
+		GuestImage: env(kagentenv.SandboxGuestImage.Name(), kagentenv.SandboxGuestImage.DefaultValue()),
+		CPU:        kagentenv.SandboxCPU.Get(),
+		Memory:     kagentenv.SandboxMemory.Get(),
+	}
+	preparation, err := v2controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(preparation); err != nil {
+		return err
+	}
+	sandboxes, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: manager.GetClient(), Authorizer: authorizer, Actors: actors, Guests: guests,
+		DefaultTTL: kagentenv.SandboxDefaultTTL.Get(), MaxTTL: kagentenv.SandboxMaxTTL.Get()})
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(sandboxes); err != nil {
+		return err
+	}
+	mcpHandler, err := v2mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
 	if err != nil {
 		return err
 	}
@@ -358,12 +385,14 @@ func Run(ctx context.Context, opts Options) error {
 		SessionService:        sessions,
 		ScheduledRunService:   schedules,
 		// Author Agents and their reusable configuration through the API.
-		AgentService:         agents,
-		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
-		CheckpointService:    checkpoints,
-		A2AHandler:           gateway,
-		HTTPHandler:          mux,
+		AgentService:           agents,
+		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
+		SandboxTemplateService: sandboxTemplates,
+		SandboxService:         sandboxes,
+		CheckpointService:      checkpoints,
+		A2AHandler:             gateway,
+		HTTPHandler:            mux,
 	})
 	if err != nil {
 		return err

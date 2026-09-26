@@ -100,6 +100,17 @@ tests:
             resources: ["*"]
             verbs: ["get", "list", "watch"]
 
+  - it: should authorize sandbox template catalog access
+    asserts:
+      - contains:
+          path: rules[0].resources
+          content: sandboxtemplates
+        template: rbac/getter-role.yaml
+      - contains:
+          path: rules[0].resources
+          content: sandboxtemplates
+        template: rbac/writer-role.yaml
+
   - it: writer role should have write permissions
     template: rbac/writer-role.yaml
     asserts:
@@ -131,7 +142,7 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
       - equal:
           path: rules[1].apiGroups
           value: [kagent.dev]
@@ -151,7 +162,7 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
       - equal:
           path: rules[1].apiGroups
           value: [kagent.dev]
