@@ -325,7 +325,7 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.Equal(t, callsBefore, base.policyCalls)
 
 			store.revision.EgressDestinations = []string{"api.example.com", "192.0.2.1"}
-			store.revision.Credentials = []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team-a/auth/token"}}
+			store.revision.Credentials = []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}
 			base.policyErr = context.DeadlineExceeded
 			_, err = workflow.Create(t.Context(), session)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -336,7 +336,7 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
 			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
 			require.Len(t, base.policy.Rules, 3)
-			require.Equal(t, &ateapipb.CredentialHeaderInjection{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://kubernetes.io/team-a/auth/token"}, base.policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders()[0])
+			require.Equal(t, &ateapipb.CredentialHeaderInjection{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/auth/token"}, base.policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders()[0])
 			require.Equal(t, []string{"api.example.com"}, base.policy.Rules[0].GetHostnames().GetPatterns())
 			require.Equal(t, []string{"192.0.2.1/32"}, base.policy.Rules[2].GetCidrs().GetCidrs())
 
@@ -371,8 +371,8 @@ func TestActorEgressPolicy(t *testing.T) {
 
 func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 	bindings := []egress.Credential{
-		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"},
-		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://kubernetes.io/team/auth/key"},
+		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
+		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
 	}
 	_, err := substrate.ActorEgressPolicy("team", []string{"other.example.com"}, bindings)
 	require.ErrorContains(t, err, "is not allowed")

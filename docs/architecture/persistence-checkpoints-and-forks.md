@@ -64,6 +64,10 @@ Creating a checkpoint does not suspend the Actor again:
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
+Substrate v0.3.0-alpha1 records snapshot lineage in
+`Actor.status.external_snapshot.actor_template_uid`. The Tag's template UID must
+match that lineage, and the Actor UID must remain unchanged across the copy.
+
 The `CREATING` reservation blocks task writes and idle or explicit lifecycle changes until the
 copy completes or cleanup finishes. A lost response can reuse a completed Tag;
 an incomplete copy is deleted before the failed reservation is released. A

@@ -40,7 +40,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			require.Equal(t, test.host, bindings[0].Hostname)
 			require.Equal(t, test.header, bindings[0].Header)
 			require.Equal(t, test.prefix, bindings[0].Prefix)
-			require.Equal(t, "ate-secret://kubernetes.io/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
+			require.Equal(t, "ate-secret://k8s.io/default/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
 		})
 	}
 }

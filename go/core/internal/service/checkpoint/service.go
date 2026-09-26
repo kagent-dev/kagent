@@ -166,8 +166,8 @@ func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1alpha1.Checkpo
 	metadata, source, snapshot := tag.GetMetadata(), tag.GetSourceActor(), tag.GetStatus().GetSnapshot()
 	if metadata.GetAtespace() != reference.Atespace || metadata.GetName() != name || metadata.GetUid() == "" ||
 		source.GetAtespace() != reference.Atespace || source.GetName() != actorName ||
-		tag.GetStatus().GetSourceActorUid() != actor.GetMetadata().GetUid() ||
-		tag.GetStatus().GetActorTemplateUid() == "" || snapshot.GetSnapshotUri() == "" ||
+		tag.GetStatus().GetActorTemplateUid() != actor.GetStatus().GetExternalSnapshot().GetActorTemplateUid() ||
+		snapshot.GetSnapshotUri() == "" ||
 		strings.TrimPrefix(snapshot.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != reference.ContentScope ||
 		tag.GetScope() != ateapipb.TagScope_TAG_SCOPE_ATESPACE {
 		return nil, fmt.Errorf("snapshot tag %s/%s returned invalid identity", reference.Atespace, name)
@@ -190,7 +190,7 @@ func (s *Service) verifySnapshot(ctx context.Context, actorName string, referenc
 	metadata, snapshot := actor.GetMetadata(), actor.GetStatus().GetExternalSnapshot()
 	if metadata.GetAtespace() != reference.Atespace || metadata.GetName() != actorName || metadata.GetUid() == "" ||
 		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
-		reference.URI == "" || snapshot.GetSnapshotUri() != reference.URI {
+		reference.URI == "" || snapshot.GetSnapshotUri() != reference.URI || snapshot.GetActorTemplateUid() == "" {
 		return nil, fmt.Errorf("checkpoint Actor %s/%s snapshot changed", reference.Atespace, actorName)
 	}
 	if scope := strings.TrimPrefix(snapshot.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_"); scope != reference.ContentScope {

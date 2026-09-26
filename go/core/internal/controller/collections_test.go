@@ -371,8 +371,8 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
 		t.Fatalf("Claude revision environment = %#v", state.Revision)
 	}
-	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
-		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetReadyz())
+	if state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe())
 	}
 }
 
@@ -427,8 +427,8 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	if state.Revision == nil || state.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
 		t.Fatalf("Codex revision environment = %#v", state.Revision)
 	}
-	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
-		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetReadyz())
+	if state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe())
 	}
 }
 

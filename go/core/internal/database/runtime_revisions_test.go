@@ -491,12 +491,12 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	client := NewClient(setupTestDB(t))
-	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"}}}
+	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, revision.Credentials, got.Credentials)
-	revision.Credentials[0].URI = "ate-secret://kubernetes.io/team/other/token"
+	revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
 	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
@@ -507,7 +507,7 @@ func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
 	revision, err := toRuntimeRevision(runtimeRevisionRow{
 		Revision: "bad-revision",
 		Credentials: []egress.Credential{{
-			Hostname: "*", Header: "authorization", URI: "ate-secret://kubernetes.io/team/auth/token",
+			Hostname: "*", Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token",
 		}},
 	})
 	require.ErrorContains(t, err, "decode runtime revision bad-revision credentials")

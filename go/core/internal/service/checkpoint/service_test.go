@@ -138,6 +138,7 @@ type testTags struct {
 	createCalls            int
 	snapshotURI            string
 	snapshotURIAfterCreate string
+	actorUIDAfterCreate    string
 	created                *ateapipb.Tag
 	deleteCalls            int
 	getErr                 error
@@ -155,10 +156,14 @@ func (t *testTags) GetActor(_ context.Context, atespace, name string) (*ateapipb
 	if t.created != nil && t.snapshotURIAfterCreate != "" {
 		uri = t.snapshotURIAfterCreate
 	}
+	actorUID := "actor-uid"
+	if t.created != nil && t.actorUIDAfterCreate != "" {
+		actorUID = t.actorUIDAfterCreate
+	}
 	return &ateapipb.Actor{
-		Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
+		Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: actorUID},
 		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: uri, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}},
+			ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: uri, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, ActorTemplateUid: "template-uid"}},
 	}, nil
 }
 
@@ -181,7 +186,7 @@ func (t *testTags) CreateTag(_ context.Context, atespace, name, actorName string
 		Metadata:    &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "tag-uid"},
 		SourceActor: &ateapipb.ObjectRef{Atespace: atespace, Name: actorName},
 		Scope:       ateapipb.TagScope_TAG_SCOPE_ATESPACE,
-		Status: &ateapipb.TagStatus{SourceActorUid: "actor-uid", ActorTemplateUid: "template-uid",
+		Status: &ateapipb.TagStatus{ActorTemplateUid: "template-uid",
 			Snapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://tags/checkpoint", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}},
 	}
 	if t.mutateTag != nil {
@@ -271,16 +276,25 @@ func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
 }
 
 func TestCreateCleansTagBeforeFailing(t *testing.T) {
-	store := &testStore{}
-	tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", snapshotURIAfterCreate: "s3://snapshots/snapshot-2"}
-	service := NewService(store, testAuthorizer{}, tags, nil)
-	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
+	for _, test := range []struct {
+		name                   string
+		snapshotURIAfterCreate string
+		actorUIDAfterCreate    string
+	}{
+		{name: "snapshot changed", snapshotURIAfterCreate: "s3://snapshots/snapshot-2"},
+		{name: "actor replaced", actorUIDAfterCreate: "other-actor-uid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &testStore{}
+			tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", snapshotURIAfterCreate: test.snapshotURIAfterCreate, actorUIDAfterCreate: test.actorUIDAfterCreate}
+			service := NewService(store, testAuthorizer{}, tags, nil)
+			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
-	if _, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1"); err == nil {
-		t.Fatal("Create() succeeded after snapshot identity changed")
-	}
-	if tags.deleteCalls != 1 || store.failed == "" {
-		t.Fatalf("cleanup calls = %d, failure = %q", tags.deleteCalls, store.failed)
+			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+			require.Error(t, err)
+			require.Equal(t, 1, tags.deleteCalls)
+			require.NotEmpty(t, store.failed)
+		})
 	}
 }
 
@@ -353,7 +367,9 @@ func TestCreateRejectsInvalidTagAndKeepsCleanupRetryable(t *testing.T) {
 		mutate func(*ateapipb.Tag)
 	}{
 		{"incomplete copy", func(tag *ateapipb.Tag) { tag.Status.Snapshot = nil }},
-		{"wrong source", func(tag *ateapipb.Tag) { tag.Status.SourceActorUid = "other" }},
+		{"wrong source", func(tag *ateapipb.Tag) { tag.SourceActor.Name = "other" }},
+		{"wrong template", func(tag *ateapipb.Tag) { tag.Status.ActorTemplateUid = "other" }},
+		{"missing template", func(tag *ateapipb.Tag) { tag.Status.ActorTemplateUid = "" }},
 		{"wrong scope", func(tag *ateapipb.Tag) {
 			tag.Status.Snapshot.ContentScope = ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL
 		}},

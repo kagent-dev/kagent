@@ -1,6 +1,6 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.2.0-beta5**. The compiler turns ModelConfig API
+Kagent requires Substrate **v0.3.0-alpha1**. The compiler turns ModelConfig API
 keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
 bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 overwrites the outgoing HTTP header. SDKs receive an inert placeholder where
@@ -15,7 +15,7 @@ take up to five minutes to refresh, without recompiling or restarting an agent.
 
 ## Installation
 
-The beta4 chart installs the credential provider and HTTPS interception gateway.
+The Substrate chart installs the credential provider and HTTPS interception gateway.
 Grant each agent atespace access to its credential namespace in the Substrate
 release values:
 
@@ -29,7 +29,7 @@ credentialProvider:
 For an embedded Substrate chart, put these values under `substrate:` in the
 kagent chart. Empty grants deny all credential fetches. Kagent compiles
 same-namespace references such as
-`ate-secret://kubernetes.io/kagent/model-auth/api-key`.
+`ate-secret://k8s.io/default/kagent/model-auth/api-key`.
 
 Create the gateway CA in the Substrate release namespace before waiting for
 the rollout (alongside the other Substrate CA pools):
