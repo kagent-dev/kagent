@@ -3,11 +3,11 @@ package translator
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -17,14 +17,9 @@ import (
 )
 
 const (
-	otelSDKDisabled          = "OTEL_SDK_DISABLED"
-	otelServiceName          = "OTEL_SERVICE_NAME"
-	otelResourceAttributes   = "OTEL_RESOURCE_ATTRIBUTES"
-	otelExporterOTLPEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
-	otelExporterOTLPProtocol = "OTEL_EXPORTER_OTLP_PROTOCOL"
-	otelExporterOTLPTimeout  = "OTEL_EXPORTER_OTLP_TIMEOUT"
-	otelCaptureRawAPIBodies  = "KAGENT_OTEL_CAPTURE_RAW_API_BODIES"
-	otelMaxCaptureBytes      = "KAGENT_OTEL_MAX_CAPTURE_BYTES"
+	otelServiceName        = "OTEL_SERVICE_NAME"
+	otelResourceAttributes = "OTEL_RESOURCE_ATTRIBUTES"
+
 	// OperatorResourceAttributesVariable carries the operator's resource
 	// attributes. The controller's own OTEL_RESOURCE_ATTRIBUTES also names its
 	// pod, which no runtime may inherit.
@@ -44,16 +39,24 @@ const (
 
 var signals = []Signal{SignalTraces, SignalMetrics, SignalLogs}
 
+var signalVariables = map[Signal]struct {
+	exporter, endpoint, protocol env.StringVar
+}{
+	SignalTraces:  {env.OtelTracesExporter, env.OtelExporterOTLPTracesEndpoint, env.OtelExporterOTLPTracesProtocol},
+	SignalMetrics: {env.OtelMetricsExporter, env.OtelExporterOTLPMetricsEndpoint, env.OtelExporterOTLPMetricsProtocol},
+	SignalLogs:    {env.OtelLogsExporter, env.OtelExporterOTLPLogsEndpoint, env.OtelExporterOTLPLogsProtocol},
+}
+
 func (s Signal) exporterVariable() string {
-	return "OTEL_" + strings.ToUpper(string(s)) + "_EXPORTER"
+	return signalVariables[s].exporter.Name()
 }
 
 func (s Signal) endpointVariable() string {
-	return "OTEL_EXPORTER_OTLP_" + strings.ToUpper(string(s)) + "_ENDPOINT"
+	return signalVariables[s].endpoint.Name()
 }
 
 func (s Signal) protocolVariable() string {
-	return "OTEL_EXPORTER_OTLP_" + strings.ToUpper(string(s)) + "_PROTOCOL"
+	return signalVariables[s].protocol.Name()
 }
 
 // TelemetryConfig is the controller-owned telemetry configuration compiled
@@ -90,12 +93,12 @@ type SignalConfig struct {
 // observability configuration cannot invalidate AgentTemplates.
 func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
 	config := TelemetryConfig{
-		Endpoint:            strings.TrimSpace(os.Getenv(otelExporterOTLPEndpoint)),
-		Protocol:            strings.ToLower(strings.TrimSpace(os.Getenv(otelExporterOTLPProtocol))),
-		CaptureRawAPIBodies: strings.EqualFold(strings.TrimSpace(os.Getenv(otelCaptureRawAPIBodies)), "true"),
+		Endpoint:            strings.TrimSpace(env.OtelExporterOTLPEndpoint.Get()),
+		Protocol:            strings.ToLower(strings.TrimSpace(env.OtelExporterOTLPProtocol.Get())),
+		CaptureRawAPIBodies: env.OtelCaptureRawAPIBodies.Get(),
 	}
 	var warnings []error
-	disabled := strings.EqualFold(strings.TrimSpace(os.Getenv(otelSDKDisabled)), "true")
+	disabled := strings.EqualFold(strings.TrimSpace(env.OtelSDKDisabled.Get()), "true")
 	for _, signal := range signals {
 		resolved, err := config.signalFromProcess(signal, disabled)
 		if err != nil {
@@ -106,9 +109,9 @@ func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
 	if config.Protocol == "" {
 		config.Protocol = defaultOTLPProtocol
 	}
-	if raw := strings.TrimSpace(os.Getenv(otelExporterOTLPTimeout)); raw != "" {
+	if raw := strings.TrimSpace(env.OtelExporterOTLPTimeout.Get()); raw != "" {
 		if value, err := strconv.Atoi(raw); err != nil || value <= 0 {
-			warnings = append(warnings, fmt.Errorf("%s must be a positive number of milliseconds", otelExporterOTLPTimeout))
+			warnings = append(warnings, fmt.Errorf("%s must be a positive number of milliseconds", env.OtelExporterOTLPTimeout.Name()))
 		} else {
 			config.Timeout = raw
 		}
@@ -118,7 +121,7 @@ func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
 		warnings = append(warnings, err)
 	}
 	config.ResourceAttributes = attributes
-	switch capture := strings.TrimSpace(os.Getenv(tracing.CaptureContentEnvironmentVariable)); capture {
+	switch capture := strings.TrimSpace(env.OtelCaptureMessageContent.Get()); capture {
 	case tracing.CaptureContentSpanOnly:
 		config.CaptureSensitiveContent = true
 	case "", "NO_CONTENT", tracing.CaptureContentDisabled:
@@ -147,15 +150,15 @@ func (c *TelemetryConfig) signal(signal Signal) *SignalConfig {
 // signalFromProcess resolves one signal. Only an explicit otlp exporter is
 // forwarded; the chart always renders one.
 func (c TelemetryConfig) signalFromProcess(signal Signal, disabled bool) (SignalConfig, error) {
-	switch exporter := strings.TrimSpace(os.Getenv(signal.exporterVariable())); {
+	switch exporter := strings.TrimSpace(signalVariables[signal].exporter.Get()); {
 	case disabled || exporter == "" || exporter == "none":
 		return SignalConfig{}, nil
 	case exporter != "otlp":
 		return SignalConfig{}, fmt.Errorf("%s must be otlp or none, not %q", signal.exporterVariable(), exporter)
 	}
 	resolved := SignalConfig{
-		EndpointOverride: strings.TrimSpace(os.Getenv(signal.endpointVariable())),
-		ProtocolOverride: strings.ToLower(strings.TrimSpace(os.Getenv(signal.protocolVariable()))),
+		EndpointOverride: strings.TrimSpace(signalVariables[signal].endpoint.Get()),
+		ProtocolOverride: strings.ToLower(strings.TrimSpace(signalVariables[signal].protocol.Get())),
 	}
 	endpoint := resolved.EndpointOverride
 	if endpoint == "" {
@@ -186,7 +189,7 @@ func (c TelemetryConfig) signalFromProcess(signal Signal, disabled bool) (Signal
 }
 
 func resourceAttributesFromProcess() (string, error) {
-	raw := strings.TrimSpace(os.Getenv(OperatorResourceAttributesVariable))
+	raw := strings.TrimSpace(env.OtelResourceAttributes.Get())
 	if raw == "" {
 		return "", nil
 	}
@@ -210,13 +213,15 @@ func resourceAttributesFromProcess() (string, error) {
 // value is reported and replaced by the default so an observability setting
 // cannot invalidate AgentTemplates.
 func maxCaptureBytesFromProcess() (int, error) {
-	raw := strings.TrimSpace(os.Getenv(otelMaxCaptureBytes))
-	if raw == "" {
+	value, set, err := env.OtelMaxCaptureBytes.LookupWithError()
+	if err != nil {
+		return 0, err
+	}
+	if !set {
 		return 0, nil
 	}
-	value, err := strconv.Atoi(raw)
-	if err != nil || value <= 0 || value > tracing.MaxCaptureBytes {
-		return 0, fmt.Errorf("%s must be a positive integer of at most %d bytes", otelMaxCaptureBytes, tracing.MaxCaptureBytes)
+	if value <= 0 || value > tracing.MaxCaptureBytes {
+		return 0, fmt.Errorf("%s must be a positive integer of at most %d bytes", env.OtelMaxCaptureBytes.Name(), tracing.MaxCaptureBytes)
 	}
 	return value, nil
 }
@@ -302,8 +307,8 @@ func IsResourceAttributesVariable(name string) bool {
 // runtime revisions. Other OTEL variables remain available for harness tuning.
 func OwnsTelemetryEnvironment(name string) bool {
 	switch name {
-	case otelSDKDisabled, otelServiceName,
-		otelExporterOTLPEndpoint, otelExporterOTLPProtocol, otelExporterOTLPTimeout,
+	case env.OtelSDKDisabled.Name(), otelServiceName,
+		env.OtelExporterOTLPEndpoint.Name(), env.OtelExporterOTLPProtocol.Name(), env.OtelExporterOTLPTimeout.Name(),
 		tracing.CaptureContentEnvironmentVariable:
 		return true
 	}
@@ -329,7 +334,7 @@ func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry,
 		strings.Join([]string{c.ResourceAttributes, harnessAttributes}, ","), resourceIdentity(identity))}
 	if !c.Enabled() {
 		environment := []corev1.EnvVar{
-			{Name: otelSDKDisabled, Value: "true"},
+			{Name: env.OtelSDKDisabled.Name(), Value: "true"},
 			{Name: SignalTraces.exporterVariable(), Value: "none"},
 			{Name: SignalMetrics.exporterVariable(), Value: "none"},
 			{Name: SignalLogs.exporterVariable(), Value: "none"},
@@ -350,9 +355,9 @@ func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry,
 	}
 	sharedEndpoint, sharedProtocol := c.sharedExporter()
 	if sharedEndpoint {
-		environment = append(environment, corev1.EnvVar{Name: otelExporterOTLPEndpoint, Value: c.Endpoint})
+		environment = append(environment, corev1.EnvVar{Name: env.OtelExporterOTLPEndpoint.Name(), Value: c.Endpoint})
 	}
-	environment = append(environment, corev1.EnvVar{Name: otelExporterOTLPProtocol, Value: sharedProtocol})
+	environment = append(environment, corev1.EnvVar{Name: env.OtelExporterOTLPProtocol.Name(), Value: sharedProtocol})
 	for _, signal := range signals {
 		resolved := c.signal(signal)
 		if !resolved.Enabled {
@@ -366,7 +371,7 @@ func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry,
 		}
 	}
 	if c.Timeout != "" {
-		environment = append(environment, corev1.EnvVar{Name: otelExporterOTLPTimeout, Value: c.Timeout})
+		environment = append(environment, corev1.EnvVar{Name: env.OtelExporterOTLPTimeout.Name(), Value: c.Timeout})
 	}
 	return append(environment, corev1.EnvVar{Name: otelServiceName, Value: identity.AgentName}, resource, capture)
 }
@@ -399,7 +404,7 @@ func (c TelemetryConfig) sharedExporter() (bool, string) {
 func DefaultsEnvironment() []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(telemetry.Defaults))
 	for _, value := range telemetry.Defaults {
-		environment = append(environment, corev1.EnvVar{Name: value.Name, Value: value.Value})
+		environment = append(environment, corev1.EnvVar{Name: value.Name(), Value: value.DefaultValue()})
 	}
 	return environment
 }

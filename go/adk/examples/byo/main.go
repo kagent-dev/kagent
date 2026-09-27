@@ -47,7 +47,7 @@ func main() {
 	logger, _ := logging.New(os.Stderr, "info")
 	slog.SetDefault(logger)
 
-	modelName := os.Getenv("MODEL_NAME")
+	modelName := os.Getenv("MODEL_NAME") //nolint:forbidigo // Application-specific setting in this standalone BYO example.
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}

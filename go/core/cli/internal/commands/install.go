@@ -78,15 +78,15 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	// If model provider is openai, check if the API key is set
-	apiKeyName := GetProviderAPIKey(modelProvider)
-	apiKeyValue := os.Getenv(apiKeyName)
-
-	if apiKeyName != "" && apiKeyValue == "" {
-		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
-		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
-		fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
-		return nil
+	apiKeyValue := ""
+	if apiKey, ok := providerAPIKey(modelProvider); ok {
+		apiKeyValue = apiKey.Get()
+		if apiKeyValue == "" {
+			fmt.Fprintf(os.Stderr, "%s is not set\n", apiKey.Name())
+			fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKey.Name())
+			fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
+			return nil
+		}
 	}
 
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
@@ -125,9 +125,12 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 	}
 
 	// allow user to set the helm registry and version
-	helmRegistry := GetEnvVarWithDefault(env.KagentHelmRepo.Name(), DefaultHelmOciRegistry)
-	helmVersion := GetEnvVarWithDefault(env.KagentHelmVersion.Name(), version.Version)
-	helmExtraArgs := GetEnvVarWithDefault(env.KagentHelmExtraArgs.Name(), "")
+	helmRegistry := env.KagentHelmRepo.Get()
+	helmVersion, versionSet := env.KagentHelmVersion.Lookup()
+	if !versionSet {
+		helmVersion = version.Version
+	}
+	helmExtraArgs := env.KagentHelmExtraArgs.Get()
 
 	// split helmExtraArgs by "--set" to get additional values
 	extraValues := strings.Split(helmExtraArgs, "--set")

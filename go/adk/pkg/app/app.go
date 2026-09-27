@@ -209,10 +209,10 @@ func applyDefaults(cfg AppConfig) AppConfig {
 // buildAppName derives the app name from environment variables or agent card,
 // following the same convention as the Python KAgentConfig.
 func buildAppName(agentCard *a2atype.AgentCard) string {
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+	kagentName := env.KagentName.Get()
+	kagentNamespace, namespaceSet := env.KagentNamespace.Lookup()
 
-	if kagentNamespace != "" && kagentName != "" {
+	if namespaceSet && kagentNamespace != "" && kagentName != "" {
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
 		return namespace + "__NS__" + name

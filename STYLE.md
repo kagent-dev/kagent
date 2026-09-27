@@ -205,6 +205,19 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
   HTTP calls use `http.NewRequestWithContext`. Never drop a `cancel` function.
 - Context keys use unexported struct types, never strings.
 
+### Environment variables
+
+- Read user-configurable settings through registered accessors in `core/pkg/env`.
+  Register each setting once, listing every consuming component.
+- Use `Get()` for the registered default and `Lookup()` when a caller must
+  distinguish unset values. Use boolean/integer `LookupWithError()` when invalid
+  input needs a diagnostic; it distinguishes invalid input from unset or empty.
+- Registered booleans accept `true`, `t`, `1`, `false`, `f`, and `0`, ignoring case
+  and surrounding whitespace. Upstream settings with a different grammar use
+  string registrations and their own parser.
+- Direct process reads require an explained lint exception, such as resolving
+  controller-generated payloads or arbitrary credential placeholders.
+
 ### Logging
 
 - Use standard-library `log/slog`. Binaries write JSON to stderr and read the

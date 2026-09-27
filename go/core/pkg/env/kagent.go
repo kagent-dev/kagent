@@ -78,15 +78,10 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	// Registered here for `kagent env` CLI discoverability only -- the
-	// actual gate is read independently (raw os.Getenv, not via this var)
-	// in go/adk/pkg/tools/skills.go's enableFileSearchToolsEnv. The two
-	// literals are pinned together by that package's
-	// TestEnableFileSearchToolsEnvMatchesRegistry.
 	KagentEnableFileSearchTools = RegisterBoolVar(
 		"KAGENT_ENABLE_FILE_SEARCH_TOOLS",
 		false,
-		"When true, enables the list_files and grep_file skills tools, which let an agent "+
+		"When true, t, or 1 (case-insensitive), enables the list_files and grep_file skills tools, which let an agent "+
 			"enumerate and search the filesystem under its session/skills roots without a "+
 			"shell. Disabled by default; set in Harness env to opt in.",
 		ComponentAgentRuntime,
@@ -116,7 +111,7 @@ var (
 	DatabaseVectorEnabled = RegisterBoolVar(
 		"KAGENT_DATABASE_VECTOR_ENABLED",
 		false,
-		"Enable vector database migrations and vector-backed database functionality.",
+		"Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable.",
 		ComponentDatabase, ComponentController, ComponentCLI,
 	)
 

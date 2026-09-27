@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"iter"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -129,6 +130,13 @@ func TestBuildAppName_FromAgentCard(t *testing.T) {
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
 	}
+}
+
+func TestBuildAppName_UnsetNamespace(t *testing.T) {
+	t.Setenv(env.KagentName.Name(), "my-agent")
+	t.Setenv(env.KagentNamespace.Name(), "")
+	require.NoError(t, os.Unsetenv(env.KagentNamespace.Name()))
+	require.Equal(t, "card-name", buildAppName(&a2atype.AgentCard{Name: "card-name"}))
 }
 
 func TestBuildAppName_Default(t *testing.T) {

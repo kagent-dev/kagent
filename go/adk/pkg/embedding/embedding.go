@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"os"
 	"sync"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/ollama/ollama/api"
 	"github.com/openai/openai-go/v3"
@@ -99,7 +99,7 @@ type openAIProvider struct {
 }
 
 func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := env.OpenAIAPIKey.Get()
 	httpClient, err := embeddingHTTPClient(cfg)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ type azureOpenAIProvider struct {
 func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*azureOpenAIProvider, error) {
 	apiVersion := cfg.APIVersion
 	if apiVersion == "" {
-		apiVersion = os.Getenv("OPENAI_API_VERSION")
+		apiVersion = env.OpenAIAPIVersion.Get()
 	}
 	if apiVersion == "" {
 		apiVersion = "2024-02-15-preview"
@@ -178,7 +178,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 		endpoint = cfg.BaseUrl
 	}
 	if endpoint == "" {
-		endpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
+		endpoint = env.AzureOpenAIEndpoint.Get()
 	}
 	if endpoint == "" {
 		return nil, fmt.Errorf("Azure OpenAI endpoint must be set via endpoint, base_url, or AZURE_OPENAI_ENDPOINT env var") //nolint:staticcheck // ST1005: keep product name readable
@@ -203,7 +203,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 	// token when APIKeyPassthrough is enabled (a placeholder Api-Key is
 	// overwritten per request by embeddingPassthroughOpts), otherwise the
 	// AZURE_OPENAI_API_KEY Api-Key header, otherwise DefaultAzureCredential.
-	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	apiKey := env.AzureOpenAIAPIKey.Get()
 	if cfg.APIKeyPassthrough {
 		apiKey = "passthrough"
 	}
@@ -236,7 +236,7 @@ type ollamaProvider struct {
 func newOllamaProvider(cfg *adk.EmbeddingConfig) (*ollamaProvider, error) {
 	host := cfg.BaseUrl
 	if host == "" {
-		host = os.Getenv("OLLAMA_API_BASE")
+		host = env.OllamaAPIBase.Get()
 	}
 	if host == "" {
 		host = "http://localhost:11434"
@@ -282,7 +282,7 @@ func (p *geminiProvider) generate(ctx context.Context, texts []string) ([][]floa
 
 	p.once.Do(func() {
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{
-			APIKey: os.Getenv("GOOGLE_API_KEY"),
+			APIKey: env.GoogleAPIKey.Get(),
 		})
 		if err != nil {
 			p.initErr = fmt.Errorf("failed to create genai client: %w", err)
@@ -325,9 +325,9 @@ type bedrockProvider struct {
 func (p *bedrockProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
 	log := logging.FromContext(ctx)
 
-	region := os.Getenv("AWS_DEFAULT_REGION")
+	region := env.AWSDefaultRegion.Get()
 	if region == "" {
-		region = os.Getenv("AWS_REGION")
+		region = env.AWSRegion.Get()
 	}
 	if region == "" {
 		region = "us-east-1"
@@ -460,7 +460,7 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 	}
 	// See newAzureOpenAIProvider - the passthrough placeholder short-circuits
 	// past DefaultAzureCredential resolution the same way it does for chat.
-	apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar)
+	apiKey := env.FoundryAPIKey.Get()
 	if cfg.APIKeyPassthrough {
 		apiKey = "passthrough"
 	}

@@ -46,13 +46,7 @@ func main() {
 	slog.SetDefault(logger)
 	logger.Info("logger initialized", "level", *logLevel)
 
-	configDir := *filepathFlag
-	if configDir == "" {
-		configDir = os.Getenv("KAGENT_CONFIG_DIR")
-	}
-	if configDir == "" {
-		configDir = "/config"
-	}
+	configDir := cmp.Or(*filepathFlag, env.KagentConfigDir.Get(), env.KagentConfigDir.DefaultValue())
 
 	if err := run(logger, *host, *portFlag, configDir); err != nil {
 		logger.Error("agent stopped", "error", err)

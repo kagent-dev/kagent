@@ -192,26 +192,31 @@ func RegisterBoolVar(name string, defaultValue bool, description string, compone
 
 // Get returns the current value of the environment variable, or the default.
 func (b BoolVar) Get() bool {
-	if val, ok := os.LookupEnv(b.v.Name); ok {
-		parsed, err := strconv.ParseBool(val)
-		if err == nil {
-			return parsed
-		}
-	}
-	return b.defaultValue
+	value, _, _ := b.LookupWithError() // Invalid input uses the registered default.
+	return value
 }
 
-// Lookup returns the value and whether the variable was set.
+// Lookup returns the value and whether a nonempty, valid value was set.
 func (b BoolVar) Lookup() (bool, bool) {
+	value, set, err := b.LookupWithError()
+	return value, set && err == nil
+}
+
+// LookupWithError distinguishes invalid input from an unset or empty value.
+// Boolean values are case-insensitive and ignore surrounding whitespace.
+// Unset, empty, and invalid values return the registered default; invalid input
+// additionally returns set=true and a parsing error.
+func (b BoolVar) LookupWithError() (value, set bool, err error) {
 	val, ok := os.LookupEnv(b.v.Name)
-	if !ok {
-		return b.defaultValue, false
+	val = strings.TrimSpace(val)
+	if !ok || val == "" {
+		return b.defaultValue, false, nil
 	}
-	parsed, err := strconv.ParseBool(val)
+	parsed, err := strconv.ParseBool(strings.ToLower(val))
 	if err != nil {
-		return b.defaultValue, false
+		return b.defaultValue, true, fmt.Errorf("failed to parse %s as a boolean: %w", b.v.Name, err)
 	}
-	return parsed, true
+	return parsed, true, nil
 }
 
 // Name returns the environment variable name.
@@ -240,26 +245,30 @@ func RegisterIntVar(name string, defaultValue int, description string, component
 
 // Get returns the current value of the environment variable, or the default.
 func (i IntVar) Get() int {
-	if val, ok := os.LookupEnv(i.v.Name); ok {
-		parsed, err := strconv.Atoi(val)
-		if err == nil {
-			return parsed
-		}
-	}
-	return i.defaultValue
+	value, _, _ := i.LookupWithError() // Invalid input uses the registered default.
+	return value
 }
 
-// Lookup returns the value and whether the variable was set.
+// Lookup returns the value and whether a nonempty, valid value was set.
 func (i IntVar) Lookup() (int, bool) {
+	value, set, err := i.LookupWithError()
+	return value, set && err == nil
+}
+
+// LookupWithError distinguishes invalid input from an unset or empty value.
+// Integer values ignore surrounding whitespace. Unset, empty, and invalid values
+// return the registered default; invalid input also returns set=true and an error.
+func (i IntVar) LookupWithError() (value int, set bool, err error) {
 	val, ok := os.LookupEnv(i.v.Name)
-	if !ok {
-		return i.defaultValue, false
+	val = strings.TrimSpace(val)
+	if !ok || val == "" {
+		return i.defaultValue, false, nil
 	}
 	parsed, err := strconv.Atoi(val)
 	if err != nil {
-		return i.defaultValue, false
+		return i.defaultValue, true, fmt.Errorf("failed to parse %s as an integer: %w", i.v.Name, err)
 	}
-	return parsed, true
+	return parsed, true, nil
 }
 
 // Name returns the environment variable name.

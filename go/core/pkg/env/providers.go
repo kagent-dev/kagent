@@ -164,9 +164,9 @@ var (
 
 // Provider aliases.
 var (
-	_ = RegisterStringVar("GEMINI_API_KEY", "", "Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs.", ComponentAgentRuntime, ComponentCLI)
-	_ = RegisterStringVar("GOOGLE_CLOUD_REGION", "", "Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset.", ComponentAgentRuntime)
-	_ = RegisterStringVar("AWS_DEFAULT_REGION", "", "Preferred region for Python Bedrock models and Go/Python Bedrock embeddings, before AWS_REGION and the us-east-1 fallback.", ComponentAgentRuntime)
+	GeminiAPIKey      = RegisterStringVar("GEMINI_API_KEY", "", "Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs.", ComponentAgentRuntime, ComponentCLI)
+	GoogleCloudRegion = RegisterStringVar("GOOGLE_CLOUD_REGION", "", "Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset.", ComponentAgentRuntime)
+	AWSDefaultRegion  = RegisterStringVar("AWS_DEFAULT_REGION", "", "Preferred region for Python Bedrock models and Go/Python Bedrock embeddings, before AWS_REGION and the us-east-1 fallback.", ComponentAgentRuntime)
 )
 
 // SAP AI Core

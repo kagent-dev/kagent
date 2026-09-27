@@ -90,9 +90,12 @@ linters:
         - shadow
       enable-all: true
     forbidigo:
+      analyze-types: true
       forbid:
         - pattern: ^log\.(Fatal|Fatalf|Fatalln|Print|Printf|Println|Panic|Panicf|Panicln)$
           msg: Use log/slog with the shared logging package
+        - pattern: ^os\.(Getenv|LookupEnv)$
+          msg: Use a registered accessor from core/pkg/env for configurable settings
     importas:
       alias:
         - pkg: k8s.io/api/core/v1
@@ -157,6 +160,10 @@ linters:
       - zz_generated.*\.go$
       - .*conversion.*\.go$
     rules:
+      - linters:
+          - forbidigo
+        text: Use a registered accessor from core/pkg/env
+        path: '(^|/)core/pkg/env/|_test\.go$'
       - linters:
           - kubeapilinter
         path-except: "api/v1alpha"

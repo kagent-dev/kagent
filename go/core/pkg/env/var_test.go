@@ -72,6 +72,81 @@ func TestRegisterBoolVar(t *testing.T) {
 	}
 }
 
+func TestBoolLookupWithError(t *testing.T) {
+	v := RegisterBoolVar("TEST_BOOL_LOOKUP_ERROR", true, "test", ComponentTesting)
+	for _, tt := range []struct {
+		name, input               string
+		unset, want, set, wantErr bool
+	}{
+		{name: "unset", unset: true, want: true},
+		{name: "empty", want: true},
+		{name: "whitespace", input: " \t", want: true},
+		{name: "mixed case", input: " tRuE ", want: true, set: true},
+		{name: "short true", input: " T ", want: true, set: true},
+		{name: "one", input: "1", want: true, set: true},
+		{name: "false", input: " FaLsE ", set: true},
+		{name: "short false", input: "F", set: true},
+		{name: "zero", input: "0", set: true},
+		{name: "invalid", input: "yes", want: true, set: true, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(v.Name(), tt.input)
+			if tt.unset {
+				require.NoError(t, os.Unsetenv(v.Name()))
+			}
+			got, set, err := v.LookupWithError()
+			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.set, set)
+			if tt.wantErr {
+				require.ErrorContains(t, err, v.Name())
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.want, v.Get())
+			got, valid := v.Lookup()
+			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.set && !tt.wantErr, valid)
+		})
+	}
+}
+
+func TestIntLookupWithError(t *testing.T) {
+	v := RegisterIntVar("TEST_INT_LOOKUP_ERROR", 42, "test", ComponentTesting)
+	for _, tt := range []struct {
+		name, input         string
+		want                int
+		unset, set, wantErr bool
+	}{
+		{name: "unset", unset: true, want: 42},
+		{name: "empty", want: 42},
+		{name: "whitespace", input: " \t", want: 42},
+		{name: "valid", input: " 4096 ", want: 4096, set: true},
+		{name: "zero", input: "0", set: true},
+		{name: "negative", input: "-1", want: -1, set: true},
+		{name: "invalid", input: "many", want: 42, set: true, wantErr: true},
+		{name: "overflow", input: "99999999999999999999999999", want: 42, set: true, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(v.Name(), tt.input)
+			if tt.unset {
+				require.NoError(t, os.Unsetenv(v.Name()))
+			}
+			got, set, err := v.LookupWithError()
+			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.set, set)
+			if tt.wantErr {
+				require.ErrorContains(t, err, v.Name())
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.want, v.Get())
+			got, valid := v.Lookup()
+			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.set && !tt.wantErr, valid)
+		})
+	}
+}
+
 func TestRegisterIntVar(t *testing.T) {
 	allVars = make(map[string]Var)
 
