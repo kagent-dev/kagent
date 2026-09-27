@@ -141,7 +141,10 @@ func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent: &v1alpha3.KagentHarness{},
+			Kagent: &v1alpha3.KagentHarness{
+				Memory:     &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: "default-model"}, TTLDays: 7},
+				Compaction: &v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5)},
+			},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"runtime": "kagent"},
 			}},
@@ -179,6 +182,12 @@ func TestCompileAgentTemplateStructuredOutput(t *testing.T) {
 	require.Len(t, config.Output.SHA256, 64)
 	require.Len(t, config.SubAgents, 1)
 	require.Nil(t, config.SubAgents[0].Output)
+	require.Equal(t, 7, config.Memory.TTLDays)
+	require.Equal(t, 5, *config.ContextConfig.Compaction.CompactionInterval)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+	require.Nil(t, config.SubAgents[0].Memory)
+	require.Nil(t, config.SubAgents[0].ContextConfig)
+	require.Empty(t, config.SubAgents[0].SessionDBURL)
 	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
 	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
 }
@@ -456,7 +465,7 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	}
 }
 
-func TestCompileAgentTemplateSharedAgent(t *testing.T) {
+func TestCompileAgentTemplateSharedADKConfig(t *testing.T) {
 	selector := &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{MatchLabels: map[string]string{"runtime": "kagent"}}}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
@@ -482,24 +491,56 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			Skills: child.Spec.Skills,
+			Plugins: []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+				URL: "https://github.com/acme/plugin", Commit: "cccccccccccccccccccccccccccccccccccccccc",
+			}}}},
 			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
 				Name: "web_researcher", Description: "research the web", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
-	revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgentTemplate(context.Background(), harness, root)
-	require.NoError(t, err)
-	var config adk.AgentConfig
-	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-	require.Len(t, config.SubAgents, 1)
-	require.Equal(t, "web_researcher", config.SubAgents[0].Name)
-	require.Equal(t, "research the web", config.SubAgents[0].Description)
-	require.Equal(t, "research carefully", config.SubAgents[0].Instruction)
-	require.Equal(t, []string{"lookup"}, config.SubAgents[0].HttpTools[0].Tools)
-	require.Equal(t, "review", config.SubAgents[0].AgentPlugins.Skills[0].Name)
-	require.Contains(t, revision.EgressDestinations, "search.example.com")
-	require.Contains(t, revision.EgressDestinations, "ghcr.io")
-	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+
+	var commonConfig []byte
+	for _, kind := range []string{"kagent", "byo"} {
+		t.Run(kind, func(t *testing.T) {
+			runtimeHarness := harness.DeepCopy()
+			if kind == "byo" {
+				runtimeHarness.Spec.Kagent = nil
+				runtimeHarness.Spec.BYO = &v1alpha3.BYOHarness{}
+				runtimeHarness.Spec.Workload.Command = []string{"/app"}
+			}
+			revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgentTemplate(context.Background(), runtimeHarness, root)
+			require.NoError(t, err)
+			var config adk.AgentConfig
+			require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+			require.Len(t, config.SubAgents, 1)
+			require.Equal(t, "web_researcher", config.SubAgents[0].Name)
+			require.Equal(t, "research the web", config.SubAgents[0].Description)
+			require.Equal(t, "research carefully", config.SubAgents[0].Instruction)
+			require.Equal(t, []string{"lookup"}, config.SubAgents[0].HttpTools[0].Tools)
+			require.Equal(t, "review", config.SubAgents[0].AgentPlugins.Skills[0].Name)
+			require.Contains(t, revision.EgressDestinations, "search.example.com")
+			require.Contains(t, revision.EgressDestinations, "ghcr.io")
+			require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+
+			require.Equal(t, "coordinate", config.Instruction)
+			require.NotNil(t, config.Model)
+			require.True(t, config.GetStream())
+			require.Equal(t, "review", config.AgentPlugins.Skills[0].Name)
+			require.Equal(t, "https://github.com/acme/plugin", config.AgentPlugins.Plugins[0].Source.Git.URL)
+			require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+			require.Empty(t, config.SubAgents[0].SessionDBURL)
+			require.Nil(t, config.Memory)
+			require.Nil(t, config.ContextConfig)
+			require.Nil(t, config.Output)
+			if commonConfig == nil {
+				commonConfig = revision.ConfigJSON
+			} else {
+				require.JSONEq(t, string(commonConfig), string(revision.ConfigJSON))
+			}
+		})
+	}
 }
 
 func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {

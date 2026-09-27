@@ -25,7 +25,7 @@ func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
-	compiled, err := c.config.Build(ctx, input.Root)
+	compiled, err := c.config.Build(ctx, input)
 	if err != nil {
 		return nil, err
 	}

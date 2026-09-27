@@ -13,9 +13,10 @@ import (
 )
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
-	_, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{Root: &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{},
-	}})
+	_, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
+		Harness: &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+		Root:    &v2translator.AgentInput{Template: &v1alpha3.AgentTemplate{}},
+	})
 	if err == nil || !strings.Contains(err.Error(), "kagent ModelConfig is required") {
 		t.Fatalf("Compile() error = %v", err)
 	}

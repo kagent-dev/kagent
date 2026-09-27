@@ -74,6 +74,19 @@ application and readiness. The central entry points are
   `/readyz`. Optional model, prompt, tool, skill, and plugin configuration is
   supplied in the ADK-shaped format when requested.
 
+The kagent and BYO compilers serialize the same ADK `AgentConfig` contract.
+`adkconfig.Builder.Build` assembles the complete payload and its model
+dependencies, environment, and egress contributions. Harness compilers package
+that result into a revision without adding configuration fields afterward.
+
+The builder compiles the shared agent tree, then applies root runtime settings.
+Both harnesses receive the durable session URL at `/data/sessions.db`; kagent
+also receives its configured memory, compaction, and structured-output policy.
+Shared subagents use the root runner's session store and do not receive their
+own runtime policy. BYO model configuration remains optional. Supplying the
+ADK payload does not make an arbitrary BYO image consume it: the image must
+implement the fields it uses and the platform's private runtime contract.
+
 Dedicated agent bindings are not compiled yet.
 
 `spec.kagent.compaction` on the Harness is runtime policy, like `spec.kagent.memory`:
