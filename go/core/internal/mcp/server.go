@@ -72,9 +72,13 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 	h := &Handler{sessions: sessions, checkpoints: checkpoints, gateway: gateway}
 	capabilities := &mcp.ServerCapabilities{}
 	capabilities.AddExtension(tasksExtension, nil)
+	instructions := "Use Sessions for agent conversations through A2A. Use checkpoint tools to save and fork Session state."
+	if sandboxes != nil {
+		instructions += "\n\n" + sandboxInstructions
+	}
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "kagent", Version: version.Version},
-		&mcp.ServerOptions{Capabilities: capabilities},
+		&mcp.ServerOptions{Capabilities: capabilities, Instructions: instructions},
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        listToolName,
@@ -86,6 +90,9 @@ func New(sessions *sessionsvc.Service, checkpoints *checkpoint.Service, gateway 
 	}, h.invokeSession)
 	h.registerCheckpointTools(server)
 	registerSandboxTools(server, sandboxes, templates)
+	if sandboxes != nil {
+		registerSandboxPrompts(server)
+	}
 	server.AddReceivingMiddleware(h.taskAwareToolCall)
 	if err := h.registerTaskMethods(server); err != nil {
 		return nil, err

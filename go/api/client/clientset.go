@@ -15,6 +15,7 @@ type APIClientSet struct {
 	Session       *SessionClient
 	AgentTemplate *AgentTemplateClient
 	Agent         *AgentClient
+	Sandbox       *SandboxClient
 }
 
 // NewAPI creates a control-plane API client set.
@@ -29,6 +30,7 @@ func NewAPI(apiURL string, options ...ClientOption) (*APIClientSet, error) {
 		Session:       newSessionClient(client),
 		AgentTemplate: newAgentTemplateClient(client),
 		Agent:         newAgentClient(client),
+		Sandbox:       &SandboxClient{client: client},
 	}, nil
 }
 

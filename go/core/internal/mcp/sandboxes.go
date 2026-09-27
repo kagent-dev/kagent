@@ -135,7 +135,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		type output struct {
 			Templates []apiv1alpha1.ResourceReference `json:"templates"`
 		}
-		addSandboxTool(server, "list_sandbox_templates", "List SandboxTemplates visible to you", func(ctx context.Context, in input) (output, error) {
+		addSandboxTool(server, "list_sandbox_templates", "Discover SandboxTemplate namespace/name references visible to you. Does not report readiness or installed programs; inspect the template or verify programs after creation.", func(ctx context.Context, in input) (output, error) {
 			values, err := templates.List(ctx, in.Namespace)
 			result := output{Templates: make([]apiv1alpha1.ResourceReference, 0, len(values))}
 			for _, value := range values {
@@ -147,7 +147,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 	if service == nil {
 		return
 	}
-	addSandboxTool(server, "create_sandbox", "Create a temporary workspace from a prepared SandboxTemplate", func(ctx context.Context, in sandboxCreateInput) (sandboxSummary, error) {
+	addSandboxTool(server, "create_sandbox", "Create a temporary workspace from a prepared SandboxTemplate. Retain request_id and identical inputs for lifecycle retries. Check state, operation, and expires_at before guest calls. No network egress is currently allowed; files belong under /data/workspace.", func(ctx context.Context, in sandboxCreateInput) (sandboxSummary, error) {
 		request := &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: &apiv1alpha1.ResourceReference{Namespace: in.Namespace, Name: in.Template}, RequestId: in.RequestID, Name: in.Name}
 		if in.TTLSeconds != 0 {
 			request.Ttl = &durationpb.Duration{Seconds: in.TTLSeconds}
@@ -180,10 +180,10 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		name, description string
 		call              func(context.Context, string) (*apiv1alpha1.Sandbox, error)
 	}{
-		{"get_sandbox", "Inspect a workspace and its expiration", service.Get},
+		{"get_sandbox", "Inspect state, operation, failure, and expiration. This only observes; repeat a pending lifecycle mutation to advance it.", service.Get},
 		{"suspend_sandbox", "Suspend a workspace; running commands and transfers may be interrupted", service.Suspend},
 		{"resume_sandbox", "Resume a workspace; previous guest process handles are no longer valid", service.Resume},
-		{"delete_sandbox", "Delete a workspace and its files", service.Delete},
+		{"delete_sandbox", "Delete a workspace and its files after retrieving needed artifacts. Retry the same deletion on transient failure; inspect state and operation to confirm completion.", service.Delete},
 	} {
 		addSandboxTool(server, action.name, action.description, func(ctx context.Context, in sandboxInput) (sandboxSummary, error) {
 			if err := protovalidate.Validate(&apiv1alpha1.GetSandboxRequest{SandboxId: in.SandboxID}); err != nil {
@@ -196,12 +196,12 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 			return summarizeSandbox(value), nil
 		})
 	}
-	addSandboxTool(server, "start_sandbox_process", "Start a new process; retrying after an uncertain result may execute the command again", func(ctx context.Context, in sandboxStartInput) (sandboxStartOutput, error) {
+	addSandboxTool(server, "start_sandbox_process", "Start once and retain process_id. This returns before completion; use get_sandbox_process and read_sandbox_outputs next. cwd defaults to /data/workspace; command is argv, not shell text. Retrying an uncertain start may execute the command twice.", func(ctx context.Context, in sandboxStartInput) (sandboxStartOutput, error) {
 		request := &guestpb.StartProcessRequest{Command: in.Command, Cwd: in.CWD, Env: in.Env}
 		result, err := service.StartProcess(ctx, in.SandboxID, request)
 		return sandboxStartOutput{ProcessID: result.GetProcessId()}, err
 	})
-	addSandboxTool(server, "get_sandbox_process", "Inspect a process and its exit status", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
+	addSandboxTool(server, "get_sandbox_process", "Inspect process status. exit_code is meaningful only for COMPLETED, FAILED, or TERMINATED, not RUNNING. Read outputs and retrieve artifacts after completion.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
 		result, err := service.GetProcess(ctx, in.SandboxID, &guestpb.GetProcessRequest{ProcessId: in.ProcessID})
 		return sandboxProcessOutput{ProcessID: result.GetProcessId(), Status: result.GetStatus().String(), ExitCode: result.GetExitCode()}, err
 	})
@@ -209,7 +209,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result, err := service.KillProcess(ctx, in.SandboxID, &guestpb.KillProcessRequest{ProcessId: in.ProcessID})
 		return sandboxProcessOutput{ProcessID: in.ProcessID, ExitCode: result.GetExitCode()}, err
 	})
-	addSandboxTool(server, "read_sandbox_outputs", "Read currently available output, up to 1 MiB; pass returned byte offsets to continue", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
+	addSandboxTool(server, "read_sandbox_outputs", "Read currently available stdout/stderr as base64, up to 1 MiB combined. Pass both returned byte offsets to continue. This does not wait for completion; check get_sandbox_process and read again after it finishes.", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
 		request := &guestpb.StreamProcessOutputsRequest{ProcessId: in.ProcessID, StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
 		result := sandboxOutputsOutput{StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
 		var stdout, stderr []byte
@@ -241,7 +241,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result.StdoutBase64, result.StderrBase64 = base64.StdEncoding.EncodeToString(stdout), base64.StdEncoding.EncodeToString(stderr)
 		return result, err
 	})
-	addSandboxTool(server, "read_sandbox_file", "Read a file up to 1 MiB as base64", func(ctx context.Context, in sandboxReadInput) (sandboxReadOutput, error) {
+	addSandboxTool(server, "read_sandbox_file", "Read a file up to 1 MiB as base64. Decode data_base64 and save artifacts outside the sandbox before deletion or expiration. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) (sandboxReadOutput, error) {
 		var data []byte
 		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.FileChunk) error {
 			if len(data)+len(chunk.Data) > sandboxToolBytes {
@@ -252,7 +252,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		})
 		return sandboxReadOutput{DataBase64: base64.StdEncoding.EncodeToString(data)}, err
 	})
-	addSandboxTool(server, "write_sandbox_file", "Write a file from base64 data, up to 1 MiB", func(ctx context.Context, in sandboxWriteInput) (sandboxWriteOutput, error) {
+	addSandboxTool(server, "write_sandbox_file", "Replace a file with decoded base64 data, up to 1 MiB. Paths are absolute or relative to /data/workspace. Verify bytes_written; interrupted writes may leave partial files. There is no append or offset input.", func(ctx context.Context, in sandboxWriteInput) (sandboxWriteOutput, error) {
 		header := &guestpb.WriteFileRequest{Path: in.Path, Mode: in.Mode}
 		if base64.StdEncoding.DecodedLen(len(in.DataBase64)) > sandboxToolBytes+2 {
 			return sandboxWriteOutput{}, fmt.Errorf("file exceeds MCP 1 MiB limit")
