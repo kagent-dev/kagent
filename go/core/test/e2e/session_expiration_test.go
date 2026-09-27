@@ -22,12 +22,14 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Sequential: temporarily shorten the controller's TTL and roll it back after
-// the test. The API endpoint must survive pod replacement (NodePort or ingress).
+// Keep the parent sequential so controller rollouts cannot overlap other tests.
+// Harness subtests run in parallel to share the idle period and expiration sweep.
+// The API endpoint must survive pod replacement (NodePort or ingress).
 func TestSessionIdleExpiration(t *testing.T) {
 	target := interactionTarget(t)
-	setSessionIdleTTL(t, target, "30s")
+	setSessionExpirationPolicy(t, target, "30s", "5s")
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
@@ -66,7 +68,7 @@ func TestSessionIdleExpiration(t *testing.T) {
 	})
 }
 
-func setSessionIdleTTL(t *testing.T, target, ttl string) {
+func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) {
 	t.Helper()
 	kube := interactionKubeClient(t)
 	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
@@ -77,8 +79,13 @@ func setSessionIdleTTL(t *testing.T, target, ttl string) {
 	index := slices.IndexFunc(deployment.Spec.Template.Spec.Containers, func(container corev1.Container) bool { return container.Name == "controller" })
 	require.NotEqual(t, -1, index)
 	original := slices.Clone(deployment.Spec.Template.Spec.Containers[index].Env)
-	updated := slices.DeleteFunc(slices.Clone(original), func(env corev1.EnvVar) bool { return env.Name == kagentenv.SessionIdleTTL.Name() })
-	updated = append(updated, corev1.EnvVar{Name: kagentenv.SessionIdleTTL.Name(), Value: ttl})
+	updated := slices.DeleteFunc(slices.Clone(original), func(env corev1.EnvVar) bool {
+		return env.Name == kagentenv.SessionIdleTTL.Name() || env.Name == kagentenv.SessionExpirationPollInterval.Name()
+	})
+	updated = append(updated,
+		corev1.EnvVar{Name: kagentenv.SessionIdleTTL.Name(), Value: ttl},
+		corev1.EnvVar{Name: kagentenv.SessionExpirationPollInterval.Name(), Value: pollInterval},
+	)
 	key := ctrlclient.ObjectKeyFromObject(deployment)
 	apply := func(env []corev1.EnvVar) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

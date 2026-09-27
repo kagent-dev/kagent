@@ -26,9 +26,12 @@ Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the test
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
 
-`TestSessionIdleExpiration` runs sequentially across the harness matrix. It
-temporarily sets `KAGENT_SESSION_IDLE_TTL=30s` on the controller Deployment and restores
-its environment afterward, rolling the controller both times and waiting for a
+`TestSessionIdleExpiration` runs its harness cases in parallel so they share the
+idle period and expiration sweep. Its parent stays sequential to isolate the
+controller rollouts from the rest of the suite. It temporarily sets
+`KAGENT_SESSION_IDLE_TTL=30s` and `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=5s` on the
+controller Deployment and restores its environment afterward, rolling the
+controller both times and waiting for a
 fresh API connection after each rollout. Use a disposable test cluster and a
 stable API endpoint for this case. It verifies completed-turn
 expiration, Actor removal, NotFound, and a fresh conversation from the same
@@ -89,8 +92,9 @@ and `KAGENT_E2E_API_URL` set. The existing CI E2E command runs the whole matrix
 without an additional flag. Both runners allow 30 minutes and finish the matrix
 after a failure so all harness results are visible. `-parallel` still bounds
 concurrent test scenarios. Most harness subtests run sequentially; the cron,
-scheduled timeout, and runtime revision lifecycle cases run their harnesses in
-parallel to overlap cron ticks, deadlines, and periodic garbage collection.
+scheduled timeout, session expiration, and runtime revision lifecycle cases run
+their harnesses in parallel to overlap cron ticks, deadlines, and periodic garbage
+collection.
 Controller restart cases stay sequential with respect to the rest of the suite.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate

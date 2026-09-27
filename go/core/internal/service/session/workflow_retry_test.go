@@ -301,7 +301,7 @@ func TestDeletePreparationFailureKeepsAdmissionClosed(t *testing.T) {
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn"), database.ErrConflict)
 			_, err = workflow.Resume(t.Context(), session)
 			require.ErrorIs(t, err, database.ErrConflict)
-			worker, err := NewExpirationWorker(store, workflow, time.Hour)
+			worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
 			require.NoError(t, err)
 			require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Now()), database.ErrConflict,
 				"explicit deletion still requires a client retry")

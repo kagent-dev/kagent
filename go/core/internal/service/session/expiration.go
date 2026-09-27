@@ -22,26 +22,30 @@ type expirationStore interface {
 // ExpirationWorker deletes idle sessions through their ordinary delete workflow.
 // PostgreSQL admission and execution claims fence concurrent API requests.
 type ExpirationWorker struct {
-	store    expirationStore
-	workflow *ActorWorkflow
-	idleTTL  time.Duration
-	deleted  metric.Int64Counter
+	store        expirationStore
+	workflow     *ActorWorkflow
+	idleTTL      time.Duration
+	pollInterval time.Duration
+	deleted      metric.Int64Counter
 }
 
 var _ manager.Runnable = (*ExpirationWorker)(nil)
 var _ manager.LeaderElectionRunnable = (*ExpirationWorker)(nil)
 var _ expirationStore = (*database.Client)(nil)
 
-func NewExpirationWorker(store expirationStore, workflow *ActorWorkflow, idleTTL time.Duration) (*ExpirationWorker, error) {
+func NewExpirationWorker(store expirationStore, workflow *ActorWorkflow, idleTTL, pollInterval time.Duration) (*ExpirationWorker, error) {
 	if idleTTL < 0 {
 		return nil, fmt.Errorf("session idle TTL must be nonnegative")
+	}
+	if pollInterval <= 0 {
+		return nil, fmt.Errorf("session expiration poll interval must be positive")
 	}
 	deleted, err := otel.Meter("github.com/kagent-dev/kagent/go/core/internal/service/session").Int64Counter(
 		"kagent.session.expired", metric.WithDescription("Sessions deleted by the idle expiration sweep."), metric.WithUnit("{session}"))
 	if err != nil {
 		return nil, fmt.Errorf("create session expiration counter: %w", err)
 	}
-	return &ExpirationWorker{store: store, workflow: workflow, idleTTL: idleTTL, deleted: deleted}, nil
+	return &ExpirationWorker{store: store, workflow: workflow, idleTTL: idleTTL, pollInterval: pollInterval, deleted: deleted}, nil
 }
 
 func (*ExpirationWorker) NeedLeaderElection() bool { return true }
@@ -53,7 +57,7 @@ func (e *ExpirationWorker) Start(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 	var afterID string
 	for ctx.Err() == nil {

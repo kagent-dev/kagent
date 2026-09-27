@@ -35,7 +35,7 @@ func TestSessionExpirationRetriesDeletion(t *testing.T) {
 			case "persistence":
 				writes.finishErr = errors.New("database unavailable")
 			}
-			worker, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors), 7*24*time.Hour)
+			worker, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors), 7*24*time.Hour, time.Minute)
 			require.NoError(t, err)
 			require.Error(t, worker.expire(t.Context(), session.Id, time.Now()))
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn"), database.ErrConflict)
@@ -43,7 +43,7 @@ func TestSessionExpirationRetriesDeletion(t *testing.T) {
 			actors.readErr, writes.finishErr = nil, nil
 			// A replacement worker discovers the durable expiration even with
 			// a longer TTL, without a client retry or an in-memory work queue.
-			worker, err = NewExpirationWorker(store, NewActorWorkflow(writes, actors), 30*24*time.Hour)
+			worker, err = NewExpirationWorker(store, NewActorWorkflow(writes, actors), 30*24*time.Hour, time.Minute)
 			require.NoError(t, err)
 			ids, err := store.ListIdleSessions(t.Context(), time.Time{}, "", 100)
 			require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestSessionExpirationRetainsCheckpointHistory(t *testing.T) {
 	store, source := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	_, checkpointID := lifecycleForkFixture(t, store, actors, source)
-	worker, err := NewExpirationWorker(store, NewActorWorkflow(store, actors), time.Hour)
+	worker, err := NewExpirationWorker(store, NewActorWorkflow(store, actors), time.Hour, time.Minute)
 	require.NoError(t, err)
 	require.NoError(t, worker.expire(t.Context(), source.Id, time.Now()))
 	// A new fork after expiration reconstructs the retained conversation.
@@ -107,7 +107,7 @@ func TestSessionDeleteCompletesIdleDeletion(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.GetSessionByID(t.Context(), session.Id)
 	require.ErrorIs(t, err, database.ErrNotFound)
-	worker, err := NewExpirationWorker(store, workflow, time.Hour)
+	worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
 	require.NoError(t, err)
 	require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Time{}), database.ErrNotFound)
 }
@@ -126,7 +126,7 @@ func TestSessionExpirationCountsCompletedSweepDeletionOnce(t *testing.T) {
 	session, err := NewActorWorkflow(store, actors).Create(t.Context(), session)
 	require.NoError(t, err)
 	writes := &completionTestStore{lifecycleTestStore: store, finishErr: errors.New("database unavailable")}
-	worker, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors), time.Hour)
+	worker, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors), time.Hour, time.Minute)
 	require.NoError(t, err)
 	require.Error(t, worker.expire(t.Context(), session.Id, time.Now()))
 	writes.finishErr = nil
@@ -148,9 +148,13 @@ func TestSessionExpirationCountsCompletedSweepDeletionOnce(t *testing.T) {
 }
 
 func TestSessionExpirationConfiguration(t *testing.T) {
-	_, err := NewExpirationWorker(nil, nil, -time.Second)
+	_, err := NewExpirationWorker(nil, nil, -time.Second, time.Minute)
 	require.Error(t, err)
-	worker, err := NewExpirationWorker(nil, nil, 0)
+	for _, interval := range []time.Duration{0, -time.Second} {
+		_, err := NewExpirationWorker(nil, nil, time.Hour, interval)
+		require.ErrorContains(t, err, "poll interval must be positive")
+	}
+	worker, err := NewExpirationWorker(nil, nil, 0, time.Minute)
 	require.NoError(t, err)
 	require.True(t, worker.NeedLeaderElection())
 	ctx, cancel := context.WithCancel(t.Context())
@@ -172,7 +176,7 @@ func TestSessionExpirationWorkerDiscoversIdleSessions(t *testing.T) {
 	workflow := NewActorWorkflow(store, actors)
 	session, err := workflow.Create(t.Context(), session)
 	require.NoError(t, err)
-	worker, err := NewExpirationWorker(store, workflow, time.Nanosecond)
+	worker, err := NewExpirationWorker(store, workflow, time.Nanosecond, time.Minute)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -197,9 +201,9 @@ func TestSessionExpirationSerializesRuntimeAttempts(t *testing.T) {
 		case <-ctx.Done():
 		}
 	}}
-	first, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors), time.Hour)
+	first, err := NewExpirationWorker(store, NewActorWorkflow(writes, actors), time.Hour, time.Minute)
 	require.NoError(t, err)
-	second, err := NewExpirationWorker(store, NewActorWorkflow(store, actors), time.Hour)
+	second, err := NewExpirationWorker(store, NewActorWorkflow(store, actors), time.Hour, time.Minute)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
