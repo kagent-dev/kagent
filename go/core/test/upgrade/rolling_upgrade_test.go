@@ -3,17 +3,17 @@ package upgrade
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRollingUpgradeCompatibility(t *testing.T) {
-	if os.Getenv("RUN_ROLLING_UPGRADE_TESTS") != "true" {
-		t.Skip("set RUN_ROLLING_UPGRADE_TESTS=true to run rolling upgrade tests")
+	if kagentenv.E2ERunRollingUpgradeTests.Get() != "true" {
+		t.Skip("set KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS=true to run rolling upgrade tests")
 	}
 
 	env := loadUpgradeEnv(t)

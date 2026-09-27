@@ -96,6 +96,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 		revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 		require.NoError(t, err)
 		require.Empty(t, revisions)
+
 		claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 		require.NoError(t, err)
 		require.Nil(t, claimed)
@@ -131,6 +132,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
+
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -252,7 +254,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 				}
 				type claimResult struct {
-					revision *RuntimeRevision
+					revision *RuntimeArtifact
 					err      error
 				}
 				claimed := make(chan claimResult, 1)
@@ -303,6 +305,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.Equal(t, "revision", session.GetPreparedRevision())
 	require.NoError(t, deleteSession(ctx, client, session.GetId()))
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+	original, err := client.GetRuntimeRevision(ctx, "revision")
+	require.NoError(t, err)
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -312,8 +316,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	pair.AgentUID = "replacement-uid"
 	pair.DesiredRevision = "revision"
 	require.ErrorIs(t, client.UpsertAgentDefinition(ctx, pair), ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *claimed, false), ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *claimed, true), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, false), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, true), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
 	restarted := NewClient(pool)
 	revisions, err := restarted.ListUnreferencedRuntimeRevisions(ctx)
@@ -328,8 +332,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.ErrorIs(t, err, ErrNotFound)
 	// The same digest can be prepared again once cleanup has completed.
-	claimed.ActorTemplateUID = "recreated-actor-uid"
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *claimed, false))
+	original.ActorTemplateUID = "recreated-actor-uid"
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, false))
 	newClaim, err := restarted.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, newClaim)
@@ -337,7 +341,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err, "a delayed collector must not finalize the new runtime")
 	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *claimed, false))
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, false))
 	require.NoError(t, restarted.UpsertAgentDefinition(ctx, pair))
 }
 
@@ -351,6 +355,8 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				defer cancel()
 				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 				require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+				original, err := client.GetRuntimeRevision(ctx, "revision")
+				require.NoError(t, err)
 				claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 				require.NoError(t, err)
 				require.NotNil(t, claimed)
@@ -387,7 +393,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				created, deleted := make(chan error, 1), make(chan error, 1)
 				create := func() {
 					if operation == "record" {
-						created <- creating.RecordRuntimeRevision(ctx, *claimed, true)
+						created <- creating.RecordRuntimeRevision(ctx, *original, true)
 						return
 					}
 					created <- creating.UpsertAgentDefinition(ctx, pair)
@@ -485,12 +491,12 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	client := NewClient(setupTestDB(t))
-	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"}}}
+	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, revision.Credentials, got.Credentials)
-	revision.Credentials[0].URI = "ate-secret://kubernetes.io/team/other/token"
+	revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
 	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
@@ -501,7 +507,7 @@ func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
 	revision, err := toRuntimeRevision(runtimeRevisionRow{
 		Revision: "bad-revision",
 		Credentials: []egress.Credential{{
-			Hostname: "*", Header: "authorization", URI: "ate-secret://kubernetes.io/team/auth/token",
+			Hostname: "*", Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token",
 		}},
 	})
 	require.ErrorContains(t, err, "decode runtime revision bad-revision credentials")

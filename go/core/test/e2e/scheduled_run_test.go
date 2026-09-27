@@ -38,6 +38,8 @@ import (
 func TestScheduledRunCronAndManualExecution(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		// Independent schedules can wait for the same cron tick.
+		t.Parallel()
 		target := interactionTarget(t)
 		f := newScheduledFixture(t, harness, target, startInteractionMock(t), false, 2*time.Minute)
 		var first *apiv1alpha1.ScheduledRunExecution
@@ -94,6 +96,7 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 func TestScheduledRunTimeout(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		modelURL, started := startBlockingInteractionMock(t)
 		// Template preparation finishes before triggering; leave time for the new

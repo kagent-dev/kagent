@@ -1,3 +1,4 @@
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
 import { AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
@@ -94,10 +95,8 @@ import {
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import {
-  SessionOperation as PbSessionOperation,
   SessionService,
   SessionSharePermission as PbSharePermission,
-  SessionState as PbSessionState,
   type SessionSchema,
 } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1alpha1/common_pb";
@@ -606,26 +605,26 @@ on(PromptTemplateService.method.deletePromptTemplate, (input) => {
  * for the same reason: keyed by the generated enum, so a member added to the proto
  * fails `yarn typecheck` here rather than being served as a zero.
  */
-const PB_STATE_BY_NAME: Record<AgentInstanceState, PbSessionState> = {
-  unspecified: PbSessionState.UNSPECIFIED,
-  creating: PbSessionState.CREATING,
-  ready: PbSessionState.READY,
-  suspended: PbSessionState.SUSPENDED,
-  failed: PbSessionState.FAILED,
-  deleting: PbSessionState.DELETING,
-  deleted: PbSessionState.DELETED,
+const PB_STATE_BY_NAME: Record<AgentInstanceState, RuntimeState> = {
+  unspecified: RuntimeState.UNSPECIFIED,
+  creating: RuntimeState.CREATING,
+  ready: RuntimeState.READY,
+  suspended: RuntimeState.SUSPENDED,
+  failed: RuntimeState.FAILED,
+  deleting: RuntimeState.DELETING,
+  deleted: RuntimeState.DELETED,
   // A state this client does not recognise cannot be sent back as anything but
   // the zero value; there is no number to invent. The fixtures never use it.
-  unknown: PbSessionState.UNSPECIFIED,
+  unknown: RuntimeState.UNSPECIFIED,
 };
 
-const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, PbSessionOperation> = {
-  unspecified: PbSessionOperation.UNSPECIFIED,
-  create: PbSessionOperation.CREATE,
-  suspend: PbSessionOperation.SUSPEND,
-  resume: PbSessionOperation.RESUME,
-  delete: PbSessionOperation.DELETE,
-  unknown: PbSessionOperation.UNSPECIFIED,
+const PB_OPERATION_BY_NAME: Record<AgentInstanceOperation, RuntimeOperation> = {
+  unspecified: RuntimeOperation.NONE,
+  create: RuntimeOperation.CREATE,
+  suspend: RuntimeOperation.SUSPEND,
+  resume: RuntimeOperation.RESUME,
+  delete: RuntimeOperation.DELETE,
+  unknown: RuntimeOperation.NONE,
 };
 
 function agentInstanceMessage(
@@ -1685,7 +1684,7 @@ function agentFor(namespace: string, name: string): Agent {
 }
 on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
 on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
-function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined): Agent {
+function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined, previous?: Agent): Agent {
   const namespace = requireNamespace(ref?.namespace ?? "");
   const name = requireOptionalName("agent", ref?.name);
   const resource = value as unknown as Agent["resource"];
@@ -1693,7 +1692,43 @@ function writeAgent(ref: {namespace: string; name: string} | undefined, value: J
   if (!name || !spec || Number(spec.template !== undefined) + Number(spec.templateRef !== undefined) !== 1 || Number(spec.harness !== undefined) + Number(spec.harnessRef !== undefined) !== 1 || (spec.templateRef && !spec.templateRef.name) || (spec.harnessRef && !spec.harnessRef.name)) {
     throw new ConnectError("Choose exactly one template or templateRef and one harness or harnessRef", Code.InvalidArgument);
   }
-  return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name}, spec}};
+  const status = reconciledStatus(namespace, spec, previous);
+  return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name, generation: status?.observedGeneration}, spec, status}};
+}
+/**
+ * What the controller reports once it has reconciled a written Agent (`controller/status.go`):
+ * a missing ref fails ResolvedRefs and blocks later stages, and the last good revision survives.
+ */
+function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], previous?: Agent): Agent["resource"]["status"] {
+  const generation = (previous?.resource.status?.observedGeneration ?? 0) + 1;
+  const desiredRevision = `rev-${stableHash(JSON.stringify(spec))}`;
+  const latest = previous?.resource.status?.latestSuccessfulRevision;
+  const condition = (type: string, ok: boolean, reason: string, message: string) =>
+    ({type, status: ok ? "True" : "False", reason, message});
+  const accepted = condition("Accepted", true, "Accepted", "Agent explicitly selects its template and harness");
+  const missing = spec.templateRef && !allAgentTemplates().some(row => row.namespace === namespace && row.name === spec.templateRef?.name)
+    ? `AgentTemplate ${spec.templateRef.name} not found`
+    : spec.harnessRef && !allHarnesses().some(row => row.namespace === namespace && row.name === spec.harnessRef?.name)
+      ? `Harness ${spec.harnessRef.name} not found` : undefined;
+  if (missing) {
+    return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: latest, conditions: [
+      accepted,
+      condition("ResolvedRefs", false, "ReferenceResolutionFailed", missing),
+      condition("Compatible", false, "Blocked", "blocked by ResolvedRefs"),
+      condition("Ready", false, "Blocked", "blocked by ResolvedRefs"),
+    ]};
+  }
+  return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: desiredRevision, conditions: [
+    accepted,
+    condition("ResolvedRefs", true, "Resolved", "All runtime references resolved"),
+    condition("Compatible", true, "Compatible", "Resolved configuration is compatible with the Harness"),
+    condition("Ready", true, "Ready", "ActorTemplate golden snapshot is ready"),
+  ]};
+}
+function stableHash(text: string): string {
+  let hash = 0;
+  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash.toString(16).padStart(8, "0");
 }
 on(AgentService.method.createAgent, input => {
   const agent = writeAgent(input.ref, input.resource?.value);
@@ -1701,8 +1736,8 @@ on(AgentService.method.createAgent, input => {
   return {agent: agentMessage(saveAgent(agent))};
 });
 on(AgentService.method.updateAgent, input => {
-  const agent = writeAgent(input.ref, input.resource?.value);
-  agentFor(agent.namespace, agent.name);
+  const previous = agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "");
+  const agent = writeAgent(input.ref, input.resource?.value, previous);
   return {agent: agentMessage(saveAgent(agent))};
 });
 on(AgentService.method.deleteAgent, input => {

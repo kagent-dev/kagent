@@ -31,8 +31,8 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 					Kagent: &v1alpha3.KagentHarness{},
 
 					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
-					Substrate: v1alpha3.HarnessSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}
@@ -90,7 +90,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				require.Len(t, revision.Credentials, 1)
 				require.Equal(t, host, revision.Credentials[0].Hostname)
 				require.Equal(t, "api-key", revision.Credentials[0].Header)
-				require.Equal(t, "ate-secret://kubernetes.io/test/foundry-auth/token", revision.Credentials[0].URI)
+				require.Equal(t, "ate-secret://k8s.io/default/test/foundry-auth/token", revision.Credentials[0].URI)
 				require.Contains(t, revision.EgressDestinations, host)
 				require.Equal(t, original, model, "compilation must not patch the source ModelConfig")
 				digest, err := revision.Digest()

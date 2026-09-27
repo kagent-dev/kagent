@@ -98,9 +98,11 @@ export function AgentChatPage() {
    */
   const instances = useAgentInstances();
 
+  const agent = instance.data?.agent;
+  const contextId = instance.data?.contextId;
   const conversation = useMemo(
-    () => (id ? { id, contextId: instance.data?.contextId } : undefined),
-    [id, instance.data?.contextId],
+    () => (id && agent ? { id, agent, contextId } : undefined),
+    [id, agent, contextId],
   );
   /**
    * Resume a suspended conversation before any turn begins.

@@ -5,12 +5,14 @@ sign-in, session cookies, and token refresh. It forwards a bearer token to
 upstream services; the React UI reads the browser session through the proxy's
 userinfo endpoint.
 
-Browser sign-in and controller authentication are separate boundaries. The
-current [controller entrypoint](../../go/core/cmd/controller/main.go) calls
-`app.Run` with empty options, selecting `UnsecureAuthenticator` and
-`NoopAuthorizer`. Library consumers supply their authentication and authorization
-through [app.Options](../../go/core/pkg/app/app.go). Enabling the proxy in Helm
-does not change those controller defaults.
+Browser sign-in and controller authentication are separate boundaries. Set
+`controller.auth.mode: trusted-proxy` alongside oauth2-proxy to activate both.
+The shipped [controller entrypoint](../../go/core/cmd/controller/main.go) reads
+`KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM` and supplies the authenticator
+through [app.Options](../../go/core/pkg/app/app.go). Unsupported modes fail
+startup. The default remains `insecure`; enabling oauth2-proxy alone does not
+change it. Authorization still defaults to `NoopAuthorizer`; library consumers
+can supply their own authentication and authorization through `app.Options`.
 
 ## Browser session flow
 
@@ -86,7 +88,7 @@ configure refresh according to their identity provider's requirements.
 The [ProxyAuthenticator](../../go/core/internal/httpserver/auth/proxy_authn.go)
 implementation decodes bearer JWT payloads without verifying signatures or
 expiry. It assumes an upstream boundary already validated the credential.
-It is present in core, but the current controller entrypoint does not select it.
+The shipped controller selects it in `trusted-proxy` mode.
 
 For a direct user request, identity comes from the configured user-ID claim,
 defaulting to `sub`. A missing custom claim falls back to `sub`; a missing user
@@ -118,20 +120,50 @@ differs.
 | --- | --- | --- |
 | `oauth2-proxy.enabled` | `false` | Install the authentication proxy |
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
+| `controller.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
+| `controller.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
-| `controller.auth.mode` | `unsecure` | Render the controller's `AUTH_MODE` environment variable |
-| `controller.auth.userIdClaim` | Empty | Render `AUTH_USER_ID_CLAIM` when supplied |
 
-The last two settings remain in the chart, but the current controller does not
-consume them. Setting `controller.auth.mode: trusted-proxy` alone does not
-activate `ProxyAuthenticator`, and the controller has no `--auth-mode` or
-`--auth-user-id-claim` flags. A library integration must supply its own
-`auth.AuthProvider` through `app.Options.Authenticator`.
+For a release named `kagent`, register
+`https://agents.example.com/oauth2/callback` with your OIDC provider. Create a
+Secret named `kagent-oidc` in the release namespace with `client-id`,
+`client-secret`, and `cookie-secret` (a random 32-byte key, base64 encoded).
+Install with these values and your normal model/runtime configuration:
+
+```yaml
+controller:
+  auth:
+    mode: trusted-proxy
+    userIdClaim: email
+  service:
+    type: ClusterIP
+ui:
+  service:
+    type: ClusterIP
+oauth2-proxy:
+  enabled: true
+  config:
+    existingSecret: kagent-oidc
+  extraArgs:
+    oidc-issuer-url: https://id.example.com/realms/agents
+    redirect-url: https://agents.example.com/oauth2/callback
+    upstream: http://kagent-ui:8080
+    reverse-proxy: true
+```
+
+Route the public HTTPS hostname to `kagent-oauth2-proxy:4180`, including
+`/oauth2/`, `/api/`, `/a2a/`, and `/mcp`. The proxy forwards to UI nginx,
+which routes API, A2A, and MCP requests to the controller. Do not enable a
+second ingress, HTTPRoute, or OpenShift Route directly to the UI or controller.
+The chart's default `skip-jwt-bearer-tokens: true` allows API clients presenting
+a valid JWT for the configured OIDC issuer/client to use this same public path.
+The proxy verifies those tokens, including signature and expiry.
 
 The UI reads `SSO_REDIRECT_PATH` from `window.environmentVariables` at runtime
 and applies its configured base path. Helm supplies that value from
-`ui.auth.ssoRedirectPath`. The chart allows unauthenticated access to the login
-page, health checks, and the assets required to render the login page.
+`ui.auth.ssoRedirectPath` through `KAGENT_UI_SSO_REDIRECT_PATH`. The chart allows
+unauthenticated access to the login page, health checks, and the assets required
+to render the login page.
 
 ## Trust boundary
 
@@ -143,9 +175,16 @@ bypassing the proxy or supplying trusted internal identity headers directly.
 The [UI nginx configuration](../../helm/kagent/files/nginx.conf) preserves
 `Authorization` while proxying API requests. It clears its listed
 `X-Auth-Request-*` and `X-Forwarded-*` identity headers unless explicitly allowed
-by `ui.additionalForwardedHeaders`.
+by `ui.additionalForwardedHeaders`. In `trusted-proxy` mode it always clears
+`X-Agent-Name` and `X-User-Id` on API, A2A, and MCP requests, even if listed,
+so external callers cannot select the internal agent authentication path.
 
 The chart does not install a dedicated NetworkPolicy enforcing this boundary.
-Operators own the ingress and network restrictions around the UI and controller.
-The controller's authentication provider and authorizer remain responsible for
-identity and access decisions on API requests.
+Operators must restrict UI ingress to the proxy and controller ingress to UI
+nginx and explicitly trusted internal workloads, using NetworkPolicy enforced
+by the cluster's network plugin or equivalent isolation. ClusterIP alone does
+not prevent bypass from another pod. Keep native gRPC, runtime methods, and
+the controller's direct HTTP/MCP listener private. Trusted internal callers
+must validate credentials before supplying user/agent identity headers.
+Neither a forged signature nor an expired token is rejected by
+`ProxyAuthenticator` itself.

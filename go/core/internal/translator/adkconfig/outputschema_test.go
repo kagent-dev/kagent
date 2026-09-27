@@ -1,4 +1,4 @@
-package kagent
+package adkconfig
 
 import (
 	"testing"

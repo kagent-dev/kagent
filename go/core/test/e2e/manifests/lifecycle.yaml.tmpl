@@ -55,7 +55,7 @@ spec:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
     command: ["/app"]
   env:
-  - name: PORT
+  - name: KAGENT_PORT
     value: "80"
   substrate:
     workerPoolRef:

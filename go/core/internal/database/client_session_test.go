@@ -50,41 +50,40 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 func TestToSessionUsesIndexedLifecycleColumns(t *testing.T) {
 	data, err := proto.Marshal(&apiv1alpha1.Session{
 		Id: "11111111-1111-4111-8111-111111111111", Name: "Renamed later",
-		State:     apiv1alpha1.SessionState_SESSION_STATE_READY,
-		Operation: apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED,
+		State:     apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	session, err := toSession(sessionRow{
-		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SESSION_STATE_SUSPENDED", Operation: "SESSION_OPERATION_RESUME",
+		runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED.String(), Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME.String()}, Data: data,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED ||
-		session.GetOperation() != apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME {
+	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
+		session.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", session.GetState(), session.GetOperation())
 	}
-	// Display names live only in the protobuf payload.
+	// Display metadata stays in the protobuf.
 	if session.GetName() != "Renamed later" {
-		t.Fatalf("name = %q, want the column's value", session.GetName())
+		t.Fatalf("name = %q, want the protobuf value", session.GetName())
 	}
 }
 
-// TestToSessionLeavesAnEmptyNameEmpty pins the additive property: a row
-// written before the column existed reads as unnamed, not as its id and not as
-// some placeholder.
+// TestToSessionLeavesAnEmptyNameEmpty preserves unnamed sessions without
+// substituting their ID or a placeholder.
 func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
 	data, err := proto.Marshal(&apiv1alpha1.Session{
 		Id:    "session-1",
-		State: apiv1alpha1.SessionState_SESSION_STATE_READY,
+		State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := toSession(sessionRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SESSION_STATE_READY", Operation: "SESSION_OPERATION_UNSPECIFIED"})
+	session, err := toSession(sessionRow{runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY.String(), Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()}, Data: data})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +95,7 @@ func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
 func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
-	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111');
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'SESSION_STATE_READY', '\x')
-	`); err != nil {
-		t.Fatal(err)
-	}
+	insertReadySessionFixture(t, db, "11111111-1111-4111-8111-111111111111", "request-1", []byte{})
 	client := NewClient(db)
 	now := time.Now()
 	first := &a2a.Task{
@@ -225,22 +219,13 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	sessionID := "11111111-1111-4111-8111-111111111111"
 	session := &apiv1alpha1.Session{
 		Id: sessionID, Creator: "alice",
-		State: apiv1alpha1.SessionState_SESSION_STATE_READY,
+		State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
 	}
 	sessionData, err := proto.Marshal(session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, context_id) VALUES ($1, $1)
-	`, sessionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'session-request', $1, $1, 'SESSION_STATE_READY', $2)
-	`, sessionID, sessionData); err != nil {
-		t.Fatal(err)
-	}
+	insertReadySessionFixture(t, db, sessionID, "session-request", sessionData)
 	client := NewClient(db)
 	task := newSessionTask("task-1", "message-1")
 	if _, err := client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("message-request"), task, ""); err != nil {
@@ -281,7 +266,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	} else {
 		require.ErrorContains(t, err, "checkpoint being created")
 	}
-	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND)
+	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.ErrorIs(t, err, ErrConflict)
 	replayed, replayedSnapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
@@ -362,17 +347,8 @@ func TestReserveSessionCheckpointRejectsCorruptSource(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient(db)
 	sessionID := "99999999-9999-4999-8999-999999999999"
-	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, context_id) VALUES ($1, $1)
-	`, sessionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO session (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'session-request', $1, $1, 'SESSION_STATE_READY', $2)
-	`, sessionID, []byte{0xff}); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	insertReadySessionFixture(t, db, sessionID, "session-request", []byte{0xff})
+	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
 	require.ErrorContains(t, err, "decode Session")
 }
 
@@ -471,7 +447,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		t.Fatalf("ForkSession() = %+v, created %v, error %v", fork, created, err)
 	}
 	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
-		fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_CREATING ||
+		fork.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING ||
 		fork.GetAgent().GetName() != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
@@ -596,9 +572,9 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	suspend, err := client.BeginSessionOperation(ctx, ready.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(ctx, ready.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.NoError(t, err)
-	_, err = client.BeginSessionOperation(ctx, ready.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME)
+	_, err = client.BeginSessionOperation(ctx, ready.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 	require.ErrorIs(t, err, ErrConflict)
 	executor := uuid.New()
 	claimed, err := client.ClaimSessionOperation(ctx, ready.Id, suspend.ID, executor)
@@ -606,7 +582,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	require.True(t, claimed)
 	suspended, err := client.FinishSessionOperation(ctx, ready.Id, suspend.ID, executor, "", "", "")
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.SessionState_SESSION_STATE_SUSPENDED, suspended.State)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 
 	request.Agent.Name = "different"
 	if _, _, err := client.CreateSession(ctx, request, "request-1"); !errors.Is(err, ErrIdempotencyConflict) {
@@ -621,6 +597,23 @@ func newSessionTask(id, messageID string) *a2a.Task {
 		Status:  a2a.TaskStatus{State: a2a.TaskStateWorking, Timestamp: &now},
 		History: []*a2a.Message{{ID: messageID, Role: a2a.MessageRoleUser}},
 	}
+}
+
+func insertReadySessionFixture(t *testing.T, db dbExecutor, id, requestID string, data []byte) {
+	t.Helper()
+	_, err := db.Exec(t.Context(), `
+		WITH history AS (
+			INSERT INTO a2a_context (id, context_id) VALUES ($1, $1)
+			RETURNING id, context_id
+		), runtime AS (
+			INSERT INTO runtime_instance (id, kind, user_id, request_id, state, operation)
+			VALUES ($1, 'agent', 'alice', $2, 'RUNTIME_STATE_READY', 'RUNTIME_OPERATION_NONE')
+			RETURNING id
+		)
+		INSERT INTO session (id, context_id, history_id, data)
+		SELECT runtime.id, history.context_id, history.id, $3 FROM runtime CROSS JOIN history
+	`, id, requestID, data)
+	require.NoError(t, err)
 }
 
 // sessionFixture installs a runnable agent — a template/harness pair with a
@@ -722,9 +715,7 @@ func TestSessionNameRoundTripsAndRenames(t *testing.T) {
 	if err != nil || renamed.GetName() != "Named afterwards" {
 		t.Fatalf("UpdateSessionName() = %+v, error %v", renamed, err)
 	}
-	// The rename has to survive a re-read, not just be echoed back: the name lives
-	// in a column while the rest of the message lives in a blob the rename does not
-	// rewrite, so an echoed value proves nothing about what was stored.
+	// The renamed protobuf must survive a re-read, not just be echoed back.
 	read, err := client.GetSession(ctx, unnamedID, "alice")
 	if err != nil || read.GetName() != "Named afterwards" {
 		t.Fatalf("re-read after rename = %+v, error %v", read, err)
@@ -849,7 +840,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 
 // markSessionReady completes creation through the lifecycle operations.
 func markSessionReady(ctx context.Context, client *Client, id, authority string) (*apiv1alpha1.Session, error) {
-	return finishSessionOperation(ctx, client, id, apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE, authority)
+	return finishSessionOperation(ctx, client, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE, authority)
 }
 
 func TestSessionShareCreationRequiresOwner(t *testing.T) {

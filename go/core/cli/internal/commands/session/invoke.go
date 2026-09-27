@@ -350,7 +350,7 @@ func NewInvokeCmd() *cobra.Command {
 		Short:   "Invoke a Session",
 		Long:    `Invoke an existing Session through the A2A API.`,
 		Args:    cobra.NoArgs,
-		Example: `kagent invoke --session 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
+		Example: `kagent agent invoke --session 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {

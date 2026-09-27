@@ -67,7 +67,7 @@ spec:
                     type: object
                   env:
                     items:
-                      description: HarnessEnvVar configures one runtime environment
+                      description: RuntimeEnvVar configures one runtime environment
                         variable.
                       properties:
                         credentialRef:
@@ -226,7 +226,7 @@ spec:
                           rule: self.modelConfigRef.name.size() > 0
                     type: object
                   substrate:
-                    description: HarnessSubstratePolicy contains the Substrate policy
+                    description: RuntimeSubstratePolicy contains the Substrate policy
                       shared by all runtime variants.
                     properties:
                       snapshotPolicy:
@@ -242,7 +242,7 @@ spec:
                         type: object
                       workerPoolRef:
                         description: WorkerPoolRef references a WorkerPool in the
-                          Harness namespace.
+                          resource's namespace.
                         properties:
                           name:
                             default: ""

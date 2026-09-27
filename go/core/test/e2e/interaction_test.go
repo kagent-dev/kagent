@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -30,6 +29,7 @@ import (
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -243,9 +243,6 @@ func createCheckpoint(t *testing.T, ctx context.Context, client apiv1alpha1.Chec
 func TestSessionCheckpoint(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
-		if harness.name == "byo-adk-e2e" {
-			t.Skip("the BYO compiler does not configure a durable session store for the Go ADK fixture; forks cannot restore model history")
-		}
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startForkMemoryMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 		created := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
@@ -295,7 +292,7 @@ func TestSessionCheckpoint(t *testing.T) {
 			t.Fatalf("fork Session: %v", err)
 		}
 		fork := forked.GetSession()
-		if fork.GetId() == fixture.sessionID || fork.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		if fork.GetId() == fixture.sessionID || fork.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 			t.Fatalf("fork = %+v", fork)
 		}
 		t.Cleanup(func() {
@@ -631,9 +628,9 @@ type sharedInteractionFixture struct {
 
 func interactionTarget(t *testing.T) string {
 	t.Helper()
-	rawURL := os.Getenv("KAGENT_E2E_API_URL")
+	rawURL := kagentenv.E2EAPIURL.Get()
 	if rawURL == "" {
-		rawURL = os.Getenv("KAGENT_API_URL")
+		rawURL = kagentenv.KagentAPIURL.Get()
 	}
 	if rawURL == "" {
 		t.Skip("KAGENT_E2E_API_URL is not set")
@@ -690,7 +687,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 			t.Errorf("delete Session: %v", cleanupErr)
 		}
 	})
-	if session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 		t.Fatalf("created Session state = %s, want READY", session.GetState())
 	}
 	return &interactionFixture{
@@ -945,7 +942,7 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 	if err != nil {
 		t.Fatalf("parse mock LLM address: %v", err)
 	}
-	host := os.Getenv("KAGENT_LOCAL_HOST")
+	host := kagentenv.KagentLocalHost.Get()
 	if host == "" {
 		switch goruntime.GOOS {
 		case "darwin":
@@ -953,7 +950,7 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 		case "linux":
 			host = "172.17.0.1"
 		default:
-			t.Fatalf("KAGENT_LOCAL_HOST is required on %s", goruntime.GOOS)
+			t.Fatalf("KAGENT_E2E_LOCAL_HOST is required on %s", goruntime.GOOS)
 		}
 	}
 	if net.ParseIP(host) != nil {

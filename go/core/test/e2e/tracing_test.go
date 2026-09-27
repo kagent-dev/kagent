@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
@@ -72,7 +72,7 @@ func startOTLPTraceReceiver(t *testing.T) *otlpTraceReceiver {
 	if suiteTraceReceiver != nil {
 		return suiteTraceReceiver
 	}
-	address := os.Getenv("KAGENT_E2E_OTLP_LISTEN_ADDRESS")
+	address := kagentenv.E2EOTLPListenAddress.Get()
 	if address == "" {
 		address = ":14317"
 	}
@@ -392,7 +392,7 @@ func requireTracingHarnesses(t *testing.T) {
 		if err := kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: name}, &harness); apierrors.IsNotFound(err) {
 			// A job dedicated to tracing must fail rather than silently skip both
 			// cases when its fixtures are missing.
-			if strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_E2E_REQUIRE_TRACING")), "true") {
+			if strings.EqualFold(strings.TrimSpace(kagentenv.E2ERequireTracing.Get()), "true") {
 				t.Fatalf("tracing Harness %s is not installed", name)
 			}
 			t.Skip("dedicated tracing Harnesses are not installed")

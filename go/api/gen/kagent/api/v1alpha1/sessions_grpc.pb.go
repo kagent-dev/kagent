@@ -34,6 +34,12 @@ const (
 // SessionServiceClient is the client API for SessionService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Lifecycle mutations execute inline. After a retryable error, repeat the same
+// mutation; CreateSession retries must keep the same request_id and input.
+// GetSession only observes state. A timeout does not roll back runtime effects.
+// Pending issued work blocks conflicting lifecycle, task, and checkpoint work
+// until a client retry completes it. Automatic idle suspension is independent.
 type SessionServiceClient interface {
 	CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*CreateSessionResponse, error)
 	GetSession(ctx context.Context, in *GetSessionRequest, opts ...grpc.CallOption) (*GetSessionResponse, error)
@@ -158,6 +164,12 @@ func (c *sessionServiceClient) RevokeSessionShare(ctx context.Context, in *Revok
 // SessionServiceServer is the server API for SessionService service.
 // All implementations must embed UnimplementedSessionServiceServer
 // for forward compatibility.
+//
+// Lifecycle mutations execute inline. After a retryable error, repeat the same
+// mutation; CreateSession retries must keep the same request_id and input.
+// GetSession only observes state. A timeout does not roll back runtime effects.
+// Pending issued work blocks conflicting lifecycle, task, and checkpoint work
+// until a client retry completes it. Automatic idle suspension is independent.
 type SessionServiceServer interface {
 	CreateSession(context.Context, *CreateSessionRequest) (*CreateSessionResponse, error)
 	GetSession(context.Context, *GetSessionRequest) (*GetSessionResponse, error)

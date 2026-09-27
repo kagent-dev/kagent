@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -124,7 +125,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	tasks := taskstore.NewService(store)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
-		Authenticator: &authimpl.UnsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
+		Authenticator: &authimpl.InsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
 		TaskStoreService: tasks,
 	})
 	require.NoError(t, err)
@@ -235,9 +236,9 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		gateway := a2agateway.New(interactions, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
-			Authenticator: &authimpl.UnsecureAuthenticator{},
+			Authenticator: &authimpl.InsecureAuthenticator{},
 			A2AHandler:    gateway,
-			HTTPHandler:   a2agateway.NewHTTPHandler(gateway, &authimpl.UnsecureAuthenticator{}, store),
+			HTTPHandler:   a2agateway.NewHTTPHandler(gateway, &authimpl.InsecureAuthenticator{}, store),
 		})
 		require.NoError(t, err)
 		publicCtx, stop := context.WithCancel(t.Context())
@@ -447,7 +448,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	runtimeServer.Stop()
 	_, err = second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
-	if python := os.Getenv("KAGENT_TEST_PYTHON"); python != "" {
+	if python := kagentenv.TestPython.Get(); python != "" {
 		t.Run("python SDK with PostgreSQL", func(t *testing.T) {
 			// Run the Python adapter against this same API and PostgreSQL session.
 			// Only native work is a controlled fixture. Enable with the repository
@@ -522,7 +523,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1alpha1.S
 		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}, uuid.NewString())
 	require.NoError(t, err)
-	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE)
+	operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
 	executor := uuid.New()
 	claimed, err := store.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)

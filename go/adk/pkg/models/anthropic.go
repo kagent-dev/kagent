@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/vertex"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -47,7 +47,7 @@ type AnthropicModel struct {
 func NewAnthropicModel(ctx context.Context, config *AnthropicConfig) (*AnthropicModel, error) {
 	apiKey := "passthrough" // placeholder; real auth set per-request by transport
 	if !config.APIKeyPassthrough {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		apiKey = env.AnthropicAPIKey.Get()
 		if apiKey == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set")
 		}

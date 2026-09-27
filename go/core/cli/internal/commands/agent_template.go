@@ -220,13 +220,12 @@ func writeAgentTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate
 	return nil
 }
 
-// NewGetAgentTemplateCmd constructs the AgentTemplate get/list command.
-func NewGetAgentTemplateCmd() *cobra.Command {
+func newAgentTemplateReadCmd(list bool) *cobra.Command {
 	cfg := &AgentTemplateGetCfg{}
 	cmd := &cobra.Command{
-		Use:   "agent-template [NAME]",
-		Short: "Get an AgentTemplate or list AgentTemplates",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "get NAME",
+		Short: "Get an AgentTemplate",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
@@ -239,6 +238,9 @@ func NewGetAgentTemplateCmd() *cobra.Command {
 			var name string
 			if len(args) == 1 {
 				name = args[0]
+				if name == "" {
+					return errors.New("agent template name must not be empty")
+				}
 			}
 			cfg.Namespace = options.Namespace
 			cfg.OutputFormat = format
@@ -246,8 +248,13 @@ func NewGetAgentTemplateCmd() *cobra.Command {
 			return runGetAgentTemplate(cmd.Context(), cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
-	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	if list {
+		cmd.Use = "list"
+		cmd.Short = "List AgentTemplates"
+		cmd.Args = cobra.NoArgs
+		cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
+		cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	}
 	return cmd
 }
 

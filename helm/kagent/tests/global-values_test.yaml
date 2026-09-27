@@ -5,9 +5,10 @@ templates:
   - controller-configmap.yaml
   - rbac/getter-role.yaml
   - substrate-workerpool.yaml
-  # ui-deployment.yaml includes ui-nginx-configmap.yaml, and helm-unittest can
-  # only resolve cross-template includes when both are listed here.
+  # Helm-unittest requires the UI's ConfigMaps to be listed here so it can
+  # resolve the Deployment's checksum includes.
   - ui-deployment.yaml
+  - ui-configmap.yaml
   - ui-nginx-configmap.yaml
 tests:
   - it: should override every image registry from global.imageRegistry

@@ -413,6 +413,16 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
+{{/* Pass the configured guest digest through to Substrate. */}}
+{{- define "kagent.sandboxGuestImage" -}}
+{{- $image := .Values.controller.sandbox.guestImage -}}
+{{- if $image.digest -}}
+{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "digest" $image.digest -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 global.imageRegistry, normalized. A trailing slash is an easy value to ship
 ("mirror.example/") and every consumer joins the registry onto a path with its

@@ -30,6 +30,8 @@ import (
 func TestRuntimeRevisionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		// Each harness owns its revisions; overlap their periodic GC waits.
+		t.Parallel()
 		target := interactionTarget(t)
 		modelURL := startInteractionMock(t)
 		templateName := createInteractionTemplate(t, harness, modelURL)

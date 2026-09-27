@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/openai/openai-go/v3"
 )
 
@@ -245,9 +246,9 @@ func TestNewAnthropicClientWorkloadIdentity(t *testing.T) {
 }
 
 func TestResolveFoundryUsesProvidedValues(t *testing.T) {
-	t.Setenv(FoundryEndpointEnvVar, "env-endpoint")
-	t.Setenv(FoundryDeploymentEnvVar, "env-deployment")
-	t.Setenv(FoundryAPIVersionEnvVar, "env-version")
+	t.Setenv(env.FoundryEndpoint.Name(), "env-endpoint")
+	t.Setenv(env.FoundryDeployment.Name(), "env-deployment")
+	t.Setenv(env.FoundryAPIVersion.Name(), "env-version")
 
 	ep, dep, ver := ResolveFoundry("cfg-endpoint", "cfg-deployment", "cfg-version")
 	if ep != "cfg-endpoint" || dep != "cfg-deployment" || ver != "cfg-version" {
@@ -256,9 +257,9 @@ func TestResolveFoundryUsesProvidedValues(t *testing.T) {
 }
 
 func TestResolveFoundryFallsBackToEnv(t *testing.T) {
-	t.Setenv(FoundryEndpointEnvVar, "env-endpoint")
-	t.Setenv(FoundryDeploymentEnvVar, "env-deployment")
-	t.Setenv(FoundryAPIVersionEnvVar, "env-version")
+	t.Setenv(env.FoundryEndpoint.Name(), "env-endpoint")
+	t.Setenv(env.FoundryDeployment.Name(), "env-deployment")
+	t.Setenv(env.FoundryAPIVersion.Name(), "env-version")
 
 	ep, dep, ver := ResolveFoundry("", "", "")
 	if ep != "env-endpoint" || dep != "env-deployment" || ver != "env-version" {
@@ -267,12 +268,12 @@ func TestResolveFoundryFallsBackToEnv(t *testing.T) {
 }
 
 func TestResolveFoundryDefaultsAPIVersion(t *testing.T) {
-	t.Setenv(FoundryEndpointEnvVar, "")
-	t.Setenv(FoundryDeploymentEnvVar, "")
-	t.Setenv(FoundryAPIVersionEnvVar, "")
+	t.Setenv(env.FoundryEndpoint.Name(), "")
+	t.Setenv(env.FoundryDeployment.Name(), "")
+	t.Setenv(env.FoundryAPIVersion.Name(), "")
 
 	ep, dep, ver := ResolveFoundry("e", "d", "")
-	if ep != "e" || dep != "d" || ver != FoundryDefaultAPIVersion {
+	if ep != "e" || dep != "d" || ver != env.FoundryAPIVersion.DefaultValue() {
 		t.Fatalf("ResolveFoundry() = (%q, %q, %q), want default api-version", ep, dep, ver)
 	}
 }

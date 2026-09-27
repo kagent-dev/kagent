@@ -735,7 +735,7 @@ func (m *workspaceModel) centerView() string {
 		return m.chat.View()
 	}
 	if len(m.all) == 0 {
-		return "No Sessions.\n\nCreate one with:\nkagent create session --agent A"
+		return "No Sessions.\n\nCreate one with:\nkagent agent session create --agent A"
 	}
 	if m.current != nil {
 		return fmt.Sprintf("Session is %s.\n\nIt cannot accept messages right now.\nPress ctrl+r to refresh, or pick another in panel [3].",

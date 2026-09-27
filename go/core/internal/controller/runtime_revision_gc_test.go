@@ -19,7 +19,7 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		store := &fakeGCStore{revisions: []database.RuntimeRevision{
+		store := &fakeGCStore{revisions: []database.RuntimeArtifact{
 			{Revision: "failed", ActorTemplateName: "failed"},
 			{Revision: "healthy", ActorTemplateName: "healthy"},
 		}, listErr: errors.New("database unavailable")}
@@ -87,7 +87,7 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		store := &fakeGCStore{revisions: []database.RuntimeRevision{
+		store := &fakeGCStore{revisions: []database.RuntimeArtifact{
 			{Revision: "failed", ActorTemplateName: "failed"},
 			{Revision: "healthy", ActorTemplateName: "healthy"},
 		}}
@@ -118,11 +118,11 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 
 type fakeGCStore struct {
 	mu               sync.Mutex
-	revisions        []database.RuntimeRevision
+	revisions        []database.RuntimeArtifact
 	listErr          error
 	lists            int
 	deleted          []string
-	listFunc         func(context.Context, int) ([]database.RuntimeRevision, error)
+	listFunc         func(context.Context, int) ([]database.RuntimeArtifact, error)
 	begun            []string
 	beginErr         error
 	finalizeErr      error
@@ -152,7 +152,7 @@ func newGCTestMeterProvider(t *testing.T, readers ...sdkmetric.Reader) *sdkmetri
 	return provider
 }
 
-func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]database.RuntimeRevision, error) {
+func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]database.RuntimeArtifact, error) {
 	time.Sleep(s.listDelay)
 	s.mu.Lock()
 	s.lists++
@@ -165,7 +165,7 @@ func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]d
 	return revisions, err
 }
 
-func (s *fakeGCStore) BeginRuntimeRevisionDeletion(_ context.Context, id string) (*database.RuntimeRevision, error) {
+func (s *fakeGCStore) BeginRuntimeRevisionDeletion(_ context.Context, id string) (*database.RuntimeArtifact, error) {
 	time.Sleep(s.beginDelay)
 	s.mu.Lock()
 	defer s.mu.Unlock()

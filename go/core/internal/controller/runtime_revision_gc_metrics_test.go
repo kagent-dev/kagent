@@ -113,7 +113,7 @@ func gatherRuntimeRevisionGCMetrics(t *testing.T, reader *sdkmetric.ManualReader
 }
 
 func TestRuntimeRevisionGCMetricsDiscoveryAndRestart(t *testing.T) {
-	store := &fakeGCStore{revisions: []database.RuntimeRevision{{Revision: "failed", ActorTemplateName: "failed"}}}
+	store := &fakeGCStore{revisions: []database.RuntimeArtifact{{Revision: "failed", ActorTemplateName: "failed"}}}
 	templates := &fakeGCTemplates{deleteErr: errors.New("Substrate unavailable")}
 	collector, registry := newTestRuntimeRevisionGC(t, store, templates)
 	require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, registry).gauges, gcPendingMetric)
@@ -154,7 +154,7 @@ func TestRuntimeRevisionGCMetricsBoundedDiscovery(t *testing.T) {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			store := &fakeGCStore{}
 			for i := range count {
-				store.revisions = append(store.revisions, database.RuntimeRevision{Revision: fmt.Sprint(i)})
+				store.revisions = append(store.revisions, database.RuntimeArtifact{Revision: fmt.Sprint(i)})
 			}
 			collector, registry := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{})
 			collector.sweep(t.Context())
@@ -170,10 +170,28 @@ func TestRuntimeRevisionGCMetricsBoundedDiscovery(t *testing.T) {
 	}
 }
 
+func TestRuntimeRevisionGCMetricsRuntimeKinds(t *testing.T) {
+	store := &fakeGCStore{revisions: []database.RuntimeArtifact{
+		{Revision: "agent-revision", Kind: "agent"},
+		{Revision: "sandbox-revision", Kind: "sandbox"},
+	}}
+	collector, reader := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{})
+	_, err := collector.discover(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, map[string]int64{gcPendingMetric: 2}, gatherRuntimeRevisionGCMetrics(t, reader).gauges)
+
+	collector.sweep(t.Context())
+	require.ElementsMatch(t, []string{"agent-revision", "sandbox-revision"}, store.deleted)
+	snapshot := gatherRuntimeRevisionGCMetrics(t, reader)
+	require.Equal(t, map[string]int64{gcPendingMetric: 0}, snapshot.gauges)
+	require.Equal(t, map[string]uint64{"discovery": 3, "collection": 2}, snapshot.attempts)
+	require.Empty(t, snapshot.failures)
+}
+
 func TestRuntimeRevisionGCMetricsAttemptDuration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := &fakeGCStore{
-			revisions: []database.RuntimeRevision{{Revision: "candidate"}},
+			revisions: []database.RuntimeArtifact{{Revision: "candidate"}},
 			listDelay: 10 * time.Millisecond, beginDelay: 250 * time.Millisecond,
 			finalizeDelay: 2 * time.Second,
 		}
@@ -208,9 +226,9 @@ func TestRuntimeRevisionGCMetricsDiscoveryErrors(t *testing.T) {
 					if atEnd {
 						failAt = 2
 					}
-					revisions := []database.RuntimeRevision{{Revision: "candidate"}}
+					revisions := []database.RuntimeArtifact{{Revision: "candidate"}}
 					store := &fakeGCStore{revisions: revisions}
-					store.listFunc = func(listCtx context.Context, call int) ([]database.RuntimeRevision, error) {
+					store.listFunc = func(listCtx context.Context, call int) ([]database.RuntimeArtifact, error) {
 						if call != failAt {
 							return revisions, nil
 						}
@@ -279,7 +297,7 @@ func TestRuntimeRevisionGCMetricsCancellationStopsDispatch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			store := &fakeGCStore{revisions: []database.RuntimeRevision{
+			store := &fakeGCStore{revisions: []database.RuntimeArtifact{
 				{Revision: "first"},
 				{Revision: "next"},
 			}}
@@ -301,12 +319,12 @@ func TestRuntimeRevisionGCMetricsCancellationStopsDispatch(t *testing.T) {
 
 func TestRuntimeRevisionGCMetricsRefreshDoesNotCollectNewCandidates(t *testing.T) {
 	store := &fakeGCStore{
-		revisions: []database.RuntimeRevision{{Revision: "old"}, {Revision: "new"}},
-		listFunc: func(_ context.Context, call int) ([]database.RuntimeRevision, error) {
+		revisions: []database.RuntimeArtifact{{Revision: "old"}, {Revision: "new"}},
+		listFunc: func(_ context.Context, call int) ([]database.RuntimeArtifact, error) {
 			if call == 1 {
-				return []database.RuntimeRevision{{Revision: "old"}}, nil
+				return []database.RuntimeArtifact{{Revision: "old"}}, nil
 			}
-			return []database.RuntimeRevision{{Revision: "new"}}, nil
+			return []database.RuntimeArtifact{{Revision: "new"}}, nil
 		},
 	}
 	collector, registry := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{})
@@ -348,7 +366,7 @@ func TestRuntimeRevisionGCMetricsCollectionFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeGCStore{
-				revisions: []database.RuntimeRevision{{Revision: "failed", ActorTemplateName: "failed", ActorTemplateUID: "expected"}},
+				revisions: []database.RuntimeArtifact{{Revision: "failed", ActorTemplateName: "failed", ActorTemplateUID: "expected"}},
 				beginErr:  test.beginErr, finalizeErr: test.finalizeErr,
 				skipClaim: test.skipClaim, skipFinalization: test.skipFinalization,
 			}
@@ -460,7 +478,7 @@ func TestRuntimeRevisionGCMetricsShapeAndScrape(t *testing.T) {
 }
 
 func TestRuntimeRevisionGCFailureLogsRetainIdentity(t *testing.T) {
-	store := &fakeGCStore{revisions: []database.RuntimeRevision{{
+	store := &fakeGCStore{revisions: []database.RuntimeArtifact{{
 		Revision: "revision-digest", ActorTemplateAtespace: "team-a", ActorTemplateName: "failed",
 	}}}
 	collector, registry := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{deleteErr: errors.New("backend unavailable")})
@@ -482,7 +500,7 @@ func TestRuntimeRevisionGCFailureLogsRetainIdentity(t *testing.T) {
 }
 
 func TestRuntimeRevisionGCMetricsDisabled(t *testing.T) {
-	store := &fakeGCStore{revisions: []database.RuntimeRevision{{Revision: "candidate"}}}
+	store := &fakeGCStore{revisions: []database.RuntimeArtifact{{Revision: "candidate"}}}
 	collector, err := NewRuntimeRevisionGC(store, &fakeGCTemplates{}, noop.NewMeterProvider())
 	require.NoError(t, err)
 	collector.sweep(t.Context())

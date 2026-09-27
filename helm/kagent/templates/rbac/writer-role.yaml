@@ -4,6 +4,7 @@
   resources:
   - harnesses
   - agents
+  - sandboxtemplates
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs
@@ -25,8 +26,16 @@
 - apiGroups:
   - api.kagent.dev
   resources:
+  - sandboxtemplates/status
+  verbs:
+  - update
+  - patch
+- apiGroups:
+  - api.kagent.dev
+  resources:
   - harnesses/finalizers
   - agents/finalizers
+  - sandboxtemplates/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers

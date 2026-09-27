@@ -280,9 +280,9 @@ describe("the fixture backend", () => {
       name: "coder-template",
       phase: "Ready",
       sandboxClass: "gvisor",
-      workerSelector: "pool=default-pool",
+      workerSelector: "pool=kagent-default",
     });
-    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
     expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
       atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
     });

@@ -3,8 +3,10 @@ templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
   - postgresql.yaml
+  - postgresql-configmap.yaml
   - postgresql-secret.yaml
   - ui-deployment.yaml
+  - ui-configmap.yaml
   - ui-nginx-configmap.yaml
 tests:
   - it: should not add extra pod labels by default (controller)

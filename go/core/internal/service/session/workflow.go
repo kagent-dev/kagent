@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
-	"slices"
 	"strings"
 	"time"
 
@@ -13,12 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type workflowStore interface {
@@ -27,21 +20,16 @@ type workflowStore interface {
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	BeginSessionOperation(context.Context, string, apiv1alpha1.SessionOperation) (*database.SessionOperation, error)
+	BeginSessionOperation(context.Context, string, apiv1alpha1.RuntimeOperation) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
+	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1alpha1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
 }
 
 type actorClient interface {
-	EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
-	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
-	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
-	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
-	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
+	substrate.LifecycleClient
 	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
-	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
-	DeleteActor(context.Context, string, string) error
 }
 
 // ActorWorkflow runs the imperative Substrate operations behind Session
@@ -125,49 +113,51 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Sessio
 // Create provisions the persisted session once, using its pinned checkpoint for
 // forks. Retries return current state; an uncertain prior creation blocks execution.
 func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE)
+	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 }
 
 // Suspend returns after the Actor and session are suspended. A retry observes
 // the same operation rather than issuing a second mutation.
 func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND)
+	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 }
 
 // Resume returns after the Actor is running and the session is ready. Missing
 // Actors are errors; Resume never creates replacement compute.
 func (w *ActorWorkflow) Resume(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME)
+	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
 // unissued creation, but never deletes a session while a prior call is uncertain.
 func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE)
+	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 }
 
 // run keeps lifecycle preparation separate from the durable issue boundary.
 // Multiple callers may prepare using read-only calls; exactly one can authorize
-// runtime mutations. Once authorized, every error retains the operation and its
-// resource pins. The session lock serializes admission against runtime writes,
-// claimed idle work, and checkpoint capture.
-func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1alpha1.SessionOperation) (*apiv1alpha1.Session, error) {
+// runtime mutations for a bounded attempt. Errors retain the operation and its
+// resource pins so a client retry can continue it. Session admission still
+// serializes lifecycle against runtime writes, idle work, and checkpoints.
+func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1alpha1.RuntimeOperation) (_ *apiv1alpha1.Session, err error) {
+	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancelAttempt()
 	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
 	if err != nil {
 		return nil, err
 	}
-	if operation.Session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED || operation.ExecutorID != uuid.Nil {
+	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operationOutcome(operation)
 	}
-	kind := operation.Session.Operation
-	session := operation.Session
+	kind := operation.Instance.Operation
+	session := operation.Instance
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
 		return w.failPreparation(ctx, operation, fmt.Errorf("load prepared revision: %w", err))
 	}
 	var snapshot *database.SessionTaskSnapshot
 	var tagName string
-	if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE && operation.SourceCheckpointID != nil {
+	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE && operation.SourceCheckpointID != nil {
 		snapshot, _, err = w.store.GetSessionCheckpointSnapshot(ctx, operation.SourceCheckpointID.String(), session.Creator)
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
@@ -178,37 +168,31 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
 
-	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.Id)
-	var policy *ateapipb.EgressPolicy
-	if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
-		policy, err = actorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
+	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
+		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
+	var creation *substrate.ActorCreation
+	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+		policy, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
 		if err != nil {
-			return w.failPreparation(ctx, operation, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err))
-		}
-	}
-	actor, err := w.actors.GetActor(ctx, atespace, name)
-	missing := status.Code(err) == codes.NotFound
-	if err != nil && !missing {
-		return w.failPreparation(ctx, operation, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err))
-	}
-	if missing && kind != apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE && kind != apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE {
-		return w.failPreparation(ctx, operation, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err))
-	}
-	if !missing {
-		if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE {
-			return w.failPreparation(ctx, operation, fmt.Errorf("refuse to adopt existing Actor %s/%s while creation is still pending", atespace, name))
-		}
-		if err := w.verifyActor(ctx, session, revision, actor); err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
-		if kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME || kind == apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND {
-			switch actor.GetStatus().GetState() {
-			case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-				ateapipb.ActorState_ACTOR_STATE_PAUSED, ateapipb.ActorState_ACTOR_STATE_RESUMING,
-				ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-			default:
-				return w.failPreparation(ctx, operation, fmt.Errorf("actor %s/%s cannot perform %s from %s", atespace, name, kind, actor.GetStatus().GetState()))
-			}
+		creation = &substrate.ActorCreation{EgressPolicy: policy}
+		if snapshot != nil {
+			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+		}
+	}
+	prepare := substrate.PrepareActorTransition
+	if operation.ExecutorID != uuid.Nil {
+		prepare = substrate.PrepareActorRetry
+	}
+	transition, err := prepare(ctx, w.actors, binding, kind, creation)
+	if err != nil {
+		return w.failPreparation(ctx, operation, err)
+	}
+
+	if uid := transition.ActorUID(); uid != "" && kind != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+		if _, err := w.store.GetSessionForRuntime(ctx, session.Id, uid); err != nil {
+			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
 	}
 
@@ -225,82 +209,40 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 		}
 		return operationOutcome(current)
 	}
-	var authority string
-	switch kind {
-	case apiv1alpha1.SessionOperation_SESSION_OPERATION_CREATE:
-		// The pinned ActorTemplate already belongs to a provisioned Atespace.
-		if snapshot == nil {
-			actor, err = w.actors.CreateActor(ctx, atespace, name, revision.ActorTemplateAtespace, revision.ActorTemplateName)
-		} else {
-			actor, err = w.actors.CreateActorFromTag(ctx, atespace, name, revision.ActorTemplateAtespace, revision.ActorTemplateName, snapshot.Atespace, tagName)
-		}
-		if err == nil && (!validActorIdentity(actor, revision, name) || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED) {
-			err = fmt.Errorf("created Actor %s/%s has unexpected identity or state", atespace, name)
-		}
-		if err == nil && snapshot != nil {
-			source := actor.GetStatus().GetExternalSnapshot()
-			if !proto.Equal(actor.GetSourceTag(), &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}) ||
-				source.GetSnapshotUri() != snapshot.URI || strings.TrimPrefix(source.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != snapshot.ContentScope {
-				err = fmt.Errorf("fork Actor %s/%s does not match the retained checkpoint", atespace, name)
-			}
-		}
+	defer func() {
 		if err == nil {
-			err = w.actors.EnsureActorEgressPolicy(ctx, atespace, name, policy)
-			if err != nil {
-				err = fmt.Errorf("ensure Actor %s/%s egress policy: %w", atespace, name, err)
-			}
+			return // Completion already cleared the claim.
 		}
-		authority = substrate.ActorHost(atespace, name, "")
-	case apiv1alpha1.SessionOperation_SESSION_OPERATION_RESUME:
-		if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
-			actor, err = w.actors.ResumeActor(ctx, atespace, name)
-		}
-		if err == nil && (!validActorIdentity(actor, revision, name) || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING) {
-			err = fmt.Errorf("resume Actor %s/%s returned unexpected identity or state", atespace, name)
-		}
-	case apiv1alpha1.SessionOperation_SESSION_OPERATION_SUSPEND:
-		if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
-			actor, err = w.actors.SuspendActor(ctx, atespace, name)
-		}
-		if err == nil && (!validActorIdentity(actor, revision, name) || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED) {
-			err = fmt.Errorf("suspend Actor %s/%s returned unexpected identity or state", atespace, name)
-		}
-	case apiv1alpha1.SessionOperation_SESSION_OPERATION_DELETE:
-		if !missing {
-			switch actor.GetStatus().GetState() {
-			case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
-			default:
-				actor, err = w.actors.SuspendActor(ctx, atespace, name)
-				if err == nil && (!validActorIdentity(actor, revision, name) || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED) {
-					err = fmt.Errorf("suspend Actor %s/%s before deletion returned unexpected identity or state", atespace, name)
-				}
-			}
-			if err == nil {
-				err = w.actors.DeleteActor(ctx, atespace, name)
-				if status.Code(err) == codes.NotFound {
-					err = nil
-				}
-			}
-		}
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		err = errors.Join(err, w.store.ReleaseRuntimeOperation(finishCtx, sessionID, operation.ID, executorID))
+	}()
+	if err := substrate.ApplyActorTransition(ctx, w.actors, transition); err != nil {
+		return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("perform %s on Actor %s/%s; lifecycle operation %s remains pending: %w", kind, atespace, name, operation.ID, err)
+	var authority string
+	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+		authority = substrate.ActorHost(binding.Atespace, binding.Name, "")
 	}
+
 	// A disconnected client must not discard an already known runtime outcome.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return w.store.FinishSessionOperation(finishCtx, sessionID, operation.ID, executorID, authority, actor.GetMetadata().GetUid(), "")
+	return w.store.FinishSessionOperation(finishCtx, sessionID, operation.ID, executorID, authority, transition.ActorUID(), "")
 }
 
 // failPreparation releases only unissued work. If another caller won, observe
 // the same generation instead. Completion returns current state; supersession
 // returns a conflict. A local preparation error cannot clear a newer operation.
 func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1alpha1.Session, error) {
+	if admitted.ExecutorID != uuid.Nil {
+		return nil, cause // An earlier attempt may have issued work; retain its intent.
+	}
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	_, err := w.store.FinishSessionOperation(finishCtx, admitted.Session.Id, admitted.ID, uuid.Nil, "", "", "lifecycle preparation failed")
+	_, err := w.store.FinishSessionOperation(finishCtx, admitted.Instance.Id, admitted.ID, uuid.Nil, "", "", "lifecycle preparation failed")
 	if errors.Is(err, database.ErrConflict) {
-		operation, readErr := w.store.GetSessionOperation(finishCtx, admitted.Session.Id, admitted.ID)
+		operation, readErr := w.store.GetSessionOperation(finishCtx, admitted.Instance.Id, admitted.ID)
 		if readErr != nil {
 			return nil, errors.Join(cause, err, readErr)
 		}
@@ -310,8 +252,8 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 }
 
 func operationOutcome(operation *database.SessionOperation) (*apiv1alpha1.Session, error) {
-	if operation.Session.Operation == apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
-		return operation.Session, nil
+	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+		return operation.Instance, nil
 	}
 	return nil, fmt.Errorf("lifecycle operation %s is pending; runtime effects may be unresolved: %w", operation.ID, database.ErrConflict)
 }
@@ -333,49 +275,4 @@ func validActorIdentity(actor *ateapipb.Actor, revision *database.RuntimeRevisio
 	metadata, ref := actor.GetMetadata(), actor.GetActorTemplate()
 	return metadata.GetName() == name && metadata.GetAtespace() == revision.ActorTemplateAtespace && metadata.GetUid() != "" &&
 		ref.GetAtespace() == revision.ActorTemplateAtespace && ref.GetName() == revision.ActorTemplateName
-}
-
-// actorEgressPolicy compiles destinations into an actor's default allowlist.
-// Credential bindings are already canonicalized by the store.
-func actorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
-	var hostnames, cidrs []string
-	for _, destination := range destinations {
-		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {
-			ip = ip.Unmap()
-			cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
-			continue
-		}
-		hostname := strings.TrimSuffix(strings.ToLower(destination), ".")
-		if len(validation.IsDNS1123Subdomain(hostname)) != 0 {
-			return nil, fmt.Errorf("invalid egress destination %q", destination)
-		}
-		hostnames = append(hostnames, hostname)
-	}
-	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
-	for _, binding := range credentials {
-		if !slices.Contains(hostnames, binding.Hostname) {
-			return nil, fmt.Errorf("credential destination %q is not allowed", binding.Hostname)
-		}
-		var rule *ateapipb.HostnameRule
-		if len(policy.Rules) > 0 {
-			rule = policy.Rules[len(policy.Rules)-1].GetHostnames()
-		}
-		if rule == nil || rule.Patterns[0] != binding.Hostname {
-			rule = &ateapipb.HostnameRule{Patterns: []string{binding.Hostname}, Effects: &ateapipb.EgressRuleEffects{}}
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: rule})
-		}
-		rule.Effects.InjectStaticHeaders = append(rule.Effects.InjectStaticHeaders, &ateapipb.CredentialHeaderInjection{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI})
-	}
-	if len(hostnames) > 0 {
-		slices.Sort(hostnames)
-		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: &ateapipb.HostnameRule{Patterns: slices.Compact(hostnames)}})
-	}
-	if len(cidrs) > 0 {
-		slices.Sort(cidrs)
-		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Cidrs: &ateapipb.CIDRRule{Cidrs: slices.Compact(cidrs)}})
-	}
-	if len(policy.Rules) > 256 {
-		return nil, fmt.Errorf("egress policy exceeds 256 rules")
-	}
-	return policy, nil
 }

@@ -41,7 +41,7 @@ type AppConfig struct {
 	// Host is the address to bind to. Empty string binds to all interfaces.
 	Host string
 
-	// Port is the port to listen on. Defaults to the PORT env var, then "8080".
+	// Port is the port to listen on. Defaults to the KAGENT_PORT env var, then "8080".
 	Port string
 
 	// AppName identifies this application for session and tracing purposes.
@@ -90,7 +90,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	if cfg.Logger == nil {
 		logger, err := logging.NewFromEnv(os.Stderr)
 		if err != nil {
-			return nil, fmt.Errorf("parse LOG_LEVEL: %w", err)
+			return nil, fmt.Errorf("parse KAGENT_LOG_LEVEL: %w", err)
 		}
 		cfg.Logger = logger
 	}
@@ -181,7 +181,7 @@ func (a *KAgentApp) Logger() *slog.Logger {
 // applyDefaults fills in zero-value fields with sensible defaults.
 func applyDefaults(cfg AppConfig) AppConfig {
 	if cfg.Port == "" {
-		cfg.Port = os.Getenv("PORT")
+		cfg.Port = env.KagentPort.Get()
 	}
 	if cfg.Port == "" {
 		cfg.Port = defaultPort
@@ -209,10 +209,10 @@ func applyDefaults(cfg AppConfig) AppConfig {
 // buildAppName derives the app name from environment variables or agent card,
 // following the same convention as the Python KAgentConfig.
 func buildAppName(agentCard *a2atype.AgentCard) string {
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+	kagentName := env.KagentName.Get()
+	kagentNamespace, namespaceSet := env.KagentNamespace.Lookup()
 
-	if kagentNamespace != "" && kagentName != "" {
+	if namespaceSet && kagentNamespace != "" && kagentName != "" {
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
 		return namespace + "__NS__" + name

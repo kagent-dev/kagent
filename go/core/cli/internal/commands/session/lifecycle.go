@@ -115,7 +115,7 @@ func deleteSession(
 		SessionId: cfg.SessionID,
 	})
 	if status.Code(err) == codes.Aborted {
-		return fmt.Errorf("delete Session: another lifecycle operation is in progress; retry after it completes: %w", err)
+		return fmt.Errorf("delete Session: lifecycle work is active or pending; inspect the Session and retry its pending operation: %w", err)
 	}
 	if err != nil {
 		return fmt.Errorf("delete Session: %w", err)
@@ -138,11 +138,10 @@ func writeLifecycleResult(
 	return writeSessionsTable(w, []*apiv1alpha1.Session{session}, "")
 }
 
-// NewCreateCmd constructs the Session create command.
-func NewCreateCmd() *cobra.Command {
+func newCreateCmd() *cobra.Command {
 	cfg := &CreateCfg{}
 	cmd := &cobra.Command{
-		Use:   "session",
+		Use:   "create",
 		Short: "Create a Session",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -164,11 +163,10 @@ func NewCreateCmd() *cobra.Command {
 	return cmd
 }
 
-// NewDeleteCmd constructs the Session delete command.
-func NewDeleteCmd() *cobra.Command {
+func newDeleteCmd() *cobra.Command {
 	cfg := &DeleteCfg{}
 	cmd := &cobra.Command{
-		Use:   "session ID",
+		Use:   "delete ID",
 		Short: "Delete a Session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

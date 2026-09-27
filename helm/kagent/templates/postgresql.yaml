@@ -47,6 +47,8 @@ spec:
       app.kubernetes.io/component: database
   template:
     metadata:
+      annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/postgresql-configmap.yaml") . | sha256sum }}
       labels:
         {{- /* extra pod labels: component merged over global, selector labels
              applied last so they can never be overridden */}}
@@ -84,17 +86,14 @@ spec:
               containerPort: 5432
               protocol: TCP
           env:
-            - name: POSTGRES_DB
-              value: "kagent"
-            - name: POSTGRES_USER
-              value: "kagent"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+          envFrom:
+            - configMapRef:
+                name: {{ $fullname }}
           livenessProbe:
             exec:
               command:

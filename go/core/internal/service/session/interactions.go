@@ -392,7 +392,7 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
 	}
 	req.Message.ContextID = session.ContextId
-	if session.State != apiv1alpha1.SessionState_SESSION_STATE_READY || session.Operation != apiv1alpha1.SessionOperation_SESSION_OPERATION_UNSPECIFIED {
+	if session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "Session cannot accept work during a lifecycle operation")
 	}
 	return session, nil

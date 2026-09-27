@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"iter"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ func TestNew_ProvidedController(t *testing.T) {
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
-	t.Setenv("PORT", "")
+	t.Setenv("KAGENT_PORT", "")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
@@ -84,7 +85,7 @@ func TestApplyDefaults_Port(t *testing.T) {
 }
 
 func TestApplyDefaults_PortFromEnv(t *testing.T) {
-	t.Setenv("PORT", "9090")
+	t.Setenv("KAGENT_PORT", "9090")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != "9090" {
 		t.Errorf("expected port %q, got %q", "9090", cfg.Port)
@@ -92,7 +93,7 @@ func TestApplyDefaults_PortFromEnv(t *testing.T) {
 }
 
 func TestApplyDefaults_PortExplicit(t *testing.T) {
-	t.Setenv("PORT", "9090")
+	t.Setenv("KAGENT_PORT", "9090")
 	cfg := applyDefaults(AppConfig{Port: "3000"})
 	if cfg.Port != "3000" {
 		t.Errorf("expected port %q, got %q", "3000", cfg.Port)
@@ -129,6 +130,13 @@ func TestBuildAppName_FromAgentCard(t *testing.T) {
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
 	}
+}
+
+func TestBuildAppName_UnsetNamespace(t *testing.T) {
+	t.Setenv(env.KagentName.Name(), "my-agent")
+	t.Setenv(env.KagentNamespace.Name(), "")
+	require.NoError(t, os.Unsetenv(env.KagentNamespace.Name()))
+	require.Equal(t, "card-name", buildAppName(&a2atype.AgentCard{Name: "card-name"}))
 }
 
 func TestBuildAppName_Default(t *testing.T) {

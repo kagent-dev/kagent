@@ -9,7 +9,7 @@ set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SUBSTRATE_VERSION=0.2.0-beta5
+SUBSTRATE_VERSION=0.3.0-alpha1
 cd "$REPO"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
@@ -85,7 +85,6 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80 \
-  --set controller.substrate.defaultWorkerPool.name=kagent-default \
   --set substrateWorkerPool.create=true \
   --set substrateWorkerPool.replicas=8 \
   --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
@@ -121,7 +120,7 @@ docker buildx build --push --platform "linux/${ARCH}" \
   --build-arg BUILD_PACKAGE=adk/cmd/main.go \
   -t localhost:5001/kagent-dev/kagent/golang-adk:dev -f go/Dockerfile ./go
 HARNESS_DIGEST="$(docker buildx imagetools inspect localhost:5001/kagent-dev/kagent/golang-adk:dev \
-  | awk '/^Digest:/{print $2; exit}')"
+  | awk '/^Digest:/{print $2}')"
 
 step "9/10  An Agent with inline template and Harness"
 kubectl apply -f - <<EOF
@@ -171,7 +170,7 @@ kubectl get pods -n kagent
 # not a dev server. 8083 is the controller, which `yarn dev` proxies to by default.
 #
 # The second one is here so that default is true. With only the UI forwarded, running
-# the dev server needed KAGENT_DEV_CONTROLLER_URL pointed at 8080 in `ui/.env`, and
+# the dev server needed KAGENT_UI_DEV_CONTROLLER_URL pointed at 8080 in `ui/.env`, and
 # without that line every read failed with `ECONNREFUSED 127.0.0.1:8083` on a page that
 # otherwise loaded -- which reads as a broken backend rather than a missing forward. A
 # second `kubectl` is cheaper than a setting every reader has to be told about.

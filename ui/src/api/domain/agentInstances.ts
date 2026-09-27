@@ -21,19 +21,15 @@
  *
  * ## What "unspecified" means, and what it does not
  *
- * Proto3 gives every enum a zero value, and both of these use it. The controller
- * leaves `operation` at zero when no lifecycle operation is in flight, so
- * `"unspecified"` there reads as "nothing happening" — but that is the *controller's*
- * convention rather than something the wire distinguishes, and a record that was
- * never written would look identical. `state` at zero has no such convention: it
- * means the controller did not say. Both are rendered as their own thing on screen
- * rather than being folded into a plausible-looking default.
+ * The wire distinguishes an omitted operation (`UNSPECIFIED = 0`) from an
+ * explicit idle operation (`NONE`). This view model maps both to `"unspecified"`.
+ * State `UNSPECIFIED` means the controller did not report a lifecycle state.
  */
 
 /**
  * Where an instance is in its life.
  *
- * The six named values are `AgentInstanceState` in the proto, in its order.
+ * The six named values are `RuntimeState` in the proto, in its order.
  * `"unknown"` is this client's, for an enum member added after this build.
  */
 export type AgentInstanceState =
@@ -81,8 +77,7 @@ export interface AgentInstanceFailure {
  *
  * An instance owns one A2A context and an isolated history, so it holds exactly one
  * thread of turns and a second conversation with the same agent is a second
- * instance. Its prepared revision records the Agent and configuration it was
- * created from.
+ * instance. The durable, runnable agent is the `Agent` it was started from.
  */
 export interface AgentInstance {
   /** A UUID. The controller rejects anything else — `validateIdentity` parses it. */

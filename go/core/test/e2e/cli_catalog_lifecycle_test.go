@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -31,11 +32,11 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			return runKagentCLI(t, ctx, binary, append(append([]string{}, baseArgs...), args...)...)
 		}
 
-		listedTemplates := run(t.Context(), "get", "agent")
+		listedTemplates := run(t.Context(), "agent", "list")
 		if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "True") {
 			t.Fatalf("list Agents stdout = %q, want ready template %s", listedTemplates, templateName)
 		}
-		templateJSON := run(t.Context(), "--output-format", "json", "get", "agent", templateName)
+		templateJSON := run(t.Context(), "--output-format", "json", "agent", "get", templateName)
 		if !json.Valid([]byte(templateJSON)) || !strings.Contains(templateJSON, `"name":"`+templateName+`"`) ||
 			!strings.Contains(templateJSON, `"status":"True"`) {
 			t.Fatalf("get Agent stdout = %q, want ready template %s as JSON", templateJSON, templateName)
@@ -43,7 +44,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 
 		requestID := uuid.NewString()
 		createArgs := []string{
-			"--output-format", "json", "create", "session",
+			"--output-format", "json", "agent", "session", "create",
 			"--agent", templateName, "--request-id", requestID,
 		}
 		createdJSON := run(t.Context(), createArgs...)
@@ -52,13 +53,13 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			t.Fatalf("decode create Session stdout %q: %v", createdJSON, err)
 		}
 		session := created.GetSession()
-		if session.GetId() == "" || session.GetState() != apiv1alpha1.SessionState_SESSION_STATE_READY {
+		if session.GetId() == "" || session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
 			t.Fatalf("created Session = %#v, want ID and READY state", session)
 		}
 		deleted := false
 		t.Cleanup(func() {
 			if !deleted {
-				run(context.Background(), "delete", "session", session.GetId())
+				run(context.Background(), "agent", "session", "delete", session.GetId())
 			}
 		})
 
@@ -71,22 +72,22 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			t.Fatalf("replayed create ID = %q, want %q", replayed.GetSession().GetId(), session.GetId())
 		}
 
-		listedSessions := run(t.Context(), "get", "session")
+		listedSessions := run(t.Context(), "agent", "session", "list")
 		if !strings.Contains(listedSessions, session.GetId()) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listedSessions, session.GetId())
 		}
-		gotSession := run(t.Context(), "--output-format", "json", "get", "session", session.GetId())
+		gotSession := run(t.Context(), "--output-format", "json", "agent", "session", "get", session.GetId())
 		if !json.Valid([]byte(gotSession)) || !strings.Contains(gotSession, session.GetId()) {
 			t.Fatalf("get Session stdout = %q, want session %s as JSON", gotSession, session.GetId())
 		}
 
-		deletedJSON := run(t.Context(), "--output-format", "json", "delete", "session", session.GetId())
+		deletedJSON := run(t.Context(), "--output-format", "json", "agent", "session", "delete", session.GetId())
 		deleted = true
 		var deletedResponse apiv1alpha1.DeleteSessionResponse
 		if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
 			t.Fatalf("decode delete Session stdout %q: %v", deletedJSON, err)
 		}
-		if deletedResponse.GetSession().GetState() != apiv1alpha1.SessionState_SESSION_STATE_DELETED {
+		if deletedResponse.GetSession().GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
 			t.Fatalf("deleted Session state = %s, want DELETED", deletedResponse.GetSession().GetState())
 		}
 	})
@@ -105,12 +106,12 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			"--user-id", "e2e",
 		}
 
-		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "session")...)
+		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "agent", "session", "list")...)
 		if !strings.Contains(listOutput, fixture.sessionID) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listOutput, fixture.sessionID)
 		}
 
-		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "session", fixture.sessionID)
+		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "agent", "session", "get", fixture.sessionID)
 		getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
 		if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.sessionID) {
 			t.Fatalf("get Session stdout = %q, want JSON for session %s", getOutput, fixture.sessionID)
@@ -130,7 +131,7 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				args := append(append([]string{}, baseArgs...),
 					"--output-format", tt.format,
-					"invoke",
+					"agent", "invoke",
 					"--session", fixture.sessionID,
 					"--task", "What is 2+2?",
 				)
@@ -161,7 +162,7 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(ctx, binary, args...)
-	kubeconfig := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	kubeconfig := kagentenv.Kubeconfig.Get()
 	if kubeconfig == "" {
 		kubeconfig = clientcmd.RecommendedHomeFile
 	}
@@ -180,7 +181,7 @@ func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...stri
 
 func kagentCLI(t *testing.T) string {
 	t.Helper()
-	binary := os.Getenv("KAGENT_E2E_CLI")
+	binary := kagentenv.E2ECLI.Get()
 	if binary == "" {
 		t.Fatal("KAGENT_E2E_CLI is not set; run E2E tests through `make -C go e2e`")
 	}

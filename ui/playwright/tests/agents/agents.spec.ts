@@ -15,118 +15,69 @@ import { operationCalls, rpc } from "../../helpers/mockCalls";
 import { optionNamed } from "../../helpers/resource";
 import { background, settledPaint } from "../../helpers/style";
 
-/**
- * Agents — what can be run, and what each one is.
- *
- * An agent is an `AgentTemplate` paired with a `Harness`. An `AgentInstance` is one
- * *conversation* with an agent, not an agent — the A2A gateway files every task
- * under the instance as the task's `contextId`, so an instance holds a single thread
- * of turns. This page used to list those, under a heading that said "Agents".
- *
- * ## What this covers, and why each thing is here
- *
- * The properties a page cannot show you it got wrong:
- *
- * Each row is an explicit Agent. Two Agents can reuse a template while retaining
- * independent revisions and conversations. Templates alone do not appear here.
- */
-
-test("agents: the list is agents, and an agent is a template paired with a harness", async ({
+/** Agents — each row is one explicit Agent, whose template and harness are each shared or inline. */
+test("agents: the list is Agent resources, with each half shared or inline", async ({
   page,
 }) => {
-  await test.step("1. every namespace by default, with no toggle to say so", async () => {
+  await test.step("1. every namespace by default", async () => {
     await loadPage(page, routes.agents, { title: "Agents" });
     await expectSettled(page);
-
-    // Five agents across two namespaces, which a page scoped to one could not show.
-    // The old "all namespaces" switch is gone: nothing selected *is* everything, so
-    // there is one control rather than two that could contradict each other.
-    //
-    // Six rows, because the fixtures also hold conversations whose pair no longer
-    // exists and those are gathered under a stand-in row — see the dedicated test
-    // below for why that row is there and when it is not.
-    await expect(dataRows(page)).toHaveCount(6);
-    await expect(page.getByTestId("agents-summary")).toHaveText("5 of 5 agents");
-    await expect(page.getByTestId("agent-conversations-__unmapped__")).toHaveText("1 conversation");
+    await expect(dataRows(page)).toHaveCount(9);
+    await expect(page.getByTestId("agents-summary")).toHaveText("9 of 9 agents");
     await expect(page.getByTestId("agents-table")).toContainText("analytics");
-    await expect(page.getByTestId("instances-all-namespaces")).toHaveCount(0);
   });
 
-  await test.step("2. two explicit Agents reuse a template with different Harnesses", async () => {
-    const shared = rowNamed(page, "shared-brain");
-    await expect(shared).toHaveCount(2);
-
-    const harnesses = await shared
-      .locator("[data-testid^='agent-harness-']")
-      .allInnerTexts();
-    expect(harnesses.sort()).toEqual(["fast-lane", "k8s-agent"]);
+  await test.step("2. each row says whether its template and harness are shared or inline", async () => {
+    const sources = async (name: string) => [
+      await page.getByTestId(`agent-template-kagent/${name}`).getAttribute("data-source"),
+      await page.getByTestId(`agent-harness-kagent/${name}`).getAttribute("data-source"),
+    ];
+    expect(await sources("shared-brain")).toEqual(["reference", "reference"]);
+    expect(await sources("release-notes")).toEqual(["inline", "reference"]);
+    expect(await sources("triage-on-claude")).toEqual(["reference", "inline"]);
+    expect(await sources("scratchpad")).toEqual(["inline", "inline"]);
+    await expect(page.getByTestId("agent-template-kagent/shared-brain")).toHaveText("shared-brain");
+    await expect(page.getByTestId("agent-harness-kagent/shared-brain")).toHaveText("k8s-agent");
   });
 
-  await test.step("3. each row links to its own agent, not to a shared one", async () => {
-    // Two links to two addresses. A page keyed on the template would produce the same
-    // href twice and the two rows would be the same page.
-    //
-    // The destination is a conversation that does not exist yet, which is what clicking
-    // an agent's name is for. It creates nothing until a message is sent; the agent's
-    // own page — `agentPage` — is reached from the Conversations control instead.
-    await expect(
-      page.getByTestId("agent-link-kagent-shared-brain-k8s-agent"),
-    ).toHaveAttribute("href", agentNewChat(agents.sharedOnK8s));
-    await expect(
-      page.getByTestId("agent-link-kagent-shared-brain-fast-fast-lane"),
-    ).toHaveAttribute("href", agentNewChat(agents.sharedOnFastLane));
+  await test.step("3. two Agents with identical refs are two rows with two addresses", async () => {
+    await expect(page.getByTestId("agent-link-kagent-shared-brain")).toHaveAttribute(
+      "href", agentNewChat(agents.sharedOnK8s),
+    );
+    await expect(page.getByTestId("agent-link-kagent-shared-brain-twin")).toHaveAttribute(
+      "href", agentNewChat({ name: "shared-brain-twin", template: "", harness: "" }),
+    );
   });
 
-  await test.step("4. a template without an Agent is not listed as an agent", async () => {
+  await test.step("4. a template without an Agent is not listed", async () => {
     await expect(rowNamed(page, "note-taker")).toHaveCount(0);
   });
 
-  await test.step("5. the revision state is three answers, and 'preparing' is not a failure", async () => {
+  await test.step("5. status is ready, preparing or not reported", async () => {
     await expect(
       page.getByTestId(`agent-revision-kagent/${agents.k8s.name}`),
     ).toHaveAttribute("data-revision-state", "ready");
-
-    // Defined, with a desired revision and none successful yet, because its harness
-    // has not reported ready. A page that rendered this the same as a failure would
-    // send a reader looking for a broken template.
-    const preparing = page.getByTestId(
-      `agent-revision-kagent/${agents.preparing.name}`,
-    );
+    const preparing = page.getByTestId(`agent-revision-kagent/${agents.preparing.name}`);
     await expect(preparing).toHaveAttribute("data-revision-state", "preparing");
     await expect(preparing).toHaveText("Preparing");
   });
 
-  await test.step("6. each agent carries a count of the conversations people have had with it", async () => {
-    // Counted with `all_creators`, so it is what the agent is doing rather than what
-    // this reader has done with it. Four for the k8s agent: two of the caller's own
-    // and two of somebody else's.
-    await expect(
-      page.getByTestId(
-        `agent-conversations-kagent/${agents.k8s.name}`,
-      ),
-    ).toHaveText("4 conversations");
-    // One each for the two agents `shared-brain` is — which is the count being per
-    // *pair* rather than per template. Split the other way it would read 2 and 0.
-    await expect(
-      page.getByTestId(
-        `agent-conversations-kagent/${agents.sharedOnK8s.name}`,
-      ),
-    ).toHaveText("1 conversation");
-    await expect(
-      page.getByTestId(
-        `agent-conversations-kagent/${agents.sharedOnFastLane.name}`,
-      ),
-    ).toHaveText("1 conversation");
+  await test.step("6. conversation counts are per Agent, not per template", async () => {
+    await expect(page.getByTestId(`agent-conversations-kagent/${agents.k8s.name}`)).toHaveText("4 conversations");
+    await expect(page.getByTestId(`agent-conversations-kagent/${agents.sharedOnK8s.name}`)).toHaveText("1 conversation");
+    await expect(page.getByTestId("agent-conversations-kagent/shared-brain-twin")).toHaveText("0 conversations");
   });
 
-  await test.step("7. a conversation belonging to no pair is said out loud, not dropped", async () => {
-    // The fixture instance with no harness and no template belongs to no agent, so
-    // it appears under none of them — which would otherwise be a conversation that
-    // silently vanished from the product. Deleting a template produces the same
-    // state on a cluster, and the conversation keeps running.
+  await test.step("7. a conversation whose Agent is gone is reported", async () => {
     await expect(page.getByTestId("agents-orphaned-conversations")).toBeVisible();
   });
 
+  await test.step("8. a shared template's description shows on its Agents and is searchable", async () => {
+    await expect(page.getByText("One configuration, run on two different runtimes.", { exact: true })).toHaveCount(3);
+    await page.getByPlaceholder("Search agents").fill("One configuration");
+    await expect(dataRows(page)).toHaveCount(3);
+    await expect(rowNamed(page, "support-triage-2b91d0e")).toHaveCount(0);
+  });
 });
 
 /**
@@ -144,8 +95,7 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
   await expectSettled(page);
 
   await test.step("1. nothing selected is every namespace", async () => {
-    // Five agents plus the stand-in row for conversations that belong to none of them.
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
     // No pills, because nothing is narrowing: a pill row over an unfiltered list
     // would be a control saying something is hidden when nothing is.
     await expect(page.getByTestId("agents-filters-pills")).toHaveCount(0);
@@ -160,17 +110,14 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
     await page.keyboard.press("Escape");
 
     await expect(page.getByTestId("agents-filters-pill-ns-analytics")).toBeVisible();
-    // The unknown-Agent fixture remains visible, but conversations belonging to
-    // known Agents in other namespaces must not be counted as orphaned.
-    await expect(dataRows(page)).toHaveCount(2);
-    await expect(page.getByTestId("agent-conversations-__unmapped__")).toHaveText("1 conversation");
+    await expect(dataRows(page)).toHaveCount(1);
     // In the address, so a narrowed view can be linked to and survives a reload.
     await expect(page).toHaveURL(/ns=analytics/);
   });
 
   await test.step("3. the pill removes exactly that filter", async () => {
     await page.getByTestId("agents-filters-pill-ns-analytics").click();
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
     await expect(page).not.toHaveURL(/ns=analytics/);
   });
 
@@ -179,53 +126,29 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
     // Matched on the harness, which is half of what an agent *is* — a search over
     // template names alone could never find one of two agents cut from one template.
     await expect(dataRows(page)).toHaveCount(1);
-    await expect(page.getByTestId("agents-summary")).toHaveText("1 of 5 agents");
+    await expect(page.getByTestId("agents-summary")).toHaveText("1 of 9 agents");
 
     // The search term is a filter like any other, so it has a pill and "clear
     // filters" means it.
     await expect(page.getByTestId("agents-filters-pill-search")).toBeVisible();
     await page.getByTestId("agents-filters-pill-clear").click();
-    // Back to five agents and the stand-in row.
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
   });
 });
 
-test("agents: conversations with no agent are gathered rather than only counted", async ({
-  page,
-}) => {
-  /*
-   * Deleting a template does not stop the conversations cut from it: an instance runs
-   * from the prepared revision it was built against, and the collector keeps that
-   * revision *for it*. So a conversation outlives its agent — and until now the list
-   * counted those in a sentence and offered nowhere to go, which left them running,
-   * holding a worker each, and reachable from nothing.
-   */
+test("agents: conversations with no agent are one click away", async ({ page }) => {
+  // Deleting an Agent leaves its conversations running on their prepared revision.
   await loadPage(page, routes.agents, { title: "Agents" });
   await expectSettled(page);
 
-  await test.step("1. the notice says where they went, not just that they exist", async () => {
-    const notice = page.getByTestId("agents-orphaned-conversations");
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText("unmapped-agentinstances");
+  await test.step("1. the notice counts them", async () => {
+    await expect(page.getByTestId("agents-orphaned-conversations")).toContainText("1 conversation belongs to no agent here");
   });
 
-  await test.step("2. and there is a row for them, last, because it is not an agent", async () => {
-    /*
-     * It used to be pinned first, as the exception. Last is better: it is a stand-in for
-     * conversations whose pair no longer exists, not something anybody came here to
-     * find, and putting it above every real agent made the list open on the one row
-     * most readers were not looking for.
-     */
-    await expect(dataRows(page).last()).toContainText("unmapped-agentinstances");
-  });
-
-  await test.step("3. it opens the conversations rather than offering a new one", async () => {
-    // There is no agent to start a conversation with — that is the condition the row
-    // describes — so the name goes to the list of what it stands for.
-    await page.getByRole("link", { name: "unmapped-agentinstances", exact: true }).click();
-    await page.waitForURL(/\/agents\/unmapped$/, { timeout: 30_000 });
+  await test.step("2. and links to where they can be opened and deleted", async () => {
+    await page.getByTestId("agents-orphaned-link").click();
+    await page.waitForURL(/\/agents\/unmapped$/);
     await expect(page.getByTestId("unmapped-table")).toBeVisible();
-    // This fixture has no Agent reference; the page must report that absence.
     await expect(page.getByTestId("unmapped-table").locator("tbody tr").first().locator("td").nth(1)).toHaveText("not reported");
   });
 });
@@ -253,7 +176,9 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
     await expect(concepts).toBeVisible();
     await expect(concepts).toContainText("AgentTemplate");
     await expect(concepts).toContainText("Harness");
-    await expect(concepts).toContainText("each referenced or inline");
+    await expect(page.getByTestId("concepts-pairing")).toHaveText(
+      "An agent consists of one template (describing what it does), plus one harness (describing where and how it runs).",
+    );
   });
 
   await test.step("2. each tab is reachable and shows its own list", async () => {
@@ -273,11 +198,11 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
     await expect(page.getByTestId("harnesses-table")).toBeVisible({ timeout: 30_000 });
   });
 
-  await test.step("4. there is no way to create an agent, because there is no such thing", async () => {
+  await test.step("4. the header creates each of the three resources", async () => {
     await page.getByRole("tab", { name: "Agents" }).click();
-    await expect(page.getByTestId("agents-new")).toHaveCount(0);
-    // What it offers instead is the thing that actually makes one.
+    await expect(page.getByTestId("agents-new")).toBeVisible();
     await expect(page.getByTestId("agents-new-template")).toBeVisible();
+    await expect(page.getByTestId("agents-new-harness")).toBeVisible();
   });
 });
 
@@ -321,32 +246,12 @@ test("agents: pressing a row looks different from hovering it", async ({ page })
   }
 });
 
-/**
- * The list has an order of its own, and the stand-in row is not part of it.
- *
- * It arrived in whatever order the namespaces were read in — stable within a read and
- * meaningless to a reader, so an agent moved when an unrelated namespace answered more
- * slowly. And `Unmapped conversations` is not an agent: it stands in for conversations
- * whose pair no longer exists, so sorting it among real agents by name would drop it
- * into the middle of the list on a "U".
- */
-test("agents: the list is ordered by name, with the stand-in row last", async ({ page }) => {
+/** Ordered by name by default, not by the order namespaces answered in. */
+test("agents: the list is ordered by name", async ({ page }) => {
   await loadPage(page, routes.agents, { title: "Agents" });
-  await expect(page.locator("tbody tr").first()).toBeVisible({ timeout: 30_000 });
-
-  const names = await page
-    .locator('tbody tr [data-testid="agent-name"], tbody tr td:first-child')
-    .allTextContents();
-  const cleaned = names.map((name) => name.trim()).filter(Boolean);
-  const stranded = cleaned.findIndex((name) => name.includes("Unmapped"));
-
-  if (stranded !== -1) {
-    expect(stranded, "the stand-in row belongs at the bottom").toBe(cleaned.length - 1);
-  }
-
-  const real = stranded === -1 ? cleaned : cleaned.slice(0, stranded);
-  const sorted = [...real].sort((left, right) => left.localeCompare(right));
-  expect(real, "agents should be listed by name").toEqual(sorted);
+  await expect(dataRows(page)).toHaveCount(9);
+  const names = (await page.locator('[data-testid^="agent-link-"]').allTextContents()).map((name) => name.trim());
+  expect(names).toEqual([...names].sort((left, right) => left.localeCompare(right)));
 });
 
 /**

@@ -238,13 +238,12 @@ func writeAgentsTable(w io.Writer, templates []apiv1alpha3.Agent, list bool, nex
 	return nil
 }
 
-// NewGetAgentCmd constructs the Agent get/list command.
-func NewGetAgentCmd() *cobra.Command {
+func newAgentReadCmd(list bool) *cobra.Command {
 	cfg := &AgentGetCfg{}
 	cmd := &cobra.Command{
-		Use:   "agent [NAME]",
-		Short: "Get an Agent or list Agents",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "get NAME",
+		Short: "Get an Agent",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
@@ -257,6 +256,9 @@ func NewGetAgentCmd() *cobra.Command {
 			var name string
 			if len(args) == 1 {
 				name = args[0]
+				if name == "" {
+					return errors.New("agent name must not be empty")
+				}
 			}
 			cfg.Namespace = options.Namespace
 			cfg.OutputFormat = format
@@ -264,8 +266,13 @@ func NewGetAgentCmd() *cobra.Command {
 			return runGetAgent(cmd.Context(), cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of Agents per page (0 uses 100; maximum 100)")
-	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	if list {
+		cmd.Use = "list"
+		cmd.Short = "List Agents"
+		cmd.Args = cobra.NoArgs
+		cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of Agents per page (0 uses 100; maximum 100)")
+		cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	}
 	return cmd
 }
 

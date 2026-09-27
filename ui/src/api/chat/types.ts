@@ -87,9 +87,11 @@ export type ChatEvent =
 
 /** A conversation identified by UUID. */
 export interface ChatConversationRef {
-  /** The AgentInstance id. A UUID; the gateway rejects anything else. */
+  /** The Session UUID, also its A2A conversation ID. */
   id: string;
-  /** Omitted until loaded; the routed gateway resolves an empty context. */
+  /** Agent selected for A2A routing, as namespace/name. */
+  agent: string;
+  /** The Session conversation ID. */
   contextId?: string;
 }
 
