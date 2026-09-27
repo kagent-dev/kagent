@@ -272,15 +272,19 @@ An interrupted file write reports an error and does not reserve lifecycle access
 
 ## CLI access
 
-`kagent sandbox` uses the CLI's existing API connection, identity, and TLS
-settings. `templates`, `create`, `list`, `get`, `suspend`, `resume`, and `delete`
-cover discovery and lifecycle. Creation requires a retained `--request-id`;
-mutations make one attempt and follow the [retry contract](../lifecycle-retries.md).
+Sandbox commands use the CLI's existing API connection, identity, and TLS
+settings. `kagent get sandbox-template` discovers templates in the selected
+namespace. `kagent get sandbox [ID]` lists your sandboxes or inspects one;
+pagination flags apply only to lists. `kagent create sandbox TEMPLATE` requires
+a retained `--request-id`, and `kagent delete sandbox ID` deletes a sandbox.
+`kagent sandbox suspend ID` and `kagent sandbox resume ID` manage its runtime.
+Mutations make one attempt and follow the [retry contract](../lifecycle-retries.md).
 
-`exec ID -- COMMAND [ARG...]` starts a process once and waits by default. It
-copies stdout/stderr to the corresponding local streams and returns the remote
-exit code. `--wait=false` returns the process ID immediately. `wait ID PROCESS_ID`
-resumes observation with optional `--stdout-offset` and `--stderr-offset`;
+Under `kagent sandbox`, `exec ID -- COMMAND [ARG...]` starts a process once and
+waits by default. It copies stdout/stderr to the corresponding local streams and
+returns the remote exit code. `--wait=false` returns the process ID immediately.
+`wait ID PROCESS_ID` resumes observation with optional `--stdout-offset` and
+`--stderr-offset`;
 `process` inspects status and `kill` terminates the process. `--timeout` bounds
 the command. Interrupted observation does not kill or restart remote work.
 

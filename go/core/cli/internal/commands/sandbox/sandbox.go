@@ -20,8 +20,8 @@ import (
 // NewCmd constructs commands using the CLI's shared API connection and identity.
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "sandbox", Short: "Run commands and transfer files in standalone sandboxes"}
-	cmd.AddCommand(newTemplatesCmd(), newCreateCmd(), newListCmd(), newExecCmd(), newWaitCmd(), newProcessCmd(), newKillCmd(), newUploadCmd(), newDownloadCmd())
-	for _, action := range []string{"get", "suspend", "resume", "delete"} {
+	cmd.AddCommand(newExecCmd(), newWaitCmd(), newProcessCmd(), newKillCmd(), newUploadCmd(), newDownloadCmd())
+	for _, action := range []string{"suspend", "resume"} {
 		cmd.AddCommand(newLifecycleCmd(action))
 	}
 	return cmd
@@ -54,9 +54,10 @@ func withClient(cmd *cobra.Command, run func(context.Context, *client.SandboxCli
 	return run(ctx, session.API.Sandbox, options, format)
 }
 
-func newTemplatesCmd() *cobra.Command {
+// NewGetTemplateCmd constructs the SandboxTemplate discovery command.
+func NewGetTemplateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "templates", Short: "List SandboxTemplates in the selected namespace", Args: cobra.NoArgs,
+		Use: "sandbox-template", Short: "List SandboxTemplates in the selected namespace", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, options connection.Options, format clioutput.Format) error {
 				response, err := c.ListSandboxTemplates(ctx, &apiv1alpha1.ListSandboxTemplatesRequest{Namespace: options.Namespace})
@@ -81,11 +82,12 @@ func newTemplatesCmd() *cobra.Command {
 	}
 }
 
-func newCreateCmd() *cobra.Command {
+// NewCreateCmd constructs the Sandbox create command.
+func NewCreateCmd() *cobra.Command {
 	var requestID, name string
 	var ttl time.Duration
 	cmd := &cobra.Command{
-		Use: "create TEMPLATE --request-id ID", Short: "Create a sandbox from a prepared template", Args: cobra.ExactArgs(1),
+		Use: "sandbox TEMPLATE --request-id ID", Short: "Create a sandbox from a prepared template", Args: cobra.ExactArgs(1),
 		Long: "Create a sandbox. Retain --request-id and all inputs for retries; each call makes one lifecycle attempt. Activity does not extend the TTL.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if requestID == "" {
@@ -116,13 +118,24 @@ func newCreateCmd() *cobra.Command {
 	return cmd
 }
 
-func newListCmd() *cobra.Command {
+// NewGetCmd constructs the Sandbox get/list command.
+func NewGetCmd() *cobra.Command {
 	var pageSize int32
 	var pageToken string
 	cmd := &cobra.Command{
-		Use: "list", Short: "List your sandboxes", Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Use: "sandbox [ID]", Short: "Get a sandbox or list your sandboxes", Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && (cmd.Flags().Changed("page-size") || cmd.Flags().Changed("page-token")) {
+				return errors.New("pagination flags cannot be used when getting one sandbox")
+			}
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
+				if len(args) == 1 {
+					response, err := c.GetSandbox(ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: args[0]})
+					if err != nil {
+						return fmt.Errorf("get sandbox %s: %w", args[0], err)
+					}
+					return writeSandbox(cmd.OutOrStdout(), format, response.GetSandbox())
+				}
 				response, err := c.ListSandboxes(ctx, &apiv1alpha1.ListSandboxesRequest{Page: &apiv1alpha1.PageRequest{Limit: pageSize, PageToken: pageToken}})
 				if err != nil {
 					return err
@@ -145,19 +158,22 @@ func newListCmd() *cobra.Command {
 	return cmd
 }
 
+// NewDeleteCmd constructs the Sandbox delete command.
+func NewDeleteCmd() *cobra.Command {
+	cmd := newLifecycleCmd("delete")
+	cmd.Use = "sandbox ID"
+	return cmd
+}
+
 func newLifecycleCmd(action string) *cobra.Command {
 	return &cobra.Command{
 		Use: action + " ID", Short: action + " a sandbox", Args: cobra.ExactArgs(1),
-		Long: "Inspect or change sandbox lifecycle. Mutations make one attempt; retry the same mutation on transient errors. Get only observes. Suspend can interrupt work; delete removes files.",
+		Long: "Change sandbox lifecycle. Mutations make one attempt; retry the same mutation on transient errors. Suspend can interrupt work; delete removes files.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
 				var value *apiv1alpha1.Sandbox
 				var err error
 				switch action {
-				case "get":
-					var response *apiv1alpha1.GetSandboxResponse
-					response, err = c.GetSandbox(ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: args[0]})
-					value = response.GetSandbox()
 				case "suspend":
 					var response *apiv1alpha1.SuspendSandboxResponse
 					response, err = c.SuspendSandbox(ctx, &apiv1alpha1.SuspendSandboxRequest{SandboxId: args[0]})

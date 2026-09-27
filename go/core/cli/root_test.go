@@ -146,8 +146,9 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 
 	createCmd, _, err := rootCmd.Find([]string{"create"})
 	require.NoError(t, err)
-	assert.Len(t, createCmd.Commands(), 1)
-	assert.Equal(t, "session", createCmd.Commands()[0].Name())
+	assert.Len(t, createCmd.Commands(), 2)
+	assert.Equal(t, "sandbox", createCmd.Commands()[0].Name())
+	assert.Equal(t, "session", createCmd.Commands()[1].Name())
 
 	getCmd, _, err := rootCmd.Find([]string{"get"})
 	require.NoError(t, err)
@@ -177,6 +178,11 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	for name, args := range map[string][]string{
 		"get session":          {"get", "session"},
 		"get agent-template":   {"get", "agent-template"},
+		"get sandbox-template": {"get", "sandbox-template"},
+		"list sandbox":         {"get", "sandbox"},
+		"get sandbox":          {"get", "sandbox", sandboxTestID},
+		"create sandbox":       {"create", "sandbox", "python", "--request-id", "request"},
+		"delete sandbox":       {"delete", "sandbox", sandboxTestID},
 		"create session":       {"create", "session", "--agent", "example"},
 		"apply agent-template": {"apply", "--file", "template.yaml"},
 		"delete session":       {"delete", "session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
@@ -198,9 +204,9 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 
 func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
 	for name, want := range map[string]string{
-		"get":    "agent, agent-template, session",
-		"create": "session",
-		"delete": "session",
+		"get":    "agent, agent-template, sandbox, sandbox-template, session",
+		"create": "sandbox, session",
+		"delete": "sandbox, session",
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootCmd := cli.Root()

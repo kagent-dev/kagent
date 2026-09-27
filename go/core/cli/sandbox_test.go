@@ -26,6 +26,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -34,6 +35,7 @@ const sandboxTestID = "33333333-3333-4333-8333-333333333333"
 
 type sandboxTestServer struct {
 	apiv1alpha1.UnimplementedSandboxServiceServer
+	apiv1alpha1.UnimplementedSandboxTemplateServiceServer
 	guestpb.UnimplementedProcessServiceServer
 	guestpb.UnimplementedFileSystemServiceServer
 	mu           sync.Mutex
@@ -58,6 +60,7 @@ func newSandboxTestServer(t *testing.T) (*sandboxTestServer, string) {
 	server := grpc.NewServer()
 	healthpb.RegisterHealthServer(server, health.NewServer())
 	apiv1alpha1.RegisterSandboxServiceServer(server, s)
+	apiv1alpha1.RegisterSandboxTemplateServiceServer(server, s)
 	guestpb.RegisterProcessServiceServer(server, s)
 	guestpb.RegisterFileSystemServiceServer(server, s)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -73,7 +76,7 @@ func runSandboxCLI(t *testing.T, endpoint string, args ...string) (string, strin
 	var out, stderr bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs(append([]string{"--api-url", endpoint, "--user-id", "cli-test", "sandbox"}, args...))
+	cmd.SetArgs(append([]string{"--api-url", endpoint, "--user-id", "cli-test"}, args...))
 	// Guest calls must replace stale routing metadata while preserving auth.
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer test", sandboxapi.IDHeader, "stale", sandboxapi.IDHeader, "also-stale"))
 	err := cmd.ExecuteContext(ctx)
@@ -102,6 +105,39 @@ func (s *sandboxTestServer) CreateSandbox(ctx context.Context, request *apiv1alp
 		Id: sandboxTestID, Creator: md.Get("x-user-id")[0], SandboxTemplate: request.SandboxTemplate,
 		State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour)),
 	}}, nil
+}
+
+func (s *sandboxTestServer) ListSandboxTemplates(_ context.Context, request *apiv1alpha1.ListSandboxTemplatesRequest) (*apiv1alpha1.ListSandboxTemplatesResponse, error) {
+	if request.Namespace != "team-a" {
+		return nil, status.Error(codes.InvalidArgument, "unexpected namespace")
+	}
+	return &apiv1alpha1.ListSandboxTemplatesResponse{SandboxTemplates: []*apiv1alpha1.SandboxTemplate{{
+		Ref: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "python"}, WorkloadImage: "python-image",
+	}}}, nil
+}
+
+func (s *sandboxTestServer) GetSandbox(_ context.Context, request *apiv1alpha1.GetSandboxRequest) (*apiv1alpha1.GetSandboxResponse, error) {
+	if request.SandboxId != sandboxTestID {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	return &apiv1alpha1.GetSandboxResponse{Sandbox: &apiv1alpha1.Sandbox{Id: sandboxTestID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}}, nil
+}
+
+func (s *sandboxTestServer) ListSandboxes(_ context.Context, request *apiv1alpha1.ListSandboxesRequest) (*apiv1alpha1.ListSandboxesResponse, error) {
+	if request.GetPage().GetLimit() != 2 || request.GetPage().GetPageToken() != "cursor" {
+		return nil, status.Error(codes.InvalidArgument, "unexpected pagination")
+	}
+	return &apiv1alpha1.ListSandboxesResponse{
+		Sandboxes: []*apiv1alpha1.Sandbox{{Id: sandboxTestID}},
+		Page:      &apiv1alpha1.PageResponse{NextPageToken: "next-cursor"},
+	}, nil
+}
+
+func (s *sandboxTestServer) DeleteSandbox(_ context.Context, request *apiv1alpha1.DeleteSandboxRequest) (*apiv1alpha1.DeleteSandboxResponse, error) {
+	if request.SandboxId != sandboxTestID {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	return &apiv1alpha1.DeleteSandboxResponse{Sandbox: &apiv1alpha1.Sandbox{Id: sandboxTestID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED}}, nil
 }
 
 func (s *sandboxTestServer) StartProcess(ctx context.Context, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {
@@ -214,7 +250,7 @@ func (s *sandboxTestServer) ReadFile(request *guestpb.ReadFileRequest, stream gr
 func TestSandboxCLICreateRetainsRequestIdentity(t *testing.T) {
 	s, endpoint := newSandboxTestServer(t)
 	for range 2 {
-		out, _, err := runSandboxCLI(t, endpoint, "create", "python", "-n", "team-a", "--request-id", "retained-request", "--ttl", "15m", "-o", "json")
+		out, _, err := runSandboxCLI(t, endpoint, "create", "sandbox", "python", "-n", "team-a", "--request-id", "retained-request", "--ttl", "15m", "-o", "json")
 		require.NoError(t, err)
 		var value struct{ ID, Creator string }
 		require.NoError(t, json.Unmarshal([]byte(out), &value))
@@ -230,12 +266,64 @@ func TestSandboxCLICreateRetainsRequestIdentity(t *testing.T) {
 	}
 }
 
+func TestSandboxCLIResourceCommands(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want proto.Message
+	}{
+		{
+			name: "templates",
+			args: []string{"get", "sandbox-template", "-n", "team-a"},
+			want: &apiv1alpha1.ListSandboxTemplatesResponse{SandboxTemplates: []*apiv1alpha1.SandboxTemplate{{
+				Ref: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "python"}, WorkloadImage: "python-image",
+			}}},
+		},
+		{
+			name: "get",
+			args: []string{"get", "sandbox", sandboxTestID},
+			want: &apiv1alpha1.Sandbox{Id: sandboxTestID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY},
+		},
+		{
+			name: "list",
+			args: []string{"get", "sandbox", "--page-size", "2", "--page-token", "cursor"},
+			want: &apiv1alpha1.ListSandboxesResponse{
+				Sandboxes: []*apiv1alpha1.Sandbox{{Id: sandboxTestID}},
+				Page:      &apiv1alpha1.PageResponse{NextPageToken: "next-cursor"},
+			},
+		},
+		{
+			name: "delete",
+			args: []string{"delete", "sandbox", sandboxTestID},
+			want: &apiv1alpha1.Sandbox{Id: sandboxTestID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, endpoint := newSandboxTestServer(t)
+			out, _, err := runSandboxCLI(t, endpoint, append(tt.args, "-o", "json")...)
+			require.NoError(t, err)
+			actual := tt.want.ProtoReflect().New().Interface()
+			require.NoError(t, protojson.Unmarshal([]byte(out), actual))
+			require.True(t, proto.Equal(tt.want, actual), "got %v, want %v", actual, tt.want)
+		})
+	}
+}
+
+func TestSandboxCLIGetRejectsPaginationWithID(t *testing.T) {
+	for _, flag := range []string{"--page-size=2", "--page-token=cursor"} {
+		t.Run(flag, func(t *testing.T) {
+			_, _, err := runSandboxCLI(t, "http://127.0.0.1:1", "get", "sandbox", sandboxTestID, flag)
+			require.ErrorContains(t, err, "pagination flags cannot be used when getting one sandbox")
+		})
+	}
+}
+
 func TestSandboxCLIExecAndExitStatus(t *testing.T) {
 	for _, code := range []int32{0, 7} {
 		t.Run(strconv.Itoa(int(code)), func(t *testing.T) {
 			s, endpoint := newSandboxTestServer(t)
 			s.exitCode = code
-			out, stderr, err := runSandboxCLI(t, endpoint, "exec", sandboxTestID, "--env", "MODE=test", "--", "python3", "-c", "print('hello')")
+			out, stderr, err := runSandboxCLI(t, endpoint, "sandbox", "exec", sandboxTestID, "--env", "MODE=test", "--", "python3", "-c", "print('hello')")
 			if code == 0 {
 				require.NoError(t, err)
 			} else {
@@ -259,7 +347,7 @@ func TestSandboxCLIExecAndExitStatus(t *testing.T) {
 func TestSandboxCLIUncertainStartIsNotRetried(t *testing.T) {
 	s, endpoint := newSandboxTestServer(t)
 	s.startErr = status.Error(codes.Unavailable, "response lost")
-	_, _, err := runSandboxCLI(t, endpoint, "exec", sandboxTestID, "--", "command")
+	_, _, err := runSandboxCLI(t, endpoint, "sandbox", "exec", sandboxTestID, "--", "command")
 	require.ErrorContains(t, err, "may have started")
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -268,7 +356,7 @@ func TestSandboxCLIUncertainStartIsNotRetried(t *testing.T) {
 
 func TestSandboxCLIEmptyIDDoesNotUseStaleRouting(t *testing.T) {
 	s, endpoint := newSandboxTestServer(t)
-	_, _, err := runSandboxCLI(t, endpoint, "exec", "", "--", "command")
+	_, _, err := runSandboxCLI(t, endpoint, "sandbox", "exec", "", "--", "command")
 	require.ErrorContains(t, err, "sandbox ID is required")
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -278,7 +366,7 @@ func TestSandboxCLIEmptyIDDoesNotUseStaleRouting(t *testing.T) {
 func TestSandboxCLIWaitContinuesOutputWithoutRestart(t *testing.T) {
 	s, endpoint := newSandboxTestServer(t)
 	s.outputErr = status.Error(codes.Unavailable, "output disconnected")
-	out, _, err := runSandboxCLI(t, endpoint, "exec", sandboxTestID, "-o", "json", "--", "command")
+	out, _, err := runSandboxCLI(t, endpoint, "sandbox", "exec", sandboxTestID, "-o", "json", "--", "command")
 	require.ErrorContains(t, err, "sandbox wait")
 	var event struct {
 		Event, ProcessID           string
@@ -304,7 +392,7 @@ func TestSandboxCLIWaitContinuesOutputWithoutRestart(t *testing.T) {
 	s.outputErr = nil
 	s.stdout = []byte("hello world")
 	s.mu.Unlock()
-	out, stderr, err := runSandboxCLI(t, endpoint, "wait", sandboxTestID, event.ProcessID, "--stdout-offset", "5", "--stderr-offset", "7")
+	out, stderr, err := runSandboxCLI(t, endpoint, "sandbox", "wait", sandboxTestID, event.ProcessID, "--stdout-offset", "5", "--stderr-offset", "7")
 	require.NoError(t, err)
 	require.Equal(t, " world", out)
 	require.NotContains(t, stderr, "warning")
@@ -316,7 +404,7 @@ func TestSandboxCLIWaitContinuesOutputWithoutRestart(t *testing.T) {
 func TestSandboxCLIWaitTimeoutPreservesProcess(t *testing.T) {
 	s, endpoint := newSandboxTestServer(t)
 	s.running = true
-	_, _, err := runSandboxCLI(t, endpoint, "exec", sandboxTestID, "--timeout", "300ms", "--", "command")
+	_, _, err := runSandboxCLI(t, endpoint, "sandbox", "exec", sandboxTestID, "--timeout", "300ms", "--", "command")
 	require.ErrorContains(t, err, "process-1")
 	require.ErrorContains(t, err, "sandbox wait")
 	s.mu.Lock()
@@ -331,9 +419,9 @@ func TestSandboxCLIFileTransfer(t *testing.T) {
 	input, output := filepath.Join(dir, "input.bin"), filepath.Join(dir, "output.bin")
 	data := bytes.Repeat([]byte{0, 255, 1, 2, 3}, 300000) // Above the MCP limit; multiple gRPC chunks.
 	require.NoError(t, os.WriteFile(input, data, 0600))
-	_, _, err := runSandboxCLI(t, endpoint, "upload", sandboxTestID, input, "input.bin")
+	_, _, err := runSandboxCLI(t, endpoint, "sandbox", "upload", sandboxTestID, input, "input.bin")
 	require.NoError(t, err)
-	_, _, err = runSandboxCLI(t, endpoint, "download", sandboxTestID, "input.bin", output)
+	_, _, err = runSandboxCLI(t, endpoint, "sandbox", "download", sandboxTestID, "input.bin", output)
 	require.NoError(t, err)
 	got, err := os.ReadFile(output)
 	require.NoError(t, err)
@@ -343,7 +431,7 @@ func TestSandboxCLIFileTransfer(t *testing.T) {
 	s.readErr = status.Error(codes.Unavailable, "transfer interrupted")
 	s.mu.Unlock()
 	require.NoError(t, os.WriteFile(output, []byte("existing artifact"), 0600))
-	_, _, err = runSandboxCLI(t, endpoint, "download", sandboxTestID, "input.bin", output)
+	_, _, err = runSandboxCLI(t, endpoint, "sandbox", "download", sandboxTestID, "input.bin", output)
 	require.Error(t, err)
 	got, err = os.ReadFile(output)
 	require.NoError(t, err)
@@ -355,12 +443,12 @@ func TestSandboxCLIFileTransfer(t *testing.T) {
 	s.mu.Lock()
 	s.wrongReceipt = true
 	s.mu.Unlock()
-	_, _, err = runSandboxCLI(t, endpoint, "upload", sandboxTestID, input, "other.bin")
+	_, _, err = runSandboxCLI(t, endpoint, "sandbox", "upload", sandboxTestID, input, "other.bin")
 	require.ErrorContains(t, err, "acknowledged")
 	s.mu.Lock()
 	s.writeErr = status.Error(codes.PermissionDenied, "write denied")
 	s.mu.Unlock()
-	_, _, err = runSandboxCLI(t, endpoint, "upload", sandboxTestID, input, "denied.bin")
+	_, _, err = runSandboxCLI(t, endpoint, "sandbox", "upload", sandboxTestID, input, "denied.bin")
 	require.ErrorContains(t, err, "write denied")
 }
 
@@ -379,15 +467,15 @@ func TestSandboxCLIWithGuest(t *testing.T) {
 	dir := t.TempDir()
 	input, output := filepath.Join(dir, "input.txt"), filepath.Join(dir, "output.txt")
 	require.NoError(t, os.WriteFile(input, []byte("hello"), 0600))
-	_, _, err = runSandboxCLI(t, endpoint, "upload", sandboxTestID, input, "input.txt")
+	_, _, err = runSandboxCLI(t, endpoint, "sandbox", "upload", sandboxTestID, input, "input.txt")
 	require.NoError(t, err)
-	out, stderr, err := runSandboxCLI(t, endpoint, "exec", sandboxTestID, "--cwd", cfg.Workspace, "--", "sh", "-c", "tr a-z A-Z < input.txt > output.txt; printf done; printf warning >&2; exit 7")
+	out, stderr, err := runSandboxCLI(t, endpoint, "sandbox", "exec", sandboxTestID, "--cwd", cfg.Workspace, "--", "sh", "-c", "tr a-z A-Z < input.txt > output.txt; printf done; printf warning >&2; exit 7")
 	var exitError interface{ ExitCode() int }
 	require.ErrorAs(t, err, &exitError)
 	require.Equal(t, 7, exitError.ExitCode())
 	require.Equal(t, "done", out)
 	require.Contains(t, stderr, "warning")
-	_, _, err = runSandboxCLI(t, endpoint, "download", sandboxTestID, "output.txt", output)
+	_, _, err = runSandboxCLI(t, endpoint, "sandbox", "download", sandboxTestID, "output.txt", output)
 	require.NoError(t, err)
 	data, err := os.ReadFile(output)
 	require.NoError(t, err)
