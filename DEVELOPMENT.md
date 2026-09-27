@@ -32,8 +32,8 @@ defaults remain `8080` for Go's shared HTTP/gRPC listener and `80` for Python's
 gRPC listener; Python's HTTP port is configured separately with `--port`.
 
 UI containers and Vite development use the same `KAGENT_*` inputs, documented in
-`ui/.env.example`. UI build-time switches use `KAGENT_VITE_*`; extension settings
-use `KAGENT_EXTENSION_*`. Other `KAGENT_*` settings are not exposed to the browser.
+`ui/.env.example`. UI build-time switches use `KAGENT_UI_VITE_*`; extension settings
+use `KAGENT_UI_EXTENSION_*`. Other `KAGENT_*` settings are not exposed to the browser.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 

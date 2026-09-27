@@ -582,7 +582,7 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 # Later Goose releases test previous-release behavior after the target migrations,
 # data survival, schema equality, previous/current controller startup, and a
 # complete application and schema rollback to the previous release.
-# KAGENT_LOCAL_HOST lets the agent reach the local mock LLM.
+# KAGENT_E2E_LOCAL_HOST lets the agent reach the local mock LLM.
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
 # cluster (make create-kind-cluster).
 .PHONY: announce-upgrade-from
@@ -594,11 +594,11 @@ run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test 
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	@set -e; \
 	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
-	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
+	echo "kind gateway (KAGENT_E2E_LOCAL_HOST): $$kind_gw"; \
 	cd go && \
-	KAGENT_RUN_UPGRADE_TESTS=true \
+	KAGENT_E2E_RUN_UPGRADE_TESTS=true \
 	REPO_ROOT=$(CURDIR) \
-	KAGENT_LOCAL_HOST="$$kind_gw" \
+	KAGENT_E2E_LOCAL_HOST="$$kind_gw" \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \
 	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
@@ -614,7 +614,7 @@ run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
 run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
-	KAGENT_RUN_ROLLING_UPGRADE_TESTS=true \
+	KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS=true \
 	REPO_ROOT=$(CURDIR) \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \

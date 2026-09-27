@@ -942,7 +942,7 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 	if err != nil {
 		t.Fatalf("parse mock LLM address: %v", err)
 	}
-	host := os.Getenv("KAGENT_LOCAL_HOST")
+	host := os.Getenv("KAGENT_E2E_LOCAL_HOST")
 	if host == "" {
 		switch goruntime.GOOS {
 		case "darwin":
@@ -950,7 +950,7 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 		case "linux":
 			host = "172.17.0.1"
 		default:
-			t.Fatalf("KAGENT_LOCAL_HOST is required on %s", goruntime.GOOS)
+			t.Fatalf("KAGENT_E2E_LOCAL_HOST is required on %s", goruntime.GOOS)
 		}
 	}
 	if net.ParseIP(host) != nil {

@@ -529,7 +529,7 @@ ui:
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
-  # `KAGENT_EXTENSION_*`; the container's startup script copies
+  # `KAGENT_UI_EXTENSION_*`; the container's startup script copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on

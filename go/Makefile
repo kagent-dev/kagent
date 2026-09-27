@@ -128,7 +128,7 @@ run: fmt vet ## Run a controller from your host.
 
 .PHONY: test
 test: ## Run all unit tests.
-	KAGENT_UPDATE_GOLDEN=$(KAGENT_UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
+	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
 # Pin e2e tests to the kind cluster so a stray current-context (or an
 # ambient KUBECONFIG) can't leak resources onto a remote cluster. Override

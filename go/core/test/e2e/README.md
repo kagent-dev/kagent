@@ -135,7 +135,7 @@ KAGENT_E2E_API_URL=http://<controller-address>:8083 make -C go e2e
 `TestSessionInteraction` starts the deterministic mock LLM on the test
 host and translates its listener to the host address reachable from the
 cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
-`KAGENT_LOCAL_HOST` when the cluster uses a different host address.
+`KAGENT_E2E_LOCAL_HOST` when the cluster uses a different host address.
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.

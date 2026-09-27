@@ -170,7 +170,7 @@ kubectl get pods -n kagent
 # not a dev server. 8083 is the controller, which `yarn dev` proxies to by default.
 #
 # The second one is here so that default is true. With only the UI forwarded, running
-# the dev server needed KAGENT_DEV_CONTROLLER_URL pointed at 8080 in `ui/.env`, and
+# the dev server needed KAGENT_UI_DEV_CONTROLLER_URL pointed at 8080 in `ui/.env`, and
 # without that line every read failed with `ECONNREFUSED 127.0.0.1:8083` on a page that
 # otherwise loaded -- which reads as a broken backend rather than a missing forward. A
 # second `kubectl` is cheaper than a setting every reader has to be told about.

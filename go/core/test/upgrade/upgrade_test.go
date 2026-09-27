@@ -45,8 +45,8 @@ type postgresMigrationState struct {
 }
 
 func TestUpgrade(t *testing.T) {
-	if os.Getenv("KAGENT_RUN_UPGRADE_TESTS") != "true" {
-		t.Skip("set KAGENT_RUN_UPGRADE_TESTS=true to run upgrade tests")
+	if os.Getenv("KAGENT_E2E_RUN_UPGRADE_TESTS") != "true" {
+		t.Skip("set KAGENT_E2E_RUN_UPGRADE_TESTS=true to run upgrade tests")
 	}
 
 	env := loadUpgradeEnv(t)

@@ -126,7 +126,7 @@ integration must supply its own `auth.AuthProvider` through
 
 The UI reads `SSO_REDIRECT_PATH` from `window.environmentVariables` at runtime
 and applies its configured base path. Helm supplies that value from
-`ui.auth.ssoRedirectPath` through `KAGENT_SSO_REDIRECT_PATH`. The chart allows
+`ui.auth.ssoRedirectPath` through `KAGENT_UI_SSO_REDIRECT_PATH`. The chart allows
 unauthenticated access to the login page, health checks, and the assets required
 to render the login page.
 

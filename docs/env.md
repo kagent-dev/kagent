@@ -176,35 +176,35 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_CLAUDE_IMAGE` | String | `(none)` | Digest-pinned Claude harness image substituted into E2E lifecycle manifests. |
 | `KAGENT_E2E_CLI` | String | `(none)` | CLI executable for catalog lifecycle E2E tests; make -C go e2e builds and supplies it. |
 | `KAGENT_E2E_CODEX_IMAGE` | String | `(none)` | Digest-pinned Codex harness image substituted into E2E lifecycle manifests. |
+| `KAGENT_E2E_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
 | `KAGENT_E2E_OTLP_LISTEN_ADDRESS` | String | `(none)` | Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver. |
 | `KAGENT_E2E_REQUIRE_TRACING` | Boolean | `false` | Fail instead of skip when expected native harness tracing support is unavailable. |
 | `KAGENT_E2E_RUNTIME_IMAGE` | String | `(none)` | Required digest-pinned Go ADK image for sandbox E2E tests and lifecycle manifests. |
+| `KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS` | Boolean | `false` | Run rolling upgrade integration tests when exactly true. |
+| `KAGENT_E2E_RUN_UPGRADE_TESTS` | Boolean | `false` | Run upgrade integration tests when exactly true. |
 | `KAGENT_E2E_SANDBOX_NAMESPACE` | String | `kagent` | Namespace for sandbox E2E resources. |
 | `KAGENT_E2E_SANDBOX_WORKER_POOL` | String | `kagent-default` | Worker pool used by sandbox E2E resources. |
-| `KAGENT_LLM_PORT` | String | `8090` | Port for the mock LLM server. |
-| `KAGENT_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
-| `KAGENT_RUN_ROLLING_UPGRADE_TESTS` | Boolean | `false` | Run rolling upgrade integration tests when exactly true. |
-| `KAGENT_RUN_UPGRADE_TESTS` | Boolean | `false` | Run upgrade integration tests when exactly true. |
-| `KAGENT_STS_PORT` | String | `8091` | Port for the mock STS (Security Token Service) server. |
+| `KAGENT_E2E_UI_LOOP_EXTENSION_PORT` | String | `(none)` | Example-extension browser-test port. Defaults to KAGENT_E2E_UI_LOOP_PORT plus 50. |
+| `KAGENT_E2E_UI_LOOP_LIVE` | Boolean | `false` | Run UI browser tests against a real cluster when exactly true. |
+| `KAGENT_E2E_UI_LOOP_LIVE_PORT` | String | `8301` | Live-cluster UI browser-test port. |
+| `KAGENT_E2E_UI_LOOP_PORT` | String | `8001` | Vite development/preview port and UI browser-test port. |
+| `KAGENT_TEST_LLM_PORT` | String | `8090` | Port for the mock LLM server. |
 | `KAGENT_TEST_PYTHON` | String | `(none)` | Python executable enabling the Python TaskStore/PostgreSQL interoperability test. That subtest is not run when unset. |
-| `KAGENT_UI_LOOP_EXTENSION_PORT` | String | `(none)` | Example-extension browser-test port. Defaults to KAGENT_UI_LOOP_PORT plus 50. |
-| `KAGENT_UI_LOOP_LIVE` | Boolean | `false` | Run UI browser tests against a real cluster when exactly true. |
-| `KAGENT_UI_LOOP_LIVE_PORT` | String | `8301` | Live-cluster UI browser-test port. |
-| `KAGENT_UI_LOOP_PORT` | String | `8001` | Vite development/preview port and UI browser-test port. |
-| `KAGENT_UPDATE_GOLDEN` | Boolean | `false` | When true, update golden test files instead of comparing. |
-| `KAGENT_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_ENABLE_MOCK_UI; leave unset for normal development. |
+| `KAGENT_TEST_STS_PORT` | String | `8091` | Port for the mock STS (Security Token Service) server. |
+| `KAGENT_TEST_UPDATE_GOLDEN` | Boolean | `false` | When true, update golden test files instead of comparing. |
+| `KAGENT_UI_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_UI_ENABLE_MOCK; leave unset for normal development. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 
 ## ui
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `KAGENT_API_BASE_URL` | String | `/api` | Browser API base URL for UI containers and Vite development. |
-| `KAGENT_DEV_CONTROLLER_URL` | String | `http://127.0.0.1:8083` | Vite development proxy target for /api and /a2a; not sent to the browser. |
-| `KAGENT_ENABLE_MOCK_UI` | Boolean | `false` | Serve the development UI from in-browser fixtures when true. Overrides backend settings; no user is signed in. Release bundles do not include the mock backend. |
-| `KAGENT_EXTENSION_<NAME>` | String | `(none)` | UI extension settings forwarded to the browser at runtime. Each installed extension owns its keys and defaults; these values are public. |
-| `KAGENT_SSO_REDIRECT_PATH` | String | `/oauth2/start` | UI path used by Sign in with SSO. |
-| `KAGENT_STREAM_TIMEOUT_MS` | String | `1800000` | UI chat stream inactivity timeout in milliseconds. 0 disables the timeout. Applies in containers and Vite development. |
+| `KAGENT_UI_API_BASE_URL` | String | `/api` | Browser API base URL for UI containers and Vite development. |
 | `KAGENT_UI_BASE_PATH` | String | `(none)` | UI public path prefix, such as /ui; empty serves at the root. Applies in containers and Vite development; the container falls back to the root for invalid or reserved prefixes. |
-| `KAGENT_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_ENABLE_MOCK_UI; leave unset for normal development. |
-| `KAGENT_VITE_EXAMPLE_EXTENSION` | Boolean | `false` | Build-time switch enabling the bundled example UI extension. |
+| `KAGENT_UI_DEV_CONTROLLER_URL` | String | `http://127.0.0.1:8083` | Vite development proxy target for /api and /a2a; not sent to the browser. |
+| `KAGENT_UI_ENABLE_MOCK` | Boolean | `false` | Serve the development UI from in-browser fixtures when true. Overrides backend settings; no user is signed in. Release bundles do not include the mock backend. |
+| `KAGENT_UI_EXTENSION_<NAME>` | String | `(none)` | UI extension settings forwarded to the browser at runtime. Each installed extension owns its keys and defaults; these values are public. |
+| `KAGENT_UI_SSO_REDIRECT_PATH` | String | `/oauth2/start` | UI path used by Sign in with SSO. |
+| `KAGENT_UI_STREAM_TIMEOUT_MS` | String | `1800000` | UI chat stream inactivity timeout in milliseconds. 0 disables the timeout. Applies in containers and Vite development. |
+| `KAGENT_UI_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_UI_ENABLE_MOCK; leave unset for normal development. |
+| `KAGENT_UI_VITE_EXAMPLE_EXTENSION` | Boolean | `false` | Build-time switch enabling the bundled example UI extension. |

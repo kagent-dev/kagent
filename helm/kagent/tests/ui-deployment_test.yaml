@@ -22,7 +22,7 @@ tests:
     template: ui-deployment.yaml
     set:
       ui.env:
-        - name: KAGENT_API_BASE_URL
+        - name: KAGENT_UI_API_BASE_URL
           value: /custom-api
         - name: CUSTOM_TOKEN
           valueFrom:
@@ -33,7 +33,7 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].env
           value:
-            - name: KAGENT_API_BASE_URL
+            - name: KAGENT_UI_API_BASE_URL
               value: /custom-api
             - name: CUSTOM_TOKEN
               valueFrom:
@@ -41,7 +41,7 @@ tests:
                   name: ui-token
                   key: token
       - equal:
-          path: data.KAGENT_API_BASE_URL
+          path: data.KAGENT_UI_API_BASE_URL
           value: /api
         template: ui-configmap.yaml
       - notExists:
@@ -351,13 +351,13 @@ tests:
     template: ui-configmap.yaml
     asserts:
       - equal:
-          path: data.KAGENT_API_BASE_URL
+          path: data.KAGENT_UI_API_BASE_URL
           value: "/api"
       - equal:
-          path: data.KAGENT_SSO_REDIRECT_PATH
+          path: data.KAGENT_UI_SSO_REDIRECT_PATH
           value: "/oauth2/start"
       - equal:
-          path: data.KAGENT_STREAM_TIMEOUT_MS
+          path: data.KAGENT_UI_STREAM_TIMEOUT_MS
           value: "1800000"
 
   - it: should carry an overridden publicBackendUrl through to the browser config
@@ -367,7 +367,7 @@ tests:
         publicBackendUrl: "https://api.example.com/api"
     asserts:
       - equal:
-          path: data.KAGENT_API_BASE_URL
+          path: data.KAGENT_UI_API_BASE_URL
           value: "https://api.example.com/api"
 
   - it: should fall back to /api when publicBackendUrl is blanked
@@ -377,7 +377,7 @@ tests:
         publicBackendUrl: ""
     asserts:
       - equal:
-          path: data.KAGENT_API_BASE_URL
+          path: data.KAGENT_UI_API_BASE_URL
           value: "/api"
 
   - it: should pass ui.basePath through to the browser config only when set
@@ -442,10 +442,10 @@ tests:
         streamTimeoutSeconds: 90
     asserts:
       - equal:
-          path: data.KAGENT_SSO_REDIRECT_PATH
+          path: data.KAGENT_UI_SSO_REDIRECT_PATH
           value: "/custom/start"
       - equal:
-          path: data.KAGENT_STREAM_TIMEOUT_MS
+          path: data.KAGENT_UI_STREAM_TIMEOUT_MS
           value: "90000"
 
   - it: should not mount a nextjs build cache
