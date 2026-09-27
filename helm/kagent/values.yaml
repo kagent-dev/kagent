@@ -397,7 +397,8 @@ controller:
   grpc:
     reflection: false
 
-  # Extra controller environment variables.
+  # Extra controller environment variables, applied after ConfigMap defaults.
+  # Kept in the Deployment to support valueFrom and $(VAR_NAME) expansion.
   env: []
 
   # Standalone workspaces, enabled by default.
@@ -525,9 +526,10 @@ ui:
     proxyReadTimeout: 1800s
     # -- proxy_send_timeout: max time between two successive writes to the upstream.
     proxySendTimeout: 1800s
-  # -- Extra environment variables for the UI container: a list of `{name, value}`
-  # entries, spliced into its `env:` verbatim. An installed app extension's own
-  # settings go here, named `EXTENSION_*`; the container's startup script copies
+  # -- Extra environment variables for the UI container, applied after ConfigMap
+  # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
+  # expansion. An installed app extension's settings go here, named
+  # `KAGENT_EXTENSION_*`; the container's startup script copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on

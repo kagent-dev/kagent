@@ -96,12 +96,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- /* Kubelet expands pod identity here; envFrom values are not expanded. */}}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
-            {{- if .Values.database.postgres.urlFile }}
-            - name: KAGENT_POSTGRES_DATABASE_URL_FILE
-              value: {{ .Values.database.postgres.urlFile | quote }}
-            {{- else if .Values.database.postgres.url }}
+            {{- /* Keep credentials and secret-dependent expansion out of the ConfigMap. */}}
+            {{- if not .Values.database.postgres.urlFile }}
+            {{- if .Values.database.postgres.url }}
             - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ .Values.database.postgres.url | quote }}
             {{- else if .Values.database.postgres.bundled.enabled }}
@@ -115,28 +115,9 @@ spec:
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
-            {{- if include "kagent.controller.metricsEnabled" . }}
-            - name: KAGENT_METRICS_BIND_ADDRESS
-              value: {{ .Values.controller.metrics.bindAddress | quote }}
-            - name: KAGENT_METRICS_SECURE
-              value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
-            - name: KAGENT_GRPC_REFLECTION
-              value: {{ .Values.controller.grpc.reflection | quote }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
-            {{- end }}
-            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
-            - name: KAGENT_SUBSTRATE_ATE_API_ENDPOINT
-              value: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
-            - name: KAGENT_SUBSTRATE_ATE_API_CA_FILE
-              value: /run/substrate-servicedns/trust-bundle.pem
-            - name: KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE
-              value: /run/substrate-podidentity/credential-bundle.pem
-            {{- with include "kagent.substrate.atenetRouterURL" . }}
-            - name: KAGENT_SUBSTRATE_ATENET_ROUTER_URL
-              value: {{ . | quote }}
-            {{- end }}
             {{- end }}
           envFrom:
             - configMapRef:
