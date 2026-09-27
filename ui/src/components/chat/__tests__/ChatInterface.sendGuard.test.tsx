@@ -174,11 +174,11 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCheckSessionExists.mockResolvedValue({ data: true });
-    mockCreateSession.mockResolvedValue({ error: "unexpected createSession call" });
+    mockCheckSessionExists.mockResolvedValue({ message: "", data: true });
+    mockCreateSession.mockResolvedValue({ message: "", error: "unexpected createSession call" });
     // Every getSessionTasks (load, guard, refreshServerMark, reload) reads the
     // current backend snapshot; streams mutate it to simulate persistence.
-    mockGetSessionTasks.mockImplementation(async () => ({ data: currentTasks }));
+    mockGetSessionTasks.mockImplementation(async () => ({ message: "", data: currentTasks }));
   });
 
   it("does not block the next send after a same-tab turn advances the mark", async () => {

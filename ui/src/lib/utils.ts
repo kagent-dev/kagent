@@ -44,6 +44,40 @@ export function generateId(): string {
   return uuidv4();
 }
 
+// Copies text, and says whether it worked.
+//
+// navigator.clipboard is undefined outside a secure context (https, or localhost),
+// so a bare writeText rejects on any plain-http deployment. The fallback answers the
+// document's own copy event rather than selecting a borrowed textarea: nothing needs
+// focus, so it also works inside a dialog that traps it, and success is the event
+// having fired rather than what execCommand returns — it returns true for copying
+// nothing.
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // No API outside a secure context, or the permission was denied.
+  }
+
+  let copied = false;
+  const onCopy = (event: ClipboardEvent) => {
+    event.preventDefault();
+    event.clipboardData?.setData("text/plain", text);
+    copied = true;
+  };
+
+  try {
+    document.addEventListener("copy", onCopy, { capture: true });
+    document.execCommand("copy");
+    return copied;
+  } catch {
+    return false;
+  } finally {
+    document.removeEventListener("copy", onCopy, { capture: true });
+  }
+}
+
 export function getRelativeTimeString(date: string | number | Date): string {
   const now = new Date();
   const past = new Date(date);
