@@ -74,11 +74,12 @@ import (
 
 // Options are the components a library consumer may supply in place of core's own.
 //
-// A nil field is not an error: it selects the default, which is what this
-// repository's controller runs with. Supplying one does not change how core
-// uses it — the authenticator still guards the gRPC server and the /mcp
-// endpoint, and the authorizer is still consulted by every service that takes
-// one — so a library consumer cannot narrow where its own policy applies.
+// A nil field is not an error: it selects the library default. The shipped
+// controller selects its authenticator from environment settings. Supplying
+// one does not change how core uses it — the authenticator still guards the
+// gRPC server and the /mcp endpoint, and the authorizer is still consulted by
+// every service that takes one — so a library consumer cannot narrow where
+// its own policy applies.
 type Options struct {
 	// Authenticator identifies the caller. Nil selects UnsecureAuthenticator,
 	// which admits every request.

@@ -2,6 +2,25 @@ suite: controller configuration
 templates:
   - controller-configmap.yaml
 tests:
+  - it: defaults to unsecured controller authentication
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            KAGENT_AUTH_MODE: unsecure
+            KAGENT_AUTH_USER_ID_CLAIM: ""
+
+  - it: configures trusted proxy authentication and the identity claim
+    set:
+      controller.auth.mode: trusted-proxy
+      controller.auth.userIdClaim: email
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            KAGENT_AUTH_MODE: trusted-proxy
+            KAGENT_AUTH_USER_ID_CLAIM: email
+
   - it: leaves the guest unconfigured and supplies sandbox policy defaults
     asserts:
       - isSubset:

@@ -218,6 +218,13 @@ controller:
     annotations: {}
   replicas: 1
   loglevel: "info"
+  auth:
+    # -- Controller authentication: unsecure or trusted-proxy.
+    # trusted-proxy requires a validating proxy and network isolation; see
+    # docs/architecture/oidc-proxy-authentication.md.
+    mode: unsecure
+    # -- JWT identity claim. Empty uses sub; a missing custom claim falls back to sub.
+    userIdClaim: ""
   # -- Public gateway base URL advertised by Session Agent Cards for gRPC and HTTP/JSON-RPC.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
@@ -533,12 +540,13 @@ ui:
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
-  # /api/ and /a2a/. Names are case-insensitive. Authorization is always
+  # /api/, /a2a/, and /mcp. Names are case-insensitive. Authorization is always
   # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
   # x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username) are
   # stripped from client requests unless listed here, so a caller cannot spoof
   # an identity the backend trusts. Headers outside that set are forwarded by
-  # nginx as normal.
+  # nginx as normal. In trusted-proxy mode, X-Agent-Name and X-User-Id are
+  # always stripped, even if listed here.
   additionalForwardedHeaders: []
   # Example:
   #   additionalForwardedHeaders:
@@ -861,7 +869,7 @@ grafana-mcp:
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================
 # Enable oauth2-proxy subchart for OIDC authentication
-# Controller authentication requires a library integration; see
+# Set controller.auth.mode=trusted-proxy to authenticate controller requests; see
 # docs/architecture/oidc-proxy-authentication.md.
 
 oauth2-proxy:
