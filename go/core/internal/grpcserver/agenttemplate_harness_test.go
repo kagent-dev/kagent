@@ -41,7 +41,7 @@ func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grp
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:               listener,
-		Authenticator:          &authimpl.UnsecureAuthenticator{},
+		Authenticator:          &authimpl.InsecureAuthenticator{},
 		SystemService:          testSystemService(),
 		AgentService:           kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent"),
 		AgentTemplateService:   kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),

@@ -125,7 +125,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	tasks := taskstore.NewService(store)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
-		Authenticator: &authimpl.UnsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
+		Authenticator: &authimpl.InsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
 		TaskStoreService: tasks,
 	})
 	require.NoError(t, err)
@@ -236,9 +236,9 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		gateway := a2agateway.New(interactions, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
-			Authenticator: &authimpl.UnsecureAuthenticator{},
+			Authenticator: &authimpl.InsecureAuthenticator{},
 			A2AHandler:    gateway,
-			HTTPHandler:   a2agateway.NewHTTPHandler(gateway, &authimpl.UnsecureAuthenticator{}, store),
+			HTTPHandler:   a2agateway.NewHTTPHandler(gateway, &authimpl.InsecureAuthenticator{}, store),
 		})
 		require.NoError(t, err)
 		publicCtx, stop := context.WithCancel(t.Context())

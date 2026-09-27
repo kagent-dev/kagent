@@ -191,7 +191,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent).Build()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
-		Listener: listener, Authenticator: &authimpl.UnsecureAuthenticator{},
+		Listener: listener, Authenticator: &authimpl.InsecureAuthenticator{},
 		SystemService:       testSystemService(),
 		ScheduledRunService: scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
 		SessionService:      sessionsvc.NewService(store, &pkgauth.NoopAuthorizer{}, nil),

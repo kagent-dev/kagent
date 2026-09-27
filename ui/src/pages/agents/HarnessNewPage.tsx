@@ -4,11 +4,12 @@ import { useTheme } from "@emotion/react";
 import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { apiClient, useInvalidateHarnesses, useNamespaces } from "@/api";
+import { HarnessFields } from "@/components/harness-form/HarnessFields";
 import {
-  HARNESS_ADAPTERS,
-  HARNESS_IMAGE_PATTERN,
-  type HarnessAdapter,
-} from "@/api/domain/harnesses";
+  emptyHarnessDraft,
+  harnessDraftProblems,
+  harnessSpecFromDraft,
+} from "@/components/harness-form/harnessDraft";
 import { paths } from "@/router/routes";
 
 const { Paragraph } = Typography;
@@ -22,27 +23,12 @@ export function HarnessNewPage() {
 
   const [namespace, setNamespace] = useState<string>();
   const [name, setName] = useState("");
-  const [adapter, setAdapter] = useState<HarnessAdapter>("kagent");
-  const [image, setImage] = useState("");
-  const [command, setCommand] = useState<string[]>([]);
-  const [args, setArgs] = useState<string[]>([]);
-  const [workerPool, setWorkerPool] = useState("");
-  const [snapshotLocation, setSnapshotLocation] = useState("");
+  const [draft, setDraft] = useState(emptyHarnessDraft);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
 
-  const byo = adapter === "byo";
-  const imagePinned = HARNESS_IMAGE_PATTERN.test(image.trim());
-  // The snapshot location counts, because the CRD requires it. Left out of this
-  // guard the form submitted happily and the controller answered "Invalid Harness",
-  // which names neither the field nor what was wrong with it.
   const ready =
-    Boolean(namespace) &&
-    name.trim() !== "" &&
-    imagePinned &&
-    (!byo || command.length > 0) &&
-    workerPool.trim() !== "" &&
-    snapshotLocation.trim() !== "";
+    Boolean(namespace) && name.trim() !== "" && harnessDraftProblems(draft).length === 0;
 
   async function create() {
     if (!namespace || !ready) return;
@@ -54,19 +40,7 @@ export function HarnessNewPage() {
         name: name.trim(),
         resource: {
           metadata: { name: name.trim(), namespace },
-          spec: {
-            // Exactly one, which is what the CRD's own rule requires.
-            [adapter]: {},
-            workload: {
-              image: image.trim(),
-              ...(command.length > 0 ? { command } : {}),
-              ...(args.length > 0 ? { args } : {}),
-            },
-            substrate: {
-              workerPoolRef: { name: workerPool.trim() },
-              snapshotPolicy: { location: snapshotLocation.trim() },
-            },
-          },
+          spec: harnessSpecFromDraft(draft),
         },
       });
       // Refreshes any list still on screen; SWR does not fetch a key with no mounted
@@ -89,6 +63,15 @@ export function HarnessNewPage() {
     >
       <Card size="small" css={{ maxWidth: 720 }}>
         <Form layout="vertical">
+          <Form.Item label="Name" required>
+            <Input
+              data-testid="harness-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="my-harness"
+            />
+          </Form.Item>
+
           <Form.Item label="Namespace" required>
             <Select
               data-testid="harness-namespace"
@@ -103,103 +86,7 @@ export function HarnessNewPage() {
             />
           </Form.Item>
 
-          <Form.Item label="Name" required>
-            <Input
-              data-testid="harness-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="my-harness"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Runtime adapter"
-            required
-            extra="Exactly one, which the CRD enforces. It decides how a template is compiled into something runnable."
-          >
-            <Select<HarnessAdapter>
-              data-testid="harness-adapter"
-              value={adapter}
-              onChange={setAdapter}
-              options={HARNESS_ADAPTERS.map((value) => ({ value, label: value }))}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Workload image"
-            required
-            validateStatus={image.trim() !== "" && !imagePinned ? "error" : undefined}
-            help={
-              image.trim() !== "" && !imagePinned
-                ? "Pin the image by digest — a tag is rejected by the cluster, because it can move under a running agent."
-                : "Pinned by sha256 digest, for example ghcr.io/example/runtime@sha256:…"
-            }
-          >
-            <Input
-              data-testid="harness-image"
-              value={image}
-              onChange={(event) => setImage(event.target.value)}
-              placeholder="ghcr.io/example/runtime@sha256:…"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Command"
-            required={byo}
-            extra={
-              byo
-                ? "Required for bring-your-own images. Press Enter after each part."
-                : "Overrides the image entrypoint. Press Enter after each part."
-            }
-          >
-            <Select
-              mode="tags"
-              data-testid="harness-command"
-              value={command}
-              onChange={setCommand}
-              open={false}
-              suffixIcon={null}
-              placeholder="/app/server"
-            />
-          </Form.Item>
-
-          <Form.Item label="Arguments" extra="Overrides the image arguments. Press Enter after each one.">
-            <Select
-              mode="tags"
-              data-testid="harness-args"
-              value={args}
-              onChange={setArgs}
-              open={false}
-              suffixIcon={null}
-              placeholder="--port=8080"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Worker pool"
-            required
-            extra="Where this harness's Substrate Actors are scheduled. A pool in the same namespace."
-          >
-            <Input
-              data-testid="harness-worker-pool"
-              value={workerPool}
-              onChange={(event) => setWorkerPool(event.target.value)}
-              placeholder="kagent-default"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Snapshot location"
-            required
-            extra="Where Substrate stores runtime snapshots."
-          >
-            <Input
-              data-testid="harness-snapshot"
-              value={snapshotLocation}
-              onChange={(event) => setSnapshotLocation(event.target.value)}
-              placeholder="gs://snapshots/kagent/"
-            />
-          </Form.Item>
+          <HarnessFields draft={draft} onChange={setDraft} />
 
           {failure ? (
             <Alert

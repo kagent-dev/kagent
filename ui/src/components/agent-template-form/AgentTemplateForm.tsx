@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -74,6 +74,8 @@ export function AgentTemplateForm({
   namespace,
   hasUnshownFields,
   readOnly = false,
+  embedded = false,
+  namespaceField,
 }: {
   draft: AgentTemplateDraft;
   onChange: (next: AgentTemplateDraft) => void;
@@ -89,6 +91,10 @@ export function AgentTemplateForm({
    * component's note on why this is a mode rather than a second view.
    */
   readOnly?: boolean;
+  /** Inline in an Agent: only spec fields, since an inline template has no name or labels. */
+  embedded?: boolean;
+  /** Rendered right after Name, so create forms read name then namespace. */
+  namespaceField?: ReactNode;
 }) {
   const theme = useTheme();
   const models = useModels();
@@ -143,13 +149,15 @@ export function AgentTemplateForm({
       {/* What this thing is, before any field. An AgentTemplate is half of an
           agent, and a reader who does not know that cannot tell why the form has
           no "run it" button. */}
-      <Alert
-        type="info"
-        showIcon
-        data-testid="template-form-explainer"
-        title="An agent template is what an agent does — not where it runs"
-        description="It carries the model, the prompt and the tools. A harness carries the runtime: the adapter, the worker pool and the image. An agent is one of each, and creating an agent is choosing a pair."
-      />
+      {embedded ? null : (
+        <Alert
+          type="info"
+          showIcon
+          data-testid="template-form-explainer"
+          title="An agent template is what an agent does — not where it runs"
+          description="It carries the model, the prompt and the tools. A harness carries the runtime: the adapter, the worker pool and the image. An Agent pairs one template with one harness."
+        />
+      )}
 
       <Form layout="vertical">
         {isCreate ? (
@@ -169,6 +177,8 @@ export function AgentTemplateForm({
             />
           </Form.Item>
         ) : null}
+
+        {namespaceField}
 
         <Form.Item
           label="Model configuration"
@@ -498,30 +508,31 @@ export function AgentTemplateForm({
                   }}
                   {...readOnlyInput}
                 />
-                <Input
-                  css={{ width: 180 }}
-                  value={tool.templateName}
-                  placeholder={placeholder("Template name")}
-                  onChange={(event) => {
-                    const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], templateName: event.target.value };
-                    set("subAgentTools", next);
-                  }}
-                  {...readOnlyInput}
-                />
                 <Select
                   css={{ width: 130 }}
-                  value={tool.isolation}
-                  onChange={(value: "Shared" | "Dedicated") => {
+                  value={tool.refKind}
+                  onChange={(value: "templateRef" | "agentRef") => {
                     const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], isolation: value };
+                    next[index] = { ...next[index], refKind: value };
                     set("subAgentTools", next);
                   }}
                   options={[
-                    { value: "Shared", title: "Shared", label: "Shared" },
-                    { value: "Dedicated", title: "Dedicated", label: "Dedicated" },
+                    { value: "templateRef", title: "Template", label: "Template" },
+                    // The CRD accepts agentRef but the compiler rejects it for now.
+                    { value: "agentRef", title: "Agent (not supported yet)", label: "Agent", disabled: true },
                   ]}
                   {...readOnlySelect}
+                />
+                <Input
+                  css={{ width: 180 }}
+                  value={tool.refName}
+                  placeholder={placeholder(tool.refKind === "agentRef" ? "Agent name" : "Template name")}
+                  onChange={(event) => {
+                    const next = [...draft.subAgentTools];
+                    next[index] = { ...next[index], refName: event.target.value };
+                    set("subAgentTools", next);
+                  }}
+                  {...readOnlyInput}
                 />
                 {readOnly ? null : (
                   <Button
@@ -546,7 +557,7 @@ export function AgentTemplateForm({
                 onClick={() =>
                   set("subAgentTools", [
                     ...draft.subAgentTools,
-                    { name: "", description: "", templateName: "", isolation: "Shared" },
+                    { name: "", description: "", refKind: "templateRef", refName: "" },
                   ])
                 }
               >
@@ -556,63 +567,65 @@ export function AgentTemplateForm({
           </Space>
         </Form.Item>
 
-        <Form.Item label="Labels" extra="Optional metadata. An Agent explicitly pairs this template with a Harness.">
-          <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            {readOnly && draft.labels.length === 0
-              ? none("No labels.")
-              : null}
+        {embedded ? null : (
+          <Form.Item label="Labels" extra="Optional metadata. An Agent explicitly pairs this template with a Harness.">
+            <Space orientation="vertical" size={8} css={{ display: "flex" }}>
+              {readOnly && draft.labels.length === 0
+                ? none("No labels.")
+                : null}
 
-            {draft.labels.map((label, index) => (
-              <Space key={index} size={8} data-testid={`template-form-label-${index}`}>
-                <Input
-                  css={{ width: 260 }}
-                  value={label.key}
-                  placeholder={placeholder("kagent.dev/runtime")}
-                  onChange={(event) => {
-                    const next = [...draft.labels];
-                    next[index] = { ...next[index], key: event.target.value };
-                    set("labels", next);
-                  }}
-                  {...readOnlyInput}
-                />
-                <Input
-                  css={{ width: 200 }}
-                  value={label.value}
-                  placeholder={placeholder("value")}
-                  onChange={(event) => {
-                    const next = [...draft.labels];
-                    next[index] = { ...next[index], value: event.target.value };
-                    set("labels", next);
-                  }}
-                  {...readOnlyInput}
-                />
-                {readOnly ? null : (
-                  <Button
-                    type="text"
-                    aria-label={`Remove label ${index + 1}`}
-                    icon={<Trash size={14} />}
-                    onClick={() =>
-                      set(
-                        "labels",
-                        draft.labels.filter((_, at) => at !== index),
-                      )
-                    }
+              {draft.labels.map((label, index) => (
+                <Space key={index} size={8} data-testid={`template-form-label-${index}`}>
+                  <Input
+                    css={{ width: 260 }}
+                    value={label.key}
+                    placeholder={placeholder("kagent.dev/runtime")}
+                    onChange={(event) => {
+                      const next = [...draft.labels];
+                      next[index] = { ...next[index], key: event.target.value };
+                      set("labels", next);
+                    }}
+                    {...readOnlyInput}
                   />
-                )}
-              </Space>
-            ))}
-            {readOnly ? null : (
-              <Button
-                size="small"
-                icon={<Plus size={13} />}
-                data-testid="template-form-add-label"
-                onClick={() => set("labels", [...draft.labels, { key: "", value: "" }])}
-              >
-                Add a label
-              </Button>
-            )}
-          </Space>
-        </Form.Item>
+                  <Input
+                    css={{ width: 200 }}
+                    value={label.value}
+                    placeholder={placeholder("value")}
+                    onChange={(event) => {
+                      const next = [...draft.labels];
+                      next[index] = { ...next[index], value: event.target.value };
+                      set("labels", next);
+                    }}
+                    {...readOnlyInput}
+                  />
+                  {readOnly ? null : (
+                    <Button
+                      type="text"
+                      aria-label={`Remove label ${index + 1}`}
+                      icon={<Trash size={14} />}
+                      onClick={() =>
+                        set(
+                          "labels",
+                          draft.labels.filter((_, at) => at !== index),
+                        )
+                      }
+                    />
+                  )}
+                </Space>
+              ))}
+              {readOnly ? null : (
+                <Button
+                  size="small"
+                  icon={<Plus size={13} />}
+                  data-testid="template-form-add-label"
+                  onClick={() => set("labels", [...draft.labels, { key: "", value: "" }])}
+                >
+                  Add a label
+                </Button>
+              )}
+            </Space>
+          </Form.Item>
+        )}
 
         {/* Said rather than left to be assumed. A reader who knows their template has
             skills and cannot see them here would reasonably conclude a save will
@@ -646,11 +659,13 @@ export function AgentTemplateForm({
         ) : null}
       </Form>
 
-      <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-        <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
-        Everything on this form writes one field of its <code>spec</code>, except the
-        labels, which are <code>metadata</code> and decide which harness will run it.
-      </Paragraph>
+      {embedded ? null : (
+        <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
+          <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
+          Everything on this form writes one field of its <code>spec</code>, except the
+          labels, which are <code>metadata</code>.
+        </Paragraph>
+      )}
     </Space>
   );
 }

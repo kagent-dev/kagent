@@ -1,6 +1,19 @@
 package env
 
+const (
+	AuthModeInsecure     = "insecure"
+	AuthModeTrustedProxy = "trusted-proxy"
+)
+
 var (
+	AuthMode = RegisterStringVar(
+		"KAGENT_AUTH_MODE", AuthModeInsecure,
+		"Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass.", ComponentController,
+	)
+	AuthUserIDClaim = RegisterStringVar(
+		"KAGENT_AUTH_USER_ID_CLAIM", "",
+		"JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub.", ComponentController,
+	)
 	HTTPBindAddress = RegisterStringVar(
 		"KAGENT_HTTP_BIND_ADDRESS", ":8083",
 		"Listen address for the controller HTTP, gRPC, A2A, and MCP server.", ComponentController,

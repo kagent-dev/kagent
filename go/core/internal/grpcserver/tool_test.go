@@ -286,7 +286,7 @@ func newToolGRPCClient(t *testing.T, service *toolservice.Service) (apiv1alpha1.
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:      listener,
-		Authenticator: &authimpl.UnsecureAuthenticator{},
+		Authenticator: &authimpl.InsecureAuthenticator{},
 		SystemService: testSystemService(),
 		ToolService:   service,
 	})

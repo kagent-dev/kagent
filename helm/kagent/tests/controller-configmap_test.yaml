@@ -24,6 +24,25 @@ tests:
           path: data.KAGENT_SESSION_IDLE_TTL
           value: 720h
 
+  - it: defaults to insecure controller authentication
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            KAGENT_AUTH_MODE: insecure
+            KAGENT_AUTH_USER_ID_CLAIM: ""
+
+  - it: configures trusted proxy authentication and the identity claim
+    set:
+      controller.auth.mode: trusted-proxy
+      controller.auth.userIdClaim: email
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            KAGENT_AUTH_MODE: trusted-proxy
+            KAGENT_AUTH_USER_ID_CLAIM: email
+
   - it: leaves the guest unconfigured and supplies sandbox policy defaults
     asserts:
       - isSubset:

@@ -92,7 +92,7 @@ test("chat agent rail: the current agent is absent from the switcher on a surfac
   ).toBeVisible({ timeout: 30_000 });
 
   await expect(
-    page.getByTestId(`agent-switcher-option-${agents.k8s.template}-${agents.k8s.harness}`),
+    page.getByTestId(`agent-switcher-option-${agents.k8s.name}`),
     "the agent whose page is open should not be offered as somewhere to go",
   ).toHaveCount(0);
 });
@@ -126,7 +126,7 @@ test("chat agent rail: the identity card switches agent", async ({ page }) => {
    */
   await expect(options.first()).toBeVisible({ timeout: 30_000 });
   await expect(
-    page.getByTestId(`agent-switcher-option-${agents.k8s.template}-${agents.k8s.harness}`),
+    page.getByTestId(`agent-switcher-option-${agents.k8s.name}`),
   ).toHaveCount(0);
 
   // Filtering narrows it, and matches what the reader can see — the template and the

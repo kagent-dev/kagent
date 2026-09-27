@@ -42,7 +42,7 @@ append `/agents/{namespace}/{name}` to this base, preserving any deployment pref
 An ingress using a prefix must strip that prefix before forwarding to the core
 listener. Forward streaming responses without buffering.
 
-For example, with the default unsecure authentication mode:
+For example, with the default insecure authentication mode:
 
 ```sh
 curl -H 'X-User-Id: alice' \

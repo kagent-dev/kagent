@@ -48,7 +48,7 @@ func TestOptionsResolve(t *testing.T) {
 		{
 			name:      "both nil selects core defaults",
 			opts:      Options{},
-			wantAuthn: &authimpl.UnsecureAuthenticator{},
+			wantAuthn: &authimpl.InsecureAuthenticator{},
 			wantAuthz: &auth.NoopAuthorizer{},
 		},
 		{
@@ -60,7 +60,7 @@ func TestOptionsResolve(t *testing.T) {
 		{
 			name:      "authorizer only leaves the default authenticator",
 			opts:      Options{Authorizer: consumerAuthz},
-			wantAuthn: &authimpl.UnsecureAuthenticator{},
+			wantAuthn: &authimpl.InsecureAuthenticator{},
 			wantAuthz: consumerAuthz,
 		},
 		{
