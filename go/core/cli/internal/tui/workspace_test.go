@@ -452,7 +452,7 @@ func TestWorkspaceRenders(t *testing.T) {
 		{
 			name:   "an empty namespace says how to create a session",
 			render: func(m *workspaceModel) string { return m.View() },
-			want:   []string{"No Sessions", "create session"},
+			want:   []string{"No Sessions", "kagent agent session create --agent A"},
 		},
 		{
 			name:     "details keep the full copyable ID",

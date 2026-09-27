@@ -233,7 +233,7 @@ These choices are independent: both inline, either side referenced, or both
 referenced are supported. No synthetic Kubernetes objects are created for inline
 specs.
 
-Create a session with `kagent create session --agent assistant -n kagent`.
+Create a session with `kagent agent session create --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.
 The controller selects that Agent's latest successful revision. Deleting an Agent
 retires its definition; sessions and checkpoints retain their pinned revisions.

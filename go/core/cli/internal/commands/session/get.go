@@ -153,13 +153,12 @@ func formatTimestamp(timestamp *timestamppb.Timestamp) string {
 	return timestamp.AsTime().UTC().Format(time.RFC3339)
 }
 
-// NewGetCmd constructs the Session get/list command.
-func NewGetCmd() *cobra.Command {
+func newReadCmd(list bool) *cobra.Command {
 	cfg := &GetCfg{}
 	cmd := &cobra.Command{
-		Use:   "session [ID]",
-		Short: "Get a Session or list your Sessions",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "get ID",
+		Short: "Get a Session",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
@@ -172,13 +171,21 @@ func NewGetCmd() *cobra.Command {
 			var sessionID string
 			if len(args) == 1 {
 				sessionID = args[0]
+				if sessionID == "" {
+					return errors.New("session ID must not be empty")
+				}
 			}
 			cfg.OutputFormat = format
 			cfg.SessionID = sessionID
 			return runGet(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Number of Sessions to return (default 50, maximum 100)")
-	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	if list {
+		cmd.Use = "list"
+		cmd.Short = "List your Sessions"
+		cmd.Args = cobra.NoArgs
+		cmd.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Number of Sessions to return (default 50, maximum 100)")
+		cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	}
 	return cmd
 }

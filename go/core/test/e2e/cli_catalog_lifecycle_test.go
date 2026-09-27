@@ -31,11 +31,11 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			return runKagentCLI(t, ctx, binary, append(append([]string{}, baseArgs...), args...)...)
 		}
 
-		listedTemplates := run(t.Context(), "get", "agent")
+		listedTemplates := run(t.Context(), "agent", "list")
 		if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "True") {
 			t.Fatalf("list Agents stdout = %q, want ready template %s", listedTemplates, templateName)
 		}
-		templateJSON := run(t.Context(), "--output-format", "json", "get", "agent", templateName)
+		templateJSON := run(t.Context(), "--output-format", "json", "agent", "get", templateName)
 		if !json.Valid([]byte(templateJSON)) || !strings.Contains(templateJSON, `"name":"`+templateName+`"`) ||
 			!strings.Contains(templateJSON, `"status":"True"`) {
 			t.Fatalf("get Agent stdout = %q, want ready template %s as JSON", templateJSON, templateName)
@@ -43,7 +43,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 
 		requestID := uuid.NewString()
 		createArgs := []string{
-			"--output-format", "json", "create", "session",
+			"--output-format", "json", "agent", "session", "create",
 			"--agent", templateName, "--request-id", requestID,
 		}
 		createdJSON := run(t.Context(), createArgs...)
@@ -58,7 +58,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 		deleted := false
 		t.Cleanup(func() {
 			if !deleted {
-				run(context.Background(), "delete", "session", session.GetId())
+				run(context.Background(), "agent", "session", "delete", session.GetId())
 			}
 		})
 
@@ -71,16 +71,16 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			t.Fatalf("replayed create ID = %q, want %q", replayed.GetSession().GetId(), session.GetId())
 		}
 
-		listedSessions := run(t.Context(), "get", "session")
+		listedSessions := run(t.Context(), "agent", "session", "list")
 		if !strings.Contains(listedSessions, session.GetId()) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listedSessions, session.GetId())
 		}
-		gotSession := run(t.Context(), "--output-format", "json", "get", "session", session.GetId())
+		gotSession := run(t.Context(), "--output-format", "json", "agent", "session", "get", session.GetId())
 		if !json.Valid([]byte(gotSession)) || !strings.Contains(gotSession, session.GetId()) {
 			t.Fatalf("get Session stdout = %q, want session %s as JSON", gotSession, session.GetId())
 		}
 
-		deletedJSON := run(t.Context(), "--output-format", "json", "delete", "session", session.GetId())
+		deletedJSON := run(t.Context(), "--output-format", "json", "agent", "session", "delete", session.GetId())
 		deleted = true
 		var deletedResponse apiv1alpha1.DeleteSessionResponse
 		if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
@@ -105,12 +105,12 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			"--user-id", "e2e",
 		}
 
-		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "session")...)
+		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "agent", "session", "list")...)
 		if !strings.Contains(listOutput, fixture.sessionID) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listOutput, fixture.sessionID)
 		}
 
-		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "session", fixture.sessionID)
+		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "agent", "session", "get", fixture.sessionID)
 		getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
 		if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.sessionID) {
 			t.Fatalf("get Session stdout = %q, want JSON for session %s", getOutput, fixture.sessionID)
@@ -130,7 +130,7 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				args := append(append([]string{}, baseArgs...),
 					"--output-format", tt.format,
-					"invoke",
+					"agent", "invoke",
 					"--session", fixture.sessionID,
 					"--task", "What is 2+2?",
 				)

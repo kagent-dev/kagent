@@ -12,6 +12,30 @@ kagent provides agent conversations through Sessions and A2A, and standalone
 scratch environments through Sandboxes. Both use Substrate. Prefer the connected
 deployment's tool schemas and current API over commands from earlier releases.
 
+## Work with an agent
+
+Use `kagent agent --help` to discover the installed agent workflow:
+
+- `kagent agent list` and `kagent agent get NAME` discover agent definitions.
+  `kagent agent template list` and `kagent agent template get NAME` inspect
+  reusable AgentTemplates. These catalog commands currently require Kubernetes
+  access and use the selected namespace.
+- `kagent agent session create --agent NAME --request-id REQUEST_ID` creates a
+  conversation. Generate and retain a request ID for retries, and keep the
+  returned Session ID. Use
+  `kagent agent session list` to list your conversations and
+  `kagent agent session get ID` to inspect one.
+- `kagent agent invoke --session ID --task "TASK"` invokes an existing
+  conversation through A2A; `--stream` streams the response. Invocation does not
+  create a Session automatically.
+- `kagent agent session delete ID` deletes the conversation. It does not delete
+  the agent definition. `kagent apply -f FILE` creates or updates an Agent or
+  AgentTemplate from a manifest.
+
+List commands accept `--page-size` and `--page-token`; get commands require one
+name or ID. Session operations use the configured kagent API connection and
+identity. Invocation also uses the configured gateway connection.
+
 ## Use a sandbox for your task
 
 When a task benefits from an isolated tools environment, use available kagent
