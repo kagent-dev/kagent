@@ -178,7 +178,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	for name, args := range map[string][]string{
 		"get session":          {"get", "session"},
 		"get agent-template":   {"get", "agent-template"},
-		"get sandbox-template": {"get", "sandbox-template"},
+		"get sandboxtemplate":  {"get", "sandboxtemplate"},
 		"list sandbox":         {"get", "sandbox"},
 		"get sandbox":          {"get", "sandbox", sandboxTestID},
 		"create sandbox":       {"create", "sandbox", "python", "--request-id", "request"},
@@ -204,7 +204,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 
 func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
 	for name, want := range map[string]string{
-		"get":    "agent, agent-template, sandbox, sandbox-template, session",
+		"get":    "agent, agent-template, sandbox, sandboxtemplate, session",
 		"create": "sandbox, session",
 		"delete": "sandbox, session",
 	} {

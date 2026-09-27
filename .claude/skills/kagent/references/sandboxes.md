@@ -14,7 +14,7 @@ Use `kagent get --help`, `kagent create --help`, `kagent delete --help`, and
 settings. Use the configured endpoint and identity; do not substitute another
 user's identity to work around an authorization failure.
 
-1. Discover with `kagent get sandbox-template -n NAMESPACE -o json`. The result
+1. Discover with `kagent get sandboxtemplate -n NAMESPACE -o json`. The result
    includes template references, workload images, and full resources for readiness
    inspection. `kagent get sandbox -o json` lists your existing sandboxes;
    append a sandbox ID to inspect one. Use `--page-size` and `--page-token` for lists.

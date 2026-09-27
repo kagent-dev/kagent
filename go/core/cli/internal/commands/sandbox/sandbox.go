@@ -57,7 +57,7 @@ func withClient(cmd *cobra.Command, run func(context.Context, *client.SandboxCli
 // NewGetTemplateCmd constructs the SandboxTemplate discovery command.
 func NewGetTemplateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "sandbox-template", Short: "List SandboxTemplates in the selected namespace", Args: cobra.NoArgs,
+		Use: "sandboxtemplate", Short: "List SandboxTemplates in the selected namespace", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, options connection.Options, format clioutput.Format) error {
 				response, err := c.ListSandboxTemplates(ctx, &apiv1alpha1.ListSandboxTemplatesRequest{Namespace: options.Namespace})

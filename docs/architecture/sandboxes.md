@@ -273,7 +273,7 @@ An interrupted file write reports an error and does not reserve lifecycle access
 ## CLI access
 
 Sandbox commands use the CLI's existing API connection, identity, and TLS
-settings. `kagent get sandbox-template` discovers templates in the selected
+settings. `kagent get sandboxtemplate` discovers templates in the selected
 namespace. `kagent get sandbox [ID]` lists your sandboxes or inspects one;
 pagination flags apply only to lists. `kagent create sandbox TEMPLATE` requires
 a retained `--request-id`, and `kagent delete sandbox ID` deletes a sandbox.

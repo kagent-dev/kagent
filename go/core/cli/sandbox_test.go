@@ -274,7 +274,7 @@ func TestSandboxCLIResourceCommands(t *testing.T) {
 	}{
 		{
 			name: "templates",
-			args: []string{"get", "sandbox-template", "-n", "team-a"},
+			args: []string{"get", "sandboxtemplate", "-n", "team-a"},
 			want: &apiv1alpha1.ListSandboxTemplatesResponse{SandboxTemplates: []*apiv1alpha1.SandboxTemplate{{
 				Ref: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "python"}, WorkloadImage: "python-image",
 			}}},
