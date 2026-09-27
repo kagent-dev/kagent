@@ -2,12 +2,12 @@ suite: controller configuration
 templates:
   - controller-configmap.yaml
 tests:
-  - it: defaults to unsecured controller authentication
+  - it: defaults to insecure controller authentication
     asserts:
       - isSubset:
           path: data
           content:
-            KAGENT_AUTH_MODE: unsecure
+            KAGENT_AUTH_MODE: insecure
             KAGENT_AUTH_USER_ID_CLAIM: ""
 
   - it: configures trusted proxy authentication and the identity claim

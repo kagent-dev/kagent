@@ -81,7 +81,7 @@ import (
 // every service that takes one — so a library consumer cannot narrow where
 // its own policy applies.
 type Options struct {
-	// Authenticator identifies the caller. Nil selects UnsecureAuthenticator,
+	// Authenticator identifies the caller. Nil selects InsecureAuthenticator,
 	// which admits every request.
 	Authenticator auth.AuthProvider
 	// Authorizer decides what an identified caller may do and which collection
@@ -122,7 +122,7 @@ type Options struct {
 func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 	authenticator := o.Authenticator
 	if authenticator == nil {
-		authenticator = &authimpl.UnsecureAuthenticator{}
+		authenticator = &authimpl.InsecureAuthenticator{}
 	}
 	authorizer := o.Authorizer
 	if authorizer == nil {

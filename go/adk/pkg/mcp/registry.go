@@ -317,7 +317,7 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 
 	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
 	// A2A request independently of allowedHeaders. Carry the authenticated user
-	// alongside it so kagent callbacks preserve ownership in unsecure and
+	// alongside it so kagent callbacks preserve ownership in insecure and
 	// trusted-proxy deployments. This remains opt-in for all configured servers.
 	if rt.propagateToken {
 		if userID := auth.UserIDFromContext(req.Context()); userID != "" {

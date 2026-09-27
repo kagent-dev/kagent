@@ -219,10 +219,10 @@ controller:
   replicas: 1
   loglevel: "info"
   auth:
-    # -- Controller authentication: unsecure or trusted-proxy.
+    # -- Controller authentication: insecure or trusted-proxy.
     # trusted-proxy requires a validating proxy and network isolation; see
     # docs/architecture/oidc-proxy-authentication.md.
-    mode: unsecure
+    mode: insecure
     # -- JWT identity claim. Empty uses sub; a missing custom claim falls back to sub.
     userIdClaim: ""
   # -- Public gateway base URL advertised by Session Agent Cards for gRPC and HTTP/JSON-RPC.

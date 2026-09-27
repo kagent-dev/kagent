@@ -10,7 +10,7 @@ Browser sign-in and controller authentication are separate boundaries. Set
 The shipped [controller entrypoint](../../go/core/cmd/controller/main.go) reads
 `KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM` and supplies the authenticator
 through [app.Options](../../go/core/pkg/app/app.go). Unsupported modes fail
-startup. The default remains `unsecure`; enabling oauth2-proxy alone does not
+startup. The default remains `insecure`; enabling oauth2-proxy alone does not
 change it. Authorization still defaults to `NoopAuthorizer`; library consumers
 can supply their own authentication and authorization through `app.Options`.
 
@@ -120,7 +120,7 @@ differs.
 | --- | --- | --- |
 | `oauth2-proxy.enabled` | `false` | Install the authentication proxy |
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
-| `controller.auth.mode` | `unsecure` | Select `unsecure` or `trusted-proxy` |
+| `controller.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
 | `controller.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 

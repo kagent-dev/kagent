@@ -195,7 +195,7 @@ Kagent implements a multi-layered IAM approach:
    - Example roles in [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml)
 
 2. **API Authentication** (planned enhancement - [Issue #476](https://github.com/kagent-dev/kagent/issues/476)):
-   - Current: UnsecureAuthenticator for development, A2AAuthenticator for agent-to-agent
+   - Current: InsecureAuthenticator for development, A2AAuthenticator for agent-to-agent
    - Planned: Extensible authentication system with support for API keys, OAuth, and service accounts
    - Framework in [go/pkg/auth/auth.go](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/pkg/auth/auth.go)
 
@@ -574,7 +574,7 @@ Kagent satisfies the [Cloud Native Security Tenets](https://github.com/cncf/tag-
 For development or specific use cases, users may need to relax security:
 
 1. **Development Mode Authentication:**
-   - Default: UnsecureAuthenticator (no auth checks)
+   - Default: InsecureAuthenticator (no auth checks)
    - Production: Configure proper authentication via [Issue #476](https://github.com/kagent-dev/kagent/issues/476)
    - Documentation: Planned for v1.0 release
 

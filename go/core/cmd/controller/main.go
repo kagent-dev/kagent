@@ -52,11 +52,11 @@ func main() {
 
 func controllerAuthenticator(mode, userIDClaim string) (auth.AuthProvider, error) {
 	switch mode {
-	case "unsecure":
-		return &authimpl.UnsecureAuthenticator{}, nil
+	case "insecure":
+		return &authimpl.InsecureAuthenticator{}, nil
 	case "trusted-proxy":
 		return authimpl.NewProxyAuthenticator(userIDClaim), nil
 	default:
-		return nil, fmt.Errorf("unsupported %s %q: expected unsecure or trusted-proxy", env.AuthMode.Name(), mode)
+		return nil, fmt.Errorf("unsupported %s %q: expected insecure or trusted-proxy", env.AuthMode.Name(), mode)
 	}
 }

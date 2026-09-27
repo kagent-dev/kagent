@@ -2,7 +2,7 @@ suite: test ui config configmap
 templates:
   - ui-nginx-configmap.yaml
 tests:
-  - it: preserves internal identity header forwarding in unsecure mode
+  - it: preserves internal identity header forwarding in insecure mode
     asserts:
       - notMatchRegex:
           path: data["nginx.conf"]

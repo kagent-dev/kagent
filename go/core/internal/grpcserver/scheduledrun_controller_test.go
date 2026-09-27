@@ -93,7 +93,7 @@ func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1alpha1.Sessio
 }
 
 type scheduledControllerAuth struct {
-	authimpl.UnsecureAuthenticator
+	authimpl.InsecureAuthenticator
 }
 
 func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {

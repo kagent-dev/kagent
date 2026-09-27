@@ -51,7 +51,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:      listener,
-		Authenticator: &authimpl.UnsecureAuthenticator{},
+		Authenticator: &authimpl.InsecureAuthenticator{},
 		SystemService: systemservice.NewService(kubeClient, nil, &pkgauth.NoopAuthorizer{}, emptySystemATEClient{}),
 	})
 	if err != nil {

@@ -28,7 +28,7 @@ Set `controller.auth.mode: trusted-proxy` together with
 `oauth2-proxy.enabled: true`. Set `controller.auth.userIdClaim: email` to use
 email identities, or leave it empty to use `sub`. The chart renders
 `KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM`, which the shipped controller
-consumes at startup. Unsupported modes fail startup; `unsecure` remains the
+consumes at startup. Unsupported modes fail startup; `insecure` remains the
 default.
 
 Follow the [OIDC deployment configuration](../docs/architecture/oidc-proxy-authentication.md#deployment-configuration)
