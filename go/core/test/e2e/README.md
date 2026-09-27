@@ -79,8 +79,37 @@ Run these commands from `go/` with `KUBECONFIG` pointing to the test Kind cluste
 and `KAGENT_E2E_API_URL` set. The existing CI E2E command runs the whole matrix
 without an additional flag. Both runners allow 30 minutes and finish the matrix
 after a failure so all harness results are visible. `-parallel` still bounds
-concurrent test scenarios; harness subtests run sequentially, and the controller
-restart case stays sequential with respect to the rest of the suite.
+concurrent test scenarios. Most harness subtests run sequentially; the cron,
+scheduled timeout, and runtime revision lifecycle cases run their harnesses in
+parallel to overlap cron ticks, deadlines, and periodic garbage collection.
+Controller restart cases stay sequential with respect to the rest of the suite.
+
+CI runs four concurrent scenarios on four Substrate worker pods. Substrate
+v0.3.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
+so test concurrency is no longer limited to the worker count. A scenario may need
+multiple actors for subagents or template preparation; four scenarios is not a
+four-actor cap. Parallel harness subtests share the same `-parallel` budget as
+other scenarios; they do not multiply it. Go still isolates controller restart
+tests from parallel scenarios.
+
+To compare four versus eight on the same revision and runner, manually dispatch
+the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
+step duration and failures over repeated runs; doubling concurrency does not
+guarantee a speedup on the four-vCPU runner. Locally, use
+`make -C go e2e E2E_PARALLEL=8` (the local default remains two).
+
+CI uploads an `e2e-logs` artifact with test output, the final controller's logs,
+and worker/Substrate logs streamed during the suite. Use it to investigate an
+earlier timeout: subsequent actor activity can displace the failure from the
+200-line tails printed at the end of the job.
+
+Substrate selects randomly among workers with room, rather than preferring the
+fullest worker. Worker CPU/memory limits can be set through
+`substrateWorkerPool.template.resources`, but agent ActorTemplates currently omit
+resource limits, so these do not provide a per-agent packing budget. Standalone
+sandbox actors do declare limits. Resource-based packing for agents first needs
+measured actor sizes and limits in the runtime configuration; it is not needed to
+use the existing multi-actor workers for this concurrency trial.
 
 Render the lifecycle fixtures with the digest-pinned runtime image built for
 the test, then run the lifecycle test:
