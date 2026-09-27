@@ -16,17 +16,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const (
-	otelServiceName        = "OTEL_SERVICE_NAME"
-	otelResourceAttributes = "OTEL_RESOURCE_ATTRIBUTES"
-
-	// OperatorResourceAttributesVariable carries the operator's resource
-	// attributes. The controller's own OTEL_RESOURCE_ATTRIBUTES also names its
-	// pod, which no runtime may inherit.
-	OperatorResourceAttributesVariable = "KAGENT_OTEL_RESOURCE_ATTRIBUTES"
-	defaultOTLPProtocol                = "grpc"
-)
-
 // Signal is one OpenTelemetry signal the controller configures.
 type Signal string
 
@@ -107,7 +96,7 @@ func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
 		*config.signal(signal) = resolved
 	}
 	if config.Protocol == "" {
-		config.Protocol = defaultOTLPProtocol
+		config.Protocol = env.OtelExporterOTLPProtocol.DefaultValue()
 	}
 	if raw := strings.TrimSpace(env.OtelExporterOTLPTimeout.Get()); raw != "" {
 		if value, err := strconv.Atoi(raw); err != nil || value <= 0 {
@@ -126,7 +115,7 @@ func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
 		config.CaptureSensitiveContent = true
 	case "", "NO_CONTENT", tracing.CaptureContentDisabled:
 	default:
-		warnings = append(warnings, fmt.Errorf("%s must be SPAN_ONLY or NO_CONTENT, not %q", tracing.CaptureContentEnvironmentVariable, capture))
+		warnings = append(warnings, fmt.Errorf("%s must be SPAN_ONLY or NO_CONTENT, not %q", env.OtelCaptureMessageContent.Name(), capture))
 	}
 	maxCaptureBytes, err := maxCaptureBytesFromProcess()
 	if err != nil {
@@ -172,7 +161,7 @@ func (c TelemetryConfig) signalFromProcess(signal Signal, disabled bool) (Signal
 		protocol = c.Protocol
 	}
 	if protocol == "" {
-		protocol = defaultOTLPProtocol
+		protocol = env.OtelExporterOTLPProtocol.DefaultValue()
 	}
 	if protocol != "grpc" && protocol != "http/protobuf" {
 		return SignalConfig{}, fmt.Errorf("unsupported OTLP %s protocol %q", signal, protocol)
@@ -188,6 +177,9 @@ func (c TelemetryConfig) signalFromProcess(signal Signal, disabled bool) (Signal
 	return resolved, nil
 }
 
+// resourceAttributesFromProcess reads the operator's shared runtime attributes.
+// The controller's own OTEL_RESOURCE_ATTRIBUTES includes its pod identity, which
+// must not be inherited by agent runtimes.
 func resourceAttributesFromProcess() (string, error) {
 	raw := strings.TrimSpace(env.OtelResourceAttributes.Get())
 	if raw == "" {
@@ -204,7 +196,7 @@ func resourceAttributesFromProcess() (string, error) {
 		entries = append(entries, strings.TrimSpace(key)+"="+strings.TrimSpace(value))
 	}
 	if len(invalid) != 0 {
-		return strings.Join(entries, ","), fmt.Errorf("%s ignores entries that are not key=value: %q", OperatorResourceAttributesVariable, invalid)
+		return strings.Join(entries, ","), fmt.Errorf("%s ignores entries that are not key=value: %q", env.OtelResourceAttributes.Name(), invalid)
 	}
 	return strings.Join(entries, ","), nil
 }
@@ -286,11 +278,11 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 // sets. The rendered value keeps its entries under the agent identity.
 func HarnessResourceAttributes(harness *HarnessConfiguration) (string, error) {
 	for _, variable := range harness.Spec.Env {
-		if variable.Name != otelResourceAttributes {
+		if variable.Name != env.OtelSDKResourceAttributes.Name() {
 			continue
 		}
 		if variable.Value == nil {
-			return "", NewValidationError("Harness env %q must be a literal value", otelResourceAttributes)
+			return "", NewValidationError("Harness env %q must be a literal value", env.OtelSDKResourceAttributes.Name())
 		}
 		return *variable.Value, nil
 	}
@@ -300,16 +292,16 @@ func HarnessResourceAttributes(harness *HarnessConfiguration) (string, error) {
 // IsResourceAttributesVariable reports whether a Harness variable is the one
 // TelemetryEnvironment merges instead of copying.
 func IsResourceAttributesVariable(name string) bool {
-	return name == otelResourceAttributes
+	return name == env.OtelSDKResourceAttributes.Name()
 }
 
 // OwnsTelemetryEnvironment reports whether Kagent compiles the variable into
 // runtime revisions. Other OTEL variables remain available for harness tuning.
 func OwnsTelemetryEnvironment(name string) bool {
 	switch name {
-	case env.OtelSDKDisabled.Name(), otelServiceName,
+	case env.OtelSDKDisabled.Name(), env.OtelServiceName.Name(),
 		env.OtelExporterOTLPEndpoint.Name(), env.OtelExporterOTLPProtocol.Name(), env.OtelExporterOTLPTimeout.Name(),
-		tracing.CaptureContentEnvironmentVariable:
+		env.OtelCaptureMessageContent.Name():
 		return true
 	}
 	for _, signal := range signals {
@@ -326,11 +318,11 @@ func OwnsTelemetryEnvironment(name string) bool {
 // capture decision is always rendered, so a runtime that reaches a collector
 // through settings the controller did not render still follows it.
 func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry, harnessAttributes string) []corev1.EnvVar {
-	capture := corev1.EnvVar{Name: tracing.CaptureContentEnvironmentVariable, Value: tracing.CaptureContentDisabled}
+	capture := corev1.EnvVar{Name: env.OtelCaptureMessageContent.Name(), Value: tracing.CaptureContentDisabled}
 	if c.CaptureSensitiveContent {
 		capture.Value = tracing.CaptureContentSpanOnly
 	}
-	resource := corev1.EnvVar{Name: otelResourceAttributes, Value: tracing.MergeResourceAttributes(
+	resource := corev1.EnvVar{Name: env.OtelSDKResourceAttributes.Name(), Value: tracing.MergeResourceAttributes(
 		strings.Join([]string{c.ResourceAttributes, harnessAttributes}, ","), resourceIdentity(identity))}
 	if !c.Enabled() {
 		environment := []corev1.EnvVar{
@@ -373,7 +365,7 @@ func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry,
 	if c.Timeout != "" {
 		environment = append(environment, corev1.EnvVar{Name: env.OtelExporterOTLPTimeout.Name(), Value: c.Timeout})
 	}
-	return append(environment, corev1.EnvVar{Name: otelServiceName, Value: identity.AgentName}, resource, capture)
+	return append(environment, corev1.EnvVar{Name: env.OtelServiceName.Name(), Value: identity.AgentName}, resource, capture)
 }
 
 // sharedExporter reports whether an enabled signal exports to the shared
