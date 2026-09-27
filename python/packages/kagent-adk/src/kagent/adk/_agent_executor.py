@@ -17,6 +17,7 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    SendMessageRequest,
     Task,
     TaskArtifactUpdateEvent,
     TaskState,
@@ -25,6 +26,8 @@ from a2a.types import (
 )
 from google.adk.a2a.converters.part_converter import (
     A2APartToGenAIPartConverter,
+)
+from google.adk.a2a.converters.part_converter import (
     convert_a2a_part_to_genai_part as convert_upstream_a2a_part_to_genai_part,
 )
 from google.adk.a2a.converters.request_converter import (
@@ -55,6 +58,7 @@ from pydantic import BaseModel
 from ._bearer_token import bearer_token, extract_bearer_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
+from ._request_identity import public_context_id, request_user_id
 from .converters.event_converter import serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part as convert_kagent_a2a_part_to_genai_part
 
@@ -192,17 +196,23 @@ class A2aAgentExecutor(AgentExecutor):
 
         runner: Runner | None = None
         context_token = None
+        identity_token = public_context_id.set(context.context_id)
+        user_token = None
         try:
-            self._translate_hitl_response(context)
+            context = self._translate_hitl_response(context)
             runner = await self._resolve_runner()
 
             run_request = self._convert_request(context, _convert_public_a2a_part_to_genai_part)
+            # ADK can synthesize a user ID for native session lookup. Only the
+            # passed-through caller may own memory or outgoing credentials.
+            caller = context.call_context.user if context.call_context else None
+            user_token = request_user_id.set(caller.user_name if caller else "")
             await self._prepare_session(context, run_request, runner)
 
             span_attributes = {
                 "kagent.user_id": run_request.user_id,
                 "gen_ai.task.id": context.task_id,
-                "gen_ai.conversation.id": run_request.session_id,
+                "gen_ai.conversation.id": context.context_id,
             }
             context_token = set_kagent_span_attributes(
                 {key: value for key, value in span_attributes.items() if value is not None}
@@ -249,22 +259,39 @@ class A2aAgentExecutor(AgentExecutor):
             logger.error("Error preparing A2A request: %s", error, exc_info=True)
             await self._publish_failed_status_event(context, event_queue, _friendly_error_message(str(error)))
         finally:
+            public_context_id.reset(identity_token)
+            if user_token is not None:
+                request_user_id.reset(user_token)
             if context_token is not None:
                 clear_kagent_span_attributes(context_token)
             if runner is not None:
                 await self._safe_close_runner(runner)
 
-    def _translate_hitl_response(self, context: RequestContext) -> None:
+    def _translate_hitl_response(self, context: RequestContext) -> RequestContext:
         payload = get_hitl_payload(context.message)
         if not payload or payload.get("type") not in {
             HITL_TYPE_TOOL_APPROVAL_RESPONSE,
             HITL_TYPE_ASK_USER_RESPONSE,
         }:
-            return
+            return context
         if context.current_task is None:
             raise ValueError("HITL decision requires a stored current task")
         resume_message = build_resume_hitl_message(context.current_task, context.message)
-        context.message.CopyFrom(resume_message)
+        # The SDK's event consumer retains the public request while native work
+        # runs. Keep the translated native request separate so persistence
+        # retains the caller's original message.
+        return RequestContext(
+            call_context=context.call_context,
+            request=SendMessageRequest(
+                message=resume_message,
+                configuration=context.configuration,
+                metadata=context.metadata,
+            ),
+            task_id=context.task_id,
+            context_id=context.context_id,
+            task=context.current_task,
+            related_tasks=context.related_tasks,
+        )
 
     def _convert_request(
         self,

@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import { agentChat, instances } from "../../helpers/app";
 import { pressOnce } from "../../helpers/resource";
+import { sendAndAwaitTurn } from "../../helpers/chat";
 
 /** The menu that is actually on screen: antd leaves a closed dropdown mounted. */
 const openMenu = (page: import("@playwright/test").Page) =>
@@ -48,9 +49,8 @@ test("chat: the snapshot is taken from the composer, and marks where a fork woul
     await expect(page.getByTestId("chat-checkpoint")).toBeDisabled();
   });
 
-  await test.step("4. and offers one as soon as there is a newer turn", async () => {
-    await page.getByTestId("chat-input").fill("Another question, so the boundary moves.");
-    await page.getByTestId("chat-send").click();
+  await test.step("4. and offers one once a newer turn finishes", async () => {
+    await sendAndAwaitTurn(page, "Another question, so the boundary moves.");
     await expect(mine).toHaveCount(2, { timeout: 30_000 });
 
     await expect(page.getByTestId("chat-checkpoint")).toBeEnabled();
@@ -154,8 +154,7 @@ test("chat: a fork holds only what was above its line, takes the snapshot's name
   // A second turn and a second boundary, so the seeded one is no longer the latest and
   // forking it has something to leave behind — and so this page is holding a locally
   // saved mark for the fork to fail to inherit.
-  await page.getByTestId("chat-input").fill("A second turn, after the saved boundary.");
-  await page.getByTestId("chat-send").click();
+  await sendAndAwaitTurn(page, "A second turn, after the saved boundary.");
   await expect(mine).toHaveCount(2, { timeout: 30_000 });
   await page.getByTestId("chat-checkpoint").click();
   await expect(dividers(page)).toHaveCount(2);
@@ -201,8 +200,7 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
   await expect(mine.first()).toBeVisible({ timeout: 30_000 });
 
   // A second boundary, so the delete has to remove one line rather than all of them.
-  await page.getByTestId("chat-input").fill("A second turn, to save a second boundary at.");
-  await page.getByTestId("chat-send").click();
+  await sendAndAwaitTurn(page, "A second turn, to save a second boundary at.");
   await expect(mine).toHaveCount(2, { timeout: 30_000 });
   await page.getByTestId("chat-checkpoint").click();
   await expect(dividers(page)).toHaveCount(2);

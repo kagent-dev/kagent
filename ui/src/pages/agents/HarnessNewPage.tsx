@@ -11,27 +11,9 @@ import {
 } from "@/api/domain/harnesses";
 import { paths } from "@/router/routes";
 
-const { Text, Paragraph } = Typography;
+const { Paragraph } = Typography;
 
-/**
- * Creating a harness — the runtime half of an agent.
- *
- * This surface did not exist because the client offered no create, and a note in the
- * codebase said `HarnessService` was read-only. That was wrong: the service implements
- * create, update and delete, and always did. What was read-only was this application.
- *
- * The form is short because the CRD is strict, and every constraint below is one the
- * cluster enforces with CEL rather than something invented here:
- *
- * - exactly one adapter — `kagent`, `codex` or `claude`;
- * - `workload.image` pinned by sha256 digest, because a tag can move under a running
- *   agent and the CRD refuses one outright;
- * - a worker pool name, which is where this harness's Substrate Actors are scheduled.
- *
- * The admission selector is optional to the CRD and asked for here anyway, with a
- * warning when it is left empty: a harness that admits no templates is legal, runs
- * nothing, and gives no sign of why.
- */
+
 export function HarnessNewPage() {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -42,15 +24,15 @@ export function HarnessNewPage() {
   const [name, setName] = useState("");
   const [adapter, setAdapter] = useState<HarnessAdapter>("kagent");
   const [image, setImage] = useState("");
+  const [command, setCommand] = useState<string[]>([]);
+  const [args, setArgs] = useState<string[]>([]);
   const [workerPool, setWorkerPool] = useState("");
   const [snapshotLocation, setSnapshotLocation] = useState("");
-  const [selectorKey, setSelectorKey] = useState("");
-  const [selectorValue, setSelectorValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
 
+  const byo = adapter === "byo";
   const imagePinned = HARNESS_IMAGE_PATTERN.test(image.trim());
-  const admitsNothing = selectorKey.trim() === "" || selectorValue.trim() === "";
   // The snapshot location counts, because the CRD requires it. Left out of this
   // guard the form submitted happily and the controller answered "Invalid Harness",
   // which names neither the field nor what was wrong with it.
@@ -58,6 +40,7 @@ export function HarnessNewPage() {
     Boolean(namespace) &&
     name.trim() !== "" &&
     imagePinned &&
+    (!byo || command.length > 0) &&
     workerPool.trim() !== "" &&
     snapshotLocation.trim() !== "";
 
@@ -74,18 +57,15 @@ export function HarnessNewPage() {
           spec: {
             // Exactly one, which is what the CRD's own rule requires.
             [adapter]: {},
-            workload: { image: image.trim() },
+            workload: {
+              image: image.trim(),
+              ...(command.length > 0 ? { command } : {}),
+              ...(args.length > 0 ? { args } : {}),
+            },
             substrate: {
               workerPoolRef: { name: workerPool.trim() },
               snapshotPolicy: { location: snapshotLocation.trim() },
             },
-            ...(admitsNothing
-              ? {}
-              : {
-                  allowedAgentTemplates: {
-                    selector: { matchLabels: { [selectorKey.trim()]: selectorValue.trim() } },
-                  },
-                }),
           },
         },
       });
@@ -105,7 +85,7 @@ export function HarnessNewPage() {
   return (
     <PageFrame
       title="New harness"
-      description="A harness is the runtime an agent runs on. It admits agent templates by label, and its Substrate Actors are scheduled onto a worker pool."
+      description="A harness is the runtime an agent runs on. An Agent references it or embeds its spec."
     >
       <Card size="small" css={{ maxWidth: 720 }}>
         <Form layout="vertical">
@@ -164,6 +144,38 @@ export function HarnessNewPage() {
           </Form.Item>
 
           <Form.Item
+            label="Command"
+            required={byo}
+            extra={
+              byo
+                ? "Required for bring-your-own images. Press Enter after each part."
+                : "Overrides the image entrypoint. Press Enter after each part."
+            }
+          >
+            <Select
+              mode="tags"
+              data-testid="harness-command"
+              value={command}
+              onChange={setCommand}
+              open={false}
+              suffixIcon={null}
+              placeholder="/app/server"
+            />
+          </Form.Item>
+
+          <Form.Item label="Arguments" extra="Overrides the image arguments. Press Enter after each one.">
+            <Select
+              mode="tags"
+              data-testid="harness-args"
+              value={args}
+              onChange={setArgs}
+              open={false}
+              suffixIcon={null}
+              placeholder="--port=8080"
+            />
+          </Form.Item>
+
+          <Form.Item
             label="Worker pool"
             required
             extra="Where this harness's Substrate Actors are scheduled. A pool in the same namespace."
@@ -187,34 +199,6 @@ export function HarnessNewPage() {
               onChange={(event) => setSnapshotLocation(event.target.value)}
               placeholder="gs://snapshots/kagent/"
             />
-          </Form.Item>
-
-          <Form.Item label="Admits agent templates labelled">
-            <Space size={8}>
-              <Input
-                data-testid="harness-selector-key"
-                value={selectorKey}
-                onChange={(event) => setSelectorKey(event.target.value)}
-                placeholder="key"
-              />
-              <Text css={{ color: theme.color.textMuted }}>=</Text>
-              <Input
-                data-testid="harness-selector-value"
-                value={selectorValue}
-                onChange={(event) => setSelectorValue(event.target.value)}
-                placeholder="value"
-              />
-            </Space>
-            {admitsNothing ? (
-              <Alert
-                css={{ marginTop: theme.space(2) }}
-                type="warning"
-                showIcon
-                data-testid="harness-admits-nothing"
-                title="This harness will admit no templates"
-                description="A harness with no selector admits none — the CRD says so. It will be created and will run nothing, with no sign on any page of why."
-              />
-            ) : null}
           </Form.Item>
 
           {failure ? (

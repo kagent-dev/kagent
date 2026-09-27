@@ -18,9 +18,9 @@ import (
 func TestBuildUsesDurableSessionStore(t *testing.T) {
 	result, err := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{}).Build(context.Background(),
 		&v2translator.HarnessInput{
-			Harness: &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
-			Root: &v2translator.AgentInput{Template: &v1alpha3.AgentTemplate{}, Shared: []v2translator.AgentInputBinding{{
-				Name: "child", Agent: &v2translator.AgentInput{Template: &v1alpha3.AgentTemplate{}},
+			Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
+			Root: &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}, Shared: []v2translator.AgentInputBinding{{
+				Name: "child", Agent: &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}},
 			}}},
 		})
 	require.NoError(t, err)
@@ -35,17 +35,17 @@ func TestBuildCompaction(t *testing.T) {
 		openAIModel("summarizer", "https://summarizer.example.com/v1"),
 	)
 	agentModel := resolvedModel(t, collections, "agent")
-	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
-		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
+	template := &v2translator.TemplateConfiguration{
+		Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
 	}
-	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *v1alpha3.Harness {
-		return &v1alpha3.Harness{
-			ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
-			Spec:       v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
+	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *v2translator.HarnessConfiguration {
+		return &v2translator.HarnessConfiguration{
+			Name: "kagent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
 		}
 	}
-	apply := func(harness *v1alpha3.Harness) (*Result, error) {
+	apply := func(harness *v2translator.HarnessConfiguration) (*Result, error) {
 		builder := NewBuilder(krt.TestingDummyContext{}, collections)
 		return builder.Build(context.Background(), &v2translator.HarnessInput{
 			Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: agentModel},
@@ -134,9 +134,9 @@ func TestOllamaEgressDestination(t *testing.T) {
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 				&v2translator.HarnessInput{
-					Harness: &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 					Root: &v2translator.AgentInput{
-						Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+						Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 						ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 					}})
 			require.NoError(t, err)
@@ -155,9 +155,9 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.HarnessInput{
-				Harness: &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 				Root: &v2translator.AgentInput{
-					Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
@@ -178,9 +178,9 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.HarnessInput{
-				Harness: &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 				Root: &v2translator.AgentInput{
-					Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
@@ -201,9 +201,9 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&v2translator.HarnessInput{
-				Harness: &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 				Root: &v2translator.AgentInput{
-					Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "pi", Namespace: "test"}},
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestBuildMemory(t *testing.T) {
 		openAIModel("embedding", "https://embedding.example.com/v1"),
 	)
 	root := &v2translator.AgentInput{
-		Template:            &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}},
+		Template:            &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test"},
 		ResolvedModelConfig: resolvedModel(t, collections, "agent"),
 	}
 	for _, tc := range []struct {
@@ -266,8 +266,8 @@ func TestBuildMemory(t *testing.T) {
 		{name: "missing model", modelName: "missing", wantErr: `resolve memory ModelConfig "missing"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			harness := &v1alpha3.Harness{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+			harness := &v2translator.HarnessConfiguration{
+				Namespace: "test",
 				Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
 					ModelConfigRef: corev1.LocalObjectReference{Name: tc.modelName}, TTLDays: 7,
 				}}},
@@ -305,12 +305,12 @@ func TestBuildModelRequirements(t *testing.T) {
 		{name: "BYO without models", byo: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			harness := &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
+			harness := &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
 			if tc.byo {
 				harness.Spec.Kagent, harness.Spec.BYO = nil, &v1alpha3.BYOHarness{}
 			}
-			child := &v2translator.AgentInput{Template: &v1alpha3.AgentTemplate{}}
-			root := &v2translator.AgentInput{Template: &v1alpha3.AgentTemplate{}, Shared: []v2translator.AgentInputBinding{{Name: "child", Agent: child}}}
+			child := &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}}
+			root := &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}, Shared: []v2translator.AgentInputBinding{{Name: "child", Agent: child}}}
 			if tc.rootModel {
 				root.ResolvedModelConfig = resolvedModel(t, collections, "agent")
 			}

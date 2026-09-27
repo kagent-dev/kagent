@@ -1,15 +1,49 @@
 # End-to-end tests
 
+The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
+Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
+guest image built for the test. The controller passes the pinned image reference
+unchanged to Substrate.
+It creates and cleans up its own SandboxTemplates. Run from `go/`:
+
+```sh
+KAGENT_E2E_API_URL=http://<controller-address>:8083 \
+KAGENT_E2E_SANDBOX_NAMESPACE=kagent \
+KAGENT_E2E_SANDBOX_WORKER_POOL=kagent-default \
+KAGENT_E2E_RUNTIME_IMAGE=<digest-pinned-go-adk-image> \
+  go test ./core/test/e2e -run '^TestSandbox' -v -count=1 -timeout 15m
+```
+
+The controller restart test needs a stable service endpoint (NodePort or ingress);
+`kubectl port-forward` exits when the selected pod is replaced. The suite tests
+public gRPC/MCP calls, owner isolation, binary files, process execution/output,
+suspend/resume, expiration, template revision retention, and controller restart.
+The agent test uses the Helm-installed `kagent-api` RemoteMCPServer, a deterministic
+local model, and a real Go ADK Session to create a sandbox through MCP as its
+invoking user. Install the chart as release `kagent` in the test namespace with
+its default naming; the test requires that registration and leaves it intact.
+Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
+before provisioning. The same digest-pinned Go ADK image supplies both the agent
+runtime and sandbox tools.
+Preparation and runtime failures also fail the tests. CI builds the guest image
+separately and passes its digest to Helm before installing. Substrate rewrites
+the runner's `localhost:5001` registry address when workers pull the image.
+
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.
 
-Shared AgentTemplate and AgentInstance tests use `forEachHarness`, which runs
+Shared AgentTemplate and Session tests use `forEachHarness`, which runs
 every case on kagent, Codex, Claude, and configured BYO (the Go ADK image through
 the BYO compiler). Each harness gets a named subtest and independent resources,
 mock servers, and cleanup. The same assertions run against all model protocols.
 The opaque BYO fixture has its own test because it does not consume managed
 agent configuration.
+
+Until Substrate supplies runtime credentials (#1660), TaskStore uses a temporary
+unsigned identity header in every deployment; no test authentication flag is
+needed. Run these prerelease builds in isolated deployments. Verified actor
+credentials will replace this path outright.
 
 Add portable tests using this pattern:
 
@@ -37,8 +71,8 @@ gaps appear as skips in verbose/JSON test output, including in CI.
 Run one behavior across all harnesses, or select one harness for debugging:
 
 ```bash
-go test ./core/test/e2e -run '^TestAgentInstanceInteraction$' -v -count=1
-go test ./core/test/e2e -run '^TestAgentInstanceInteraction$/^codex$' -v -count=1
+go test ./core/test/e2e -run '^TestSessionInteraction$' -v -count=1
+go test ./core/test/e2e -run '^TestSessionInteraction$/^codex$' -v -count=1
 ```
 
 Run these commands from `go/` with `KUBECONFIG` pointing to the test Kind cluster
@@ -69,7 +103,7 @@ KAGENT_E2E_CODEX_IMAGE=<registry>/kagent-dev/kagent/codex-harness@sha256:<digest
 KAGENT_E2E_API_URL=http://<controller-address>:8083 make -C go e2e
 ```
 
-`TestAgentInstanceInteraction` starts the deterministic mock LLM on the test
+`TestSessionInteraction` starts the deterministic mock LLM on the test
 host and translates its listener to the host address reachable from the
 cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `KAGENT_LOCAL_HOST` when the cluster uses a different host address.
@@ -77,7 +111,7 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
-`TestAgentInstanceContextCompaction` clones the `kagent` Harness into one whose
+`TestSessionContextCompaction` clones the `kagent` Harness into one whose
 `spec.kagent.compaction` fires a sliding window after two turns, with a
 dedicated summarizer `ModelConfig` pointing at the same mock LLM behind a
 recording proxy. It checks that the runtime calls the summarizer model once,
@@ -87,12 +121,18 @@ compacted turns.
 `TestOpaqueBYOAgentInteraction` uses the fixture built by `make build-byo-a2a`;
 `TestMCPInteraction/byo-adk` runs the Go ADK image through the BYO adapter.
 
-The `TestMCPAgentInstanceInteraction`, `TestMCPAskUserContinuation`, and
+The `TestMCPSessionInteraction`, `TestMCPAskUserContinuation`, and
 `TestMCPCancelTask` cases exercise the controller's public `/mcp` endpoint on
 port 8083, including MCP Tasks polling, synchronous fallback, A2A task identity,
 input continuation, and cancellation.
 
 `mocks/` contains the deterministic LLM responses used by interaction tests.
+
+`TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
+the advertised JSON-RPC interface, streams a second turn, and checks task
+persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`
+subscribes to an active HTTP task and verifies cancellation on both SSE streams.
+Both cases run across the harness matrix without a session routing header.
 
 For local interaction debugging, start any retained response fixture from the
 `go` directory:

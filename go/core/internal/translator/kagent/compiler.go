@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -28,7 +29,6 @@ func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
-	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	compiled, err := c.config.Build(ctx, input)
 	if err != nil {
 		return nil, err
@@ -38,24 +38,30 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
-	environment := append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...)
+	harnessAttributes, err := v2translator.HarnessResourceAttributes(harness)
+	if err != nil {
+		return nil, err
+	}
+	harnessEnvironment := slices.DeleteFunc(adkconfig.HarnessEnvironment(harness), func(variable corev1.EnvVar) bool {
+		return v2translator.OwnsTelemetryEnvironment(variable.Name)
+	})
+	environment := append(compiled.Environment, harnessEnvironment...)
 	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 		corev1.EnvVar{Name: env.KagentGatewayURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 		corev1.EnvVar{Name: "PORT", Value: "80"},
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
-		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
-	environment = append(environment, telemetryConfig.TraceEnvironment()...)
-	environment = append(environment, telemetryConfig.LogEnvironment()...)
-	environment = append(environment, telemetryConfig.CaptureEnvironment())
+	environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
+		AgentName: input.AgentName, AgentNamespace: template.Namespace,
+	}, harnessAttributes)...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -65,17 +71,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
-	if traceConfig.Enabled {
-		compiled.Egress = append(compiled.Egress, traceConfig.Hostname)
-	}
-	if logConfig.Enabled {
-		compiled.Egress = append(compiled.Egress, logConfig.Hostname)
-	}
+	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
+	compiled.Egress = append(compiled.Egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &v2translator.CompileResult{Revision: v2translator.Revision{
-		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+		Namespace: template.Namespace,
+		Image:     harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil

@@ -1,0 +1,450 @@
+package session
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+)
+
+const (
+	defaultPageSize = 50
+	maxPageSize     = 100
+)
+
+type store interface {
+	CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error)
+	GetSession(context.Context, string, string) (*apiv1alpha1.Session, error)
+	GetSessionByID(context.Context, string) (*apiv1alpha1.Session, error)
+	ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error)
+	UpdateSessionName(context.Context, string, string, string) (*apiv1alpha1.Session, error)
+	CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error)
+	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error)
+	DeleteSessionShare(context.Context, string, string) error
+}
+
+type sessionWorkflow interface {
+	Create(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Suspend(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Resume(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+}
+
+type ListRequest struct {
+	AllCreators bool
+	// Agent narrows the page to one agent's conversations.
+	// Either may be given alone.
+	Agent     *apiv1alpha1.ResourceReference
+	PageSize  int
+	PageToken string
+}
+
+type ListResult struct {
+	Sessions      []*apiv1alpha1.Session
+	NextPageToken string
+}
+
+type ShareListResult struct {
+	Shares        []*apiv1alpha1.SessionShare
+	NextPageToken string
+}
+
+type Service struct {
+	store      store
+	authorizer auth.Authorizer
+	workflow   sessionWorkflow
+}
+
+func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflow) *Service {
+	return &Service{store: store, authorizer: authorizer, workflow: workflow}
+}
+
+// Create reserves and converges a new conversation. name is optional; an empty
+// name leaves the conversation identified by its id, which is how every session
+// created before names existed behaves.
+func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.Session, error) {
+	if err := validateCreate(agent, requestID); err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbCreate, "")
+	if err != nil {
+		return nil, err
+	}
+	// A share grants access to an existing conversation, never creation.
+	if _, shared := auth.ShareContextFrom(ctx); shared {
+		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
+	}
+	session, _, err := s.store.CreateSession(ctx, &apiv1alpha1.Session{
+		Id: id.String(), Creator: creator, Name: name,
+		Agent: agent,
+	}, requestID)
+	if errors.Is(err, database.ErrIdempotencyConflict) {
+		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
+	}
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted Session", err)
+	}
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewFailedPrecondition("Agent does not have a ready prepared revision", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to reserve Session", err)
+	}
+	session, err = s.workflow.Create(ctx, session)
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Session was deleted", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to create Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+	return s.getAuthorized(ctx, id, auth.VerbGet)
+}
+
+// getAuthorized loads a Session authorized for the requested operation. Reads are
+// independent of runtime readiness: viewing a suspended conversation must not
+// provision a worker. Lifecycle and A2A operations use this same access policy.
+func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) (*apiv1alpha1.Session, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return nil, serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
+	}
+	id = parsed.String()
+	creator, err := s.authorize(ctx, verb, id)
+	if err != nil {
+		return nil, err
+	}
+	var session *apiv1alpha1.Session
+	authSession, _ := auth.AuthSessionFrom(ctx)
+	_, shared := auth.ShareContextFrom(ctx)
+	// Internal controllers may access Sessions independently of ownership,
+	// after authorization. A share never grants that broader authority.
+	if _, controlPlane := authSession.(auth.ControlPlaneSession); controlPlane && !shared {
+		session, err = s.store.GetSessionByID(ctx, id)
+	} else {
+		session, err = s.store.GetSession(ctx, id, creator)
+	}
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Session not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get Session", err)
+	}
+	return session, nil
+}
+
+// Rename sets the conversation's display name. Unlike every other read on this
+// service this is a write, and it authorizes as one: a reader who may list and
+// open a conversation must not be able to retitle it.
+func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.Session, error) {
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.store.UpdateSessionName(ctx, id, creator, name)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Session not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to rename Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
+	pageSize := request.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	if pageSize < 0 || pageSize > maxPageSize {
+		return ListResult{}, serviceerrors.NewInvalidArgument(fmt.Sprintf("page limit must be between 1 and %d", maxPageSize), nil)
+	}
+	afterID, err := decodePageToken(request.PageToken)
+	if err != nil {
+		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
+	}
+	if share, shared := auth.ShareContextFrom(ctx); shared {
+		// Even an all-creators request is limited to the shared conversation.
+		session, err := s.getAuthorized(ctx, share.SessionID, auth.VerbGet)
+		if err != nil {
+			return ListResult{}, err
+		}
+		result := ListResult{Sessions: []*apiv1alpha1.Session{}}
+		if session.Id > afterID && (request.Agent == nil ||
+			(session.GetAgent().GetNamespace() == request.Agent.Namespace && session.GetAgent().GetName() == request.Agent.Name)) {
+			result.Sessions = append(result.Sessions, session)
+		}
+		return result, nil
+	}
+	userID, err := s.authorize(ctx, auth.VerbGet, "")
+	if err != nil {
+		return ListResult{}, err
+	}
+	if request.AllCreators {
+		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
+			return ListResult{}, err
+		}
+	}
+	query := database.SessionQuery{
+		UserID: userID, AllUsers: request.AllCreators, Agent: request.Agent,
+		AfterID: afterID, Limit: pageSize + 1,
+	}
+	result := ListResult{Sessions: []*apiv1alpha1.Session{}}
+	for {
+		sessions, err := s.store.ListSessions(ctx, query)
+		if err != nil {
+			return ListResult{}, serviceerrors.NewInternal("Failed to list Sessions", err)
+		}
+		for _, session := range sessions {
+			query.AfterID = session.Id
+			// Authorize before pagination. A denied Session must not consume a
+			// result slot or become the cursor exposed to the caller.
+			if _, err := s.authorize(ctx, auth.VerbGet, session.Id); err != nil {
+				if serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+					continue
+				}
+				return ListResult{}, err
+			}
+			result.Sessions = append(result.Sessions, session)
+			if len(result.Sessions) > pageSize {
+				result.Sessions = result.Sessions[:pageSize]
+				result.NextPageToken = encodePageToken(result.Sessions[pageSize-1].Id)
+				return result, nil
+			}
+		}
+		if len(sessions) < query.Limit {
+			return result, nil
+		}
+	}
+}
+
+func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbDelete)
+	if err != nil {
+		return nil, err
+	}
+	session, err = s.workflow.Delete(ctx, session)
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to delete Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
+	if err != nil {
+		return nil, err
+	}
+	session, err = s.workflow.Suspend(ctx, session)
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to suspend Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
+	if err != nil {
+		return nil, err
+	}
+	session, err = s.workflow.Resume(ctx, session)
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to resume Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) CreateShare(ctx context.Context, sessionID string, permission apiv1alpha1.SessionSharePermission) (*apiv1alpha1.SessionShare, string, error) {
+	if err := validateIdentity(sessionID); err != nil {
+		return nil, "", err
+	}
+	if permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE {
+		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
+	}
+	userID, err := s.authorize(ctx, auth.VerbCreate, sessionID+"/shares")
+	if err != nil {
+		return nil, "", err
+	}
+	token, tokenHash, err := generateShareToken()
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
+	}
+	share, err := s.store.CreateSessionShare(ctx, &apiv1alpha1.SessionShare{Id: id.String(), SessionId: sessionID,
+		Permission: permission}, tokenHash, userID)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, "", serviceerrors.NewNotFound("Session not found", err)
+	}
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to create Session share", err)
+	}
+	return share, token, nil
+}
+
+func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int, pageToken string) (ShareListResult, error) {
+	if err := validateIdentity(sessionID); err != nil {
+		return ShareListResult{}, err
+	}
+	userID, err := s.authorize(ctx, auth.VerbGet, sessionID+"/shares")
+	if err != nil {
+		return ShareListResult{}, err
+	}
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	if pageSize < 0 || pageSize > maxPageSize {
+		return ShareListResult{}, serviceerrors.NewInvalidArgument(fmt.Sprintf("page limit must be between 1 and %d", maxPageSize), nil)
+	}
+	afterID, err := decodePageToken(pageToken)
+	if err != nil {
+		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
+	}
+	shares, err := s.store.ListSessionShares(ctx, sessionID, userID, afterID, pageSize+1)
+	if err != nil {
+		return ShareListResult{}, serviceerrors.NewInternal("Failed to list Session shares", err)
+	}
+	result := ShareListResult{Shares: shares}
+	if len(result.Shares) > pageSize {
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].GetId())
+		result.Shares = result.Shares[:pageSize]
+	}
+	return result, nil
+}
+
+func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
+	if err := validateIdentity(shareID); err != nil {
+		return err
+	}
+	userID, err := s.authorize(ctx, auth.VerbDelete, "shares/"+shareID)
+	if err != nil {
+		return err
+	}
+	if err := s.store.DeleteSessionShare(ctx, shareID, userID); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			return serviceerrors.NewNotFound("Session share not found", err)
+		}
+		return serviceerrors.NewInternal("Failed to revoke Session share", err)
+	}
+	return nil
+}
+
+// authorize preserves the authenticated caller while allowing a matching share
+// to select the record's owner. Read-only restrictions live here so they apply
+// equally to transport calls and direct service callers.
+func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
+	if _, ok := auth.AuthSessionFrom(ctx); !ok {
+		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+	}
+	if share, ok := auth.ShareContextFrom(ctx); ok {
+		if share.ReadOnly && verb != auth.VerbGet {
+			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
+		}
+		if share.IsForSession(name) {
+			return share.UserID, nil
+		}
+	}
+	return s.authorizeType(ctx, verb, "Session", name)
+}
+
+func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+	}
+	principal := session.Principal()
+	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
+		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	return principal.User.ID, nil
+}
+
+func validateCreate(agent *apiv1alpha1.ResourceReference, requestID string) error {
+	for _, ref := range []*apiv1alpha1.ResourceReference{agent} {
+		if problems := utilvalidation.IsDNS1123Label(ref.GetNamespace()); len(problems) > 0 {
+			return serviceerrors.NewInvalidArgument("target namespace is invalid: "+strings.Join(problems, "; "), nil)
+		}
+		if problems := utilvalidation.IsDNS1123Subdomain(ref.GetName()); len(problems) > 0 {
+			return serviceerrors.NewInvalidArgument("target name is invalid: "+strings.Join(problems, "; "), nil)
+		}
+	}
+	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
+		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
+	}
+	return nil
+}
+
+func validateIdentity(id string) error {
+	if _, err := uuid.Parse(id); err != nil {
+		return serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
+	}
+	return nil
+}
+
+func encodePageToken(id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(id))
+}
+
+func decodePageToken(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+	value, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return "", err
+	}
+	if _, err := uuid.Parse(string(value)); err != nil {
+		return "", err
+	}
+	return string(value), nil
+}
+
+func generateShareToken() (string, []byte, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	digest := sha256.Sum256([]byte(token))
+	return token, digest[:], nil
+}

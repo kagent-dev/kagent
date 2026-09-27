@@ -5,7 +5,7 @@ var (
 	LeaderElect = RegisterBoolVar(
 		"LEADER_ELECT",
 		true,
-		"Enable controller leader election, including during single-replica rolling updates. Set false for local testing.",
+		"Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination.",
 		ComponentController,
 	)
 

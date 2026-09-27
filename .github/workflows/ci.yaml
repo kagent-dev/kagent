@@ -40,7 +40,7 @@ jobs:
   test-e2e:
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.2.0-beta5
+      SUBSTRATE_VERSION: 0.3.0-alpha1
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
@@ -128,8 +128,8 @@ jobs:
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
             --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
-            --set otel.tracing.enabled=true
-            --set-string otel.tracing.exporter.otlp.endpoint=http://172.17.0.1:14317
+            --set otel.traces.enabled=true
+            --set-string otel.exporter.otlp.endpoint=http://172.17.0.1:14317
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -137,11 +137,16 @@ jobs:
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
           make buildx-create
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a | xargs -P4 -n1 bash -c '
+          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
             image="$1"
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
+          # Resolve the guest on the runner: localhost:5001 is not reachable
+          # from the controller pod. Substrate rewrites registry pulls on workers.
+          GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          test -n "$GUEST_DIGEST"
+          export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set-string controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
@@ -164,7 +169,7 @@ jobs:
           export KAGENT_E2E_CODEX_IMAGE="localhost:5001/kagent-dev/kagent/codex-harness@${CODEX_DIGEST}"
           envsubst < core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
           for _ in $(seq 1 60); do
-            READY=$(kubectl get agenttemplate smoke -n kagent -o jsonpath='{.status.harnesses[?(@.harness=="kagent")].conditions[?(@.type=="Ready")].status}')
+            READY=$(kubectl get agent smoke -n kagent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
             if [ "$READY" = True ]; then break; fi
             sleep 5
           done
@@ -193,7 +198,7 @@ jobs:
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
-          kubectl get pods,actortemplates,workerpools -A
+          kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true

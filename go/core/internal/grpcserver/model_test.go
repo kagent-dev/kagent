@@ -11,7 +11,6 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -61,7 +60,6 @@ func TestModelServiceCRUD(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	server, err := New(Config{
 		Listener:      listener,
-		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
 		SystemService: testSystemService(),
 		ModelService:  service,

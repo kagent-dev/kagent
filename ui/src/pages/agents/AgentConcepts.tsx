@@ -4,26 +4,7 @@ import { useSearchParams } from "react-router-dom";
 
 const { Text } = Typography;
 
-/**
- * What the pieces are and how one becomes the next.
- *
- * The nouns do not give this away. "Agents" reads like a list of things somebody made,
- * and it is not one: nothing creates an agent. An agent is what *exists* once a harness
- * admits a template — read out of `AgentTemplate.status.harnesses[]`, which is why one
- * template admitted by two harnesses appears as two agents. Readers were hunting for
- * "New agent", not finding it, and concluding the page was broken.
- *
- * The hard half is the last two, because both get called "the agent" in conversation
- * and they are not the same thing: an **Agent** is the configuration you start a chat
- * from, and an **AgentInstance** is one chat — scheduled onto the harness as a Substrate
- * Actor, which is the thing that actually holds a worker.
- *
- * Three of the four cards are the tabs below, so they are the way to them. That is what
- * makes this a map rather than a legend: the diagram explains the model and is also how
- * you move around it. `AgentInstance` is deliberately inert — it has no tab, because a
- * conversation belongs to an agent rather than to this page, and giving it the same
- * hover would promise a destination that does not exist.
- */
+
 export function AgentConcepts() {
   const theme = useTheme();
   const [, setParams] = useSearchParams();
@@ -47,7 +28,7 @@ export function AgentConcepts() {
     >
       {/* The prose comes first and the diagram after it: the sentences say what the
           thing is, and the boxes are what a reader checks that against.
-          
+
           One sentence per line, because each is a separate fact — what an agent is made
           of, what starting a conversation does, and where the runtime words come from.
           Run together they read as a paragraph to be got through rather than three
@@ -63,7 +44,7 @@ export function AgentConcepts() {
 
       {/*
         Where these names come from, for a reader who has met the other half.
-        
+
         The runtime words on this page — worker, actor, scheduled — are Agent
         Substrate's, not invented here, and somebody who has read either project's docs
         is served by knowing they are the same words. Said once, at the foot, because it
@@ -86,7 +67,7 @@ export function AgentConcepts() {
 
       {/*
         Full width and reflowing, rather than four boxes at a fixed size.
-        
+
         The chain is the explanation, so it should read as one line wherever there is
         room for one — and wrap into two rather than shrinking to a column of labels
         nobody can tell apart.
@@ -120,8 +101,7 @@ export function AgentConcepts() {
         <MergeArrow theme={theme} />
         <Box
           kind="Agent"
-          detail="Agent chat configuration."
-          derived
+          detail="Pairs a template and Harness, each referenced or inline."
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />
@@ -142,12 +122,10 @@ export function AgentConcepts() {
 function Box({
   kind,
   detail,
-  derived = false,
   onOpen,
 }: {
   kind: string;
   detail: string;
-  derived?: boolean;
   onOpen?: () => void;
 }) {
   const theme = useTheme();
@@ -172,7 +150,7 @@ function Box({
         font: "inherit",
         padding: `${theme.space(3)} ${theme.space(3)}`,
         borderRadius: theme.radius.md,
-        border: `1px solid ${derived ? `${theme.color.primary}80` : theme.color.border}`,
+        border: `1px solid ${theme.color.border}`,
         background: theme.color.bg,
         transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
         cursor: interactive ? "pointer" : "default",
@@ -199,13 +177,10 @@ function Box({
           fontSize: 13,
           // The derived one is marked, because it is the one that is not a resource and
           // the confusion is people looking for where to create it.
-          color: derived ? theme.color.primaryText : theme.color.text,
+          color: theme.color.text,
         }}
       >
         {kind}
-        {derived ? (
-          <Text css={{ color: theme.color.textMuted, fontSize: 11 }}> (derived)</Text>
-        ) : null}
       </div>
       <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{detail}</Text>
     </button>
@@ -311,7 +286,7 @@ function FlowArrow({ theme }: { theme: Theme }) {
               seen, which read as a lone arrowhead floating between two boxes. */}
           {/*
             User space, not the object's bounding box.
-            
+
             A gradient defaults to `objectBoundingBox`, and this path is a horizontal
             line — a box with zero height, which degenerates and paints nothing. The
             line was there the whole time and invisible, leaving an arrowhead floating

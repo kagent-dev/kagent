@@ -6,10 +6,10 @@ semantics, not a private path to Actors.
 
 Current tools can:
 
-- list accessible AgentInstances;
-- invoke an AgentInstance;
+- list accessible Sessions;
+- invoke a Session;
 - create and list checkpoints; and
-- fork an AgentInstance from a checkpoint.
+- fork a Session from a checkpoint.
 
 Invocation calls the in-process public A2A gateway. Streaming MCP clients receive
 updates from the same durable A2A task; synchronous clients drain the same stream
@@ -29,7 +29,7 @@ flowchart LR
 ## MCP Tasks
 
 The server implements the MCP Tasks extension. An opaque base64 task reference
-contains the authorized AgentInstance and A2A task identity.
+contains the authorized Session and A2A task identity.
 `tasks/get`, `tasks/update`, and `tasks/cancel` translate to operations on that
 same durable A2A task, including `input-required` continuation. There is no
 separate MCP task or session store.

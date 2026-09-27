@@ -1,6 +1,7 @@
 package tracing
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -26,7 +27,7 @@ const (
 	// AttributeRuntime names the runtime behind an invocation. A Harness
 	// object's configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
-	// AttributeAgentName is the compiled agent identity, <template>-<harness>.
+	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.
@@ -79,8 +80,10 @@ const (
 // span reports.
 const OperationInvokeAgent = conv.GenAIOperationNameInvokeAgent
 
-// TransportSpanName names the wrapper span of a runtime whose invocation
-// span comes from the runtime itself.
+// TransportSpanName names the wrapper span of a runtime that emits its own
+// invoke_agent. It ends and flushes before a quiescent event leaves the
+// process, because the gateway may suspend the Actor on that event while the
+// inbound request, and so its SERVER span, is still open.
 const TransportSpanName = "a2a.request"
 
 // Segment values for AttributeSegment.
@@ -224,6 +227,18 @@ func (t RuntimeTelemetry) Identity() []attribute.KeyValue {
 		if entry.value != "" {
 			attributes = append(attributes, attribute.String(entry.key, entry.value))
 		}
+	}
+	return attributes
+}
+
+// ResourceDefaults names the service when the environment does not.
+func (t RuntimeTelemetry) ResourceDefaults(fallbackName string) []attribute.KeyValue {
+	var attributes []attribute.KeyValue
+	if name := cmp.Or(t.AgentName, fallbackName); name != "" {
+		attributes = append(attributes, semconv.ServiceNameKey.String(name))
+	}
+	if t.AgentNamespace != "" {
+		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
 	}
 	return attributes
 }

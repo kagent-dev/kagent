@@ -6,7 +6,6 @@ import (
 
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -56,7 +55,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 // and egress join the revision, and it joins the provenance so a change to it
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
-func (c *Builder) applyCompaction(result *Result, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
+func (c *Builder) applyCompaction(result *Result, harness *v2translator.HarnessConfiguration, template *v2translator.TemplateConfiguration) error {
 	spec := harness.Spec.Kagent.Compaction
 	if spec == nil {
 		return nil
@@ -84,7 +83,7 @@ func (c *Builder) applyCompaction(result *Result, harness *v1alpha3.Harness, tem
 	return nil
 }
 
-func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
+func isAgentModel(template *v2translator.TemplateConfiguration, name string) bool {
 	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
 }
 
@@ -118,7 +117,7 @@ func requireModels(input *v2translator.AgentInput) error {
 	return nil
 }
 
-func (c *Builder) applyMemory(result *Result, harness *v1alpha3.Harness) error {
+func (c *Builder) applyMemory(result *Result, harness *v2translator.HarnessConfiguration) error {
 	memory := harness.Spec.Kagent.Memory
 	if memory == nil {
 		return nil

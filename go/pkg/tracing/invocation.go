@@ -22,7 +22,7 @@ type invocationKey struct{}
 // tracing is installed.
 type Invocation struct {
 	span  trace.Span
-	flush bool
+	flush func(context.Context) error
 
 	mu       sync.Mutex
 	adopted  bool
@@ -43,9 +43,9 @@ type Result struct {
 // execution still reports the identity of the runtime that rejected it. Setting
 // context attributes later cannot change a span that has already started.
 //
-// flush requests a bounded export when the invocation completes, for runtimes
-// whose Actor may be suspended as soon as a quiescent event leaves the process.
-func StartInvocation(ctx context.Context, tracer trace.Tracer, name string, flush bool, attributes ...attribute.KeyValue) (context.Context, *Invocation) {
+// flush, when set, runs once the invocation completes, because the Actor may be
+// suspended as soon as a quiescent event leaves the process.
+func StartInvocation(ctx context.Context, tracer trace.Tracer, name string, flush func(context.Context) error, attributes ...attribute.KeyValue) (context.Context, *Invocation) {
 	ctx, span := tracer.Start(ctx, name, trace.WithAttributes(attributes...))
 	invocation := &Invocation{span: span, flush: flush}
 	return context.WithValue(ctx, invocationKey{}, invocation), invocation
@@ -159,10 +159,8 @@ func (i *Invocation) end(ctx context.Context, result Result, owner bool) (bool, 
 	i.span.End()
 	flush := i.flush
 	i.mu.Unlock()
-	if !flush {
+	if flush == nil {
 		return true, nil
 	}
-	// ForceFlush detaches from caller cancellation and bounds its own wait, so a
-	// collector outage costs at most that budget once per segment.
-	return true, ForceFlush(ctx)
+	return true, flush(ctx)
 }

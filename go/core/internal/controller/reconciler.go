@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -19,21 +21,21 @@ import (
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
 )
 
-// PairReconciliation is the complete desired and observed state for one
-// AgentTemplate/Harness pair. Failure is data so invalid pairs still produce
+// AgentReconciliation is the complete desired and observed state for one
+// Agent. Failure is data so invalid Agents still produce
 // status instead of disappearing from the graph.
-type PairReconciliation struct {
-	Pair                  AgentTemplateHarnessPair
+type AgentReconciliation struct {
+	Agent                 *kagentv1alpha3.Agent
 	Revision              *v2translator.Revision
 	Warnings              []string
 	RevisionID            v2translator.RevisionID
@@ -42,34 +44,67 @@ type PairReconciliation struct {
 	Failure               *ReconciliationFailure
 }
 
-func (r PairReconciliation) ResourceName() string { return r.Pair.ResourceName() }
+func (r AgentReconciliation) ResourceName() string { return r.Agent.Namespace + "/" + r.Agent.Name }
 
-// ReconciliationFailure identifies the condition stage blocked by a pair.
+var _ krt.Equaler[AgentReconciliation] = AgentReconciliation{}
+
+// Equals keeps KRT from reflecting over protobuf caches that mutate during reads.
+func (r AgentReconciliation) Equals(other AgentReconciliation) bool {
+	if (r.Revision == nil) != (other.Revision == nil) ||
+		(r.Revision != nil && !r.Revision.Equals(*other.Revision)) ||
+		!proto.Equal(r.DesiredActorTemplate, other.DesiredActorTemplate) ||
+		!proto.Equal(r.ObservedActorTemplate, other.ObservedActorTemplate) {
+		return false
+	}
+	r.Revision, other.Revision = nil, nil
+	r.DesiredActorTemplate, other.DesiredActorTemplate = nil, nil
+	r.ObservedActorTemplate, other.ObservedActorTemplate = nil, nil
+	return reflect.DeepEqual(r, other)
+}
+
+func (r AgentReconciliation) desiredRevision() string {
+	if r.Revision == nil || r.RevisionID.IsZero() {
+		return requestedRevision(r.Agent)
+	}
+	return r.RevisionID.String()
+}
+
+func (r AgentReconciliation) canPrepare() bool {
+	return r.Revision != nil && !r.RevisionID.IsZero() && r.DesiredActorTemplate != nil &&
+		(r.Failure == nil || r.Failure.Retryable)
+}
+
+// ReconciliationFailure identifies the condition stage blocked by an Agent.
 type ReconciliationFailure struct {
 	Condition string
 	Reason    string
 	Message   string
+	Retryable bool
 }
 
-func newPairReconciliations(
-	pairs krt.Collection[AgentTemplateHarnessPair],
+func newAgentReconciliations(
+	agents krt.Collection[*kagentv1alpha3.Agent],
 	collections v2translator.Collections,
-	pairRuntimeObservations krt.Collection[PairRuntimeObservation],
+	agentRuntimeObservations krt.Collection[AgentRuntimeObservation],
 	opts krt.OptionsBuilder,
-) krt.Collection[PairReconciliation] {
-	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
-		state := &PairReconciliation{Pair: pair}
+) krt.Collection[AgentReconciliation] {
+	return krt.NewCollection(agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *AgentReconciliation {
+		state := &AgentReconciliation{Agent: agent}
 		compilation, err := v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
 			v2translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
 			v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
 			v2translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
-		}).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
+		}).CompileAgent(context.Background(), agent)
 		if err != nil {
-			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
+			condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *v2translator.ValidationError
-			if errors.As(err, &validation) {
-				condition, reason = kagentv1alpha3.AgentTemplateConditionCompatible, "UnsupportedConfiguration"
+			var missingPool *v2translator.WorkerPoolNotFoundError
+			switch {
+			case errors.As(err, &validation):
+				condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
+			case errors.As(err, &missingPool):
+				reason = "WorkerPoolNotFound"
 			}
 			state.Failure = &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
 			return state
@@ -79,46 +114,45 @@ func newPairReconciliations(
 		state.Warnings = append([]string(nil), compilation.Warnings...)
 		state.RevisionID, err = revision.Digest()
 		if err != nil {
-			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
 			return state
 		}
 
-		workerKey := types.NamespacedName{Namespace: revision.Namespace, Name: revision.WorkerPoolName}
-		if krt.FetchOne(ctx, collections.WorkerPools, krt.FilterObjectName(workerKey)) == nil {
-			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: fmt.Sprintf("WorkerPool %q not found", workerKey.String())}
-			return state
-		}
 		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID)
 		if err != nil {
-			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 			return state
 		}
 
-		observed := krt.FetchOne(ctx, pairRuntimeObservations, krt.FilterKey(pair.ResourceName()))
+		observed := krt.FetchOne(ctx, agentRuntimeObservations, krt.FilterKey(state.ResourceName()))
 		if observed == nil || observed.RevisionID != state.RevisionID {
+			return state
+		}
+		if observed.Failure != nil {
+			state.Failure = observed.Failure
 			return state
 		}
 		state.ObservedActorTemplate = (*observed).Template
 		if !substrate.ActorTemplateSpecEqual(state.ObservedActorTemplate, state.DesiredActorTemplate) {
 			state.Failure = &ReconciliationFailure{
-				Condition: kagentv1alpha3.AgentTemplateConditionReady,
+				Condition: kagentv1alpha3.AgentConditionReady,
 				Reason:    "ActorTemplateConflict",
 				Message:   "existing immutable ActorTemplate differs from the compiled revision",
 			}
 		} else if message := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage(); message != "" {
-			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionReady, Reason: "ActorTemplateFailed", Message: message}
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "ActorTemplateFailed", Message: message}
 		}
 		return state
-	}, opts.WithName("PairReconciliations")...)
+	}, opts.WithName("AgentReconciliations")...)
 }
 
 // runtimeRevisionStore is the controller's narrow view of the shared database.
-// Substrate owns ActorTemplates; the database retains revisions while a pair
-// or an AgentInstance or checkpoint references them.
+// Substrate owns ActorTemplates; the database retains revisions while an Agent
+// or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
-	UpsertAgentTemplateHarnessPair(context.Context, database.AgentTemplateHarnessPair) error
+	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
-	RetirePairIdentities(ctx context.Context, namespace, templateName, harnessName string, except *database.AgentTemplateHarnessPair) error
+	RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error
 }
 
 type actorTemplateClient interface {
@@ -135,12 +169,12 @@ type Reconciler struct {
 	store       runtimeRevisionStore
 	status      kagentclient.ApiV1alpha3Interface
 
-	pairs                      controllers.Queue
-	agentTemplateStatuses      controllers.Queue
-	modelConfigStatuses        controllers.Queue
-	pairHandler                krt.HandlerRegistration
-	agentTemplateStatusHandler krt.HandlerRegistration
-	modelConfigStatusHandler   krt.HandlerRegistration
+	agents                   controllers.Queue
+	agentStatuses            controllers.Queue
+	modelConfigStatuses      controllers.Queue
+	agentHandler             krt.HandlerRegistration
+	agentStatusHandler       krt.HandlerRegistration
+	modelConfigStatusHandler krt.HandlerRegistration
 }
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
@@ -165,25 +199,25 @@ func newReconciler(
 		store:       store,
 		status:      status,
 	}
-	r.pairs = newReconciliationQueue("v2-agent-template-pairs", func(item any) error {
-		return r.reconcilePair(context.Background(), item.(string))
+	r.agents = newReconciliationQueue("v2-agents", func(item any) error {
+		return r.reconcileAgent(context.Background(), item.(string))
 	})
-	r.agentTemplateStatuses = newReconciliationQueue("v2-agent-template-status", func(item any) error {
-		return r.reconcileAgentTemplateStatus(context.Background(), item.(string))
+	r.agentStatuses = newReconciliationQueue("v2-agent-status", func(item any) error {
+		return r.reconcileAgentStatus(context.Background(), item.(string))
 	})
 	r.modelConfigStatuses = newReconciliationQueue("v2-model-config-status", func(item any) error {
 		return r.reconcileModelConfigStatus(context.Background(), item.(string))
 	})
 
-	r.pairHandler = collections.Reconciliations.Register(func(event krt.Event[PairReconciliation]) {
-		r.pairs.Add(krt.GetKey(event.Latest()))
+	r.agentHandler = collections.Reconciliations.Register(func(event krt.Event[AgentReconciliation]) {
+		r.agents.Add(krt.GetKey(event.Latest()))
 	})
-	r.agentTemplateStatusHandler = collections.AgentTemplateStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]]) {
+	r.agentStatusHandler = collections.AgentStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]]) {
 		status := event.Latest()
 		if apiequality.Semantic.DeepEqual(statusWithTransitionTimes(status.Status, status.Obj.Status), status.Obj.Status) {
 			return
 		}
-		r.agentTemplateStatuses.Add(status.ResourceName())
+		r.agentStatuses.Add(status.ResourceName())
 	})
 	r.modelConfigStatusHandler = collections.ModelConfigStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]]) {
 		status := event.Latest()
@@ -205,18 +239,18 @@ func newReconciliationQueue(name string, reconcile func(any) error) controllers.
 }
 
 // Run waits for the graph boundary to observe initial state, then processes
-// pair and status writes until stop closes.
+// Agent and status writes until stop closes.
 func (r *Reconciler) Run(stop <-chan struct{}) {
-	if !r.pairHandler.WaitUntilSynced(stop) || !r.agentTemplateStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
-		r.pairs.ShutDownEarly()
-		r.agentTemplateStatuses.ShutDownEarly()
+	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
+		r.agents.ShutDownEarly()
+		r.agentStatuses.ShutDownEarly()
 		r.modelConfigStatuses.ShutDownEarly()
 		return
 	}
 	go r.pollPendingTemplates(stop)
-	go r.agentTemplateStatuses.Run(stop)
+	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
-	r.pairs.Run(stop)
+	r.agents.Run(stop)
 }
 
 func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
@@ -229,8 +263,8 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		case <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
 				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.Failure == nil && golden.GetGoldenTag() == nil {
-					r.pairs.Add(state.ResourceName())
+				if state.canPrepare() && golden.GetGoldenTag() == nil {
+					r.agents.Add(state.ResourceName())
 				}
 			}
 		}
@@ -244,55 +278,49 @@ func (r *Reconciler) Start(ctx context.Context) error {
 
 func (r *Reconciler) NeedLeaderElection() bool { return true }
 
-func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
+func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	state := r.collections.Reconciliations.GetKey(key)
-	if observation := r.collections.PairRuntimeObservations.GetKey(key); observation != nil &&
+	if observation := r.collections.AgentRuntimeObservations.GetKey(key); observation != nil &&
 		(state == nil || state.Revision == nil || observation.RevisionID != state.RevisionID) {
-		r.collections.PairRuntimeObservations.DeleteObject(key)
+		r.collections.AgentRuntimeObservations.DeleteObject(key)
 	}
 	if state == nil {
 		parts := strings.Split(key, "/")
-		if len(parts) != 3 {
-			return fmt.Errorf("invalid AgentTemplate/Harness pair key %q", key)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid Agent key %q", key)
 		}
-		if err := r.store.RetirePairIdentities(ctx, parts[0], parts[1], parts[2], nil); err != nil {
-			return fmt.Errorf("retire AgentTemplate/Harness pair %s: %w", key, err)
-		}
-		return nil
-	}
-	pair := database.AgentTemplateHarnessPair{
-		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
-		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
-		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
-	}
-	if state.Revision == nil || state.RevisionID.IsZero() {
-		// Bad inputs must not destroy the current identity's last-good runtime.
-		// A recreated object at this name must still retire the previous UID.
-		if err := r.store.RetirePairIdentities(ctx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName, &pair); err != nil {
-			return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
+		if err := r.store.RetireAgentIdentities(ctx, parts[0], parts[1], nil); err != nil {
+			return fmt.Errorf("retire Agent %s: %w", key, err)
 		}
 		return nil
 	}
+	definition := database.AgentDefinition{
+		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
+		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(),
+	}
+
 	// Store the desired edge before creating compute so a concurrent collector
-	// cannot mistake the revision for abandoned state.
-	if err := r.store.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+	// cannot mistake the revision for abandoned state. Unresolved inputs replace
+	// the old desired edge with their requested identity, not a runtime revision;
+	// the upsert preserves the current UID's last-good runtime in either case.
+	if err := r.store.UpsertAgentDefinition(ctx, definition); err != nil {
 		if errors.Is(err, database.ErrObjectDeleting) {
 			// A desired digest may be awaiting cleanup from an earlier identity.
-			// Clearing the observation makes KRT derive a pending pair, which
+			// Clearing the observation makes KRT derive a pending Agent, which
 			// the pending-template poll retries until GC finishes.
-			r.collections.PairRuntimeObservations.DeleteObject(key)
+			r.collections.AgentRuntimeObservations.DeleteObject(key)
 			return nil
 		}
-		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
+		return r.observePreparationError(*state, fmt.Errorf("store Agent %s: %w", key, err))
 	}
-	if state.Failure != nil {
+	if !state.canPrepare() {
 		return nil
 	}
 	desiredRef := state.DesiredActorTemplate.GetMetadata()
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
 	if status.Code(err) == codes.NotFound {
 		if err := r.templates.EnsureAtespace(ctx, desiredRef.GetAtespace()); err != nil {
-			return fmt.Errorf("ensure Atespace %s: %w", desiredRef.GetAtespace(), err)
+			return r.observePreparationError(*state, fmt.Errorf("ensure Atespace %s: %w", desiredRef.GetAtespace(), err))
 		}
 		observed, err = r.templates.CreateActorTemplate(ctx, state.DesiredActorTemplate)
 		if status.Code(err) == codes.AlreadyExists {
@@ -300,16 +328,16 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err)
+		return r.observePreparationError(*state, fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err))
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
-		r.observeActorTemplate(*state, observed)
+		r.observePreparation(*state, observed, nil)
 		return nil
 	}
 
 	revision := database.RuntimeRevision{
-		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
-		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
+		Revision: state.RevisionID.String(), Namespace: definition.Namespace,
+		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
 		SourceSnapshot: state.Revision.Provenance, AgentCard: state.Revision.AgentCard,
 		EgressDestinations:    state.Revision.EgressDestinations,
 		Credentials:           state.Revision.Credentials,
@@ -317,28 +345,54 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {
-		return fmt.Errorf("store runtime revision %s: %w", state.RevisionID, err)
+		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", state.RevisionID, err))
 	}
 	// This observation drives Kubernetes Ready status on a separate queue.
-	// Publish it only after instance creation can select the persisted revision.
-	r.observeActorTemplate(*state, observed)
+	// Publish it only after session creation can select the persisted revision.
+	r.observePreparation(*state, observed, nil)
 	return nil
 }
 
-// Observations belong to the pair's current preparation, independently of how
-// long instances or checkpoints keep its old runtime alive in the database.
-func (r *Reconciler) observeActorTemplate(state PairReconciliation, template *ateapipb.ActorTemplate) {
-	r.collections.PairRuntimeObservations.ConditionalUpdateObject(PairRuntimeObservation{
-		AgentTemplateName: state.Pair.AgentTemplate.Name,
-		HarnessName:       state.Pair.Harness.Name,
-		RevisionID:        state.RevisionID,
-		Template:          template,
+func (r *Reconciler) observePreparationError(state AgentReconciliation, err error) error {
+	if state.canPrepare() {
+		r.observePreparation(state, nil, runtimePreparationFailure(err, state.DesiredActorTemplate.GetSandboxConfig().GetConfigName(), state.Revision.SandboxClass))
+	}
+	return err
+}
+
+func runtimePreparationFailure(err error, configName string, class atev1alpha1.SandboxClass) *ReconciliationFailure {
+	// Backend errors can contain credentials or infrastructure details. Publish
+	// only the code and expected configuration, never the raw error or details.
+	message := fmt.Sprintf("Runtime preparation failed (%s); check controller logs for details", status.Code(err))
+	if status.Code(err) == codes.FailedPrecondition {
+		if class == "" {
+			class = atev1alpha1.SandboxClassGvisor
+		}
+		message = fmt.Sprintf("Substrate rejected runtime preparation (FailedPrecondition); verify SandboxConfig %q exists with spec.sandboxClass=%q and the required runtime assets; check controller logs for details",
+			configName, class)
+	}
+	return &ReconciliationFailure{
+		Condition: kagentv1alpha3.AgentConditionReady,
+		Reason:    "RuntimePreparationFailed",
+		Message:   message,
+		Retryable: true,
+	}
+}
+
+// Observations belong to the Agent's current preparation, independently of how
+// long sessions or checkpoints keep its old runtime alive in the database.
+func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, failure *ReconciliationFailure) {
+	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
+		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
+		RevisionID: state.RevisionID,
+		Template:   template,
+		Failure:    failure,
 	})
 }
 
-func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key string) error {
-	desired := r.collections.AgentTemplateStatuses.GetKey(key)
-	template := r.collections.AgentTemplates.GetKey(key)
+func (r *Reconciler) reconcileAgentStatus(ctx context.Context, key string) error {
+	desired := r.collections.AgentStatuses.GetKey(key)
+	template := r.collections.Agents.GetKey(key)
 	if desired == nil || template == nil {
 		return nil
 	}
@@ -347,8 +401,8 @@ func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key strin
 	if apiequality.Semantic.DeepEqual(updated.Status, (*template).Status) {
 		return nil
 	}
-	if _, err := r.status.AgentTemplates(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update AgentTemplate %s status: %w", key, err)
+	if _, err := r.status.Agents(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update Agent %s status: %w", key, err)
 	}
 	return nil
 }
@@ -370,28 +424,14 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 	return nil
 }
 
-func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentTemplateStatus) kagentv1alpha3.AgentTemplateStatus {
-	desired.Harnesses = append([]kagentv1alpha3.AgentTemplateHarnessStatus(nil), desired.Harnesses...)
-	for harnessIndex := range desired.Harnesses {
-		desiredHarness := &desired.Harnesses[harnessIndex]
-		desiredHarness.Conditions = append([]metav1.Condition(nil), desiredHarness.Conditions...)
-		var currentHarness *kagentv1alpha3.AgentTemplateHarnessStatus
-		for index := range current.Harnesses {
-			if current.Harnesses[index].Harness == desiredHarness.Harness {
-				currentHarness = &current.Harnesses[index]
-				break
-			}
-		}
-		for conditionIndex := range desiredHarness.Conditions {
-			condition := &desiredHarness.Conditions[conditionIndex]
-			if currentHarness != nil {
-				if previous := apimeta.FindStatusCondition(currentHarness.Conditions, condition.Type); previous != nil &&
-					previous.Status == condition.Status && previous.Reason == condition.Reason &&
-					previous.Message == condition.Message && previous.ObservedGeneration == condition.ObservedGeneration {
-					condition.LastTransitionTime = previous.LastTransitionTime
-					continue
-				}
-			}
+func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentStatus) kagentv1alpha3.AgentStatus {
+	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
+	for i := range desired.Conditions {
+		condition := &desired.Conditions[i]
+		previous := apimeta.FindStatusCondition(current.Conditions, condition.Type)
+		if previous != nil && previous.Status == condition.Status {
+			condition.LastTransitionTime = previous.LastTransitionTime
+		} else {
 			condition.LastTransitionTime = metav1.Now()
 		}
 	}

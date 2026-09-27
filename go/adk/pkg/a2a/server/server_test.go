@@ -6,37 +6,37 @@ import (
 	"encoding/json"
 	"io"
 	"iter"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"log/slog"
-
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
-
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 )
 
-// substrateExecutor mimics KAgentExecutor's telemetry: it starts the
-// invocation span from the request-derived context. It does not flush —
-// exporting everything (including the otelhttp server span, still open
-// until the mux handler returns) is the server's flushing handler's job.
+// substrateExecutor stands in for an ADK turn: it opens the invoke_agent span
+// ADK emits beneath the request span. It does not flush; exporting everything,
+// including the otelhttp server span that stays open until the mux handler
+// returns, is the server's flushing handler's job.
 type substrateExecutor struct{ finalState a2atype.TaskState }
 
 func (e substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
-		_, span := telemetry.StartInvocationSpan(ctx)
+		_, span := otel.Tracer("adk-test").Start(ctx, adkInvokeAgentSpan)
 		defer span.End()
 
 		if !yield(a2atype.NewSubmittedTask(reqCtx, reqCtx.Message), nil) {
@@ -82,6 +82,23 @@ func startTestServer(t *testing.T) (*httptest.Server, *grpc.ClientConn) {
 		testServer.Close()
 	})
 	return testServer, conn
+}
+
+func TestStartFailsBeforeReadinessWhenA2APortIsUnavailable(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.httpServer.Addr = listener.Addr().String()
+	server.readyServer.Addr = "127.0.0.1:0"
+	if err := server.Start(); err == nil {
+		t.Fatal("Start succeeded with an unavailable A2A port")
+	}
 }
 
 func TestHTTPAndGRPCHealthSharePort(t *testing.T) {
@@ -173,7 +190,7 @@ func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 
 // runA2ARequest builds a server against an in-memory batch exporter and serves
 // one message/send.
-func runA2ARequest(t *testing.T) tracetest.SpanStubs {
+func runA2ARequest(t *testing.T, flush bool) tracetest.SpanStubs {
 	t.Helper()
 
 	exporter := tracetest.NewInMemoryExporter()
@@ -185,7 +202,11 @@ func runA2ARequest(t *testing.T) tracetest.SpanStubs {
 		_ = tp.Shutdown(context.Background())
 	})
 
-	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
+	config := ServerConfig{Port: "0"}
+	if flush {
+		config.Flush = tp.ForceFlush
+	}
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), config)
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
 	}
@@ -214,20 +235,19 @@ func runA2ARequest(t *testing.T) tracetest.SpanStubs {
 	return exporter.GetSpans()
 }
 
-// With KAGENT_PRE_RESPONSE_TRACE_FLUSH (set by the controller on Agent
-// Substrate actors), the interceptor-owned request span and its invocation
-// descendants are ended and flushed at the quiescent event. The otelhttp span
-// remains open until its handler returns so it can retain response attributes.
-func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
-	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
+const adkInvokeAgentSpan = "invoke_agent root"
 
-	spans := runA2ARequest(t)
+// The interceptor-owned request span and its ADK descendants are ended
+// and flushed at the quiescent event. The otelhttp span remains open until its
+// handler returns so it can retain response attributes.
+func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
+	spans := runA2ARequest(t, true)
 	exported := map[string]tracetest.SpanStub{}
 	for _, span := range spans {
 		exported[span.Name] = span
 	}
-	if _, ok := exported["invocation"]; !ok {
-		t.Errorf("invocation span not exported before body close, got %v", exported)
+	if _, ok := exported[adkInvokeAgentSpan]; !ok {
+		t.Errorf("ADK invoke_agent span not exported before body close, got %v", exported)
 	}
 	if _, ok := exported["a2a.request"]; !ok {
 		t.Errorf("A2A request span not exported before body close, got %v", exported)
@@ -250,17 +270,15 @@ func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
 	if requestSpan.Parent.SpanID() != httpSpan.SpanContext.SpanID() {
 		t.Errorf("A2A request parent = %s, want HTTP span %s", requestSpan.Parent.SpanID(), httpSpan.SpanContext.SpanID())
 	}
-	if invocation := exported["invocation"]; invocation.Parent.SpanID() != requestSpan.SpanContext.SpanID() {
-		t.Errorf("invocation parent = %s, want A2A request span %s", invocation.Parent.SpanID(), requestSpan.SpanContext.SpanID())
+	if agent := exported[adkInvokeAgentSpan]; agent.Parent.SpanID() != requestSpan.SpanContext.SpanID() {
+		t.Errorf("ADK invoke_agent parent = %s, want A2A request span %s", agent.Parent.SpanID(), requestSpan.SpanContext.SpanID())
 	}
 }
 
-// Without the opt-in, spans stay in the batch processor for its timer to
-// export — no per-request flush.
-func TestNoPreResponseFlushByDefault(t *testing.T) {
-	spans := runA2ARequest(t)
+func TestNoPreResponseFlushWithoutFlusher(t *testing.T) {
+	spans := runA2ARequest(t, false)
 	if len(spans) != 0 {
-		t.Errorf("spans exported at handler return without opt-in, got %v", spans)
+		t.Errorf("spans exported at handler return without a flusher, got %v", spans)
 	}
 }
 
@@ -407,7 +425,6 @@ func (o *exportBoundaryObserver) After(_ context.Context, _ *a2asrv.CallContext,
 func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
 	for _, state := range []a2atype.TaskState{a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateCanceled, a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired} {
 		t.Run(string(state), func(t *testing.T) {
-			t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
 			exporter := tracetest.NewInMemoryExporter()
 			provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
 			previous := otel.GetTracerProvider()
@@ -417,7 +434,7 @@ func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
 				_ = provider.Shutdown(context.Background())
 			})
 			observer := &exportBoundaryObserver{exporter: exporter, observed: make(chan bool, 1)}
-			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{finalState: state}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"}, a2asrv.WithCallInterceptors(observer))
+			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{finalState: state}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", Flush: provider.ForceFlush}, a2asrv.WithCallInterceptors(observer))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -496,5 +513,135 @@ func TestConfiguredHealthPaths(t *testing.T) {
 		if got := resp.StatusCode == http.StatusOK && string(body) == `{"status":"Healthy"}`; got != want {
 			t.Fatalf("GET %s = %d %q, want probe=%v", path, resp.StatusCode, body, want)
 		}
+	}
+}
+
+// A collector that accepts connections and never answers costs one flush
+// budget per request, not one per flush, so the gateway's drain stays short.
+func TestUnreachableCollectorCostsOneFlushBudgetPerRequest(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
+	previous := otel.GetTracerProvider()
+	providers, err := telemetry.Init(t.Context(), telemetry.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		_ = providers.Shutdown(ctx)
+	})
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
+		ServerConfig{Port: "0", Flush: providers.ForceFlush})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": "1", "method": "SendMessage",
+		"params": &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	srv.httpServer.Handler.ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if limit := telemetry.FlushTimeout + time.Second; elapsed > limit {
+		t.Fatalf("request took %s with an unreachable collector, want at most %s", elapsed, limit)
+	}
+}
+
+// grpc-go ends the SERVER span in stats.End, which can run after ServeHTTP
+// returns. Every streamed call must still have its SERVER span exported by the
+// time the client sees the end of the stream, since the gateway may suspend the
+// Actor then.
+func TestGRPCServerSpanExportedBeforeStreamEnds(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = tp.Shutdown(context.Background())
+	})
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
+		ServerConfig{Port: "0", Flush: tp.ForceFlush})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testServer := httptest.NewUnstartedServer(srv.httpServer.Handler)
+	testServer.Config.Protocols = srv.httpServer.Protocols
+	testServer.Start()
+	conn, err := grpc.NewClient(testServer.Listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+		srv.grpcServer.Stop()
+		testServer.Close()
+	})
+	client := a2apb.NewA2AServiceClient(conn)
+	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const calls = 300
+	missed := 0
+	for i := range calls {
+		stream, err := client.SendStreamingMessage(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for {
+			if _, err := stream.Recv(); err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		}
+		servers := 0
+		for _, span := range exporter.GetSpans() {
+			if span.SpanKind == trace.SpanKindServer {
+				servers++
+			}
+		}
+		if servers != i+1 {
+			missed++
+			// Let the late span land so later iterations count correctly.
+			_ = tp.ForceFlush(t.Context())
+		}
+	}
+	if missed != 0 {
+		t.Fatalf("%d of %d streams ended before their SERVER span was exported", missed, calls)
 	}
 }

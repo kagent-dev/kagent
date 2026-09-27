@@ -14,10 +14,10 @@ import { agentUrl } from "@/components/agent/agentUrl";
 import { paths } from "@/router/routes";
 import {
   apiClient,
-  agentPairsFrom,
-  pairIdOfInstance,
+  agentSummariesFrom,
+  agentRefOfInstance,
   useAgentInstances,
-  useAgentTemplatesAcrossNamespaces,
+  useAgentsAcrossNamespaces,
   useNamespaces,
   UNMAPPED_AGENT_NAME,
   type AgentInstance,
@@ -25,26 +25,7 @@ import {
 
 const { Text } = Typography;
 
-/**
- * Conversations whose agent no longer exists.
- *
- * ## Why they exist at all
- *
- * Deleting a template does not stop the conversations cut from it. An instance runs
- * from the prepared revision it was built against, and the collector keeps that
- * revision *for it* — so a conversation outlives its agent, and the same happens when a
- * harness stops admitting a template and the controller retires the pair.
- *
- * The agents list counted them in a sentence and offered nowhere to go. They were
- * running, holding a worker each, and unreachable — which is the worst of the three
- * possible states.
- *
- * ## What this page is not
- *
- * Not an agent. It has no template, no harness and no revision, so there is nothing to
- * start a new conversation *with* — the only actions are reading one and deleting it.
- * Deleting is the useful one: these hold workers that nothing will ever reclaim.
- */
+
 export function UnmappedConversationsPage() {
   const theme = useTheme();
   const namespaces = useNamespaces();
@@ -54,7 +35,7 @@ export function UnmappedConversationsPage() {
     [namespaces.data],
   );
 
-  const templates = useAgentTemplatesAcrossNamespaces(namespaceNames);
+  const agents = useAgentsAcrossNamespaces(namespaceNames);
   const conversations = useAgentInstances(true);
 
   /*
@@ -64,17 +45,19 @@ export function UnmappedConversationsPage() {
    * from the list, and the two cannot disagree about which conversations are orphaned.
    */
   const orphans = useMemo(() => {
-    if (!templates.data || !conversations.data) return [];
+    if (!agents.data || !conversations.data) return [];
     const known = new Set(
-      agentPairsFrom(templates.data.templates).map((agent) => agent.id),
+      agentSummariesFrom(agents.data.agents).map((agent) => agent.id),
     );
+    const unreadable = new Set(agents.data.refused.map((entry) => entry.namespace));
     return (conversations.data ?? []).filter((instance) => {
-      const pairId = pairIdOfInstance(instance);
-      return pairId === undefined || !known.has(pairId);
+      if (unreadable.has(instance.agent?.split("/")[0] ?? "")) return false;
+      const agentRef = agentRefOfInstance(instance);
+      return agentRef === undefined || !known.has(agentRef);
     });
-  }, [templates.data, conversations.data]);
+  }, [agents.data, conversations.data]);
 
-  const loadFailure = namespaces.error ?? templates.error ?? conversations.error;
+  const loadFailure = namespaces.error ?? agents.error ?? conversations.error;
 
   /*
    * Every one of them, in parallel, because they are independent.
@@ -104,15 +87,12 @@ export function UnmappedConversationsPage() {
       ),
     },
     {
-      // The pair it names, which no longer exists. Shown because it is the only clue to
-      // *why* this conversation is here — a reader recognising a template they deleted
-      // has their answer.
+      // Keep the deleted Agent identity visible so conversations remain identifiable.
       title: "Was built from",
-      key: "pair",
+      key: "agent",
       render: (_, row) => (
         <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-          {row.agentTemplate ?? "not reported"}
-          {row.harness ? ` on ${row.harness}` : ""}
+          {row.agent ?? "not reported"}
         </Text>
       ),
     },
@@ -145,7 +125,7 @@ export function UnmappedConversationsPage() {
   return (
     <PageFrame
       title={UNMAPPED_AGENT_NAME}
-      description="Conversations whose template and harness no longer pair. They still run; they are simply reachable from nowhere else."
+      description="Conversations whose Agent definition no longer exists. They retain their prepared revisions."
       actions={
         <Space size={8}>
           {/*
@@ -169,8 +149,7 @@ export function UnmappedConversationsPage() {
                   css={{ display: "inline-block", maxWidth: 340 }}
                   data-testid="unmapped-delete-all-consequence"
                 >
-                  This will delete all conversations that do not have an agent template
-                  and harness mapping — {orphans.length} in all. They cannot be
+                  This will delete all conversations that do not have an agent Agent definition — {orphans.length} in all. They cannot be
                   recovered, and the workers they hold are released.
                 </span>
               }
@@ -190,7 +169,7 @@ export function UnmappedConversationsPage() {
             data-testid="unmapped-error"
             title="Could not work out which conversations are unmapped"
             // Both reads are needed to answer the question at all: without the
-            // templates there are no pairs to compare against, so every conversation
+            // Agents there are no identities to compare against, so every conversation
             // would look orphaned.
             description={loadFailure.message}
           />
@@ -209,7 +188,7 @@ export function UnmappedConversationsPage() {
           rowKey={(row) => row.id}
           columns={columns}
           dataSource={loadFailure ? [] : orphans}
-          loading={templates.isLoading || conversations.isLoading}
+          loading={agents.isLoading || conversations.isLoading}
           pagination={false}
           locale={{
             emptyText: loadFailure

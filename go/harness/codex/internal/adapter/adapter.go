@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
@@ -16,7 +17,10 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-const codexHomeEnv = "CODEX_HOME"
+const (
+	codexHomeEnv       = "CODEX_HOME"
+	otelCompressionEnv = "OTEL_EXPORTER_OTLP_COMPRESSION"
+)
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Codex driver.
@@ -70,10 +74,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
-	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
-	// The native runtime inherits the compiled identity through the standard
-	// resource variable, so no user-supplied marker is required.
-	environment = tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.ChildResource())
+	environment := nativeEnvironment(input.Environment, codexHome, cfg.RuntimeTelemetry)
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {
@@ -292,6 +293,15 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 		}
 	}
 	return nil
+}
+
+// nativeEnvironment drops OTLP compression: the Codex exporter is built without
+// gzip and refuses to start when asked for it.
+func nativeEnvironment(environment []string, codexHome string, telemetry tracing.RuntimeTelemetry) []string {
+	environment = tracing.ResourceEnvironment(setEnvironment(environment, codexHomeEnv, codexHome), telemetry.ChildResource())
+	return slices.DeleteFunc(environment, func(item string) bool {
+		return strings.HasPrefix(item, otelCompressionEnv+"=")
+	})
 }
 
 func setEnvironment(environment []string, name, value string) []string {

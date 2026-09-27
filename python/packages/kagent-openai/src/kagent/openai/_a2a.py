@@ -19,20 +19,20 @@ from agents import Agent, set_default_openai_api, set_default_openai_client, set
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+from kagent.core.tracing import signal_enabled
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from openai import AsyncOpenAI
 
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 
-# Logging is configured by kagent.core (imported above) which sets
-# timestamp format via configure_logging() at import time.
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +131,7 @@ class KAgentApp:
         """Build a production FastAPI application with KAgent integration.
 
         This creates an application that:
-        - Lets the public A2A gateway own durable task history
+        - Persists public task history through the controller gRPC API
         - Implements A2A protocol handlers
         - Includes health check endpoints
 
@@ -147,11 +147,12 @@ class KAgentApp:
             config=self.executor_config,
         )
 
-        task_store = InMemoryTaskStore()
+        controller = AsyncControllerClient(self.config.api_url)
+        task_store = KAgentTaskStore(controller)
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandlerV2(
+        request_handler = KAgentRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,
@@ -162,7 +163,7 @@ class KAgentApp:
         faulthandler.enable()
 
         # Create FastAPI app with lifespan
-        app = FastAPI()
+        app = FastAPI(lifespan=controller.lifespan())
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
             max_content_length=get_a2a_max_content_length(),
@@ -179,8 +180,7 @@ class KAgentApp:
                 logger.error(f"Failed to configure tracing: {e}")
 
             try:
-                tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-                if tracing_enabled:
+                if signal_enabled("TRACES"):
                     logger.info("Enabling OpenAI Agents SDK tracing")
                     _configure_openai_agents_tracing()
                 else:

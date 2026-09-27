@@ -204,14 +204,19 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 // deleteCRDs manually deletes Kubernetes CRDs for kagent
 // This is a workaround for the fact that helm doesn't delete CRDs automatically
 func deleteCRDs(ctx context.Context) error {
-	crds := []string{
-		"modelconfigs.kagent.dev",
-		"sandboxagents.kagent.dev",
+	resources := []string{
+		"agents",
+		"agenttemplates",
+		"harnesses",
+		"modelconfigs",
+		"modelproviderconfigs",
+		"remotemcpservers",
 	}
 
 	var deleteErrors []string
 
-	for _, crd := range crds {
+	for _, resource := range resources {
+		crd := v1alpha3.GroupVersion.WithResource(resource).GroupResource().String()
 		deleteCmd := exec.CommandContext(ctx, "kubectl", "delete", "crd", crd)
 		if out, err := deleteCmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(out), "not found") {

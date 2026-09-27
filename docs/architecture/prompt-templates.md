@@ -11,7 +11,7 @@ The mutually exclusive forms are enforced by the API schema.
 
 Prompt templates can reference:
 
-- `AgentTemplateName`
+- `AgentTemplateName` (the referenced template name, or the Agent name for an inline root)
 - `AgentTemplateNamespace`
 - `Description`
 - `ToolNames`

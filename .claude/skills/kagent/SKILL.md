@@ -8,27 +8,28 @@ description: >
 
 # kagent user guide
 
-kagent is moving to a Substrate-backed API. Do not reuse commands, manifests, or concepts from earlier releases. The implementation roadmap is `docs/plans/api-v2-execution-plan.md`.
+kagent uses a Substrate-backed API. Do not reuse commands, manifests, or concepts from earlier releases. Current architecture is documented in `docs/architecture`.
 
 ## Target API
 
-- `Harness` is a `kagent.dev/v1alpha3` CRD describing a supported runtime adapter. The release-blocking adapters are kagent, Codex, and Claude.
-- `AgentTemplate` is a `kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and other AgentTemplate tools.
+- `Agent` is an `api.kagent.dev/v1alpha3` CRD pairing a template and Harness, each inline or referenced. It owns readiness and revision selection.
+- `Harness` is an `api.kagent.dev/v1alpha3` CRD describing a supported runtime adapter. The release-blocking adapters are kagent, Codex, and Claude.
+- `AgentTemplate` is an `api.kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and template-backed subagent tools (`tools[].subAgent`).
 - `AgentInstance` is a PostgreSQL-backed gRPC resource representing one runnable rooted template tree and one A2A context.
 - `A2A context_id` equals the AgentInstance ID. A2A owns interaction and task history; AgentInstance APIs own lifecycle, metadata, and sharing.
 - Substrate is the only compute backend.
 
 ## Guidance rules
 
-1. Check the roadmap milestone and repository implementation before answering with exact syntax.
+1. Check the current architecture and repository implementation before answering with exact syntax.
 2. Verify CRDs from `go/api/v1alpha3` and generated manifests, protobuf APIs from `proto`, and CLI behavior from command help or source.
-3. Describe planned behavior as planned until its roadmap PR has landed.
+3. Describe planned behavior as planned until its implementation has landed.
 4. Do not invent compatibility paths, migration procedures, fields, commands, or endpoints that are absent from the new API.
 5. Prefer upstream A2A operations for interaction and history. Use AgentInstance APIs for create, get, list, suspend, resume, delete, checkpoint, fork, and sharing as those services land.
 
 ## Stable design constraints
 
-- One AgentInstance owns one rooted AgentTemplate tree.
+- One AgentInstance pins a compiled revision of one Agent, including its template tree.
 - AgentTemplate references are same-namespace.
 - Shared children run inside their parent runtime; Dedicated children use private, binding-scoped invocation.
 - Runtime state lives in DurableDir and must survive suspend/resume.

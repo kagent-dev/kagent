@@ -7,7 +7,7 @@ refinements:
       - Math Tutor
       - Fiction Writer
       key: gen_ai.agent.name
-      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The compiled agent identity, `\u003cagent\u003e`.
       provenance:
         path: telemetry/registry/signals.yaml
       requirement_level: required
@@ -153,7 +153,7 @@ refinements:
       - arn:aws:bedrock:us-east-1:123:agent/42
       - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
       key: gen_ai.agent.id
-      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003cagent\u003e`.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: required
@@ -1236,7 +1236,7 @@ refinements:
       - arn:aws:bedrock:us-east-1:123:agent/42
       - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
       key: gen_ai.agent.id
-      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003cagent\u003e`.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: required
@@ -1247,7 +1247,7 @@ refinements:
       - Math Tutor
       - Fiction Writer
       key: gen_ai.agent.name
-      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The compiled agent identity, `\u003cagent\u003e`.
       provenance:
         path: telemetry/registry/signals.yaml
       requirement_level: required
@@ -1893,7 +1893,7 @@ registry:
       - arn:aws:bedrock:us-east-1:123:agent/42
       - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
       key: gen_ai.agent.id
-      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003cagent\u003e`.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: required
@@ -1904,7 +1904,7 @@ registry:
       - Math Tutor
       - Fiction Writer
       key: gen_ai.agent.name
-      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The compiled agent identity, `\u003cagent\u003e`.
       provenance:
         path: telemetry/registry/signals.yaml
       requirement_level: required
@@ -2351,7 +2351,7 @@ registry:
       - Math Tutor
       - Fiction Writer
       key: gen_ai.agent.name
-      note: The compiled agent identity, `\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The compiled agent identity, `\u003cagent\u003e`.
       provenance:
         path: telemetry/registry/signals.yaml
       requirement_level: required
@@ -2496,7 +2496,7 @@ registry:
       - arn:aws:bedrock:us-east-1:123:agent/42
       - urn:agent:projects-123:projects:123:locations:us-east1:aiplatform:reasoningEngines:456
       key: gen_ai.agent.id
-      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003ctemplate\u003e-\u003charness\u003e`.
+      note: The agent identity qualified by its namespace, `\u003cnamespace\u003e/\u003cagent\u003e`.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: required

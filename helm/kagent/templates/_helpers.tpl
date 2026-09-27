@@ -293,7 +293,7 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/* Public A2A endpoint advertised by AgentInstance Agent Cards. */}}
+{{/* Public A2A endpoint advertised by Session Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}
 {{- .Values.controller.a2aGatewayUrl -}}
@@ -413,6 +413,16 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
+{{/* Pass the configured guest digest through to Substrate. */}}
+{{- define "kagent.sandboxGuestImage" -}}
+{{- $image := .Values.controller.sandbox.guestImage -}}
+{{- if $image.digest -}}
+{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "digest" $image.digest -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 global.imageRegistry, normalized. A trailing slash is an easy value to ship
 ("mirror.example/") and every consumer joins the registry onto a path with its
@@ -461,3 +471,18 @@ tag wins over the component tag.
 {{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
+
+{{/*
+Operator resource attributes as an OTEL_RESOURCE_ATTRIBUTES value.
+*/}}
+{{- define "kagent.otel.resourceAttributes" -}}
+{{- $entries := list -}}
+{{- range $key, $value := .Values.otel.resourceAttributes -}}
+{{- if or (contains "," $key) (contains "=" $key) -}}
+{{- fail (printf "otel.resourceAttributes key %q must not contain ',' or '='" $key) -}}
+{{- end -}}
+{{- $encoded := toString $value | replace "%" "%25" | replace "," "%2C" | replace "=" "%3D" -}}
+{{- $entries = append $entries (printf "%s=%s" $key $encoded) -}}
+{{- end -}}
+{{- join "," $entries -}}
+{{- end }}

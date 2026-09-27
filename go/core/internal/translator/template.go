@@ -7,7 +7,6 @@ import (
 	"slices"
 	"text/template"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,7 +16,7 @@ import (
 // prompt templates. It deliberately excludes legacy Agent fields and skills,
 // which the current K3 adapter does not support.
 type PromptTemplateContext struct {
-	// AgentTemplateName is the metadata.name of the AgentTemplate.
+	// AgentTemplateName is the referenced template name, or the owning Agent name for an inline root.
 	AgentTemplateName string
 	// AgentTemplateNamespace is the metadata.namespace of the AgentTemplate.
 	AgentTemplateNamespace string
@@ -27,7 +26,7 @@ type PromptTemplateContext struct {
 	ToolNames []string
 }
 
-func (c *Compiler) resolveAgentTemplatePrompt(_ context.Context, agentTemplate *v1alpha3.AgentTemplate) (string, error) {
+func (c *Compiler) resolveAgentTemplatePrompt(_ context.Context, agentTemplate *TemplateConfiguration) (string, error) {
 	if agentTemplate.Spec.SystemPromptFrom != nil {
 		ref := agentTemplate.Spec.SystemPromptFrom
 		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: agentTemplate.Namespace, Name: ref.Name}))
