@@ -120,7 +120,7 @@ docker buildx build --push --platform "linux/${ARCH}" \
   --build-arg BUILD_PACKAGE=adk/cmd/main.go \
   -t localhost:5001/kagent-dev/kagent/golang-adk:dev -f go/Dockerfile ./go
 HARNESS_DIGEST="$(docker buildx imagetools inspect localhost:5001/kagent-dev/kagent/golang-adk:dev \
-  | awk '/^Digest:/{print $2; exit}')"
+  | awk '/^Digest:/{print $2}')"
 
 step "9/10  An Agent with inline template and Harness"
 kubectl apply -f - <<EOF

@@ -157,7 +157,7 @@ jobs:
           ' _
           # Resolve the guest on the runner: localhost:5001 is not reachable
           # from the controller pod. Substrate rewrites registry pulls on workers.
-          GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$GUEST_DIGEST"
           export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set-string controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
           make helm-install-provider
@@ -169,16 +169,17 @@ jobs:
         working-directory: go
         shell: bash
         run: |
-          RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          # Read all output so Docker does not get a broken pipe under pipefail.
+          RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$RUNTIME_DIGEST"
           export KAGENT_E2E_RUNTIME_IMAGE="localhost:5001/kagent-dev/kagent/golang-adk@${RUNTIME_DIGEST}"
-          BYO_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/byo-a2a:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          BYO_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/byo-a2a:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$BYO_DIGEST"
           export KAGENT_E2E_BYO_IMAGE="localhost:5001/kagent-dev/kagent/byo-a2a@${BYO_DIGEST}"
-          CLAUDE_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/claude-harness:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          CLAUDE_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/claude-harness:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$CLAUDE_DIGEST"
           export KAGENT_E2E_CLAUDE_IMAGE="localhost:5001/kagent-dev/kagent/claude-harness@${CLAUDE_DIGEST}"
-          CODEX_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/codex-harness:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          CODEX_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/codex-harness:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$CODEX_DIGEST"
           export KAGENT_E2E_CODEX_IMAGE="localhost:5001/kagent-dev/kagent/codex-harness@${CODEX_DIGEST}"
           envsubst < core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
