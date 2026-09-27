@@ -1,8 +1,13 @@
 package env
 
+const (
+	AuthModeInsecure     = "insecure"
+	AuthModeTrustedProxy = "trusted-proxy"
+)
+
 var (
 	AuthMode = RegisterStringVar(
-		"KAGENT_AUTH_MODE", "insecure",
+		"KAGENT_AUTH_MODE", AuthModeInsecure,
 		"Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass.", ComponentController,
 	)
 	AuthUserIDClaim = RegisterStringVar(
