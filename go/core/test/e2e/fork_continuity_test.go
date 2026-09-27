@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
+func TestSessionPausedTaskCheckpointRejected(t *testing.T) {
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		switch harness.name {
 		case codexE2EHarness, claudeE2EHarness:
@@ -30,7 +30,7 @@ func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
 		require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
 
 		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
+			SessionId: fixture.sessionID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
 		})
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})

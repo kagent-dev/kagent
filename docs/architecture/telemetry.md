@@ -72,7 +72,7 @@ Each runtime receives `OTEL_SERVICE_NAME=<agent>` and an
 attributes, and `service.version`, the short revision id added when the
 ActorTemplate is built. A `Harness.spec.env` `OTEL_RESOURCE_ATTRIBUTES` is kept,
 with the agent identity winning. The controller reports itself as
-`kagent-controller` with `service.instance.id` and `k8s.*` from the downward API.
+`kagent-controller` with `service.session.id` and `k8s.*` from the downward API.
 
 kagent runtimes apply three defaults when the environment leaves them unset:
 `OTEL_PROPAGATORS=tracecontext`, so a caller's baggage never reaches tools or
@@ -323,7 +323,7 @@ upstream backwards-compatibility policy against the last release.
 - Nothing yet compares emitted telemetry with the registry. The registry checks
   names, the Go and Python code uses the generated constants, and a live check
   against end-to-end telemetry is planned.
-- Runtimes on Substrate set no `service.instance.id`. An Actor can be restored
+- Runtimes on Substrate set no `service.session.id`. An Actor can be restored
   from a snapshot, so an identity generated in the process would be wrong or
   shared.
 - Native span export completeness at process shutdown is a separate concern from

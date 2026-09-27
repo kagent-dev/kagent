@@ -201,7 +201,7 @@ export const mockMcpServers: ToolServerResponse[] = [
   },
   {
     ref: "platform/grafana-mcp",
-    groupKind: "RemoteMCPServer.kagent.dev",
+    groupKind: "RemoteMCPServer.api.kagent.dev",
     discoveredTools: [
       { name: "grafana_query", description: "Run a PromQL query." },
       { name: "grafana_list_dashboards", description: "List dashboards." },
@@ -209,7 +209,7 @@ export const mockMcpServers: ToolServerResponse[] = [
   },
   {
     ref: "analytics/warehouse-mcp",
-    groupKind: "RemoteMCPServer.kagent.dev",
+    groupKind: "RemoteMCPServer.api.kagent.dev",
     discoveredTools: [],
   },
 ];

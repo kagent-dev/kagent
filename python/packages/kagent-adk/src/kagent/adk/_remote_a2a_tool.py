@@ -11,6 +11,7 @@ decision is forwarded to the remote agent's pending task.
 This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purposes.
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Callable, Optional
@@ -47,6 +48,7 @@ from kagent.core.a2a import (
 )
 
 from ._hitl import build_remote_hitl_state, get_remote_hitl_state, remote_hitl_hint
+from ._request_identity import public_context_id, request_user_id
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -129,13 +131,14 @@ class KAgentRemoteA2ATool(BaseTool):
         self._isolate_sessions = isolate_sessions
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
-        # Pre-generate context_id for UI session polling
-        self._last_context_id: str = str(uuid.uuid4())
+        # The receiving Agent assigns the context on the first call.
+        self._last_context_id: str = ""
+        self._call_lock = asyncio.Lock()
 
     def _context_id_for_call(self) -> str:
         """Return the sub-agent session for one outbound invocation."""
         if self._isolate_sessions:
-            return str(uuid.uuid4())
+            return ""
         return self._last_context_id
 
     async def _ensure_client(self) -> A2AClient:
@@ -186,7 +189,7 @@ class KAgentRemoteA2ATool(BaseTool):
     def _build_call_context(self, tool_context: ToolContext) -> ClientCallContext:
         headers: dict[str, str] = {
             _SOURCE_HEADER: _SOURCE_SUBAGENT,
-            _USER_ID_CONTEXT_KEY: tool_context.session.user_id,
+            _USER_ID_CONTEXT_KEY: (request_user_id.get() or tool_context.session.user_id),
             HITL_EXTENSION_HEADER: HITL_EXTENSION_URI,
         }
 
@@ -204,7 +207,7 @@ class KAgentRemoteA2ATool(BaseTool):
                 headers.update(extra_headers)
 
         return ClientCallContext(
-            state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id},
+            state={_USER_ID_CONTEXT_KEY: (request_user_id.get() or tool_context.session.user_id)},
             service_parameters=headers,
         )
 
@@ -225,13 +228,11 @@ class KAgentRemoteA2ATool(BaseTool):
         parent_context_id: Optional[str] = None
         inbound_headers: dict[str, Any] = {}
 
-        # ToolContext exposes `.session` (the ADK session for the current
-        # invocation). The session id IS the A2A context_id for kagent agents,
-        # per the request_converter that maps `request.context_id` to
-        # `session_id` in kagent.adk.converters.request_converter.
+        # Runtime snapshots retain private native keys. Prefer this request's
+        # public context, with a session fallback for local developer runners.
         session = getattr(tool_context, "session", None)
         if session is not None:
-            parent_context_id = getattr(session, "id", None)
+            parent_context_id = public_context_id.get() or getattr(session, "id", None)
             state = getattr(session, "state", None)
             if isinstance(state, dict):
                 hdrs = state.get(_HEADERS_STATE_KEY)
@@ -267,7 +268,13 @@ class KAgentRemoteA2ATool(BaseTool):
         return await self._handle_first_call(args, tool_context)
 
     async def _handle_first_call(self, args: dict[str, Any], tool_context: ToolContext) -> Any:
-        """Phase 1: Send the request to the remote agent."""
+        if self._isolate_sessions:
+            return await self._send_first_call(args, tool_context)
+        async with self._call_lock:
+            return await self._send_first_call(args, tool_context)
+
+    async def _send_first_call(self, args: dict[str, Any], tool_context: ToolContext) -> Any:
+        """Send input and retain the receiving Agent's conversation identity."""
         client = await self._ensure_client()
 
         request_text = args.get("request", "")
@@ -297,6 +304,8 @@ class KAgentRemoteA2ATool(BaseTool):
                         status=chunk.status_update.status,
                     )
                 elif chunk.HasField("message"):
+                    if not self._isolate_sessions:
+                        self._last_context_id = chunk.message.context_id
                     return self._extract_text_from_message(chunk.message)
         except A2AClientError as e:
             return f"Remote agent '{self.name}' request failed: {e}"
@@ -307,6 +316,9 @@ class KAgentRemoteA2ATool(BaseTool):
         if task is None:
             return f"Remote agent '{self.name}' returned no result."
 
+        context_id = task.context_id
+        if not self._isolate_sessions:
+            self._last_context_id = context_id
         state = task.status.state if task.status else None
 
         if state == TaskState.TASK_STATE_INPUT_REQUIRED:

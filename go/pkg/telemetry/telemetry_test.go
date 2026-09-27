@@ -138,7 +138,7 @@ func TestInitAppliesDefaultsWithoutBaggage(t *testing.T) {
 	restoreGlobals(t)
 	setExporters(t, "none", "none", "none")
 	for _, value := range Defaults {
-		t.Setenv(value.Name, "")
+		t.Setenv(value.Name(), "")
 	}
 	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "none")
 	if _, err := Init(t.Context(), Options{}); err != nil {

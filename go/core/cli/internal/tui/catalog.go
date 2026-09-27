@@ -30,7 +30,7 @@ type kubeCatalog struct {
 
 var _ catalog = (*kubeCatalog)(nil)
 
-// newKubeCatalog builds a catalog from the ambient kubeconfig; callers degrade to instance-derived panels.
+// newKubeCatalog builds a catalog from the ambient kubeconfig; callers degrade to session-derived panels.
 func newKubeCatalog() (catalog, error) {
 	clients, err := commonk8s.NewKagentClientset()
 	if err != nil {

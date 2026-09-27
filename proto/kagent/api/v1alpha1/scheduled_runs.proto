@@ -10,7 +10,7 @@ import "kagent/api/v1alpha1/common.proto";
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
 // Creator-owned automation stored in PostgreSQL. Each occurrence creates a fresh
-// AgentInstance; Task state and history belong to upstream A2A.
+// Session; Task state and history belong to upstream A2A.
 service ScheduledRunService {
   rpc CreateScheduledRun(CreateScheduledRunRequest) returns (CreateScheduledRunResponse);
   rpc GetScheduledRun(GetScheduledRunRequest) returns (GetScheduledRunResponse);
@@ -115,7 +115,7 @@ message TriggerScheduledRunResponse {
   ScheduledRunExecution execution = 1;
 }
 
-// Summary of the initial scheduled invocation, independent of instance lifecycle.
+// Summary of the initial scheduled invocation, independent of session lifecycle.
 // A2A remains authoritative for task state, interaction, and transcripts.
 enum ScheduledRunExecutionState {
   SCHEDULED_RUN_EXECUTION_STATE_UNSPECIFIED = 0;
@@ -126,7 +126,7 @@ enum ScheduledRunExecutionState {
   SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT = 5;
 }
 
-// One accepted firing. Its identity and immutable inputs survive instance deletion.
+// One accepted firing. Its identity and immutable inputs survive session deletion.
 message ScheduledRunExecution {
   string id = 1;
   // Human owner inherited from the schedule, independent of runtime identity.
@@ -139,9 +139,9 @@ message ScheduledRunExecution {
   string prompt = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp deadline = 8;
-  // Empty until an instance is reserved. Retained after that instance is deleted;
-  // it is a historical reference and does not imply that the instance still exists.
-  string agent_instance_id = 9;
+  // Empty until a session is reserved. Retained after that session is deleted;
+  // it is a historical reference and does not imply that the session still exists.
+  string session_id = 9;
   ScheduledRunExecutionState state = 10;
   // Original A2A task; never changes when a user continues the conversation.
   string task_id = 11;

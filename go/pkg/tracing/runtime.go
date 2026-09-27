@@ -130,14 +130,8 @@ func (r Runtime) NativeHarness() bool {
 	return r == RuntimeClaude || r == RuntimeCodex
 }
 
-// CaptureContentEnvironmentVariable is the OpenTelemetry GenAI instrumentation
-// switch for recording prompts and responses. The controller renders it into
-// every runtime from one setting, so the runtimes that read it directly and
-// the ones that carry the decision in their compiled configuration agree.
-const CaptureContentEnvironmentVariable = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-
-// Values the controller renders for CaptureContentEnvironmentVariable. The ADK
-// runtimes read the variable as a mode and treat a plain true as log records
+// Values the controller renders for OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT.
+// The ADK runtimes read the variable as a mode and treat a plain true as log records
 // only, so the span form is spelled out; false is what every runtime,
 // including kagent's own ADK payload capture, reads as off.
 const (

@@ -37,6 +37,7 @@ func TestUserIDCallInterceptorPropagatesUserID(t *testing.T) {
 
 type recordingExecutor struct {
 	message       *a2atype.Message
+	userID        string
 	cleanupCalled bool
 	events        []a2atype.Event
 	// span, when set, is a span the turn emits, the way ADK does.
@@ -46,6 +47,7 @@ type recordingExecutor struct {
 func (e *recordingExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		e.message = reqCtx.Message
+		e.userID = auth.UserIDFromContext(ctx)
 		if e.span != "" {
 			_, span := otel.Tracer("adk-test").Start(ctx, e.span)
 			span.End()
@@ -59,6 +61,31 @@ func (e *recordingExecutor) Execute(ctx context.Context, reqCtx *a2asrv.Executor
 			return
 		}
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil), nil)
+	}
+}
+
+func TestKAgentExecutorOnlyPropagatesCallerIdentity(t *testing.T) {
+	for _, caller := range []string{"", "alice"} {
+		t.Run(caller, func(t *testing.T) {
+			ctx, callCtx := a2asrv.NewCallContext(auth.WithUserID(t.Context(), "stale-caller"), nil)
+			if caller != "" {
+				callCtx.User = a2asrv.NewAuthenticatedUser(caller, nil)
+			}
+			builtin := &recordingExecutor{}
+			executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
+			request := &a2asrv.ExecutorContext{
+				ContextID: "context-1", TaskID: "task-1",
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+			}
+			for _, err := range executor.Execute(ctx, request) {
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if builtin.userID != caller {
+				t.Fatalf("propagated user ID = %q, want %q", builtin.userID, caller)
+			}
+		})
 	}
 }
 

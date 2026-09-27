@@ -93,7 +93,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			Command: append([]string(nil), spec.Command...),
 			Args:    append([]string(nil), spec.Args...),
 			Env:     actorEnv,
-			Readyz: &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
@@ -104,7 +104,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
-		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
@@ -144,12 +144,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector:  template.GetWorkerSelector(),
-		Containers:      template.GetContainers(),
-		Volumes:         template.GetVolumes(),
-		SnapshotsConfig: template.GetSnapshotsConfig(),
-		SandboxConfig:   template.GetSandboxConfig(),
-		Resources:       template.GetResources(),
+		WorkerSelector: template.GetWorkerSelector(),
+		Containers:     template.GetContainers(),
+		Volumes:        template.GetVolumes(),
+		SnapshotConfig: template.GetSnapshotConfig(),
+		SandboxConfig:  template.GetSandboxConfig(),
+		Resources:      template.GetResources(),
 	}
 }
 

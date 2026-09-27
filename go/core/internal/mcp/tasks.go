@@ -20,8 +20,8 @@ import (
 const tasksExtension = "io.modelcontextprotocol/tasks"
 
 type taskReference struct {
-	InstanceID string `json:"instanceId"`
-	TaskID     string `json:"taskId"`
+	SessionID string `json:"sessionId"`
+	TaskID    string `json:"taskId"`
 }
 
 type taskFields struct {
@@ -91,7 +91,7 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 		if !ok || req.Params == nil || req.Params.Name != invokeToolName || !supportsTasks(req.ClientCapabilities()) {
 			return next(ctx, method, request)
 		}
-		var input InvokeAgentInstanceInput
+		var input InvokeSessionInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
 			return toolError(fmt.Errorf("invalid invocation input: %w", err)), nil
 		}
@@ -100,8 +100,8 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 			return toolError(err), nil
 		}
 		taskRef := taskReference{
-			InstanceID: input.AgentInstanceID,
-			TaskID:     string(task.ID),
+			SessionID: input.SessionID,
+			TaskID:    string(task.ID),
 		}
 		ref, err := encodeTaskReference(taskRef)
 		if err != nil {
@@ -147,7 +147,7 @@ func (h *Handler) getTask(ctx context.Context, _ *mcp.ServerSession, params *get
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, task, err := h.resolveTask(ctx, params.TaskID)
+	ref, _, task, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, task, err := h.resolveTask(ctx, params.TaskID)
+	_, tenant, task, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +182,8 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	events := h.gateway.SendStreamingMessage(
-		routeContext(ctx, ref.InstanceID),
-		&a2atype.SendMessageRequest{Message: message},
+		interactionContext(ctx),
+		&a2atype.SendMessageRequest{Tenant: tenant, Message: message},
 	)
 	// Wait for admission to reach the runtime, then release this observer.
 	for _, err := range events {
@@ -202,13 +202,13 @@ func (h *Handler) cancelTask(ctx context.Context, _ *mcp.ServerSession, params *
 	if !taskParamsSupported(params.GetMeta()) {
 		return nil, missingTasksCapabilityError()
 	}
-	ref, err := decodeTaskReference(params.TaskID)
+	ref, tenant, _, err := h.resolveTask(ctx, params.TaskID)
 	if err != nil {
-		return nil, invalidParams(err)
+		return nil, err
 	}
 	if _, err := h.gateway.CancelTask(
-		routeContext(ctx, ref.InstanceID),
-		&a2atype.CancelTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
+		interactionContext(ctx),
+		&a2atype.CancelTaskRequest{Tenant: tenant, ID: a2atype.TaskID(ref.TaskID)},
 	); err != nil {
 		if errors.Is(err, a2atype.ErrTaskNotFound) {
 			return nil, invalidParams(err)
@@ -218,19 +218,27 @@ func (h *Handler) cancelTask(ctx context.Context, _ *mcp.ServerSession, params *
 	return &completeTaskResult{ResultType: "complete"}, nil
 }
 
-func (h *Handler) resolveTask(ctx context.Context, id string) (taskReference, *a2atype.Task, error) {
+func (h *Handler) resolveTask(ctx context.Context, id string) (taskReference, string, *a2atype.Task, error) {
 	ref, err := decodeTaskReference(id)
 	if err != nil {
-		return taskReference{}, nil, invalidParams(err)
+		return taskReference{}, "", nil, invalidParams(err)
 	}
+	session, err := h.sessions.Get(ctx, ref.SessionID)
+	if err != nil {
+		return taskReference{}, "", nil, err
+	}
+	tenant := session.GetAgent().GetNamespace() + "/" + session.GetAgent().GetName()
 	task, err := h.gateway.GetTask(
-		routeContext(ctx, ref.InstanceID),
-		&a2atype.GetTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
+		interactionContext(ctx),
+		&a2atype.GetTaskRequest{Tenant: tenant, ID: a2atype.TaskID(ref.TaskID)},
 	)
 	if errors.Is(err, a2atype.ErrTaskNotFound) {
 		err = invalidParams(err)
 	}
-	return ref, task, err
+	if err == nil && task.ContextID != ref.SessionID {
+		err = invalidParams(a2atype.ErrTaskNotFound)
+	}
+	return ref, tenant, task, err
 }
 
 func invalidParams(err error) error {
@@ -268,8 +276,8 @@ func decodeTaskReference(value string) (taskReference, error) {
 }
 
 func validateTaskReference(ref taskReference) error {
-	if _, err := uuid.Parse(ref.InstanceID); err != nil {
-		return fmt.Errorf("invalid AgentInstance ID: %w", err)
+	if _, err := uuid.Parse(ref.SessionID); err != nil {
+		return fmt.Errorf("invalid Session ID: %w", err)
 	}
 	if _, err := uuid.Parse(ref.TaskID); err != nil {
 		return fmt.Errorf("invalid A2A task ID: %w", err)
@@ -296,7 +304,7 @@ func detailedTask(id string, ref taskReference, task *a2atype.Task) *getTaskResu
 	case a2atype.TaskStateInputRequired:
 		result.InputRequests = inputRequests(task)
 	case a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateAuthRequired:
-		callResult, output := invocationResult(InvokeAgentInstanceInput{AgentInstanceID: ref.InstanceID}, task)
+		callResult, output := invocationResult(InvokeSessionInput{SessionID: ref.SessionID}, task)
 		callResult.StructuredContent = output
 		result.Result = callResult
 	}

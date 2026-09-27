@@ -36,14 +36,14 @@ const (
 	compactionRuntime      = "compaction"
 )
 
-// TestAgentInstanceContextCompaction verifies that a Harness's
+// TestSessionContextCompaction verifies that a Harness's
 // spec.kagent.compaction reaches the Go runtime and that the runtime compacts
 // with it: after the configured number of turns the runtime asks the dedicated
 // summarizer model for a summary, and the next turn's model request carries
 // that summary in place of the compacted turns. Both models are the same mock
 // LLM behind a recording proxy; a default header on each ModelConfig tells the
 // two apart.
-func TestAgentInstanceContextCompaction(t *testing.T) {
+func TestSessionContextCompaction(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
 	recorder := startModelRecorder(t, startMockLLMServer(t, compactionMocks, "mocks/invoke_golang_compaction.json"), nil)

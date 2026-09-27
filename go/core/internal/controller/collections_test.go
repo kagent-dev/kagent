@@ -36,19 +36,19 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	matchingHarness.UID = "harness-uid"
 	matchingHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
 	matchingHarness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	matchingHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
+	matchingHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
-		SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+		SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}}}, opts.WithName("ModelConfigs")...)
+	templates := krt.NewStaticCollection[*kagentv1alpha3.AgentTemplate](nil, nil, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
-		template,
 		matchingHarness,
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
 	})
 
 	collections := Collections{
-		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+		AgentTemplates:           templates,
 		Harnesses:                krttest.GetMockCollection[*kagentv1alpha3.Harness](mock),
 		ModelConfigs:             modelConfigs,
 		RemoteMCPServers:         krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
@@ -67,6 +67,19 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		}, collections.AgentRuntimeObservations, opts,
 	)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
+
+	// The Agent informer can observe a new Agent before the template informer
+	// observes its reference. Adding the template must clear the failure without
+	// changing or re-enqueuing the Agent explicitly.
+	waitFor(t, func() bool {
+		updates := collections.AgentStatuses.List()
+		if len(updates) != 1 {
+			return false
+		}
+		condition := apimeta.FindStatusCondition(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionResolvedRefs)
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == "ReferenceResolutionFailed"
+	})
+	templates.UpdateObject(template)
 
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
@@ -171,8 +184,8 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
 			runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			runtimeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+			runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			}
 			responses := kagentv1alpha3.OpenAIAPIFormatResponses
 			model := &kagentv1alpha3.ModelConfig{
@@ -321,8 +334,8 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	claudeHarness.UID = "harness-uid"
 	claudeHarness.Spec.Claude = &kagentv1alpha3.ClaudeHarness{}
 	claudeHarness.Spec.Workload.Image = "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	claudeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	claudeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
 		Provider: kagentv1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -358,8 +371,8 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
 		t.Fatalf("Claude revision environment = %#v", state.Revision)
 	}
-	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
-		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetReadyz())
+	if state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe())
 	}
 }
 
@@ -376,8 +389,8 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	codexHarness.UID = "harness-uid"
 	codexHarness.Spec.Codex = &kagentv1alpha3.CodexHarness{}
 	codexHarness.Spec.Workload.Image = "example.com/codex@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	codexHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	codexHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
 		Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -414,8 +427,8 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	if state.Revision == nil || state.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
 		t.Fatalf("Codex revision environment = %#v", state.Revision)
 	}
-	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
-		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetReadyz())
+	if state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe())
 	}
 }
 
@@ -432,14 +445,14 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 		Spec: kagentv1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{SubAgent: &kagentv1alpha3.SubAgentToolBinding{
-				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
 	harness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
 	harness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
 	harness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	harness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}}
+	harness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
 	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{root, child}, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
 		harness,

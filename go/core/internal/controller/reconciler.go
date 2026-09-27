@@ -148,7 +148,7 @@ func newAgentReconciliations(
 
 // runtimeRevisionStore is the controller's narrow view of the shared database.
 // Substrate owns ActorTemplates; the database retains revisions while an Agent
-// or an AgentInstance or checkpoint references them.
+// or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
@@ -348,7 +348,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", state.RevisionID, err))
 	}
 	// This observation drives Kubernetes Ready status on a separate queue.
-	// Publish it only after instance creation can select the persisted revision.
+	// Publish it only after session creation can select the persisted revision.
 	r.observePreparation(*state, observed, nil)
 	return nil
 }
@@ -380,7 +380,7 @@ func runtimePreparationFailure(err error, configName string, class atev1alpha1.S
 }
 
 // Observations belong to the Agent's current preparation, independently of how
-// long instances or checkpoints keep its old runtime alive in the database.
+// long sessions or checkpoints keep its old runtime alive in the database.
 func (r *Reconciler) observePreparation(state AgentReconciliation, template *ateapipb.ActorTemplate, failure *ReconciliationFailure) {
 	r.collections.AgentRuntimeObservations.ConditionalUpdateObject(AgentRuntimeObservation{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,

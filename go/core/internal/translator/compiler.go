@@ -208,8 +208,11 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 				continue
 			}
 			binding := tool.SubAgent
-			if binding.Isolation == v1alpha3.SubAgentToolIsolationDedicated {
-				return nil, NewValidationError("Dedicated AgentTemplate tools are not supported yet")
+			if (binding.TemplateRef == nil) == (binding.AgentRef == nil) {
+				return nil, NewValidationError("subagent %q requires exactly one of templateRef or agentRef", binding.Name)
+			}
+			if binding.AgentRef != nil {
+				return nil, NewValidationError("Dedicated subagent %q (agentRef) is not supported yet", binding.Name)
 			}
 			if _, ok := names[binding.Name]; ok {
 				return nil, NewValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)

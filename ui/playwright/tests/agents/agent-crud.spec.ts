@@ -23,7 +23,7 @@ for (const { template, harness } of CASES) {
   const name = `crud-${template}-${harness}`;
   const row = (page: Page) => rowNamed(page, name);
 
-  test(`agent CRUD: ${template} template, ${harness} harness`, async ({ page }) => {
+  test(`agents: CRUD with a ${template} template and a ${harness} harness`, async ({ page }) => {
     await test.step("1. create through the full-page form", async () => {
       await loadPage(page, routes.agents, { title: "Agents" });
       await page.getByTestId("agents-new").click();
@@ -120,7 +120,7 @@ for (const { template, harness } of CASES) {
   });
 }
 
-test("agents with the same template and harness keep separate conversations", async ({ page }) => {
+test("agents: the same template and harness keep separate conversations", async ({ page }) => {
   const newChat = (name: string) => agentNewChat({ name, template: "", harness: "" });
   let chatId = "";
 

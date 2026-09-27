@@ -110,8 +110,8 @@ func (a *toolGRPCAuthorizer) setDenied(denied bool) {
 func TestToolServiceGeneratedClient(t *testing.T) {
 	kubeClient := toolGRPCKubeClient(t)
 	store := &toolGRPCDiscoveryStore{
-		tools:   []database.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev", Description: "Move a task"}},
-		servers: []database.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev"}},
+		tools:   []database.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.api.kagent.dev", Description: "Move a task"}},
+		servers: []database.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.api.kagent.dev"}},
 	}
 	authorizer := &toolGRPCAuthorizer{}
 	mcpClient := &toolGRPCMCPClient{}
@@ -131,7 +131,7 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if err := structuredobject.ToGo(listedTools.GetTools()[0].GetResource(), toolKind, decodedTool, DefaultMaxMessageSize); err != nil {
 		t.Fatalf("decode listed Tool: %v", err)
 	}
-	if decodedTool.ID != "move_task" || decodedTool.GroupKind != "RemoteMCPServer.kagent.dev" {
+	if decodedTool.ID != "move_task" || decodedTool.GroupKind != "RemoteMCPServer.api.kagent.dev" {
 		t.Fatalf("decoded Tool = %+v", decodedTool)
 	}
 

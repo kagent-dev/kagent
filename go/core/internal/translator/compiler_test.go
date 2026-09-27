@@ -56,8 +56,8 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 						Image:   "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
 					},
-					Substrate: v1alpha3.HarnessSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}
@@ -70,6 +70,10 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
+			require.Contains(t, result.Environment, corev1.EnvVar{Name: "KAGENT_PORT", Value: "80"})
+			for _, variable := range result.Environment {
+				require.NotEqual(t, "KAGENT_A2A_GRPC_ADDRESS", variable.Name)
+			}
 
 			revisionID, err := result.Digest()
 			require.NoError(t, err)
@@ -117,8 +121,8 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 				Image:   "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				Command: []string{"kagent-adk", "static"}, Args: []string{"--host", "0.0.0.0"},
 			},
-			Substrate: v1alpha3.HarnessSubstratePolicy{
-				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			},
 		},
 	}
@@ -233,8 +237,8 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 				Spec: v1alpha3.HarnessSpec{
 
 					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-					Substrate: v1alpha3.HarnessSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}
@@ -334,8 +338,11 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent:    &v1alpha3.KagentHarness{},
-			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Kagent: &v1alpha3.KagentHarness{
+				Memory:     &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: "default-model"}, TTLDays: 7},
+				Compaction: &v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5)},
+			},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 		},
 	}
 	schema := `{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`
@@ -357,7 +364,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
 			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: configMap.Name, Key: "answer.json"},
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
-				Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
@@ -370,6 +377,12 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	require.Len(t, config.Output.SHA256, 64)
 	require.Len(t, config.SubAgents, 1)
 	require.Nil(t, config.SubAgents[0].Output)
+	require.Equal(t, 7, config.Memory.TTLDays)
+	require.Equal(t, 5, *config.ContextConfig.Compaction.CompactionInterval)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+	require.Nil(t, config.SubAgents[0].Memory)
+	require.Nil(t, config.SubAgents[0].ContextConfig)
+	require.Empty(t, config.SubAgents[0].SessionDBURL)
 	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
 	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
 }
@@ -439,7 +452,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Codex:     &v1alpha3.CodexHarness{},
-			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 		},
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
@@ -498,7 +511,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},
-		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
@@ -538,9 +551,9 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 			Kagent: &v1alpha3.KagentHarness{},
 
 			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			Substrate: v1alpha3.HarnessSubstratePolicy{
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
-				SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			},
 		},
 	}
@@ -613,13 +626,13 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Env:    []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &otherCollector}},
+			Env:    []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &otherCollector}},
 			Kagent: &v1alpha3.KagentHarness{},
 
 			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			Substrate: v1alpha3.HarnessSubstratePolicy{
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
-				SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			},
 		},
 	}
@@ -659,13 +672,13 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	}
 }
 
-func TestCompileAgentSharedAgent(t *testing.T) {
+func TestCompileAgentSharedADKConfig(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Kagent:    &v1alpha3.KagentHarness{},
 			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 		},
 	}
 	child := &v1alpha3.AgentTemplate{
@@ -684,24 +697,56 @@ func TestCompileAgentSharedAgent(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			Skills: child.Spec.Skills,
+			Plugins: []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+				URL: "https://github.com/acme/plugin", Commit: "cccccccccccccccccccccccccccccccccccccccc",
+			}}}},
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
-				Name: "web_researcher", Description: "research the web", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				Name: "web_researcher", Description: "research the web", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
-	revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(harness, root))
-	require.NoError(t, err)
-	var config adk.AgentConfig
-	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-	require.Len(t, config.SubAgents, 1)
-	require.Equal(t, "web_researcher", config.SubAgents[0].Name)
-	require.Equal(t, "research the web", config.SubAgents[0].Description)
-	require.Equal(t, "research carefully", config.SubAgents[0].Instruction)
-	require.Equal(t, []string{"lookup"}, config.SubAgents[0].HttpTools[0].Tools)
-	require.Equal(t, "review", config.SubAgents[0].AgentPlugins.Skills[0].Name)
-	require.Contains(t, revision.EgressDestinations, "search.example.com")
-	require.Contains(t, revision.EgressDestinations, "ghcr.io")
-	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+
+	var commonConfig []byte
+	for _, kind := range []string{"kagent", "byo"} {
+		t.Run(kind, func(t *testing.T) {
+			runtimeHarness := harness.DeepCopy()
+			if kind == "byo" {
+				runtimeHarness.Spec.Kagent = nil
+				runtimeHarness.Spec.BYO = &v1alpha3.BYOHarness{}
+				runtimeHarness.Spec.Workload.Command = []string{"/app"}
+			}
+			revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(runtimeHarness, root))
+			require.NoError(t, err)
+			var config adk.AgentConfig
+			require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+			require.Len(t, config.SubAgents, 1)
+			require.Equal(t, "web_researcher", config.SubAgents[0].Name)
+			require.Equal(t, "research the web", config.SubAgents[0].Description)
+			require.Equal(t, "research carefully", config.SubAgents[0].Instruction)
+			require.Equal(t, []string{"lookup"}, config.SubAgents[0].HttpTools[0].Tools)
+			require.Equal(t, "review", config.SubAgents[0].AgentPlugins.Skills[0].Name)
+			require.Contains(t, revision.EgressDestinations, "search.example.com")
+			require.Contains(t, revision.EgressDestinations, "ghcr.io")
+			require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+
+			require.Equal(t, "coordinate", config.Instruction)
+			require.NotNil(t, config.Model)
+			require.True(t, config.GetStream())
+			require.Equal(t, "review", config.AgentPlugins.Skills[0].Name)
+			require.Equal(t, "https://github.com/acme/plugin", config.AgentPlugins.Plugins[0].Source.Git.URL)
+			require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+			require.Empty(t, config.SubAgents[0].SessionDBURL)
+			require.Nil(t, config.Memory)
+			require.Nil(t, config.ContextConfig)
+			require.Nil(t, config.Output)
+			if commonConfig == nil {
+				commonConfig = revision.ConfigJSON
+			} else {
+				require.JSONEq(t, string(commonConfig), string(revision.ConfigJSON))
+			}
+		})
+	}
 }
 
 func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
@@ -709,7 +754,7 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 		Kagent: &v1alpha3.KagentHarness{},
 	}}
 	binding := func(name, target string) v1alpha3.ToolBinding {
-		return v1alpha3.ToolBinding{SubAgent: &v1alpha3.SubAgentToolBinding{Name: name, Description: name, TemplateRef: corev1.LocalObjectReference{Name: target}}}
+		return v1alpha3.ToolBinding{SubAgent: &v1alpha3.SubAgentToolBinding{Name: name, Description: name, TemplateRef: &corev1.LocalObjectReference{Name: target}}}
 	}
 	template := func(name string, tools ...v1alpha3.ToolBinding) *v1alpha3.AgentTemplate {
 		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, Tools: tools}}
@@ -734,23 +779,55 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 		_, err := compiler(t, child, grandchild).CompileAgent(context.Background(), inlineAgent(harness, root))
 		require.ErrorContains(t, err, "consecutive Shared")
 	})
-	t.Run("dedicated", func(t *testing.T) {
-		root := template("root", binding("child", "child"))
-		root.Spec.Tools[0].SubAgent.Isolation = v1alpha3.SubAgentToolIsolationDedicated
-		_, err := compiler(t).CompileAgent(context.Background(), inlineAgent(harness, root))
-		require.ErrorContains(t, err, "Dedicated")
-	})
+}
+
+func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
+	harness := &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
+	for _, tt := range []struct {
+		name      string
+		binding   v1alpha3.SubAgentToolBinding
+		wantError string
+	}{
+		{
+			name:      "missing reference",
+			wantError: "requires exactly one of templateRef or agentRef",
+		},
+		{
+			name: "both references",
+			binding: v1alpha3.SubAgentToolBinding{
+				TemplateRef: &corev1.LocalObjectReference{Name: "context"},
+				AgentRef:    &corev1.LocalObjectReference{Name: "reviewer"},
+			},
+			wantError: "requires exactly one of templateRef or agentRef",
+		},
+		{
+			name:      "dedicated execution unsupported",
+			binding:   v1alpha3.SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{Name: "reviewer"}},
+			wantError: `Dedicated subagent "review" (agentRef) is not supported yet`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.binding.Name, tt.binding.Description = "review", "Review code"
+			template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{
+				Tools: []v1alpha3.ToolBinding{{SubAgent: &tt.binding}},
+			}}
+			_, err := compiler(t).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.ErrorContains(t, err, tt.wantError)
+			var validationError *v2translator.ValidationError
+			require.ErrorAs(t, err, &validationError)
+		})
+	}
 }
 
 func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review code",
-		Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "reviewer", Description: "delegate review", TemplateRef: corev1.LocalObjectReference{Name: "child"}}}},
+		Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "reviewer", Description: "delegate review", TemplateRef: &corev1.LocalObjectReference{Name: "child"}}}},
 	}}
 	child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "child"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review security"}}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runtime", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	for _, tt := range []struct {
 		name                          string
@@ -831,7 +908,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-runtime"},
 				Spec: v1alpha3.HarnessSpec{
 					Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-					Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 				},
 			}
 			switch kind {

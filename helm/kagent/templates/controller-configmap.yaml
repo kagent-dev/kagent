@@ -15,6 +15,13 @@ data:
   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry | quote }}
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
+  {{- with .Values.controller.sandbox }}
+  KAGENT_SANDBOX_GUEST_IMAGE: {{ include "kagent.sandboxGuestImage" $ | quote }}
+  KAGENT_SANDBOX_CPU: {{ .cpu | quote }}
+  KAGENT_SANDBOX_MEMORY: {{ .memory | quote }}
+  KAGENT_SANDBOX_DEFAULT_TTL: {{ .defaultTTL | quote }}
+  KAGENT_SANDBOX_MAX_TTL: {{ .maxTTL | quote }}
+  {{- end }}
   {{- with .Values.otel }}
   {{- if not (or .traces.enabled .metrics.enabled .logs.enabled $.Values.controller.metrics.enabled) }}
   OTEL_SDK_DISABLED: "true"
@@ -50,8 +57,11 @@ data:
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
-  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
-  SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
+  KAGENT_DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
+  KAGENT_SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
+  {{- with .Values.database.postgres.urlFile }}
+  KAGENT_POSTGRES_DATABASE_URL_FILE: {{ . | quote }}
+  {{- end }}
   {{- with .Values.database.postgres.pool }}
   {{- if and (hasKey . "maxConns") (ne .maxConns nil) }}
   DB_MAX_CONNS: {{ .maxConns | quote }}
@@ -66,9 +76,22 @@ data:
   DB_MAX_CONN_LIFETIME: {{ .maxConnLifetime | quote }}
   {{- end }}
   {{- end }}
-  WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
+  KAGENT_WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   {{- if .Values.controller.a2aClientTimeout }}
   KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
   {{- end }}
-  LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  KAGENT_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  {{- if include "kagent.controller.metricsEnabled" . }}
+  KAGENT_METRICS_BIND_ADDRESS: {{ .Values.controller.metrics.bindAddress | quote }}
+  KAGENT_METRICS_SECURE: {{ .Values.controller.metrics.secureServing | quote }}
+  {{- end }}
+  KAGENT_GRPC_REFLECTION: {{ .Values.controller.grpc.reflection | quote }}
+  {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+  KAGENT_SUBSTRATE_ATE_API_ENDPOINT: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
+  KAGENT_SUBSTRATE_ATE_API_CA_FILE: /run/substrate-servicedns/trust-bundle.pem
+  KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE: /run/substrate-podidentity/credential-bundle.pem
+  {{- with include "kagent.substrate.atenetRouterURL" . }}
+  KAGENT_SUBSTRATE_ATENET_ROUTER_URL: {{ . | quote }}
+  {{- end }}
+  {{- end }}

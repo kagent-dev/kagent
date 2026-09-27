@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
@@ -72,7 +72,7 @@ func startOTLPTraceReceiver(t *testing.T) *otlpTraceReceiver {
 	if suiteTraceReceiver != nil {
 		return suiteTraceReceiver
 	}
-	address := os.Getenv("KAGENT_E2E_OTLP_LISTEN_ADDRESS")
+	address := kagentenv.E2EOTLPListenAddress.Get()
 	if address == "" {
 		address = ":14317"
 	}
@@ -392,7 +392,7 @@ func requireTracingHarnesses(t *testing.T) {
 		if err := kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: name}, &harness); apierrors.IsNotFound(err) {
 			// A job dedicated to tracing must fail rather than silently skip both
 			// cases when its fixtures are missing.
-			if strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_E2E_REQUIRE_TRACING")), "true") {
+			if strings.EqualFold(strings.TrimSpace(kagentenv.E2ERequireTracing.Get()), "true") {
 				t.Fatalf("tracing Harness %s is not installed", name)
 			}
 			t.Skip("dedicated tracing Harnesses are not installed")
@@ -446,6 +446,7 @@ type tracedTurn struct {
 func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) tracedTurn {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming traced A2A message: %v", err)
@@ -489,7 +490,7 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 	t.Helper()
-	actorID := substrate.ActorName(fixture.instanceID)
+	actorID := substrate.ActorName(fixture.sessionID)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 30*time.Second)
 	defer cancel()
 	err := wait.PollUntilContextTimeout(ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {

@@ -508,30 +508,31 @@ export function AgentTemplateForm({
                   }}
                   {...readOnlyInput}
                 />
-                <Input
-                  css={{ width: 180 }}
-                  value={tool.templateName}
-                  placeholder={placeholder("Template name")}
-                  onChange={(event) => {
-                    const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], templateName: event.target.value };
-                    set("subAgentTools", next);
-                  }}
-                  {...readOnlyInput}
-                />
                 <Select
                   css={{ width: 130 }}
-                  value={tool.isolation}
-                  onChange={(value: "Shared" | "Dedicated") => {
+                  value={tool.refKind}
+                  onChange={(value: "templateRef" | "agentRef") => {
                     const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], isolation: value };
+                    next[index] = { ...next[index], refKind: value };
                     set("subAgentTools", next);
                   }}
                   options={[
-                    { value: "Shared", title: "Shared", label: "Shared" },
-                    { value: "Dedicated", title: "Dedicated", label: "Dedicated" },
+                    { value: "templateRef", title: "Template", label: "Template" },
+                    // The CRD accepts agentRef but the compiler rejects it for now.
+                    { value: "agentRef", title: "Agent (not supported yet)", label: "Agent", disabled: true },
                   ]}
                   {...readOnlySelect}
+                />
+                <Input
+                  css={{ width: 180 }}
+                  value={tool.refName}
+                  placeholder={placeholder(tool.refKind === "agentRef" ? "Agent name" : "Template name")}
+                  onChange={(event) => {
+                    const next = [...draft.subAgentTools];
+                    next[index] = { ...next[index], refName: event.target.value };
+                    set("subAgentTools", next);
+                  }}
+                  {...readOnlyInput}
                 />
                 {readOnly ? null : (
                   <Button
@@ -556,7 +557,7 @@ export function AgentTemplateForm({
                 onClick={() =>
                   set("subAgentTools", [
                     ...draft.subAgentTools,
-                    { name: "", description: "", templateName: "", isolation: "Shared" },
+                    { name: "", description: "", refKind: "templateRef", refName: "" },
                   ])
                 }
               >
@@ -660,7 +661,7 @@ export function AgentTemplateForm({
 
       {embedded ? null : (
         <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-          <Tag>AgentTemplate</Tag> is a <code>kagent.dev/v1alpha3</code> custom resource.
+          <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
           Everything on this form writes one field of its <code>spec</code>, except the
           labels, which are <code>metadata</code>.
         </Paragraph>

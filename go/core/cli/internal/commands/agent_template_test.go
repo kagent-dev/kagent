@@ -113,7 +113,7 @@ func templateNamed(name string) apiv1alpha3.AgentTemplate {
 func TestReadAgentTemplateManifest(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "template.yaml")
 	require.NoError(t, os.WriteFile(manifestPath, []byte(`
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   name: researcher
@@ -130,7 +130,7 @@ spec:
 	assert.Equal(t, "default", decoded.Spec.ModelConfig.Name)
 
 	require.NoError(t, os.WriteFile(manifestPath, []byte(`
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   name: researcher

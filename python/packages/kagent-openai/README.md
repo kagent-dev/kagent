@@ -132,7 +132,7 @@ Set `KAGENT_API_URL` and `KAGENT_GATEWAY_URL` to connect to kagent.
 
 - `KAGENT_API_URL` - KAgent control-plane API URL
 - `KAGENT_GATEWAY_URL` - KAgent A2A and MCP gateway URL
-- `LOG_LEVEL` - Logging level (default: INFO)
+- `KAGENT_LOG_LEVEL` - Logging level (default: INFO)
 
 ---
 

@@ -39,9 +39,9 @@ export interface SubAgentToolDraft {
   name: string;
   /** When the parent should route work to it — the CRD requires this. */
   description: string;
-  /** The AgentTemplate it points at, by bare name in the same namespace. */
-  templateName: string;
-  isolation: "Shared" | "Dedicated";
+  /** Which reference the CRD gets, and its bare name in the same namespace. */
+  refKind: "templateRef" | "agentRef";
+  refName: string;
 }
 
 /** Where the system prompt comes from. The CRD rejects both at once. */
@@ -140,8 +140,8 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
       .map((binding) => ({
         name: binding.subAgent?.name ?? "",
         description: binding.subAgent?.description ?? "",
-        templateName: binding.subAgent?.templateRef.name ?? "",
-        isolation: binding.subAgent?.isolation ?? "Shared",
+        refKind: binding.subAgent?.agentRef ? ("agentRef" as const) : ("templateRef" as const),
+        refName: (binding.subAgent?.agentRef ?? binding.subAgent?.templateRef)?.name ?? "",
       })),
     labels: [],
   };
@@ -174,14 +174,15 @@ export function specFromDraft(
       })),
     ...draft.subAgentTools
       .filter(
-        (tool) => tool.name.trim() !== "" && tool.templateName.trim() !== "",
+        (tool) => tool.name.trim() !== "" && tool.refName.trim() !== "",
       )
       .map((tool) => ({
         subAgent: {
           name: tool.name.trim(),
           description: tool.description.trim(),
-          templateRef: { name: tool.templateName.trim() },
-          isolation: tool.isolation,
+          ...(tool.refKind === "agentRef"
+            ? { agentRef: { name: tool.refName.trim() } }
+            : { templateRef: { name: tool.refName.trim() } }),
         },
       })),
   ];

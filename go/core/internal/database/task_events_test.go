@@ -17,29 +17,29 @@ import (
 func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	pool := setupTestDB(t)
 	client, q, ctx := NewClient(pool), pool, t.Context()
-	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
 	require.NoError(t, err)
-	_, err = markAgentInstanceReady(ctx, client, instance.Id, "source.example")
+	_, err = markSessionReady(ctx, client, session.Id, "source.example")
 	require.NoError(t, err)
-	instanceRow, err := readAgentInstance(ctx, q, instance.Id)
+	sessionRow, err := readSession(ctx, q, session.Id)
 	require.NoError(t, err)
-	task := newAgentInstanceTask("task", "initial-message")
-	task.ContextID = instance.ContextId
-	_, err = client.CreateRuntimeTask(ctx, instance.Id, taskMutationHash("request hash"), task, "")
+	task := newSessionTask("task", "initial-message")
+	task.ContextID = session.ContextId
+	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("request hash"), task, "")
 	require.NoError(t, err)
 	assertReplay := func() {
 		t.Helper()
 		events, err := queryMany(ctx, q, `
-			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM session_task_event WHERE
 			    history_id = $1 ORDER BY sequence
-		`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
+		`, pgx.RowToStructByName[sessionTaskEventRow], sessionRow.HistoryID)
 		require.NoError(t, err)
-		rows, err := replayTaskEvents(events, instance.ContextId)
+		rows, err := replayTaskEvents(events, session.ContextId)
 		require.NoError(t, err)
 		require.NotEmpty(t, rows)
 		for _, rebuilt := range rows {
-			stored, err := readAgentInstanceTask(ctx, q, instanceRow.HistoryID, rebuilt.ID)
+			stored, err := readSessionTask(ctx, q, sessionRow.HistoryID, rebuilt.ID)
 			require.NoError(t, err)
 			want, got := &a2apb.Task{}, &a2apb.Task{}
 			require.NoError(t, proto.Unmarshal(stored.Data, want))
@@ -71,14 +71,14 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	} {
 		task, err = a2aevent.ApplyUpdate(task, event)
 		require.NoError(t, err)
-		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, event, nil))
+		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, event, nil))
 		assertReplay()
 	}
 	question := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart("Which database?"))
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question}
-	require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, task, nil))
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	assertReplay()
-	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
+	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	// Both a user reply and an immediate message result must persist their status.
@@ -89,49 +89,56 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		}
 		now := time.Now()
 		task.Status = a2a.TaskStatus{State: state, Timestamp: &now}
-		var snapshot *AgentInstanceTaskSnapshot
+		var snapshot *SessionTaskSnapshot
 		if state == a2a.TaskStateCompleted {
-			snapshot = &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "completed", ContentScope: "DATA"}
+			snapshot = &SessionTaskSnapshot{Atespace: "team-a", URI: "completed", ContentScope: "DATA"}
 		}
-		require.NoError(t, saveRuntimeTask(t, client, instance.Id, task, message, snapshot))
+		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, message, snapshot))
 		assertReplay()
 	}
-	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
 	require.NoError(t, err)
-	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
+	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
 	require.NoError(t, err)
 	boundaryEvents, err := readCheckpointEvents(ctx, q, uuid.MustParse(checkpoint.Id))
 	require.NoError(t, err)
-	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task", nil)
+	before, err := client.GetSessionTask(ctx, session.Id, "task", nil)
 	require.NoError(t, err)
 
-	advanced := newAgentInstanceTask("later-task", "later-message")
-	advanced.ContextID = instance.ContextId
-	require.NoError(t, saveRuntimeTask(t, client, instance.Id, advanced, advanced, nil))
+	advanced := newSessionTask("later-task", "later-message")
+	advanced.ContextID = session.ContextId
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, advanced, advanced, nil))
 	assertReplay()
 	// A source task changing or even losing its view must not affect an old fork.
 	events, err := queryMany(ctx, q, `
-		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM session_task_event WHERE
 		    history_id = $1 ORDER BY sequence
-	`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
+	`, pgx.RowToStructByName[sessionTaskEventRow], sessionRow.HistoryID)
 	require.NoError(t, err)
-	rows, err := replayTaskEvents(events, instance.ContextId)
+	rows, err := replayTaskEvents(events, session.ContextId)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, "DELETE FROM agent_instance_task WHERE history_id = $1", instanceRow.HistoryID)
+	_, err = pool.Exec(ctx, "DELETE FROM session_task WHERE history_id = $1", sessionRow.HistoryID)
 	require.NoError(t, err)
-	fork, _, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
+	fork, _, err := client.ForkSession(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
-	forked, err := client.GetAgentInstanceTask(ctx, fork.Id, "task", nil)
+	forkTasks, _, err := client.ListSessionTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
-	require.Equal(t, before, forked)
+	require.Len(t, forkTasks, 1)
+	forked := forkTasks[0]
+	require.NoError(t, err)
+	require.NotEqual(t, before.ID, forked.ID)
+	require.Equal(t, fork.Id, forked.ContextID)
+	require.Equal(t, before.Status.State, forked.Status.State)
+	require.Equal(t, before.Artifacts, forked.Artifacts)
+	require.Len(t, forked.History, len(before.History))
 	for _, row := range rows {
-		row.HistoryID = instanceRow.HistoryID
+		row.HistoryID = sessionRow.HistoryID
 		require.NoError(t, insertReplayedTask(ctx, q, row))
 	}
 	assertReplay()
 	// Missing creation, out-of-order events, and identity corruption fail closed.
-	for _, broken := range [][]agentInstanceTaskEventRow{boundaryEvents[1:], {boundaryEvents[0], boundaryEvents[0]}} {
-		_, err := replayTaskEvents(broken, instance.ContextId)
+	for _, broken := range [][]sessionTaskEventRow{boundaryEvents[1:], {boundaryEvents[0], boundaryEvents[0]}} {
+		_, err := replayTaskEvents(broken, session.ContextId)
 		require.Error(t, err)
 	}
 	_, err = replayTaskEvents(boundaryEvents, uuid.NewString())

@@ -212,7 +212,7 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, client.Close()) })
 			dir := t.TempDir()
-			for field, value := range map[string]string{"name": "ai-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
+			for field, value := range map[string]string{"name": "session-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, field), []byte(value), 0o600))
 			}
 			store := New(client, filepath.Join(dir, "name"))

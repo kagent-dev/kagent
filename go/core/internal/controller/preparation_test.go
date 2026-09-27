@@ -99,14 +99,14 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.Equal(t, preparing.RevisionID.String(), unreferenced[0].Revision)
 			retained, err := store.BeginRuntimeRevisionDeletion(ctx, initial.RevisionID.String())
 			require.NoError(t, err)
-			require.Nil(t, retained, "last-successful A must remain protected without any instances")
+			require.Nil(t, retained, "last-successful A must remain protected without any sessions")
 
-			instance, _, err := store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+			session, _, err := store.CreateSession(ctx, &apiv1alpha1.Session{
 				Id: uuid.NewString(), Creator: "alice",
 				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
-			}, "last-good-instance")
+			}, "last-good-session")
 			require.NoError(t, err)
-			require.Equal(t, initial.RevisionID.String(), instance.GetPreparedRevision())
+			require.Equal(t, initial.RevisionID.String(), session.GetPreparedRevision())
 
 			require.NoError(t, NewRuntimeRevisionGC(store, templates).collect(ctx, abandoned.Revision))
 			require.Nil(t, templates.template)
@@ -287,8 +287,8 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
 	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
-	runtimeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
 	mock := krttest.NewMock(t, []any{

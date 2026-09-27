@@ -31,7 +31,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // TaskStoreService is the private persistence API for agent runtimes. Every call
-// requires workload authority for the requested instance. Public user and share
+// requires workload authority for the requested session. Public user and share
 // credentials do not grant access to this service.
 type TaskStoreServiceClient interface {
 	// CreateTask persists a new SDK task. Retrying the same task and payload
@@ -109,7 +109,7 @@ func (c *taskStoreServiceClient) SettleTask(ctx context.Context, in *TaskStoreSe
 // for forward compatibility.
 //
 // TaskStoreService is the private persistence API for agent runtimes. Every call
-// requires workload authority for the requested instance. Public user and share
+// requires workload authority for the requested session. Public user and share
 // credentials do not grant access to this service.
 type TaskStoreServiceServer interface {
 	// CreateTask persists a new SDK task. Retrying the same task and payload

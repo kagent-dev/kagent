@@ -128,45 +128,6 @@ type HarnessWorkload struct {
 	Args []string `json:"args,omitempty"`
 }
 
-// HarnessEnvVar configures one runtime environment variable.
-//
-// +kubebuilder:validation:XValidation:rule="has(self.value) != has(self.credentialRef)",message="exactly one of value or credentialRef must be specified"
-// +kubebuilder:validation:XValidation:rule="!has(self.credentialRef) || self.credentialRef.name.size() > 0",message="credentialRef name must not be empty"
-type HarnessEnvVar struct {
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-
-	// Value is a literal value, including an empty string.
-	// +optional
-	Value *string `json:"value,omitempty"`
-
-	// CredentialRef references a key in a same-namespace Secret.
-	// +optional
-	CredentialRef *corev1.SecretKeySelector `json:"credentialRef,omitempty"`
-}
-
-// HarnessSnapshotPolicy configures storage for Substrate snapshots.
-type HarnessSnapshotPolicy struct {
-	// Location is the snapshot storage location used by Substrate.
-	// +kubebuilder:validation:Pattern=`^[^[:space:]]+$`
-	// +required
-	Location string `json:"location"`
-}
-
-// HarnessSubstratePolicy contains the Substrate policy shared by all runtime variants.
-//
-// +kubebuilder:validation:XValidation:rule="self.workerPoolRef.name.size() > 0",message="workerPoolRef name must not be empty"
-type HarnessSubstratePolicy struct {
-	// WorkerPoolRef references a WorkerPool in the Harness namespace.
-	// +required
-	WorkerPoolRef corev1.LocalObjectReference `json:"workerPoolRef"`
-
-	// SnapshotPolicy configures runtime snapshot storage.
-	// +required
-	SnapshotPolicy HarnessSnapshotPolicy `json:"snapshotPolicy"`
-}
-
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
@@ -191,10 +152,10 @@ type HarnessSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	// +listType=map
 	// +listMapKey=name
-	Env []HarnessEnvVar `json:"env,omitempty"`
+	Env []RuntimeEnvVar `json:"env,omitempty"`
 
 	// +required
-	Substrate HarnessSubstratePolicy `json:"substrate"`
+	Substrate RuntimeSubstratePolicy `json:"substrate"`
 }
 
 // HarnessCapabilities records behavior proven for a pinned adapter and runtime.

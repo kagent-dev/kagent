@@ -344,6 +344,13 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				return runtime.Outcome{}, err
 			}
 			if item.err != nil {
+				// A process that exits before its result can explain the failure
+				// only on stderr. Reap it to finish draining stderr; malformed
+				// output can also stop the parser while the process is still alive.
+				d.stopSession(session)
+				if stderr := strings.TrimSpace(session.stderr.String()); stderr != "" {
+					return runtime.Outcome{}, fmt.Errorf("%w: %s", item.err, stderr)
+				}
 				return runtime.Outcome{}, item.err
 			}
 			if waitErr := <-session.wait; waitErr != nil {

@@ -36,10 +36,10 @@ ENABLED TOOLS:
 
 USEFUL COMMANDS:
   # View all kagent resources
-  kubectl -n {{ include "kagent.namespace" . }} get agenttemplates,harnesses,modelconfigs,toolservers,memories
+  kubectl -n {{ include "kagent.namespace" . }} get agents,agenttemplates,harnesses,modelconfigs,remotemcpservers
 
   # Get agent templates and harnesses
-  kubectl -n {{ include "kagent.namespace" . }} get agenttemplates,harnesses
+  kubectl -n {{ include "kagent.namespace" . }} get agents,agenttemplates,harnesses
 
   # View logs
   kubectl -n {{ include "kagent.namespace" . }} logs -l app.kubernetes.io/name=kagent -f

@@ -15,6 +15,7 @@ import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import type {
   AppExtensionConfig,
   ExtensionAgentLinks,
+  ExtensionChatPartRenderers,
   ExtensionNavItemContribution,
   ExtensionRouteContribution,
   ExtensionRouteHandle,
@@ -170,4 +171,11 @@ export function extensionProviderIcons(
   extensions: readonly AppExtensionConfig[],
 ): Readonly<Record<string, ComponentType>> {
   return mergeDefined(extensions.map((extension) => extension.providerIcons));
+}
+
+/** Chat part renderers from every extension, later ones replacing earlier keys. */
+export function extensionChatPartRenderers(
+  extensions: readonly AppExtensionConfig[],
+): ExtensionChatPartRenderers {
+  return mergeDefined(extensions.map((extension) => extension.chatPartRenderers));
 }

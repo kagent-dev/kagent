@@ -47,10 +47,10 @@ export const rpc = {
   substrateWorkers: "kagent.api.v1alpha1.SystemService/ListSubstrateWorkers",
   listAgents: "kagent.api.v1alpha1.AgentService/ListAgents",
   listAgentTemplates: "kagent.api.v1alpha1.AgentTemplateService/ListAgentTemplates",
-  listAgentInstances: "kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances",
-  getAgentInstance: "kagent.api.v1alpha1.AgentInstanceService/GetAgentInstance",
-  suspendAgentInstance: "kagent.api.v1alpha1.AgentInstanceService/SuspendAgentInstance",
-  resumeAgentInstance: "kagent.api.v1alpha1.AgentInstanceService/ResumeAgentInstance",
+  listAgentInstances: "kagent.api.v1alpha1.SessionService/ListSessions",
+  getAgentInstance: "kagent.api.v1alpha1.SessionService/GetSession",
+  suspendAgentInstance: "kagent.api.v1alpha1.SessionService/SuspendSession",
+  resumeAgentInstance: "kagent.api.v1alpha1.SessionService/ResumeSession",
 } as const;
 
 export type WatchedRpc = (typeof rpc)[keyof typeof rpc];

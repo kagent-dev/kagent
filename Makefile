@@ -160,6 +160,25 @@ proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail
 		exit 1; \
 	fi
 
+##@ Environment documentation
+
+ENV_DOCS_COMMAND = cd go && go run ./core/cli/cmd/kagent env --format markdown
+
+.PHONY: env-docs
+env-docs: ## Generate docs/env.md from the environment variable registry
+	@set -eu; generated=$$(mktemp); trap 'rm -f "$$generated"' EXIT; \
+		($(ENV_DOCS_COMMAND)) > "$$generated"; \
+		cp "$$generated" docs/env.md
+
+.PHONY: env-docs-check
+env-docs-check: ## Check docs/env.md matches the environment variable registry
+	@set -eu; generated=$$(mktemp); trap 'rm -f "$$generated"' EXIT; \
+		($(ENV_DOCS_COMMAND)) > "$$generated"; \
+		if ! diff -u docs/env.md "$$generated"; then \
+			echo "Environment documentation is out of date. Run 'make env-docs' and commit docs/env.md."; \
+			exit 1; \
+		fi
+
 ##@ Telemetry contract
 
 include telemetry/versions.env
@@ -563,7 +582,7 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 # Later Goose releases test previous-release behavior after the target migrations,
 # data survival, schema equality, previous/current controller startup, and a
 # complete application and schema rollback to the previous release.
-# KAGENT_LOCAL_HOST lets the agent reach the local mock LLM.
+# KAGENT_E2E_LOCAL_HOST lets the agent reach the local mock LLM.
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
 # cluster (make create-kind-cluster).
 .PHONY: announce-upgrade-from
@@ -575,15 +594,15 @@ run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test 
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	@set -e; \
 	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
-	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
+	echo "kind gateway (KAGENT_E2E_LOCAL_HOST): $$kind_gw"; \
 	cd go && \
-	RUN_UPGRADE_TESTS=true \
-	REPO_ROOT=$(CURDIR) \
-	KAGENT_LOCAL_HOST="$$kind_gw" \
-	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
-	VERSION=$(VERSION) \
-	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
-	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KAGENT_E2E_RUN_UPGRADE_TESTS=true \
+	KAGENT_E2E_REPO_ROOT=$(CURDIR) \
+	KAGENT_E2E_LOCAL_HOST="$$kind_gw" \
+	KAGENT_E2E_UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	KAGENT_E2E_VERSION=$(VERSION) \
+	KAGENT_E2E_DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KAGENT_E2E_KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
 	go test ./core/test/upgrade -run TestUpgrade -count=1 -timeout=45m -v
 
@@ -595,12 +614,12 @@ run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
 run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
-	RUN_ROLLING_UPGRADE_TESTS=true \
-	REPO_ROOT=$(CURDIR) \
-	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
-	VERSION=$(VERSION) \
-	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
-	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS=true \
+	KAGENT_E2E_REPO_ROOT=$(CURDIR) \
+	KAGENT_E2E_UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	KAGENT_E2E_VERSION=$(VERSION) \
+	KAGENT_E2E_DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KAGENT_E2E_KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
 	go test ./core/test/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
 
