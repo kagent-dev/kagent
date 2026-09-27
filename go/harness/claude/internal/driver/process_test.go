@@ -179,6 +179,36 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	}
 }
 
+func TestProcessDriverParserFailureIncludesStderr(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		script string
+	}{
+		{name: "exit before result", script: "echo 'resume failed' >&2\nexit 17\n"},
+		{name: "malformed output from live process", script: "echo 'resume failed' >&2\necho 'invalid json'\nexec sleep 30\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			executable := filepath.Join(dir, "claude")
+			if err := os.WriteFile(executable, []byte("#!/bin/sh\n"+test.script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			d := NewProcessDriver(ProcessConfig{
+				Executable: executable, Workspace: dir,
+				MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
+			})
+			started := time.Now()
+			_, err := d.Run(t.Context(), runtime.Turn{Prompt: "hello"}, &recordingSink{})
+			if err == nil || !strings.Contains(err.Error(), "resume failed") {
+				t.Fatalf("Run() error = %v, want subprocess stderr", err)
+			}
+			if time.Since(started) > time.Second {
+				t.Fatal("parser failure waited for the live subprocess to exit")
+			}
+		})
+	}
+}
+
 func TestProcessDriverCancellation(t *testing.T) {
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "claude")
