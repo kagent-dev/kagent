@@ -34,11 +34,8 @@ func Root() *cobra.Command {
 	getCmd.AddCommand(sessioncli.NewGetCmd())
 	getCmd.AddCommand(commands.NewGetAgentTemplateCmd())
 	getCmd.AddCommand(commands.NewGetAgentCmd())
-	getCmd.AddCommand(sandboxcli.NewGetCmd(), sandboxcli.NewGetTemplateCmd())
 	createCmd.AddCommand(sessioncli.NewCreateCmd())
-	createCmd.AddCommand(sandboxcli.NewCreateCmd())
 	deleteCmd.AddCommand(sessioncli.NewDeleteCmd())
-	deleteCmd.AddCommand(sandboxcli.NewDeleteCmd())
 
 	rootCmd.AddCommand(
 		getCmd,

@@ -8,18 +8,16 @@ installed command help and advertised schemas for the connected deployment.
 
 ## CLI workflow
 
-Use `kagent get --help`, `kagent create --help`, `kagent delete --help`, and
-`kagent sandbox --help` to check installed support. Commands reuse the CLI's
+`kagent sandbox --help` lists installed support. Commands reuse the CLI's
 `--api-url`, `--namespace` (`-n`), `--user-id`, `--ca-file`, and `--server-name`
 settings. Use the configured endpoint and identity; do not substitute another
 user's identity to work around an authorization failure.
 
-1. Discover with `kagent get sandboxtemplate -n NAMESPACE -o json`. The result
+1. Discover with `kagent sandbox templates -n NAMESPACE -o json`. The result
    includes template references, workload images, and full resources for readiness
-   inspection. `kagent get sandbox -o json` lists your existing sandboxes;
-   append a sandbox ID to inspect one. Use `--page-size` and `--page-token` for lists.
+   inspection. `kagent sandbox list -o json` lists your existing sandboxes.
 2. Generate and retain a unique request ID. Create with
-   `kagent create sandbox TEMPLATE -n NAMESPACE --request-id REQUEST_ID --ttl 15m -o json`.
+   `kagent sandbox create TEMPLATE -n NAMESPACE --request-id REQUEST_ID --ttl 15m -o json`.
    The command makes one attempt. On a transient failure, retry with identical
    inputs and the same request ID; inspect `state`, `operation`, and `expiresAt`.
 3. Upload with `kagent sandbox upload SANDBOX_ID ./input.json input.json`.
@@ -32,9 +30,8 @@ user's identity to work around an authorization failure.
 5. Download with `kagent sandbox download SANDBOX_ID summary.json ./summary.json`.
    A successful download atomically replaces the local destination. Failed
    downloads leave the previous destination intact. Remote writes can be partial.
-6. Delete with `kagent delete sandbox SANDBOX_ID` after collecting artifacts.
-   Use `kagent sandbox suspend SANDBOX_ID` and `kagent sandbox resume SANDBOX_ID`
-   to suspend or resume a retained sandbox.
+6. Delete with `kagent sandbox delete SANDBOX_ID` after collecting artifacts.
+   `get`, `suspend`, and `resume` take the same sandbox ID.
 
 `exec` starts once, waits by default, streams stdout/stderr, and returns the
 remote exit code (or a nonzero CLI error if observation fails). `--timeout`

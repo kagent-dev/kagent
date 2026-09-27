@@ -27,14 +27,14 @@ func TestSandboxCLI(t *testing.T) {
 		var out, stderr bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&stderr)
-		cmd.SetArgs(append([]string{"--api-url", "http://" + interactionTarget(t), "--user-id", "e2e", "--namespace", f.template.Namespace, "--timeout", "2m"}, args...))
+		cmd.SetArgs(append([]string{"--api-url", "http://" + interactionTarget(t), "--user-id", "e2e", "--namespace", f.template.Namespace, "--timeout", "2m", "sandbox"}, args...))
 		err := cmd.ExecuteContext(t.Context())
 		if err != nil {
 			t.Logf("CLI stderr: %s", stderr.String())
 		}
 		return out.String(), err
 	}
-	created, err := run("create", "sandbox", f.template.Name, "--request-id", uuid.NewString(), "--ttl", "5m", "-o", "json")
+	created, err := run("create", f.template.Name, "--request-id", uuid.NewString(), "--ttl", "5m", "-o", "json")
 	require.NoError(t, err)
 	var value apiv1alpha1.Sandbox
 	require.NoError(t, protojson.Unmarshal([]byte(created), &value))
@@ -49,25 +49,25 @@ func TestSandboxCLI(t *testing.T) {
 	dir := t.TempDir()
 	input, output := filepath.Join(dir, "input.bin"), filepath.Join(dir, "output.bin")
 	require.NoError(t, os.WriteFile(input, data, 0600))
-	_, err = run("sandbox", "upload", value.Id, input, "input.bin")
+	_, err = run("upload", value.Id, input, "input.bin")
 	require.NoError(t, err)
-	result, err := run("sandbox", "exec", value.Id, "--", "sh", "-c", "cat input.bin > output.bin && printf 'copied\\n'")
+	result, err := run("exec", value.Id, "--", "sh", "-c", "cat input.bin > output.bin && printf 'copied\\n'")
 	require.NoError(t, err)
 	require.Equal(t, "copied\n", result)
-	_, err = run("sandbox", "suspend", value.Id)
+	_, err = run("suspend", value.Id)
 	require.NoError(t, err)
-	_, err = run("sandbox", "resume", value.Id)
+	_, err = run("resume", value.Id)
 	require.NoError(t, err)
-	_, err = run("sandbox", "download", value.Id, "output.bin", output)
+	_, err = run("download", value.Id, "output.bin", output)
 	require.NoError(t, err)
 	actual, err := os.ReadFile(output)
 	require.NoError(t, err)
 	require.Equal(t, data, actual)
-	_, err = run("sandbox", "exec", value.Id, "--", "sh", "-c", "exit 7")
+	_, err = run("exec", value.Id, "--", "sh", "-c", "exit 7")
 	var exitError interface{ ExitCode() int }
 	require.ErrorAs(t, err, &exitError)
 	require.Equal(t, 7, exitError.ExitCode())
-	deleted, err := run("delete", "sandbox", value.Id, "-o", "json")
+	deleted, err := run("delete", value.Id, "-o", "json")
 	require.NoError(t, err)
 	var tombstone apiv1alpha1.Sandbox
 	require.NoError(t, protojson.Unmarshal([]byte(deleted), &tombstone))
