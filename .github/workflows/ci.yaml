@@ -3,12 +3,16 @@ name: CI Build
 on:
   push:
     branches: [main, "release/**"]
-    paths-ignore:
-      - "**/*.md"
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "docs/env.md"
   pull_request:
     branches: [main, "release/**"]
-    paths-ignore:
-      - "**/*.md"
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "docs/env.md"
   merge_group:
   workflow_dispatch:
     inputs:
@@ -606,6 +610,9 @@ jobs:
           go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
+
+      - name: Check environment documentation
+        run: make env-docs-check
 
       - name: Generate controller manifests
         run: make controller-manifests
