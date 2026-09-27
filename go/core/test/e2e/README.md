@@ -28,8 +28,9 @@ runtime and sandbox tools.
 
 `TestSessionIdleExpiration` runs sequentially across the harness matrix. It
 temporarily sets `KAGENT_SESSION_IDLE_TTL=30s` on the controller Deployment and restores
-its environment afterward, rolling the controller both times. Use a disposable
-test cluster and a stable API endpoint for this case. It verifies completed-turn
+its environment afterward, rolling the controller both times and waiting for a
+fresh API connection after each rollout. Use a disposable test cluster and a
+stable API endpoint for this case. It verifies completed-turn
 expiration, Actor removal, NotFound, and a fresh conversation from the same
 caller/request ID. PostgreSQL-backed service tests cover active/waiting turns,
 dispatch and quiescence races, retry recovery, and retained checkpoint history.

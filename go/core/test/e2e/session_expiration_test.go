@@ -12,7 +12,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -24,7 +26,7 @@ import (
 // the test. The API endpoint must survive pod replacement (NodePort or ingress).
 func TestSessionIdleExpiration(t *testing.T) {
 	target := interactionTarget(t)
-	setSessionIdleTTL(t, "30s")
+	setSessionIdleTTL(t, target, "30s")
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
@@ -64,7 +66,7 @@ func TestSessionIdleExpiration(t *testing.T) {
 	})
 }
 
-func setSessionIdleTTL(t *testing.T, ttl string) {
+func setSessionIdleTTL(t *testing.T, target, ttl string) {
 	t.Helper()
 	kube := interactionKubeClient(t)
 	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
@@ -93,6 +95,14 @@ func setSessionIdleTTL(t *testing.T, ttl string) {
 			}
 			return observed.Status.ObservedGeneration >= current.Generation && observed.Status.UpdatedReplicas == *observed.Spec.Replicas && observed.Status.AvailableReplicas == *observed.Spec.Replicas && observed.Status.Replicas == *observed.Spec.Replicas, nil
 		}))
+		// Deployment readiness can precede Service/load-balancer routing.
+		// Check a fresh API connection after both setup and cleanup rollouts
+		// before handing the controller back to the next test.
+		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, conn.Close()) }()
+		_, err = apiv1alpha1.NewSystemServiceClient(conn).GetVersion(ctx, &apiv1alpha1.GetVersionRequest{}, grpc.WaitForReady(true))
+		require.NoError(t, err, "controller API did not become reachable after rollout")
 	}
 	t.Cleanup(func() { apply(original) })
 	apply(updated)
