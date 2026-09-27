@@ -77,14 +77,9 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
 
-  - it: should configure the gRPC server
+  - it: should disable gRPC reflection by default
     template: controller-deployment.yaml
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: GRPC_MAX_MESSAGE_BYTES
-            value: "16777216"
       - contains:
           path: spec.template.spec.containers[0].env
           content:

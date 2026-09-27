@@ -31,7 +31,7 @@ var (
 		"KAGENT_NAMESPACE",
 		"kagent",
 		"Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it.",
-		ComponentController,
+		ComponentController, ComponentAgentRuntime,
 	)
 
 	KagentControllerName = RegisterStringVar(
@@ -41,27 +41,27 @@ var (
 		ComponentController,
 	)
 
-	// Variables injected into agent runtimes (not read by the controller itself).
+	// Standalone runtime settings supplied by the controller in managed runtimes.
 
 	KagentName = RegisterStringVar(
 		"KAGENT_NAME",
 		"",
-		"Name of the agent, injected by the controller. Required by Python runtimes.",
+		"Agent name for standalone runtimes. Required by Python runtimes; supplied by the controller in managed runtimes.",
 		ComponentAgentRuntime,
 	)
 
 	KagentAPIURL = RegisterStringVar(
 		"KAGENT_API_URL",
 		"",
-		"Base URL for kagent control-plane API calls, injected into managed runtimes. Required by Python runtimes.",
-		ComponentAgentRuntime,
+		"Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset.",
+		ComponentAgentRuntime, ComponentTesting,
 	)
 
 	KagentGatewayURL = RegisterStringVar(
 		"KAGENT_GATEWAY_URL",
 		"",
 		"Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentController,
 	)
 
 	KagentSkillsFolder = RegisterStringVar(
@@ -117,13 +117,13 @@ var (
 		"DATABASE_VECTOR_ENABLED",
 		false,
 		"Enable vector database migrations and vector-backed database functionality.",
-		ComponentDatabase,
+		ComponentDatabase, ComponentController, ComponentCLI,
 	)
 
 	SkipMigrations = RegisterBoolVar(
 		"SKIP_MIGRATIONS",
 		false,
 		"Verify required database migrations at startup without applying them.",
-		ComponentDatabase,
+		ComponentDatabase, ComponentController,
 	)
 )

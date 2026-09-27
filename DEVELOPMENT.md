@@ -1,10 +1,23 @@
 # Development
 
 The [environment variable reference](docs/env.md) is generated from
-`go/core/pkg/env`. Register new settings there, including settings consumed by
-Python, the UI, or a native harness. Keep defaults and descriptions aligned with
+`go/core/pkg/env`. Register user-configurable settings there, including settings
+consumed by Python, the UI, or standalone runtimes. Exclude controller-generated
+payloads, credentials, private paths, and other internal process wiring.
+Keep defaults and descriptions aligned with
 their readers, then run `make env-docs`. Use `make env-docs-check` to run the same
 freshness check as CI.
+
+Register shared settings once, passing each consuming component to
+`RegisterStringVar`, `RegisterBoolVar`, `RegisterIntVar`, or
+`RegisterDurationVar`, for example:
+
+```go
+RegisterStringVar("LOG_LEVEL", "info", "Logging level.", ComponentController, ComponentCLI, ComponentAgentRuntime)
+```
+
+The reference lists shared settings under each component. `kagent env --component`
+matches any registered component; JSON output includes a `components` array.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 

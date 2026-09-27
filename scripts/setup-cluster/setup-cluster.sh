@@ -85,7 +85,6 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80 \
-  --set controller.substrate.defaultWorkerPool.name=kagent-default \
   --set substrateWorkerPool.create=true \
   --set substrateWorkerPool.replicas=8 \
   --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"

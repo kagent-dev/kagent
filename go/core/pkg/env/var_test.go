@@ -1,10 +1,13 @@
 package env
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterStringVar(t *testing.T) {
@@ -311,6 +314,88 @@ func TestExportJSON(t *testing.T) {
 	}
 }
 
+func TestRegisterMultipleComponents(t *testing.T) {
+	tests := []struct {
+		name     string
+		register func(...Component)
+	}{
+		{"string", func(c ...Component) { RegisterStringVar("SHARED", "value", "shared setting", c...) }},
+		{"bool", func(c ...Component) { RegisterBoolVar("SHARED", true, "shared setting", c...) }},
+		{"int", func(c ...Component) { RegisterIntVar("SHARED", 42, "shared setting", c...) }},
+		{"duration", func(c ...Component) { RegisterDurationVar("SHARED", time.Second, "shared setting", c...) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			allVars = make(map[string]Var)
+			components := []Component{ComponentController, ComponentCLI, ComponentController}
+			tt.register(components...)
+			want := []Component{ComponentCLI, ComponentController}
+			v, ok := VarByName("SHARED")
+			require.True(t, ok)
+			require.Equal(t, want, v.Components)
+
+			// Neither caller-owned nor returned slices can change registered metadata.
+			components[0] = ComponentTesting
+			v.Components[0] = ComponentTesting
+			VarDescriptions()[0].Components[0] = ComponentTesting
+			v, ok = VarByName("SHARED")
+			require.True(t, ok)
+			require.Equal(t, want, v.Components)
+			require.Len(t, VarDescriptions(), 1)
+			require.Panics(t, func() { tt.register() })
+			require.Panics(t, func() { tt.register(ComponentController, "") })
+		})
+	}
+}
+
+func TestExportMultipleComponents(t *testing.T) {
+	type exportedVar struct {
+		Name       string      `json:"name"`
+		Components []Component `json:"components"`
+	}
+	allVars = make(map[string]Var)
+	RegisterStringVar("SHARED", "value", "shared setting", ComponentController, ComponentCLI, ComponentController)
+	RegisterBoolVar("CLI_ONLY", true, "CLI setting", ComponentCLI)
+	register(Var{Name: "HIDDEN", Components: []Component{ComponentCLI, ComponentController}, Hidden: true})
+	wantComponents := []Component{ComponentCLI, ComponentController}
+
+	tests := []struct {
+		component  string
+		wantNames  []string
+		sharedRows int
+	}{
+		{"", []string{"CLI_ONLY", "SHARED"}, 2},
+		{"all", []string{"CLI_ONLY", "SHARED"}, 2},
+		{"controller", []string{"SHARED"}, 1},
+		{"cli", []string{"CLI_ONLY", "SHARED"}, 1},
+		{"agent-runtime", []string{}, 0},
+		{"unknown", []string{}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.component, func(t *testing.T) {
+			var exported []exportedVar
+			require.NoError(t, json.Unmarshal([]byte(ExportJSON(tt.component)), &exported))
+			names := make([]string, 0, len(exported))
+			for _, v := range exported {
+				names = append(names, v.Name)
+				if v.Name == "SHARED" {
+					require.Equal(t, wantComponents, v.Components)
+				}
+			}
+			require.Equal(t, tt.wantNames, names)
+
+			md := ExportMarkdown(tt.component)
+			require.Equal(t, tt.sharedRows, strings.Count(md, "| `SHARED` |"))
+			require.NotContains(t, md, "HIDDEN")
+			if tt.component == "controller" {
+				require.Contains(t, md, "## controller\n")
+				require.NotContains(t, md, "## cli\n")
+				require.NotContains(t, md, "CLI_ONLY")
+			}
+		})
+	}
+}
+
 func TestHiddenVarsExcluded(t *testing.T) {
 	allVars = make(map[string]Var)
 
@@ -320,7 +405,7 @@ func TestHiddenVarsExcluded(t *testing.T) {
 	register(Var{
 		Name:        "HIDDEN_VAR",
 		Description: "hidden",
-		Component:   ComponentController,
+		Components:  []Component{ComponentController},
 		Hidden:      true,
 	})
 

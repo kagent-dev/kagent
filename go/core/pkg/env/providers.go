@@ -10,7 +10,7 @@ var (
 		"OPENAI_API_KEY",
 		"",
 		"API key for OpenAI.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 
 	OpenAIOrganization = RegisterStringVar(
@@ -34,7 +34,7 @@ var (
 		"ANTHROPIC_API_KEY",
 		"",
 		"API key for Anthropic.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 )
 
@@ -44,7 +44,7 @@ var (
 		"AZURE_OPENAI_API_KEY",
 		"",
 		"API key for Azure OpenAI.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 
 	AzureADToken = RegisterStringVar(
@@ -75,7 +75,7 @@ var (
 		"GOOGLE_API_KEY",
 		"",
 		"API key for Google Gemini.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 
 	GoogleCloudProject = RegisterStringVar(
@@ -158,18 +158,15 @@ var (
 		"OLLAMA_API_KEY",
 		"",
 		"API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 )
 
-// Provider aliases and native Claude provider settings.
+// Provider aliases.
 var (
-	_ = RegisterStringVar("GEMINI_API_KEY", "", "Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs.", ComponentAgentRuntime)
+	_ = RegisterStringVar("GEMINI_API_KEY", "", "Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs.", ComponentAgentRuntime, ComponentCLI)
 	_ = RegisterStringVar("GOOGLE_CLOUD_REGION", "", "Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset.", ComponentAgentRuntime)
 	_ = RegisterStringVar("AWS_DEFAULT_REGION", "", "Preferred region for Python Bedrock models and Go/Python Bedrock embeddings, before AWS_REGION and the us-east-1 fallback.", ComponentAgentRuntime)
-	_ = RegisterStringVar("ANTHROPIC_BASE_URL", "", "Native Claude Anthropic API base URL, supplied from ModelConfig by the controller.", ComponentAgentRuntime)
-	_ = RegisterStringVar("ANTHROPIC_VERTEX_PROJECT_ID", "", "Native Claude Vertex AI project, supplied from ModelConfig by the controller.", ComponentAgentRuntime)
-	_ = RegisterStringVar("CLOUD_ML_REGION", "", "Native Claude Vertex AI region, supplied from ModelConfig by the controller.", ComponentAgentRuntime)
 )
 
 // SAP AI Core

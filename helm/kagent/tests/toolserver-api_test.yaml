@@ -59,15 +59,3 @@ tests:
       - equal:
           path: spec.url
           value: http://staging-control-controller.agents.svc:8083/mcp
-
-  - it: uses HTTPS when TLS is configured on the controller
-    release:
-      name: kagent
-      namespace: kagent
-    set:
-      controller.grpc.tlsCertFile: /certs/tls.crt
-      controller.grpc.tlsKeyFile: /certs/tls.key
-    asserts:
-      - equal:
-          path: spec.url
-          value: https://kagent-controller.kagent.svc:8083/mcp

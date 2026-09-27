@@ -98,12 +98,6 @@ spec:
                   fieldPath: spec.nodeName
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
-            - name: AUTH_MODE
-              value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
-            {{- if .Values.controller.auth.userIdClaim }}
-            - name: AUTH_USER_ID_CLAIM
-              value: {{ .Values.controller.auth.userIdClaim | quote }}
-            {{- end }}
             {{- if .Values.database.postgres.urlFile }}
             - name: POSTGRES_DATABASE_URL_FILE
               value: {{ .Values.database.postgres.urlFile | quote }}
@@ -127,18 +121,8 @@ spec:
             - name: METRICS_SECURE
               value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
-            - name: GRPC_MAX_MESSAGE_BYTES
-              value: {{ printf "%.0f" (.Values.controller.grpc.maxMessageBytes | float64) | quote }}
             - name: GRPC_REFLECTION
               value: {{ .Values.controller.grpc.reflection | quote }}
-            {{- with .Values.controller.grpc.tlsCertFile }}
-            - name: GRPC_TLS_CERT_FILE
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.grpc.tlsKeyFile }}
-            - name: GRPC_TLS_KEY_FILE
-              value: {{ . | quote }}
-            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -153,10 +137,6 @@ spec:
             - name: SUBSTRATE_ATENET_ROUTER_URL
               value: {{ . | quote }}
             {{- end }}
-            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
-              value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
-            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
-              value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
             {{- end }}
           envFrom:
             - configMapRef:

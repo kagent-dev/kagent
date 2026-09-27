@@ -218,14 +218,6 @@ controller:
     annotations: {}
   replicas: 1
   loglevel: "info"
-  # Authentication mode: "unsecure" (default) or "trusted-proxy"
-  # - unsecure: uses X-User-Id header/query param or defaults to admin@kagent.dev
-  # - trusted-proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
-  auth:
-    mode: unsecure
-    # JWT claim for user identity (default: "sub")
-    # Override only if your OIDC provider uses a different claim
-    userIdClaim: ""
   # -- Public gateway base URL advertised by Session Agent Cards for gRPC and HTTP/JSON-RPC.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
@@ -403,12 +395,9 @@ controller:
   # -- gRPC application API settings. Native gRPC, gRPC-Web, MCP, and health
   # share the controller service port.
   grpc:
-    maxMessageBytes: 16777216
     reflection: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
 
-  # Extra controller env (mapped to flags via SUBSTRATE_* env names).
+  # Extra controller environment variables.
   env: []
 
   # Standalone workspaces, enabled by default.
@@ -430,15 +419,10 @@ controller:
     enabled: false
     ateApiEndpoint: ""
     atenetRouterURL: ""
-    defaultWorkerPool:
-      namespace: ""
-      name: ""
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
     #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
-    #   defaultWorkerPool:
-    #     name: "kagent-default"
   envFrom: []
 
   # Additional volumes on the output Deployment definition.
@@ -875,7 +859,8 @@ grafana-mcp:
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================
 # Enable oauth2-proxy subchart for OIDC authentication
-# Requires controller.auth.mode: trusted-proxy
+# Controller authentication requires a library integration; see
+# docs/architecture/oidc-proxy-authentication.md.
 
 oauth2-proxy:
   enabled: false

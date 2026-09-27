@@ -119,14 +119,10 @@ differs.
 | `oauth2-proxy.enabled` | `false` | Install the authentication proxy |
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
-| `controller.auth.mode` | `unsecure` | Render the controller's `AUTH_MODE` environment variable |
-| `controller.auth.userIdClaim` | Empty | Render `AUTH_USER_ID_CLAIM` when supplied |
 
-The last two settings remain in the chart, but the current controller does not
-consume them. Setting `controller.auth.mode: trusted-proxy` alone does not
-activate `ProxyAuthenticator`, and the controller has no `--auth-mode` or
-`--auth-user-id-claim` flags. A library integration must supply its own
-`auth.AuthProvider` through `app.Options.Authenticator`.
+Enabling the proxy does not activate controller authentication. A library
+integration must supply its own `auth.AuthProvider` through
+`app.Options.Authenticator`.
 
 The UI reads `SSO_REDIRECT_PATH` from `window.environmentVariables` at runtime
 and applies its configured base path. Helm supplies that value from
