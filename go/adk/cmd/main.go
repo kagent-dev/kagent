@@ -32,7 +32,7 @@ const (
 )
 
 func main() {
-	logLevel := flag.String("log-level", cmp.Or(os.Getenv("KAGENT_LOG_LEVEL"), "info"), "Set the logging level (debug, info, warn, error)")
+	logLevel := flag.String("log-level", cmp.Or(env.LogLevel.Get(), env.LogLevel.DefaultValue()), "Set the logging level (debug, info, warn, error)")
 	host := flag.String("host", "", "Set the host address to bind to (default: empty, binds to all interfaces)")
 	portFlag := flag.String("port", "", "Set the port to listen on (overrides KAGENT_PORT environment variable)")
 	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides KAGENT_CONFIG_DIR environment variable)")
@@ -46,11 +46,6 @@ func main() {
 	slog.SetDefault(logger)
 	logger.Info("logger initialized", "level", *logLevel)
 
-	port := *portFlag
-	if port == "" {
-		port = os.Getenv("KAGENT_PORT")
-	}
-
 	configDir := *filepathFlag
 	if configDir == "" {
 		configDir = os.Getenv("KAGENT_CONFIG_DIR")
@@ -59,7 +54,7 @@ func main() {
 		configDir = "/config"
 	}
 
-	if err := run(logger, *host, port, configDir); err != nil {
+	if err := run(logger, *host, *portFlag, configDir); err != nil {
 		logger.Error("agent stopped", "error", err)
 		os.Exit(1)
 	}

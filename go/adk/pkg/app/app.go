@@ -181,7 +181,7 @@ func (a *KAgentApp) Logger() *slog.Logger {
 // applyDefaults fills in zero-value fields with sensible defaults.
 func applyDefaults(cfg AppConfig) AppConfig {
 	if cfg.Port == "" {
-		cfg.Port = os.Getenv("KAGENT_PORT")
+		cfg.Port = env.KagentPort.Get()
 	}
 	if cfg.Port == "" {
 		cfg.Port = defaultPort

@@ -194,7 +194,9 @@ Dedicated agent bindings are not compiled yet.
 The Python ADK image's default entrypoint runs a named Python agent module. To
 consume the kagent compiler's configuration, set `spec.workload.command` to
 `["/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "8080"]`.
-The compiler supplies the private A2A gRPC address separately.
+The compiler sets `KAGENT_PORT=80` for private A2A traffic in both ADKs. Go uses
+that port for its shared HTTP/gRPC listener; Python uses it for gRPC and keeps
+the HTTP port separate.
 
 `spec.kagent.compaction` on the Harness is runtime policy, like `spec.kagent.memory`:
 it belongs to the runner that drives the root agent and is not part of the

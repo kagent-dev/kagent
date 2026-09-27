@@ -70,6 +70,10 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
+			require.Contains(t, result.Environment, corev1.EnvVar{Name: "KAGENT_PORT", Value: "80"})
+			for _, variable := range result.Environment {
+				require.NotEqual(t, "KAGENT_A2A_GRPC_ADDRESS", variable.Name)
+			}
 
 			revisionID, err := result.Digest()
 			require.NoError(t, err)

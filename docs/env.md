@@ -33,7 +33,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_CLOUD_PROJECT` | String | `(none)` | Google Cloud project ID for Vertex AI. |
 | `GOOGLE_CLOUD_REGION` | String | `(none)` | Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | String | `(none)` | When set to 'true', use Vertex AI for Gemini models. |
-| `KAGENT_A2A_GRPC_ADDRESS` | String | `[::]:80` | Python ADK gRPC listen address. |
 | `KAGENT_A2A_MAX_CONTENT_LENGTH` | String | `10485760` | Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default. |
 | `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
 | `KAGENT_BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
@@ -44,7 +43,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_NAME` | String | `(none)` | Agent name for standalone runtimes. Required by Python runtimes; supplied by the controller in managed runtimes. |
 | `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |
 | `KAGENT_OPENAI_AGENTS_NATIVE_TRACING` | Boolean | `false` | Keep the OpenAI Agents SDK native tracing processor alongside kagent OpenTelemetry export in the Python OpenAI runtime. |
-| `KAGENT_PORT` | String | `8080` | Go ADK listen port; --port takes precedence. The controller injects 80 for managed kagent runtimes. Codex and Claude use a fixed private port. |
+| `KAGENT_PORT` | String | `(none)` | ADK A2A listen port: the Go HTTP/gRPC listener defaults to 8080; the Python gRPC listener defaults to 80. Explicit Go --port/AppConfig.Port or Python a2a_grpc_address takes precedence. The controller sets 80 for managed kagent runtimes. Python's HTTP --port is separate. |
 | `KAGENT_PROPAGATE_TOKEN` | String | `(none)` | Set to true to propagate authentication tokens to downstream services. Unset or any other value disables propagation. |
 | `KAGENT_SKILLS_FOLDER` | String | `/skills` | Skills directory for standalone Python skills tools. The Python ADK adds skills tools when set; managed Go ADK runtimes use their compiled skill configuration. |
 | `KAGENT_STS_AUDIENCE` | String | `(none)` | Comma-separated RFC 8693 audiences sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience. |

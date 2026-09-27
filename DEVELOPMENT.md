@@ -26,6 +26,11 @@ The pre-release rename replaces the old unprefixed names: for example,
 `KAGENT_HTTP_BIND_ADDRESS`, and the Go ADK's `PORT` becomes `KAGENT_PORT`.
 The old names are no longer read by kagent.
 
+Both ADKs use `KAGENT_PORT` for their A2A listener; Python's former
+`KAGENT_A2A_GRPC_ADDRESS` is removed. The controller sets `80`. Standalone
+defaults remain `8080` for Go's shared HTTP/gRPC listener and `80` for Python's
+gRPC listener; Python's HTTP port is configured separately with `--port`.
+
 UI containers and Vite development use the same `KAGENT_*` inputs, documented in
 `ui/.env.example`. UI build-time switches use `KAGENT_VITE_*`; extension settings
 use `KAGENT_EXTENSION_*`. Other `KAGENT_*` settings are not exposed to the browser.

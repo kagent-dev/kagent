@@ -84,7 +84,7 @@ class KAgentApp:
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
-        self.a2a_grpc_address = a2a_grpc_address or os.getenv("KAGENT_A2A_GRPC_ADDRESS", "[::]:80")
+        self.a2a_grpc_address = a2a_grpc_address or f"[::]:{os.getenv('KAGENT_PORT') or '80'}"
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
