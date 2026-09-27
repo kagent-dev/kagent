@@ -401,6 +401,10 @@ controller:
   # Kept in the Deployment to support valueFrom and $(VAR_NAME) expansion.
   env: []
 
+  # Session idle retention. Running tasks and turns waiting for input do not expire.
+  # 168h is seven days; 0 disables expiration. Audit history and checkpoints remain.
+  sessionIdleTTL: "168h"
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:

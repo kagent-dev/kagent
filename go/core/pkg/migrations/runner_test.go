@@ -208,6 +208,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
 		}
 	}
+	if !testColumnExists(t, dsn, "session", "deletion_reason") {
+		t.Fatal("session deletion reason is missing")
+	}
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
 	}

@@ -308,6 +308,13 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
+	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, kagentenv.SessionIdleTTL.Get())
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(expiration); err != nil {
+		return fmt.Errorf("register session expiration worker: %w", err)
+	}
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow)
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(

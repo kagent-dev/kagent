@@ -2,6 +2,28 @@ suite: controller configuration
 templates:
   - controller-configmap.yaml
 tests:
+  - it: defaults session idle retention to seven days
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_IDLE_TTL
+          value: 168h
+
+  - it: allows session expiration to be disabled
+    set:
+      controller.sessionIdleTTL: "0"
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_IDLE_TTL
+          value: "0"
+
+  - it: allows a longer session idle lifetime
+    set:
+      controller.sessionIdleTTL: 720h
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_IDLE_TTL
+          value: 720h
+
   - it: leaves the guest unconfigured and supplies sandbox policy defaults
     asserts:
       - isSubset:

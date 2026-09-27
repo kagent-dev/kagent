@@ -25,6 +25,14 @@ its default naming; the test requires that registration and leaves it intact.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
+
+`TestSessionIdleExpiration` runs sequentially across the harness matrix. It
+temporarily sets `KAGENT_SESSION_IDLE_TTL=30s` on the controller Deployment and restores
+its environment afterward, rolling the controller both times. Use a disposable
+test cluster and a stable API endpoint for this case. It verifies completed-turn
+expiration, Actor removal, NotFound, and a fresh conversation from the same
+caller/request ID. PostgreSQL-backed service tests cover active/waiting turns,
+dispatch and quiescence races, retry recovery, and retained checkpoint history.
 Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
