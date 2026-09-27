@@ -1,65 +1,68 @@
 package controller
 
 import (
+	"reflect"
+
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
-// Collections contains the Kubernetes inputs used to resolve an AgentTemplate
-// and the template/harness pairs derived from Harness admission selectors.
+// Collections contains shared Kubernetes inputs and compiled Agent state.
 type Collections struct {
-	AgentTemplates          krt.Collection[*kagentv1alpha3.AgentTemplate]
-	Harnesses               krt.Collection[*kagentv1alpha3.Harness]
-	ModelConfigs            krt.Collection[*kagentv1alpha3.ModelConfig]
-	RemoteMCPServers        krt.Collection[*kagentv1alpha3.RemoteMCPServer]
-	ConfigMaps              krt.Collection[*corev1.ConfigMap]
-	Secrets                 krt.Collection[*corev1.Secret]
-	WorkerPools             krt.Collection[*atev1alpha1.WorkerPool]
-	PairRuntimeObservations krt.StaticCollection[PairRuntimeObservation]
-	Pairs                   krt.Collection[AgentTemplateHarnessPair]
-	Reconciliations         krt.Collection[PairReconciliation]
-	ModelConfigStatuses     krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
-	ResolvedModelConfigs    krt.Collection[v2translator.ResolvedModelConfig]
-	AgentTemplateStatuses   krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
+	SandboxTemplates         krt.Collection[*kagentv1alpha3.SandboxTemplate]
+	Agents                   krt.Collection[*kagentv1alpha3.Agent]
+	AgentTemplates           krt.Collection[*kagentv1alpha3.AgentTemplate]
+	Harnesses                krt.Collection[*kagentv1alpha3.Harness]
+	ModelConfigs             krt.Collection[*kagentv1alpha3.ModelConfig]
+	RemoteMCPServers         krt.Collection[*kagentv1alpha3.RemoteMCPServer]
+	ConfigMaps               krt.Collection[*corev1.ConfigMap]
+	Secrets                  krt.Collection[*corev1.Secret]
+	WorkerPools              krt.Collection[*atev1alpha1.WorkerPool]
+	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
+	Reconciliations          krt.Collection[AgentReconciliation]
+	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
+	ResolvedModelConfigs     krt.Collection[v2translator.ResolvedModelConfig]
+	AgentStatuses            krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
 }
 
-// PairRuntimeObservation records a pair's preparation. The revision prevents a
+// AgentRuntimeObservation records a Agent's preparation. The revision prevents a
 // cached observation from making changed inputs ready before reconciliation.
-type PairRuntimeObservation struct {
-	AgentTemplateName string
-	HarnessName       string
-	RevisionID        v2translator.RevisionID
-	Template          *ateapipb.ActorTemplate
+type AgentRuntimeObservation struct {
+	Namespace  string
+	AgentName  string
+	RevisionID v2translator.RevisionID
+	Template   *ateapipb.ActorTemplate
+	Failure    *ReconciliationFailure
 }
 
-func (p PairRuntimeObservation) ResourceName() string {
-	return p.Template.GetMetadata().GetAtespace() + "/" + p.AgentTemplateName + "/" + p.HarnessName
+func (p AgentRuntimeObservation) ResourceName() string {
+	return p.Namespace + "/" + p.AgentName
 }
 
-// AgentTemplateHarnessPair is one same-namespace combination selected by a
-// Harness. It carries the source objects so later collections can resolve the
-// pair without returning to an imperative cache.
-type AgentTemplateHarnessPair struct {
-	AgentTemplate *kagentv1alpha3.AgentTemplate
-	Harness       *kagentv1alpha3.Harness
-}
+var _ krt.Equaler[AgentRuntimeObservation] = AgentRuntimeObservation{}
 
-func (p AgentTemplateHarnessPair) ResourceName() string {
-	return p.AgentTemplate.Namespace + "/" + p.AgentTemplate.Name + "/" + p.Harness.Name
+// Equals compares runtime contents rather than protobuf's mutable caches.
+func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
+	if !proto.Equal(p.Template, other.Template) {
+		return false
+	}
+	p.Template, other.Template = nil, nil
+	return reflect.DeepEqual(p, other)
 }
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
 func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) Collections {
+	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
+	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
 	harnesses := typedCollection[*kagentv1alpha3.Harness](client, watchNamespaces, "Harnesses", opts)
 	modelConfigs := typedCollection[*kagentv1alpha3.ModelConfig](client, watchNamespaces, "ModelConfigs", opts)
@@ -67,30 +70,30 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
-	pairRuntimeObservations := krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...)
-	pairs := newPairCollection(agentTemplates, harnesses, opts)
+	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := v2translator.Collections{
-		AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
+		Harnesses: harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
-	reconciliations := newPairReconciliations(pairs, compilerCollections, pairRuntimeObservations, opts)
-	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
+	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts)
+	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{
-		AgentTemplates:          agentTemplates,
-		Harnesses:               harnesses,
-		ModelConfigs:            modelConfigs,
-		RemoteMCPServers:        remoteMCPServers,
-		ConfigMaps:              configMaps,
-		Secrets:                 secrets,
-		WorkerPools:             workerPools,
-		PairRuntimeObservations: pairRuntimeObservations,
-		Pairs:                   pairs,
-		Reconciliations:         reconciliations,
-		ModelConfigStatuses:     modelConfigStatuses,
-		ResolvedModelConfigs:    resolvedModelConfigs,
-		AgentTemplateStatuses:   statuses,
+		SandboxTemplates:         sandboxTemplates,
+		Agents:                   agents,
+		AgentTemplates:           agentTemplates,
+		Harnesses:                harnesses,
+		ModelConfigs:             modelConfigs,
+		RemoteMCPServers:         remoteMCPServers,
+		ConfigMaps:               configMaps,
+		Secrets:                  secrets,
+		WorkerPools:              workerPools,
+		AgentRuntimeObservations: agentRuntimeObservations,
+		Reconciliations:          reconciliations,
+		ModelConfigStatuses:      modelConfigStatuses,
+		ResolvedModelConfigs:     resolvedModelConfigs,
+		AgentStatuses:            statuses,
 	}
 }
 
@@ -104,23 +107,4 @@ func typedCollection[T controllers.ComparableObject](client kube.Client, namespa
 		collections = append(collections, krt.NewFilteredInformer[T](client, kclient.Filter{Namespace: namespace}, opts.WithName(name+"/"+namespace)...))
 	}
 	return krt.JoinCollection(collections, append(opts.WithName(name), krt.WithJoinUnchecked())...)
-}
-
-func newPairCollection(agentTemplates krt.Collection[*kagentv1alpha3.AgentTemplate], harnesses krt.Collection[*kagentv1alpha3.Harness], opts krt.OptionsBuilder) krt.Collection[AgentTemplateHarnessPair] {
-	harnessesByNamespace := krt.NewNamespaceIndex(harnesses)
-	return krt.NewManyCollection(agentTemplates, func(ctx krt.HandlerContext, agentTemplate *kagentv1alpha3.AgentTemplate) []AgentTemplateHarnessPair {
-		matchingHarnesses := harnessesByNamespace.Fetch(ctx, agentTemplate.Namespace, krt.FilterGeneric(func(object any) bool {
-			harness := object.(*kagentv1alpha3.Harness)
-			if harness.Spec.AllowedAgentTemplates == nil {
-				return false
-			}
-			selector, err := metav1.LabelSelectorAsSelector(&harness.Spec.AllowedAgentTemplates.Selector)
-			return err == nil && selector.Matches(labels.Set(agentTemplate.Labels))
-		}))
-		pairs := make([]AgentTemplateHarnessPair, 0, len(matchingHarnesses))
-		for _, harness := range matchingHarnesses {
-			pairs = append(pairs, AgentTemplateHarnessPair{AgentTemplate: agentTemplate, Harness: harness})
-		}
-		return pairs
-	}, opts.WithName("AgentTemplateHarnessPairs")...)
 }

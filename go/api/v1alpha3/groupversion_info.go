@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha3 contains API Schema definitions for the kagent.dev v1alpha3 API group.
+// Package v1alpha3 contains API Schema definitions for the api.kagent.dev v1alpha3 API group.
 // +kubebuilder:object:generate=true
-// +groupName=kagent.dev
+// +groupName=api.kagent.dev
 package v1alpha3
 
 import (
@@ -27,7 +27,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha3"}
+	GroupVersion = schema.GroupVersion{Group: "api.kagent.dev", Version: "v1alpha3"}
 	// SchemeGroupVersion is the conventional client-go name for GroupVersion.
 	SchemeGroupVersion = GroupVersion
 

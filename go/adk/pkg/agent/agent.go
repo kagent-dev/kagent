@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -154,6 +156,25 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			makeOnToolErrorCallback(log),
 		},
 	}
+	if agentConfig.Output != nil {
+		llmAgentConfig.OutputSchema, err = adkoutputschema.ToGenAISchema(agentConfig.Output.JSONSchema)
+		if err != nil {
+			return nil, err
+		}
+		// Provider adapters with native raw-schema fields consume the canonical
+		// JSON Schema directly.Gemini must use only ADK's OutputSchema projection.
+		if usesRawOutputSchema(agentConfig.Model) {
+			if llmAgentConfig.GenerateContentConfig == nil {
+				llmAgentConfig.GenerateContentConfig = &genai.GenerateContentConfig{}
+			}
+			var rawSchema any
+			if err := json.Unmarshal(agentConfig.Output.JSONSchema, &rawSchema); err != nil {
+				return nil, fmt.Errorf("decode raw output schema: %w", err)
+			}
+			llmAgentConfig.GenerateContentConfig.ResponseJsonSchema = rawSchema
+			llmAgentConfig.GenerateContentConfig.ResponseMIMEType = "application/json"
+		}
+	}
 
 	log.InfoContext(ctx, "creating Google ADK LLM agent",
 		"name", llmAgentConfig.Name,
@@ -172,6 +193,18 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		"toolsets_count", len(llmAgentConfig.Toolsets))
 
 	return llmAgent, nil
+}
+
+// usesRawOutputSchema reports whether the kagent provider adapter has a native
+// raw JSON Schema request field. Gemini is intentionally absent: upstream ADK
+// owns its native-vs-set_model_response selection using the typed projection.
+func usesRawOutputSchema(model adk.Model) bool {
+	switch model.(type) {
+	case *adk.OpenAI, *adk.AzureOpenAI, *adk.Anthropic, *adk.GeminiAnthropic, *adk.Bedrock, *adk.Foundry:
+		return true
+	default:
+		return false
+	}
 }
 
 func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
@@ -304,11 +337,24 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 
-	case *adk.Ollama:
-		baseURL := os.Getenv("OLLAMA_API_BASE")
-		if baseURL == "" {
-			baseURL = "http://localhost:11434"
+	case *adk.Mistral:
+		cfg := &models.MistralConfig{
+			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout),
+			Model:           m.Model,
+			BaseUrl:         m.BaseUrl,
+			MaxTokens:       m.MaxTokens,
+			Temperature:     m.Temperature,
+			TopP:            m.TopP,
+			Timeout:         m.Timeout,
 		}
+		return models.NewMistralModel(ctx, cfg)
+
+	case *adk.Ollama:
+		// Leave the host empty when the controller did not set one: NewOllamaModel
+		// then applies the cloud/local routing. Defaulting it to localhost here
+		// would look like an operator-chosen endpoint and pin every cloud model
+		// to the local daemon.
+		baseURL := os.Getenv("OLLAMA_API_BASE")
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultOllamaModel
@@ -318,7 +364,9 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
 			Model:           modelName,
 			Host:            baseURL,
-			Options:         m.Options,
+			// The environment holds only the gateway credential placeholder.
+			APIKey:  os.Getenv("OLLAMA_API_KEY"),
+			Options: m.Options,
 		}
 		return models.NewOllamaModel(ctx, cfg)
 

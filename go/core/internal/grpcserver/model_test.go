@@ -11,7 +11,6 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -61,7 +60,6 @@ func TestModelServiceCRUD(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	server, err := New(Config{
 		Listener:      listener,
-		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
 		SystemService: testSystemService(),
 		ModelService:  service,
@@ -166,9 +164,10 @@ func TestModelServiceCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSupportedModelProviders() error = %v", err)
 	}
-	if len(modelProviders.GetProviders()) != 10 ||
+	if len(modelProviders.GetProviders()) != 11 ||
 		modelProviders.GetProviders()[0].GetName() != "OpenAI" ||
-		modelProviders.GetProviders()[3].GetName() != "Foundry" {
+		modelProviders.GetProviders()[3].GetName() != "Foundry" ||
+		modelProviders.GetProviders()[10].GetName() != "Mistral" {
 		t.Fatalf("ListSupportedModelProviders() = %+v", modelProviders.GetProviders())
 	}
 
@@ -203,7 +202,7 @@ func TestModelServiceCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSupportedModels() error = %v", err)
 	}
-	if len(supportedModels.GetProviders()) != 10 ||
+	if len(supportedModels.GetProviders()) != 11 ||
 		supportedModels.GetProviders()[0].GetProvider() != "OpenAI" ||
 		supportedModels.GetProviders()[0].GetModels()[0].GetName() != "gpt-5.6-terra" ||
 		supportedModels.GetProviders()[3].GetProvider() != "Foundry" {

@@ -13,7 +13,6 @@ func TestOwnsEnvironment(t *testing.T) {
 	for _, name := range []string{
 		AnthropicAPIKeyEnvName,
 		ClaudeConfigDirEnvName,
-		PreResponseTraceFlushEnvName,
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
 		"OTEL_TRACES_EXPORTER",
 		"OTEL_LOG_RAW_API_BODIES",

@@ -11,16 +11,6 @@ from kagent.core.a2a import _consts as local
 # Each tuple is (constant_name, local_value, upstream_value).
 _SYNCED_CONSTANTS = [
     (
-        "A2A_DATA_PART_METADATA_TYPE_KEY",
-        local.A2A_DATA_PART_METADATA_TYPE_KEY,
-        upstream.A2A_DATA_PART_METADATA_TYPE_KEY,
-    ),
-    (
-        "A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY",
-        local.A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
-        upstream.A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
-    ),
-    (
         "A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL",
         local.A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
         upstream.A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,

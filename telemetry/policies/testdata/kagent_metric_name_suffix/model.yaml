@@ -1,0 +1,9 @@
+file_format: definition/2
+metrics:
+  - name: kagent.requests_total
+    requirement_level: recommended
+    instrument: counter
+    unit: "{request}"
+    brief: A metric with a unit suffix.
+    stability: development
+    attributes: []

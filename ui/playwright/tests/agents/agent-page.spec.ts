@@ -269,7 +269,7 @@ test("agents: an agent links to its template, and a conversation links up to its
     // Said on the page, because it is the thing a reader gets wrong: editing the
     // template reaches every agent cut from it, not only this one.
     await expect(page.getByTestId("agent-identity-note")).toContainText(
-      "every agent cut from it",
+      "Referenced templates and Harnesses can be shared",
     );
   });
 
@@ -295,10 +295,6 @@ test("agents: an agent links to its template, and a conversation links up to its
     await expect(page.getByTestId("instance-agent-link")).toHaveAttribute(
       "href",
       agentPage(agents.k8s),
-    );
-    await expect(page.getByTestId("instance-template-link")).toHaveAttribute(
-      "href",
-      `/agent-templates/kagent/${agents.k8s.template}`,
     );
   });
 });
@@ -420,65 +416,18 @@ test("agents: a conversation is created by its first message, not by the click",
   });
 });
 
-test("agents: deleting an agent says what goes with it, and takes both halves", async ({
-  page,
-}) => {
-  /*
-   * There is nothing to delete called "an agent".
-   *
-   * An agent is a (template, harness) pair, and the pair is *derived* — the controller
-   * materialises it from admission and retires it when the labels stop matching. So
-   * deleting an agent means deleting its template, which retires the pair and stops new
-   * conversations, plus the conversations already open, which are separate rows that
-   * outlive it and would otherwise be left running against a retired pair with nothing
-   * describing them.
-   *
-   * The order matters and is asserted by the outcome rather than by spying: the
-   * conversations go first, because a conversation whose pair is already retired still
-   * runs and would be stranded.
-   */
+test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
-  await test.step("1. the prompt counts what will be destroyed", async () => {
-    await page.getByTestId(`delete-${agents.k8s.template} on ${agents.k8s.harness}`).click();
-    const consequence = page.getByTestId("agent-delete-consequence");
-    await expect(consequence).toBeVisible();
-    // Counted, not "some": a reader deciding this needs to know whether they are
-    // throwing away one conversation or thirty.
-    await expect(consequence).toContainText("of your conversations will be deleted");
-    // And split, because the two halves have different outcomes. An instance is scoped
-    // to its creator on write as well as read, so somebody else's cannot be deleted
-    // from here and keeps running — saying so is what stops "delete agent" reading as
-    // a promise it cannot keep.
-    await expect(consequence).toContainText("cannot be deleted from here");
-    // And what happens to the agent itself, which depends on whether anything is left.
-    // These fixtures include conversations started by somebody else, so the mapping
-    // stays: deleting it would retire the pair and leave those running with nothing
-    // describing them, which is not ours to do to tidy up an agent they did not ask to
-    // delete.
-    await expect(consequence).toContainText("the agent stays");
-    // And why it matters beyond tidiness.
-    await expect(consequence).toContainText("releases the workers");
-  });
-
-  await test.step("2. confirming removes this reader's conversations", async () => {
-    /*
-     * The same `DeleteResourceButton` every resource spec drives, so the same helper for
-     * finding its prompt: `confirmation` scopes to the open one, because every row
-     * carries a delete and an unscoped match answers a prompt nobody is looking at.
-     *
-     * Pressed once it has stopped arriving — a popconfirm zooms in like a modal, and a
-     * click computed mid-animation lands where the button no longer is. Once rather than
-     * until it takes: a retry would go out after the prompt closed, onto the list under
-     * it.
-     */
-    await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
-    await page.waitForURL(/\/agents(\?|$)/, { timeout: 30_000 });
-    await expectSettled(page);
-    // The agent is still listed, because somebody else's conversations are still under
-    // it. It goes when nothing is.
-    await expect(rowNamed(page, agents.k8s.template)).toHaveCount(1, { timeout: 30_000 });
-  });
+  await page.getByTestId(`delete-${agents.k8s.name}`).click();
+  await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
+  await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
+  await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});
+  await expect(rowNamed(page, agents.k8s.name)).toHaveCount(0);
+  await loadPage(page, `/agent-templates/kagent/${agents.k8s.template}`);
+  await expect(page.getByTestId("template-edit")).toBeVisible();
+  await loadPage(page, `/agents/${instances.ready}/chat`);
+  await expect(page.getByTestId("chat-input")).toBeVisible();
 });
 
 test("agents: conversations can be picked and deleted together from the table too", async ({

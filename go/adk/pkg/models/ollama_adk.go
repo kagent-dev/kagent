@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/ollama/ollama/api"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
@@ -48,9 +47,6 @@ func (m *OllamaModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		if req.Config != nil && len(req.Config.Tools) > 0 {
 			tools = convertGenaiToolsToOllama(req.Config.Tools)
 		}
-
-		// Set telemetry attributes
-		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		if stream {
 			m.generateStreaming(ctx, modelName, messages, tools, options, yield)
@@ -235,7 +231,6 @@ func (m *OllamaModel) generateNonStreaming(ctx context.Context, modelName string
 		FinishReason:  finishReason,
 		UsageMetadata: usageMetadata,
 	}
-	telemetry.SetLLMResponseAttributes(ctx, response)
 	yield(response, nil)
 }
 

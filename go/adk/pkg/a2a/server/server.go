@@ -19,11 +19,15 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/stats"
 
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -44,6 +48,7 @@ type ServerConfig struct {
 	// Telemetry is the compiler-owned identity every invocation span reports.
 	// Request identity is added by whichever component resolves it, never here.
 	Telemetry tracing.RuntimeTelemetry
+	Flush     func(context.Context) error
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
@@ -59,11 +64,8 @@ type A2AServer struct {
 
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
-	flushBeforeResponse := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
-	// The invocation span anchors identity whether or not the deployment needs
-	// a pre-response flush. It is a no-op span when tracing is disabled.
 	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
-		newInvocationInterceptor(logger, config.Telemetry, flushBeforeResponse)))
+		newInvocationInterceptor(logger, config.Telemetry, config.Flush)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
@@ -89,20 +91,16 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(rpcEndSignal{otelgrpc.NewServerHandler(
+		otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))}))
 	a2agrpc.NewHandler(requestHandler).RegisterWith(grpcServer)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus(a2apb.A2AService_ServiceDesc.ServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	handlerMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-			return
-		}
-		mux.ServeHTTP(w, r)
-	})
-	// Health and agent-card requests are neither traced nor flushed; only A2A
-	// requests get an inbound server span and a span flush.
+	isGRPC := func(r *http.Request) bool {
+		return r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc")
+	}
+	// Health and agent-card requests are neither traced nor flushed.
 	isA2ARequest := func(r *http.Request) bool {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
@@ -113,27 +111,43 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 			return true
 		}
 	}
-	// Wrap the whole server mux to enable trace context extraction and an inbound
-	// HTTP server span for each request.
-	instrumentedHandler := otelhttp.NewHandler(
-		handlerMux,
-		"a2a-server",
-		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-			return r.Method + " " + r.URL.Path
-		}),
-		otelhttp.WithFilter(isA2ARequest),
-	)
+	// gRPC calls get their SERVER span from otelgrpc, so otelhttp sees only
+	// the JSON-RPC and HTTP paths.
+	httpHandler := otelhttp.NewHandler(mux, "a2a-server", otelhttp.WithFilter(isA2ARequest))
+	routed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isGRPC(r) {
+			grpcServer.ServeHTTP(w, r)
+			return
+		}
+		httpHandler.ServeHTTP(w, r)
+	})
 	// Flush again on handler return for errors and non-quiescent responses.
 	// Quiescent events must flush earlier: the gateway may suspend or pause
 	// the actor immediately upon receiving the event, before HTTP body close.
-	handler := http.Handler(instrumentedHandler)
-	if flushBeforeResponse {
+	handler := http.Handler(routed)
+	if config.Flush != nil {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			instrumentedHandler.ServeHTTP(w, r)
-			if isA2ARequest(r) {
-				if err := tracing.ForceFlush(r.Context()); err != nil {
-					logger.ErrorContext(r.Context(), "failed to flush traces after A2A handler", "error", err)
+			if !isA2ARequest(r) {
+				routed.ServeHTTP(w, r)
+				return
+			}
+			// One flush record per request: after the quiescent flush fails, the
+			// handler-return flush is skipped, so the stream ends without a second
+			// flush budget and the gateway's drain stays short.
+			ended := make(chan struct{})
+			r = r.WithContext(context.WithValue(telemetry.WithFlushRecord(r.Context()), rpcEndedKey{}, ended))
+			routed.ServeHTTP(w, r)
+			// grpc-go returns from ServeHTTP before the stream goroutine runs
+			// stats.End, where otelgrpc ends the SERVER span. The response is
+			// finished only when this handler returns, so wait for it here.
+			if isGRPC(r) {
+				select {
+				case <-ended:
+				case <-time.After(rpcEndWait):
 				}
+			}
+			if err := config.Flush(r.Context()); err != nil {
+				logger.ErrorContext(r.Context(), "failed to flush traces after A2A handler", "error", err)
 			}
 		})
 	}
@@ -165,6 +179,25 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		logger:       logger,
 		config:       config,
 	}, nil
+}
+
+// rpcEndWait bounds the wait for stats.End, for a call that never starts a
+// stream and so never ends one.
+const rpcEndWait = 500 * time.Millisecond
+
+type rpcEndedKey struct{}
+
+// rpcEndSignal closes the request's channel once the wrapped handler has
+// processed stats.End.
+type rpcEndSignal struct{ stats.Handler }
+
+func (h rpcEndSignal) HandleRPC(ctx context.Context, rpcStats stats.RPCStats) {
+	h.Handler.HandleRPC(ctx, rpcStats)
+	if _, ok := rpcStats.(*stats.End); ok {
+		if ended, _ := ctx.Value(rpcEndedKey{}).(chan struct{}); ended != nil {
+			close(ended)
+		}
+	}
 }
 
 func getMaxContentLength(logger *slog.Logger) *int64 {
@@ -208,14 +241,25 @@ func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handle
 func (s *A2AServer) Start() error {
 	s.logger.Info("starting Go ADK server!", "addr", s.httpServer.Addr)
 
-	s.listenErr = make(chan error, 1)
+	// Substrate may snapshot immediately after /readyz succeeds. Bind A2A
+	// before exposing readiness so that snapshot always contains its listener.
+	listener, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return fmt.Errorf("listen for A2A: %w", err)
+	}
+	ready, err := net.Listen("tcp", s.readyServer.Addr)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("listen for readiness: %w", err)
+	}
+	s.listenErr = make(chan error, 2)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.listenErr <- err
 		}
 	}()
 	go func() {
-		if err := s.readyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.readyServer.Serve(ready); err != nil && err != http.ErrServerClosed {
 			s.listenErr <- err
 		}
 	}()

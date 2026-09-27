@@ -19,6 +19,7 @@
  */
 
 import { Code, ConnectError } from "@connectrpc/connect";
+import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 
 export type ApiErrorKind =
   /** The server answered with a failure — a non-2xx status, or a gRPC error code. */
@@ -36,6 +37,8 @@ export class ApiError extends Error {
   readonly status?: number;
   /** The gRPC code's name (`NotFound`, `PermissionDenied`, …), when there was one. */
   readonly code?: string;
+  /** Stable server reason when the RPC supplies google.rpc.ErrorInfo. */
+  readonly reason?: string;
   /**
    * What was called, to make a failure traceable.
    *
@@ -53,6 +56,7 @@ export class ApiError extends Error {
       url: string;
       status?: number;
       code?: string;
+      reason?: string;
       cause?: unknown;
     },
   ) {
@@ -61,6 +65,7 @@ export class ApiError extends Error {
     this.kind = options.kind;
     this.status = options.status;
     this.code = options.code;
+    this.reason = options.reason;
     this.url = options.url;
   }
 
@@ -130,6 +135,7 @@ export function fromConnectError(error: unknown, rpc: string): ApiError {
       kind: kindOf(error.code),
       status: STATUS_BY_CODE[error.code] ?? 500,
       code: Code[error.code],
+      reason: error.findDetails(ErrorInfoSchema).find((info) => info.domain === "kagent.dev")?.reason,
       url: rpc,
       cause: error,
     });

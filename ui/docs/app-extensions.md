@@ -42,7 +42,7 @@ cover everything:
 | | Rule |
 |---|---|
 | `navItems`, `routes`, `formFields`, `tableColumns`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
-| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
+| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `chatPartRenderers`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
 
 So list the extension whose opinion should prevail **last**.
 
@@ -176,10 +176,15 @@ agentRailOverrides: {
 }
 ```
 
-`agent` is the conversation the rail is drawn beside, when there is one. It is absent
+`instance` is the conversation the rail is drawn beside, when there is one. It is absent
 on the agent's own page and on a new conversation, so an entry that needs an address
 should derive it and render nothing when it cannot — which is what the application's
 own entries do when their destination cannot be derived.
+
+`agent` carries the runnable Agent's `namespace` and optional `name`, including on
+Agent and new-chat pages with no conversation open. An entry that links to the
+Agent definition should check `agent?.name`; template and Harness choices do not
+change that identity.
 
 An override's `path` lands on the entry's `to`; the rail renders its links itself, so
 that is the same idea under the name the rail uses for it. `hidden` also suppresses
@@ -199,17 +204,17 @@ page reached from a rail entry does not get the rail for free. Mount it:
 import { AgentRail, useAgentConversations, useAgentInstance } from "@/appExtensions";
 
 const instance = useAgentInstance(id);
-const conversations = useAgentConversations(namespace, agentTemplate, harness);
+const conversations = useAgentConversations(namespace, agentName);
 
 <AgentRail
-  agentRef={{ id }}
+  instanceRef={{ id }}
   instance={instance.data}
   instances={{ ...conversations, data: conversations.data?.all ?? [] }}
 />
 ```
 
 The rail takes the open conversation and its siblings rather than reading them, because
-every surface mounting it already lists them. Pass `agentTitle` and `agentPair` too when
+every surface mounting it already lists them. Pass `agentTitle` and `agentRef` too when
 no conversation is open, or the identity card has nothing to name. The contributed entry
 stays lit while its own page is showing, as any core entry would.
 
@@ -523,6 +528,26 @@ branding: {
 A replacement owns the region completely, **including rendering the
 application's own navigation** — which is why it is handed `coreNavItems` rather
 than keeping a copy that drifts as pages are added.
+
+## Chat message parts
+
+`chatPartRenderers` replaces the component that draws one part of a chat message.
+Keys are the part's `kind` (`text`, `tool_approval`, `ask_user`), or the
+`dataKind` for a data part (`tool_call`, `tool_result`, `tool_not_run`,
+`structured_output`, `unknown`). A key you leave out keeps the core renderer.
+The keys come from the part types themselves, so a new kind is overridable as
+soon as it exists.
+
+```tsx
+chatPartRenderers: {
+  // part is typed as a text part; role, messageId, taskId and sessionId describe the turn.
+  text: ({ part, role }) => (role === "agent" ? <MyProse text={part.text} /> : <p>{part.text}</p>),
+  structured_output: MyJsonViewer,
+}
+```
+
+The replacement owns the part completely, bubble included. Empty text parts are
+not rendered at all, so a `text` renderer never sees a reply before it has words.
 
 ## App-level providers
 

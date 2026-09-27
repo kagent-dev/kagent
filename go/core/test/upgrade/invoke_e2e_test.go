@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const invokeE2ETest = "^TestAgentInstanceInteraction$"
+const invokeE2ETest = "^TestSessionInteraction$"
 
 func checkoutPreviousRelease(t *testing.T, env upgradeEnv) string {
 	t.Helper()
@@ -62,7 +62,7 @@ func runInvokeE2E(t *testing.T, env upgradeEnv, treeGoDir, label string) {
 
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "[%s] invoke e2e slice (%s) failed:\n%s", label, treeGoDir, string(out))
-	require.Contains(t, string(out), "--- PASS: TestAgentInstanceInteraction",
+	require.Contains(t, string(out), "--- PASS: TestSessionInteraction",
 		"[%s] selected invoke test did not run:\n%s", label, string(out))
 }
 

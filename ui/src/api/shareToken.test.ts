@@ -5,7 +5,7 @@ import type { ApiCallId, ApiRequestContext } from "./extensionPoints";
 const context = (endpoint: ApiCallId, message?: unknown): ApiRequestContext => ({
   endpoint,
   method: "POST",
-  url: "/api/kagent.api.v1alpha1.AgentInstanceService/GetAgentInstance",
+  url: "/api/kagent.api.v1alpha1.SessionService/GetSession",
   headers: { Accept: "application/grpc-web+proto" },
   message,
 });
@@ -20,7 +20,7 @@ const header = (endpoint: ApiCallId, message?: unknown) =>
 
 describe("withInstanceShareToken", () => {
   it("attaches the token to reads and allowed lifecycle calls for its instance", () => {
-    const message = { agentInstanceId: "instance-1" };
+    const message = { sessionId: "instance-1" };
     expect(header("agentInstances.get", message)).toBe("tok-abc");
     expect(header("agentInstances.suspend", message)).toBe("tok-abc");
     expect(header("agentInstances.resume", message)).toBe("tok-abc");
@@ -29,13 +29,13 @@ describe("withInstanceShareToken", () => {
   it("does not attach the token to another instance", () => {
     expect(
       header("agentInstances.get", {
-        agentInstanceId: "instance-2",
+        sessionId: "instance-2",
       }),
     ).toBeUndefined();
   });
 
   it("does not attach the token to destructive or unrelated operations", () => {
-    const message = { agentInstanceId: "instance-1" };
+    const message = { sessionId: "instance-1" };
     expect(header("agentInstances.delete", message)).toBeUndefined();
     expect(header("models.list", {})).toBeUndefined();
   });
@@ -43,7 +43,7 @@ describe("withInstanceShareToken", () => {
   it("preserves existing headers", () => {
     const result = withInstanceShareToken(
       context("agentInstances.get", {
-        agentInstanceId: "instance-1",
+        sessionId: "instance-1",
       }),
 
       "instance-1",

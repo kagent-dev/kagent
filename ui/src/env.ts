@@ -24,6 +24,8 @@ export interface EnvironmentVariables {
   STREAM_TIMEOUT_MS: string;
   /** `"true"` serves the whole API from in-browser fixtures. */
   ENABLE_MOCK_UI: string;
+  /** Public path prefix the UI is served under, e.g. `/ui`; empty at the root. */
+  BASE_PATH: string;
 }
 
 /**
@@ -43,6 +45,7 @@ export const CORE_ENV_KEYS = [
   "SSO_REDIRECT_PATH",
   "STREAM_TIMEOUT_MS",
   "ENABLE_MOCK_UI",
+  "BASE_PATH",
 ] as const satisfies readonly (keyof EnvironmentVariables)[];
 
 /**
@@ -55,6 +58,7 @@ export const ENV_DEFAULTS: EnvironmentVariables = {
   SSO_REDIRECT_PATH: "/oauth2/start",
   STREAM_TIMEOUT_MS: "1800000",
   ENABLE_MOCK_UI: "false",
+  BASE_PATH: "",
 };
 
 declare global {
@@ -115,4 +119,9 @@ export function envFlag(key: keyof EnvironmentVariables): boolean {
 export function envIsSet(key: keyof EnvironmentVariables): boolean {
   const value = raw()[key];
   return typeof value === "string" && value.length > 0;
+}
+
+/** Prefixes a root-relative path with `BASE_PATH`; absolute URLs pass through. */
+export function withBasePath(url: string): string {
+  return url.startsWith("/") && !url.startsWith("//") ? `${env("BASE_PATH")}${url}` : url;
 }

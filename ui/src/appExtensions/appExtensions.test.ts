@@ -7,6 +7,7 @@ import {
   defineExtensionFormField,
   extensionAgentLinks,
   extensionBranding,
+  extensionChatPartRenderers,
   extensionFormFields,
   extensionNavItems,
   extensionNavOverrides,
@@ -381,6 +382,17 @@ describe("composing several installed extensions", () => {
 
     expect(Object.keys(icons).sort()).toEqual(["Anthropic", "OpenAI"]);
     expect(icons.OpenAI).not.toBe(noopComponent);
+  });
+
+  it("merges chat part renderers, later extensions replacing a shared key", () => {
+    const later = () => null;
+    const renderers = extensionChatPartRenderers([
+      extension("a", { chatPartRenderers: { text: noopComponent, tool_call: noopComponent } }),
+      extension("b", { chatPartRenderers: { text: later } }),
+    ]);
+
+    expect(Object.keys(renderers).sort()).toEqual(["text", "tool_call"]);
+    expect(renderers.text).toBe(later);
   });
 
   /*

@@ -3,8 +3,8 @@
  *
  * ## The property that matters most here
  *
- * **An edit must not delete what the form does not show.** `AgentTemplateSpec` has
- * eight fields and this form authors five of them; `skills`, `plugins` and
+ * **An edit must not delete what the form does not show.** This form authors the
+ * common interactive fields; `skills`, `plugins` and
  * `promptTemplate` are rich enough — three artifact-source shapes, each with its own
  * strict CEL pattern — that authoring them is its own piece of work.
  *
@@ -34,7 +34,7 @@ export interface McpToolDraft {
 }
 
 /** One sub-agent binding, flattened for a form to hold. */
-export interface AgentToolDraft {
+export interface SubAgentToolDraft {
   /** What the parent calls this tool. */
   name: string;
   /** When the parent should route work to it — the CRD requires this. */
@@ -47,6 +47,9 @@ export interface AgentToolDraft {
 /** Where the system prompt comes from. The CRD rejects both at once. */
 export type PromptSource = "inline" | "configMap";
 
+/** Whether terminal output is prose or constrained by a JSON Schema. */
+export type OutputSource = "text" | "inline" | "configMap";
+
 export interface AgentTemplateDraft {
   name: string;
   namespace: string;
@@ -57,16 +60,14 @@ export interface AgentTemplateDraft {
   systemPrompt: string;
   systemPromptConfigMap: string;
   systemPromptKey: string;
+  outputSource: OutputSource;
+  /** Pretty-printed JSON while loaded; kept as text so incomplete edits remain editable. */
+  outputSchema: string;
+  outputSchemaConfigMap: string;
+  outputSchemaKey: string;
   mcpTools: McpToolDraft[];
-  agentTools: AgentToolDraft[];
-  /**
-   * The labels admission is decided by.
-   *
-   * Not decoration: a `Harness` admits templates through a label selector, and the
-   * CRD says a harness with no selector admits none. A template whose labels match
-   * nothing reaches no prepared revision and can never become an agent — so this is
-   * the field that decides whether the template is usable at all.
-   */
+  subAgentTools: SubAgentToolDraft[];
+
   labels: { key: string; value: string }[];
 }
 
@@ -80,8 +81,12 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
     systemPrompt: "",
     systemPromptConfigMap: "",
     systemPromptKey: "",
+    outputSource: "text",
+    outputSchema: "",
+    outputSchemaConfigMap: "",
+    outputSchemaKey: "",
     mcpTools: [],
-    agentTools: [],
+    subAgentTools: [],
     labels: [],
   };
 }
@@ -103,6 +108,16 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
     systemPrompt: spec.systemPrompt ?? "",
     systemPromptConfigMap: spec.systemPromptFrom?.name ?? "",
     systemPromptKey: spec.systemPromptFrom?.key ?? "",
+    outputSource: spec.outputSchemaFrom
+      ? "configMap"
+      : spec.outputSchema
+        ? "inline"
+        : "text",
+    outputSchema: spec.outputSchema
+      ? JSON.stringify(spec.outputSchema, null, 2)
+      : "",
+    outputSchemaConfigMap: spec.outputSchemaFrom?.name ?? "",
+    outputSchemaKey: spec.outputSchemaFrom?.key ?? "",
     mcpTools: tools
       .filter((binding) => binding.mcp)
       .map((binding) => ({
@@ -110,13 +125,13 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
         tools: [...(binding.mcp?.tools ?? [])],
         requireApproval: binding.mcp?.requireApproval,
       })),
-    agentTools: tools
-      .filter((binding) => binding.agent)
+    subAgentTools: tools
+      .filter((binding) => binding.subAgent)
       .map((binding) => ({
-        name: binding.agent?.name ?? "",
-        description: binding.agent?.description ?? "",
-        templateName: binding.agent?.templateRef.name ?? "",
-        isolation: binding.agent?.isolation ?? "Shared",
+        name: binding.subAgent?.name ?? "",
+        description: binding.subAgent?.description ?? "",
+        templateName: binding.subAgent?.templateRef.name ?? "",
+        isolation: binding.subAgent?.isolation ?? "Shared",
       })),
     labels: Object.entries(template.resource.metadata.labels ?? {}).map(
       ([key, value]) => ({ key, value }),
@@ -149,12 +164,12 @@ export function specFromDraft(
           ...(tool.requireApproval ? { requireApproval: true } : {}),
         },
       })),
-    ...draft.agentTools
+    ...draft.subAgentTools
       .filter(
         (tool) => tool.name.trim() !== "" && tool.templateName.trim() !== "",
       )
       .map((tool) => ({
-        agent: {
+        subAgent: {
           name: tool.name.trim(),
           description: tool.description.trim(),
           templateRef: { name: tool.templateName.trim() },
@@ -166,8 +181,10 @@ export function specFromDraft(
   const spec: AgentTemplateSpec = {
     // Everything the form does not model, carried over untouched.
     ...(existing ?? {}),
-    modelConfig: { name: draft.modelConfig.trim() },
   };
+  const model = draft.modelConfig.trim();
+  if (model === "") delete spec.modelConfig;
+  else spec.modelConfig = { name: model };
 
   setOrDelete(spec, "description", draft.description.trim());
 
@@ -188,6 +205,23 @@ export function specFromDraft(
   } else {
     delete spec.systemPromptFrom;
     setOrDelete(spec, "systemPrompt", draft.systemPrompt.trim());
+  }
+
+
+  if (draft.outputSource === "configMap") {
+    delete spec.outputSchema;
+    const name = draft.outputSchemaConfigMap.trim();
+    const key = draft.outputSchemaKey.trim();
+    if (name && key) spec.outputSchemaFrom = { name, key };
+    else delete spec.outputSchemaFrom;
+  } else if (draft.outputSource === "inline") {
+    delete spec.outputSchemaFrom;
+    const schema = parseOutputSchema(draft.outputSchema);
+    if (schema) spec.outputSchema = schema;
+    else delete spec.outputSchema;
+  } else {
+    delete spec.outputSchema;
+    delete spec.outputSchemaFrom;
   }
 
   // An empty list is removed rather than sent: `tools: []` and no `tools` mean the
@@ -227,10 +261,6 @@ export function draftProblems(
   if (draft.namespace.trim() === "") {
     problems.push("A namespace is required.");
   }
-  if (draft.modelConfig.trim() === "") {
-    // The one genuinely required spec field.
-    problems.push("A model configuration is required — every template must name one.");
-  }
   if (draft.promptSource === "configMap") {
     const name = draft.systemPromptConfigMap.trim();
     const key = draft.systemPromptKey.trim();
@@ -240,7 +270,29 @@ export function draftProblems(
       );
     }
   }
-  for (const tool of draft.agentTools) {
+  if (draft.outputSource === "configMap") {
+    const name = draft.outputSchemaConfigMap.trim();
+    const key = draft.outputSchemaKey.trim();
+    if (name === "" || key === "") {
+      problems.push(
+        "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
+      );
+    }
+  }
+  if (draft.outputSource === "inline") {
+    const text = draft.outputSchema.trim();
+    if (text === "") {
+      problems.push("An inline output schema is required.");
+    } else {
+      const schema = parseOutputSchema(text);
+      if (!schema) {
+        problems.push("The inline output schema must be a valid JSON object.");
+      } else if (schema.type !== "object") {
+        problems.push('The output schema must have "type": "object" at its root.');
+      }
+    }
+  }
+  for (const tool of draft.subAgentTools) {
     if (tool.name.trim() !== "" && tool.description.trim() === "") {
       problems.push(
         `The sub-agent tool "${tool.name.trim()}" needs a description — it is what tells the parent when to use it.`,
@@ -254,6 +306,19 @@ export function draftProblems(
 function bareName(ref: string): string {
   const slash = ref.lastIndexOf("/");
   return slash === -1 ? ref : ref.slice(slash + 1);
+}
+
+/** Parses only the object-valued JSON shape the public API accepts. */
+function parseOutputSchema(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    return value as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -91,8 +91,8 @@ successful `authenticated` result.
   the server-side `SSO_REDIRECT_PATH`. `AuthContext` (a client component) reads the
   client-exposed `NEXT_PUBLIC_SSO_REDIRECT_PATH`; both default to `/oauth2/start`
   and the Helm chart injects both from `ui.auth.ssoRedirectPath`.
-- `docs/OIDC_PROXY_AUTH_ARCHITECTURE.md` — documents the three states and the
-  re-auth flow.
+- [OIDC proxy authentication](../docs/architecture/oidc-proxy-authentication.md)
+  documents the current session states and re-authentication flow.
 
 ### Configuration
 

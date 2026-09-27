@@ -86,14 +86,14 @@ func TestOptionsResolve(t *testing.T) {
 	}
 }
 
-func TestLeaderElectionDefaultsOnWithLocalOptOut(t *testing.T) {
+func TestLeaderElectionConfiguration(t *testing.T) {
 	t.Setenv("LEADER_ELECT", "")
 	if !kagentenv.LeaderElect.Get() {
 		t.Fatal("leader election must default to enabled")
 	}
 	t.Setenv("LEADER_ELECT", "false")
 	if kagentenv.LeaderElect.Get() {
-		t.Fatal("local testing must be able to disable leader election")
+		t.Fatal("an explicit false must be preserved for startup validation")
 	}
 }
 

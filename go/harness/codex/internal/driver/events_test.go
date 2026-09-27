@@ -2,6 +2,7 @@ package driver
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -98,5 +99,94 @@ func TestApprovalToolCorrelatesActiveCall(t *testing.T) {
 	translator.tools["copy"] = activeTool{name: "protected.copy", server: "protected", arguments: map[string]any{"path": "source"}}
 	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "source"}); err == nil {
 		t.Fatal("approvalTool() accepted ambiguous active calls")
+	}
+}
+
+func TestTranslateChildNotifications(t *testing.T) {
+	for _, method := range []string{"item/started", "item/completed", "item/agentMessage/delta", "turn/completed"} {
+		t.Run(method, func(t *testing.T) {
+			translator := newEventTranslator("parent", "turn")
+			translator.tools["active"] = activeTool{name: "Agent"}
+			sink := &recordingSink{}
+			outcome, done, err := translator.translate(rpcMessage{
+				Method: method,
+				Params: json.RawMessage(`{"threadId":"child","turnId":"child-turn","itemId":"message","delta":"private child answer","item":{"type":"commandExecution","id":"active","command":"pwd","status":"completed"},"turn":{"id":"child-turn","status":"failed"}}`),
+			}, sink)
+			if err != nil || done || outcome.Failure != nil || outcome.Pending != nil {
+				t.Fatalf("child notification: outcome=%#v done=%t error=%v", outcome, done, err)
+			}
+			if sink.text.Len() != 0 || len(sink.calls) != 0 || len(sink.results) != 0 || len(translator.tools) != 1 {
+				t.Fatalf("child notification changed parent state: sink=%#v tools=%#v", sink, translator.tools)
+			}
+		})
+	}
+}
+
+func TestTranslateRejectsInvalidParentIdentity(t *testing.T) {
+	for _, method := range []string{"item/started", "item/completed", "item/agentMessage/delta", "turn/completed"} {
+		for _, test := range []struct {
+			name   string
+			params string
+		}{
+			{name: "missing thread", params: `{"turnId":"turn","itemId":"message","turn":{"id":"turn","status":"completed"}}`},
+			{name: "wrong turn", params: `{"threadId":"parent","turnId":"wrong","itemId":"message","turn":{"id":"wrong","status":"completed"}}`},
+			{name: "missing turn", params: `{"threadId":"parent","itemId":"message","turn":{"status":"completed"}}`},
+			{name: "malformed params", params: `{"threadId":123}`},
+		} {
+			t.Run(method+"/"+test.name, func(t *testing.T) {
+				translator := newEventTranslator("parent", "turn")
+				_, done, err := translator.translate(rpcMessage{Method: method, Params: json.RawMessage(test.params)}, &recordingSink{})
+				if err == nil || done {
+					t.Fatalf("invalid parent notification: done=%t error=%v", done, err)
+				}
+			})
+		}
+	}
+	_, _, err := newEventTranslator("parent", "turn").translate(rpcMessage{
+		Method: "item/agentMessage/delta", Params: json.RawMessage(`{"threadId":"parent","turnId":"turn","delta":"missing item ID"}`),
+	}, &recordingSink{})
+	if err == nil {
+		t.Fatal("accepted parent text delta without an item ID")
+	}
+}
+
+func TestRejectBufferedPostTerminalActivity(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		method  string
+		params  string
+		wantErr string
+	}{
+		{name: "child item", method: "item/started", params: `{"threadId":"child"}`},
+		{name: "child delta", method: "item/agentMessage/delta", params: `{"threadId":"child"}`},
+		{name: "child turn", method: "turn/started", params: `{"threadId":"child"}`},
+		{name: "child terminal", method: "turn/completed", params: `{"threadId":"child"}`},
+		{name: "parent terminal", method: "turn/completed", params: `{"threadId":"parent"}`, wantErr: "duplicate terminal event"},
+		{name: "parent activity", method: "item/started", params: `{"threadId":"parent"}`, wantErr: "activity after its terminal event"},
+		{name: "missing thread", method: "item/started", params: `{}`, wantErr: "activity after its terminal event"},
+		{name: "malformed identity", method: "item/started", params: `{"threadId":123}`, wantErr: "decode"},
+		{name: "additive notification", method: "account/updated", params: `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			frames := make(chan rpcFrame, 2)
+			// Ignoring a child's completion must not hide a later parent violation.
+			frames <- rpcFrame{message: rpcMessage{Method: "turn/completed", Params: json.RawMessage(`{"threadId":"child"}`)}}
+			frames <- rpcFrame{message: rpcMessage{Method: test.method, Params: json.RawMessage(test.params)}}
+			close(frames)
+			err := newEventTranslator("parent", "turn").rejectBufferedPostTerminalActivity(frames)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+	frames := make(chan rpcFrame, 1)
+	wantErr := errors.New("broken protocol stream")
+	frames <- rpcFrame{err: wantErr}
+	if err := newEventTranslator("parent", "turn").rejectBufferedPostTerminalActivity(frames); !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
 	}
 }

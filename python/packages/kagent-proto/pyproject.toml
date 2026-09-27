@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "Generated protobuf and gRPC contracts used by kagent Python runtimes"
 requires-python = ">=3.11"
 dependencies = [
-  "a2a-sdk>=1.1.0,<2",
+  "a2a-sdk>=1.1.5,<2",
   "grpcio>=1.83.0",
   "protobuf>=6.33.5,<7",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent"]
+packages = ["src/kagent", "src/buf"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/a2a_pb2.py" = "a2a_pb2.py"

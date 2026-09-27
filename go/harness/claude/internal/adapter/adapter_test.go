@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestNewMaterializesDurableDirectories(t *testing.T) {
@@ -79,7 +81,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		}
 	}
 	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
-		t.Fatalf("arguments do not expose materialized skills to bare mode: %s", args)
+		t.Fatalf("arguments do not expose materialized skills: %s", args)
 	}
 }
 
@@ -135,7 +137,6 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	}
 	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
 	for _, required := range []string{
-		"--bare",
 		"--setting-sources\n\n",
 		"--settings\n" + filepath.Join(ephemeralDir, "settings.json"),
 		"--dangerously-skip-permissions",
@@ -145,7 +146,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 			t.Fatalf("approval arguments do not contain %q: %s", required, args)
 		}
 	}
-	for _, forbidden := range []string{"--permission-mode", "dontAsk"} {
+	for _, forbidden := range []string{"--bare", "--permission-mode", "dontAsk"} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("approval arguments contain %q: %s", forbidden, args)
 		}
@@ -187,5 +188,54 @@ func TestSetEnvironmentOverridesExistingValue(t *testing.T) {
 	want := []string{"B=3", "A=4"}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("setEnvironment() = %v, want %v", got, want)
+	}
+}
+
+func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
+	for name, test := range map[string]struct {
+		environment []string
+		capture     bool
+		want        []string
+		absent      []string
+	}{
+		"off": {
+			environment: []string{"OTEL_TRACES_EXPORTER=none", "OTEL_METRICS_EXPORTER=none", "OTEL_LOGS_EXPORTER=none"},
+			capture:     true,
+			absent:      []string{"CLAUDE_CODE_ENABLE_TELEMETRY", "OTEL_LOG_USER_PROMPTS"},
+		},
+		"traces without capture": {
+			environment: []string{"OTEL_TRACES_EXPORTER=otlp", "OTEL_LOGS_EXPORTER=none"},
+			want:        []string{"CLAUDE_CODE_ENABLE_TELEMETRY", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"},
+			absent:      []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_CONTENT"},
+		},
+		"traces with capture": {
+			environment: []string{"OTEL_TRACES_EXPORTER=otlp", "OTEL_LOGS_EXPORTER=none"},
+			capture:     true,
+			want:        []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"},
+			absent:      []string{"OTEL_LOG_ASSISTANT_RESPONSES"},
+		},
+		"logs with capture": {
+			environment: []string{"OTEL_TRACES_EXPORTER=none", "OTEL_LOGS_EXPORTER=otlp"},
+			capture:     true,
+			want:        []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES"},
+			absent:      []string{"OTEL_LOG_TOOL_CONTENT"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, enabled := nativeTelemetryEnvironment(test.environment, tracing.RuntimeTelemetry{CaptureContent: test.capture})
+			if enabled != slices.Contains(got, "CLAUDE_CODE_ENABLE_TELEMETRY=1") {
+				t.Errorf("enabled = %t for %v", enabled, got)
+			}
+			for _, flag := range test.want {
+				if !slices.Contains(got, flag+"=1") {
+					t.Errorf("%s missing from %v", flag, got)
+				}
+			}
+			for _, flag := range test.absent {
+				if slices.ContainsFunc(got, func(variable string) bool { return strings.HasPrefix(variable, flag+"=") }) {
+					t.Errorf("%s set in %v", flag, got)
+				}
+			}
+		})
 	}
 }

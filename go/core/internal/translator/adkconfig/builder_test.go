@@ -38,12 +38,12 @@ func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
 		{name: "ticket agent", template: "ticket-agent", wantHeader: "agents/ticket-agent"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := builder.BuildWithAgentID(context.Background(), &v2translator.AgentInput{
-				Template: &v1alpha3.AgentTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: test.template, Namespace: "agents"},
-					Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "shared-model"}},
+			result, err := builder.BuildWithAgentID(context.Background(), &v2translator.HarnessInput{
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &v2translator.AgentInput{
+					Template:            &v2translator.TemplateConfiguration{Name: test.template, Namespace: "agents"},
+					ResolvedModelConfig: model,
 				},
-				ResolvedModelConfig: model,
 			})
 			require.NoError(t, err)
 
@@ -59,44 +59,43 @@ func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
 		"X-Tenant":   "acme",
 		"x-agent-id": "user-provided",
 	}, model.Config.Spec.DefaultHeaders, "compilation must not mutate the shared ModelConfig")
-
-	t.Run("default build leaves headers unchanged", func(t *testing.T) {
-		result, err := builder.Build(context.Background(), &v2translator.AgentInput{
-			Template: &v1alpha3.AgentTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "byo-agent", Namespace: "agents"},
-				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "shared-model"}},
-			},
-			ResolvedModelConfig: model,
-		})
-		require.NoError(t, err)
-
-		compiled, ok := result.Config.Model.(*adk.OpenAI)
-		require.True(t, ok, "compiled model = %T", result.Config.Model)
-		require.Equal(t, model.Config.Spec.DefaultHeaders, compiled.Headers)
-	})
 }
 
-func TestApplyCompaction(t *testing.T) {
+func TestBuildUsesDurableSessionStore(t *testing.T) {
+	result, err := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{}).Build(context.Background(),
+		&v2translator.HarnessInput{
+			Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
+			Root: &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}, Shared: []v2translator.AgentInputBinding{{
+				Name: "child", Agent: &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}},
+			}}},
+		})
+	require.NoError(t, err)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDBURL)
+	require.Len(t, result.Config.SubAgents, 1)
+	require.Empty(t, result.Config.SubAgents[0].SessionDBURL)
+}
+
+func TestBuildCompaction(t *testing.T) {
 	collections := contextTestCollections(t,
 		openAIModel("agent", "https://agent.example.com/v1"),
 		openAIModel("summarizer", "https://summarizer.example.com/v1"),
 	)
 	agentModel := resolvedModel(t, collections, "agent")
-	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
-		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
+	template := &v2translator.TemplateConfiguration{
+		Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
 	}
-	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *v1alpha3.Harness {
-		return &v1alpha3.Harness{
-			ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
-			Spec:       v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
+	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *v2translator.HarnessConfiguration {
+		return &v2translator.HarnessConfiguration{
+			Name: "kagent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
 		}
 	}
-	apply := func(harness *v1alpha3.Harness) (*Result, error) {
+	apply := func(harness *v2translator.HarnessConfiguration) (*Result, error) {
 		builder := NewBuilder(krt.TestingDummyContext{}, collections)
-		result, err := builder.Build(context.Background(), &v2translator.AgentInput{Template: template, ResolvedModelConfig: agentModel})
-		require.NoError(t, err)
-		return result, builder.ApplyCompaction(result, harness, template)
+		return builder.Build(context.Background(), &v2translator.HarnessInput{
+			Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: agentModel},
+		})
 	}
 
 	t.Run("not configured", func(t *testing.T) {
@@ -163,6 +162,101 @@ func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {
 	}
 }
 
+// TestOllamaEgressDestination covers the one provider whose endpoint is not
+// reachable through the serialized model: it lives on the ModelConfig's own
+// Ollama field, so the generic walk over the model never sees it. Without an
+// explicit case the allowlist came back empty, which compiles into a deny-all
+// Actor egress policy and fails the model call with a 403.
+func TestOllamaEgressDestination(t *testing.T) {
+	for _, host := range []string{"http://host.docker.internal:11434", "host.docker.internal:11434"} {
+		t.Run(host, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+					Ollama: &v1alpha3.OllamaConfig{Host: host},
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&v2translator.HarnessInput{
+					Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root: &v2translator.AgentInput{
+						Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+						ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+					}})
+			require.NoError(t, err)
+			require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+		})
+	}
+
+	t.Run("no host configured", func(t *testing.T) {
+		model := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+		}
+		collections := contextTestCollections(t, model)
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+			&v2translator.HarnessInput{
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &v2translator.AgentInput{
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+				}})
+		require.NoError(t, err)
+		require.Empty(t, result.Egress)
+	})
+
+	// A cloud-tagged model with a key bypasses the operator's host, so the cloud
+	// host has to be allowed as well or egress policy denies the call.
+	t.Run("cloud model with a secret allows api.ollama.com", func(t *testing.T) {
+		model := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{},
+			},
+		}
+		collections := contextTestCollections(t, model)
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+			&v2translator.HarnessInput{
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &v2translator.AgentInput{
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+				}})
+		require.NoError(t, err)
+		require.Contains(t, result.Egress, "api.ollama.com")
+	})
+
+	// A local model must never pick up the cloud host, even with a key present:
+	// that is the rerouting regression the routing rules exist to prevent.
+	t.Run("local model with a key does not allow the cloud host", func(t *testing.T) {
+		model := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
+			},
+		}
+		collections := contextTestCollections(t, model)
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+			&v2translator.HarnessInput{
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &v2translator.AgentInput{
+					Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
+				}})
+		require.NoError(t, err)
+		require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+	})
+}
+
 func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) v2translator.Collections {
 	t.Helper()
 	objects := make([]any, 0, 2*len(models))
@@ -198,4 +292,85 @@ func resolvedModel(t *testing.T, collections v2translator.Collections, name stri
 	}
 	t.Fatalf("model %q not resolved", name)
 	return nil
+}
+
+func TestBuildMemory(t *testing.T) {
+	collections := contextTestCollections(t,
+		openAIModel("agent", "https://agent.example.com/v1"),
+		openAIModel("embedding", "https://embedding.example.com/v1"),
+	)
+	root := &v2translator.AgentInput{
+		Template:            &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test"},
+		ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+	}
+	for _, tc := range []struct {
+		name      string
+		modelName string
+		wantErr   string
+	}{
+		{name: "configured", modelName: "embedding"},
+		{name: "missing model", modelName: "missing", wantErr: `resolve memory ModelConfig "missing"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			harness := &v2translator.HarnessConfiguration{
+				Namespace: "test",
+				Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
+					ModelConfigRef: corev1.LocalObjectReference{Name: tc.modelName}, TTLDays: 7,
+				}}},
+			}
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &v2translator.HarnessInput{Harness: harness, Root: root})
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				require.Nil(t, result)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, 7, result.Config.Memory.TTLDays)
+			require.Equal(t, "https://embedding.example.com/v1", result.Config.Memory.Embedding.BaseUrl)
+			require.Len(t, result.Models, 2)
+			require.Equal(t, "embedding", result.Models[1].Config.Name)
+			require.Contains(t, result.Egress, "embedding.example.com")
+			require.Len(t, result.Environment, 2)
+			require.Equal(t, "embedding-auth", result.Environment[1].ValueFrom.SecretKeyRef.Name)
+		})
+	}
+}
+
+func TestBuildModelRequirements(t *testing.T) {
+	collections := contextTestCollections(t, openAIModel("agent", "https://agent.example.com/v1"))
+	for _, tc := range []struct {
+		name       string
+		byo        bool
+		rootModel  bool
+		childModel bool
+		wantErr    bool
+	}{
+		{name: "kagent missing root model", childModel: true, wantErr: true},
+		{name: "kagent missing child model", rootModel: true, wantErr: true},
+		{name: "kagent all models", rootModel: true, childModel: true},
+		{name: "BYO without models", byo: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			harness := &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
+			if tc.byo {
+				harness.Spec.Kagent, harness.Spec.BYO = nil, &v1alpha3.BYOHarness{}
+			}
+			child := &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}}
+			root := &v2translator.AgentInput{Template: &v2translator.TemplateConfiguration{}, Shared: []v2translator.AgentInputBinding{{Name: "child", Agent: child}}}
+			if tc.rootModel {
+				root.ResolvedModelConfig = resolvedModel(t, collections, "agent")
+			}
+			if tc.childModel {
+				child.ResolvedModelConfig = resolvedModel(t, collections, "agent")
+			}
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &v2translator.HarnessInput{Harness: harness, Root: root})
+			if tc.wantErr {
+				require.ErrorContains(t, err, "kagent ModelConfig is required")
+				require.Nil(t, result)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, result.Config.SubAgents, 1)
+		})
+	}
 }

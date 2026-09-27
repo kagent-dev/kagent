@@ -632,10 +632,15 @@ func TestAgentConfig_UnmarshalJSON_ContextConfig_CompactionOnly(t *testing.T) {
 
 func TestAgentConfig_Roundtrip(t *testing.T) {
 	original := &AgentConfig{
-		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}, BaseUrl: "https://api.openai.com"},
-		Description: "test",
-		Instruction: "be helpful",
-		Stream:      new(true),
+		Name:            "root",
+		SessionDBURL:    "sqlite+aiosqlite:////data/sessions.db",
+		SkillsDirectory: "/data/skills",
+		SubAgents:       []*AgentConfig{{Name: "child", Instruction: "delegate"}},
+		Output:          &OutputConfig{JSONSchema: json.RawMessage(`{"type":"object"}`), SHA256: "digest"},
+		Model:           &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}, BaseUrl: "https://api.openai.com"},
+		Description:     "test",
+		Instruction:     "be helpful",
+		Stream:          new(true),
 		HttpTools: []HttpMcpServerConfig{
 			{
 				Params: StreamableHTTPConnectionParams{Url: "http://localhost:8080"},
@@ -992,9 +997,21 @@ func TestModelToEmbeddingConfig_TLS(t *testing.T) {
 		TLSCACertPath:         &caPath,
 		TLSDisableSystemCAs:   &disableSystem,
 	}
-	got := ModelToEmbeddingConfig(&OpenAI{BaseModel: want})
-	if got.TLSInsecureSkipVerify != want.TLSInsecureSkipVerify || got.TLSCACertPath != want.TLSCACertPath || got.TLSDisableSystemCAs != want.TLSDisableSystemCAs {
-		t.Fatalf("TLS config = %#v, want %#v", got, want)
+	tests := []struct {
+		name  string
+		model Model
+	}{
+		{"OpenAI", &OpenAI{BaseModel: want}},
+		{"Foundry", &Foundry{BaseModel: want}},
+		{"Mistral", &Mistral{BaseModel: want}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ModelToEmbeddingConfig(tt.model)
+			if got.TLSInsecureSkipVerify != want.TLSInsecureSkipVerify || got.TLSCACertPath != want.TLSCACertPath || got.TLSDisableSystemCAs != want.TLSDisableSystemCAs {
+				t.Fatalf("TLS config = %#v, want %#v", got, want)
+			}
+		})
 	}
 
 	var decoded EmbeddingConfig
@@ -1034,5 +1051,45 @@ func TestAgentConfig_ScanAndValue(t *testing.T) {
 	}
 	if scanned.Description != "test" {
 		t.Errorf("after Scan: Description = %q, want %q", scanned.Description, "test")
+	}
+}
+
+func TestAgentConfigUnmarshalReplacesConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		data    string
+		wantErr bool
+	}{
+		{name: "omitted model", data: `{"instruction":"replacement"}`},
+		{name: "null model", data: `{"instruction":"replacement","model":null,"memory":null}`},
+		{name: "unknown model", data: `{"instruction":"replacement","model":{"type":"invalid"}}`, wantErr: true},
+		{name: "invalid memory", data: `{"instruction":"replacement","memory":{"ttl_days":"invalid"}}`, wantErr: true},
+		{name: "invalid child model", data: `{"instruction":"replacement","sub_agents":[{"model":{"type":"invalid"}}]}`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := AgentConfig{
+				Name: "original", Instruction: "original",
+				Model:        &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}},
+				Memory:       &MemoryConfig{TTLDays: 7},
+				SessionDBURL: "sqlite:////data/sessions.db",
+			}
+			config := original
+			err := json.Unmarshal([]byte(tc.data), &config)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected decoding error")
+				}
+				if !reflect.DeepEqual(original, config) {
+					t.Fatalf("failed decoding changed receiver: %#v", config)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(AgentConfig{Instruction: "replacement"}, config) {
+				t.Fatalf("decoding retained old fields: %#v", config)
+			}
+		})
 	}
 }

@@ -94,7 +94,7 @@ High-level options for tracing this sample:
   - Already wired by `kagent-core` when enabled.
   - Set:
     ```bash
-    export OTEL_TRACING_ENABLED=true
+    export OTEL_TRACES_EXPORTER=otlp
     export LANGSMITH_TRACING=true
     export LANGSMITH_OTEL_ENABLED=true
     export LANGSMITH_WORKSPACE_ID=<workspace-id>

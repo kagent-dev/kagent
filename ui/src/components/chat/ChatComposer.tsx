@@ -42,9 +42,8 @@ export function ChatComposer({
   /**
    * Saves the conversation's current turn boundary, so a fork can start from it.
    *
-   * Here rather than on a message because that is what the controller offers:
-   * `CreateCheckpoint` takes no cutoff, so what it saves is always "the conversation
-   * as it stands now" — which is the composer's tense, not any one message's.
+   * The caller pins the latest displayed task. Creation fails if another turn
+   * overtakes it while its snapshot is being prepared.
    * Absent on a read-only surface.
    */
   onCheckpoint?: () => void;

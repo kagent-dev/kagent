@@ -18,6 +18,9 @@ func NewSaveMemoryTool(svc *KagentMemoryService) (tool.Tool, error) {
 		Name:        "save_memory",
 		Description: "Saves a specific piece of information or text to long-term memory. Use this to remember important facts, user preferences, or specific details for future reference.",
 	}, func(toolCtx adkagent.Context, in saveMemoryInput) (map[string]any, error) {
+		if _, err := memoryUserID(toolCtx); err != nil {
+			return nil, err
+		}
 		if in.Content == "" {
 			return nil, fmt.Errorf("missing required parameter: content")
 		}
@@ -35,7 +38,7 @@ func NewSaveMemoryTool(svc *KagentMemoryService) (tool.Tool, error) {
 			return nil, fmt.Errorf("embedding generation returned no vectors")
 		}
 
-		if err := svc.storeMemory(toolCtx, toolCtx.UserID(), in.Content, vector); err != nil {
+		if err := svc.storeMemory(toolCtx, in.Content, vector); err != nil {
 			return nil, fmt.Errorf("failed to save memory: %w", err)
 		}
 
