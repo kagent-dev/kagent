@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"testing"
 
@@ -133,6 +134,41 @@ func TestNamespaces(t *testing.T) {
 	want := []string{"one", "two"}
 	if got := namespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("namespaces() = %q, want %q", got, want)
+	}
+}
+
+func TestRegisteredStringDefaults(t *testing.T) {
+	for _, variable := range []kagentenv.StringVar{
+		kagentenv.HTTPBindAddress,
+		kagentenv.PostgresDatabaseURL,
+		kagentenv.SubstrateATEAPIEndpoint,
+		kagentenv.KagentNamespace,
+	} {
+		t.Run(variable.Name(), func(t *testing.T) {
+			for _, test := range []struct {
+				name  string
+				value *string
+				want  string
+			}{
+				{name: "unset", want: variable.DefaultValue()},
+				{name: "empty", value: new(""), want: variable.DefaultValue()},
+				{name: "override", value: new("override"), want: "override"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					t.Setenv(variable.Name(), "")
+					if test.value == nil {
+						if err := os.Unsetenv(variable.Name()); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						t.Setenv(variable.Name(), *test.value)
+					}
+					if got := env(variable); got != test.want {
+						t.Errorf("env() = %q, want %q", got, test.want)
+					}
+				})
+			}
+		})
 	}
 }
 

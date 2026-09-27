@@ -160,6 +160,25 @@ proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail
 		exit 1; \
 	fi
 
+##@ Environment documentation
+
+ENV_DOCS_COMMAND = cd go && go run ./core/cli/cmd/kagent env --format markdown
+
+.PHONY: env-docs
+env-docs: ## Generate docs/env.md from the environment variable registry
+	@set -eu; generated=$$(mktemp); trap 'rm -f "$$generated"' EXIT; \
+		($(ENV_DOCS_COMMAND)) > "$$generated"; \
+		cp "$$generated" docs/env.md
+
+.PHONY: env-docs-check
+env-docs-check: ## Check docs/env.md matches the environment variable registry
+	@set -eu; generated=$$(mktemp); trap 'rm -f "$$generated"' EXIT; \
+		($(ENV_DOCS_COMMAND)) > "$$generated"; \
+		if ! diff -u docs/env.md "$$generated"; then \
+			echo "Environment documentation is out of date. Run 'make env-docs' and commit docs/env.md."; \
+			exit 1; \
+		fi
+
 ##@ Telemetry contract
 
 include telemetry/versions.env

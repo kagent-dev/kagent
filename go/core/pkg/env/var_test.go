@@ -264,6 +264,13 @@ func TestExportMarkdown(t *testing.T) {
 	RegisterBoolVar("TEST_MD_BOOL", true, "A bool variable.", ComponentController)
 
 	md := ExportMarkdown("all")
+	if !strings.HasSuffix(md, "\n") || strings.HasSuffix(md, "\n\n") {
+		t.Error("markdown should end with exactly one newline")
+	}
+	t.Setenv("TEST_MD_VAR", "secret-from-current-environment")
+	if got := ExportMarkdown("all"); got != md {
+		t.Error("documentation must contain registered defaults, not live environment values")
+	}
 	if !strings.Contains(md, "TEST_MD_VAR") {
 		t.Error("markdown should contain TEST_MD_VAR")
 	}

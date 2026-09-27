@@ -10,13 +10,13 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -189,7 +189,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	dbURL, err := database.ResolveURL(env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres"), os.Getenv("POSTGRES_DATABASE_URL_FILE"))
+	dbURL, err := database.ResolveURL(env(kagentenv.PostgresDatabaseURL), kagentenv.PostgresDatabaseURLFile.Get())
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func Run(ctx context.Context, opts Options) error {
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
 	utilruntime.Must(kmcp.AddToScheme(managerScheme))
-	watchNamespaces := namespaces(os.Getenv("WATCH_NAMESPACES"))
+	watchNamespaces := namespaces(kagentenv.WatchNamespaces.Get())
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
 	if len(watchNamespaces) > 0 {
@@ -252,7 +252,7 @@ func Run(ctx context.Context, opts Options) error {
 		Metrics:                 metricsOptions,
 		LeaderElection:          kagentenv.LeaderElect.Get(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
-		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
+		LeaderElectionNamespace: env(kagentenv.KagentNamespace),
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
@@ -262,9 +262,9 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
-		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
-		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
+		AteAPIEndpoint: env(kagentenv.SubstrateATEAPIEndpoint),
+		CAFile:         kagentenv.SubstrateATEAPICAFile.Get(),
+		ClientCertFile: kagentenv.SubstrateATEAPIClientCertFile.Get(),
 		CallTimeout:    30 * time.Second,
 	})
 	if err != nil {
@@ -297,7 +297,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	authenticator, authorizer := opts.resolve()
-	resourceNamespace := env("KAGENT_NAMESPACE", "kagent")
+	resourceNamespace := env(kagentenv.KagentNamespace)
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
@@ -319,7 +319,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions)
-	gateway := a2agateway.New(interactions, gatewayDialer, env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
+	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
@@ -335,7 +335,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer guests.Close()
 	policy := substrate.SandboxPolicy{
-		GuestImage: env(kagentenv.SandboxGuestImage.Name(), kagentenv.SandboxGuestImage.DefaultValue()),
+		GuestImage: env(kagentenv.SandboxGuestImage),
 		CPU:        kagentenv.SandboxCPU.Get(),
 		Memory:     kagentenv.SandboxMemory.Get(),
 	}
@@ -371,8 +371,8 @@ func Run(ctx context.Context, opts Options) error {
 	server, err := grpcserver.New(grpcserver.Config{
 		MethodPolicies:        policies,
 		RegisterServices:      opts.GRPCServices,
-		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
-		Reflection:            envBool("GRPC_REFLECTION"),
+		BindAddress:           env(kagentenv.HTTPBindAddress),
+		Reflection:            kagentenv.GRPCReflection.Get(),
 		Authenticator:         authenticator,
 		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
@@ -422,16 +422,12 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 	return merged, nil
 }
 
-func env(name, fallback string) string {
-	if value := os.Getenv(name); value != "" {
+// env preserves the controller's default-on-empty behavior for string settings.
+func env(variable kagentenv.StringVar) string {
+	if value := variable.Get(); value != "" {
 		return value
 	}
-	return fallback
-}
-
-func envBool(name string) bool {
-	value, _ := strconv.ParseBool(os.Getenv(name))
-	return value
+	return variable.DefaultValue()
 }
 
 // metricsBindAddress resolves METRICS_BIND_ADDRESS. controller-runtime reads an

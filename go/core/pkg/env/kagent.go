@@ -30,7 +30,7 @@ var (
 	KagentNamespace = RegisterStringVar(
 		"KAGENT_NAMESPACE",
 		"kagent",
-		"Kubernetes namespace where kagent resources are deployed.",
+		"Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it.",
 		ComponentController,
 	)
 
@@ -41,65 +41,40 @@ var (
 		ComponentController,
 	)
 
-	KagentA2ADebugAddr = RegisterStringVar(
-		"KAGENT_A2A_DEBUG_ADDR",
-		"",
-		"Debug address for the A2A server. When set, all A2A HTTP requests are dialed to this address.",
-		ComponentController,
-	)
-
-	KagentA2AClientTimeout = RegisterDurationVar(
-		"KAGENT_A2A_CLIENT_TIMEOUT",
-		0,
-		"HTTP client timeout for A2A requests from the controller to agent pods. "+
-			"0 (the default) means no timeout, which is recommended for long-running agents "+
-			"that stream responses over SSE. Set a positive duration (e.g. 30m) only if you "+
-			"need a hard upper bound on individual A2A calls.",
-		ComponentController,
-	)
-
-	// Variables injected into agent pods (not read by the controller itself).
+	// Variables injected into agent runtimes (not read by the controller itself).
 
 	KagentName = RegisterStringVar(
 		"KAGENT_NAME",
 		"",
-		"Name of the agent. Injected into agent pods via the controller.",
+		"Name of the agent, injected by the controller. Required by Python runtimes.",
 		ComponentAgentRuntime,
 	)
 
 	KagentAPIURL = RegisterStringVar(
 		"KAGENT_API_URL",
 		"",
-		"Base URL for kagent control-plane API calls.",
+		"Base URL for kagent control-plane API calls, injected into managed runtimes. Required by Python runtimes.",
 		ComponentAgentRuntime,
 	)
 
 	KagentGatewayURL = RegisterStringVar(
 		"KAGENT_GATEWAY_URL",
 		"",
-		"Base URL for A2A and MCP traffic.",
-		ComponentAgentRuntime,
-	)
-
-	KagentUIURL = RegisterStringVar(
-		"KAGENT_UI_URL",
-		"",
-		"Public base URL of the kagent UI (e.g. https://kagent.example.com). "+
-			"When set, share link tools return full clickable URLs instead of paths.",
+		"Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value.",
 		ComponentAgentRuntime,
 	)
 
 	KagentSkillsFolder = RegisterStringVar(
 		"KAGENT_SKILLS_FOLDER",
 		"/skills",
-		"Directory path where agent skills are mounted.",
+		"Skills directory for standalone Python skills tools. The Python ADK adds skills tools when set; managed Go ADK runtimes use their compiled skill configuration.",
 		ComponentAgentRuntime,
 	)
 
 	KagentPropagateToken = RegisterStringVar(
 		"KAGENT_PROPAGATE_TOKEN",
 		"",
-		"When set, propagates the authentication token to downstream services.",
+		"Set to true to propagate authentication tokens to downstream services. Unset or any other value disables propagation.",
 		ComponentAgentRuntime,
 	)
 
@@ -113,7 +88,7 @@ var (
 		false,
 		"When true, enables the list_files and grep_file skills tools, which let an agent "+
 			"enumerate and search the filesystem under its session/skills roots without a "+
-			"shell. Disabled by default; set on the Agent's env to opt in.",
+			"shell. Disabled by default; set in Harness env to opt in.",
 		ComponentAgentRuntime,
 	)
 
@@ -127,14 +102,14 @@ var (
 	KagentSTSResource = RegisterStringVar(
 		"KAGENT_STS_RESOURCE",
 		"",
-		"RFC 8707 resource indicator sent on STS token-exchange requests to scope the issued token to a target backend.",
+		"Comma-separated RFC 8707 resource indicators sent on STS token-exchange requests to scope issued tokens to target backends.",
 		ComponentAgentRuntime,
 	)
 
 	KagentSTSAudience = RegisterStringVar(
 		"KAGENT_STS_AUDIENCE",
 		"",
-		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
+		"Comma-separated RFC 8693 audiences sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
 		ComponentAgentRuntime,
 	)
 

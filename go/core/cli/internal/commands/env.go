@@ -29,7 +29,7 @@ func NewEnvCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&format, "format", "markdown", "Output format: markdown, json")
-	cmd.Flags().StringVar(&component, "component", "all", "Filter by component: controller, cli, agent-runtime, database, testing, all")
+	cmd.Flags().StringVar(&component, "component", "all", "Filter by component: controller, cli, agent-runtime, database, testing, ui, all")
 
 	return cmd
 }
