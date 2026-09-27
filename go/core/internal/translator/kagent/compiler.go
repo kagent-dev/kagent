@@ -56,9 +56,6 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		compiled.Environment = append(compiled.Environment, model.Environment...)
 		compiled.Egress = append(compiled.Egress, model.Egress...)
 	}
-	// The Python runtime needs an async SQLite driver; the Go runtime accepts
-	// this URL and strips the driver before opening the same durable database.
-	compiled.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
 	configJSON, err := json.Marshal(compiled.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)

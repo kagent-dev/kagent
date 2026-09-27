@@ -15,6 +15,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestBuildUsesDurableSessionStore(t *testing.T) {
+	result, err := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{}).Build(context.Background(),
+		&v2translator.AgentInput{Template: &v1alpha3.AgentTemplate{}})
+	require.NoError(t, err)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDBURL)
+}
+
 func TestApplyCompaction(t *testing.T) {
 	collections := contextTestCollections(t,
 		openAIModel("agent", "https://agent.example.com/v1"),
