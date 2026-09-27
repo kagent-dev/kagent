@@ -32,10 +32,10 @@ const (
 )
 
 func main() {
-	logLevel := flag.String("log-level", cmp.Or(os.Getenv("LOG_LEVEL"), "info"), "Set the logging level (debug, info, warn, error)")
+	logLevel := flag.String("log-level", cmp.Or(os.Getenv("KAGENT_LOG_LEVEL"), "info"), "Set the logging level (debug, info, warn, error)")
 	host := flag.String("host", "", "Set the host address to bind to (default: empty, binds to all interfaces)")
-	portFlag := flag.String("port", "", "Set the port to listen on (overrides PORT environment variable)")
-	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides CONFIG_DIR environment variable)")
+	portFlag := flag.String("port", "", "Set the port to listen on (overrides KAGENT_PORT environment variable)")
+	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides KAGENT_CONFIG_DIR environment variable)")
 	flag.Parse()
 
 	logger, err := logging.New(os.Stderr, *logLevel)
@@ -48,12 +48,12 @@ func main() {
 
 	port := *portFlag
 	if port == "" {
-		port = os.Getenv("PORT")
+		port = os.Getenv("KAGENT_PORT")
 	}
 
 	configDir := *filepathFlag
 	if configDir == "" {
-		configDir = os.Getenv("CONFIG_DIR")
+		configDir = os.Getenv("KAGENT_CONFIG_DIR")
 	}
 	if configDir == "" {
 		configDir = "/config"

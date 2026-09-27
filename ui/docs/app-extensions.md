@@ -17,8 +17,8 @@ That is the whole integration surface. Installing a second extension is one more
 entry; nothing else in the application changes.
 
 Nothing is installed by default, including the bundled example. To see the example
-running without editing the file, set `VITE_EXAMPLE_EXTENSION=true` — in `ui/.env`,
-or on the command line as `VITE_EXAMPLE_EXTENSION=true yarn dev`.
+running without editing the file, set `KAGENT_VITE_EXAMPLE_EXTENSION=true` — in `ui/.env`,
+or on the command line as `KAGENT_VITE_EXAMPLE_EXTENSION=true yarn dev`.
 
 ---
 
@@ -83,10 +83,10 @@ installed, so a default build renders only what this project itself provides.
 Switch it on with:
 
 ```bash
-VITE_EXAMPLE_EXTENSION=true yarn dev
+KAGENT_VITE_EXAMPLE_EXTENSION=true yarn dev
 ```
 
-or by putting `VITE_EXAMPLE_EXTENSION=true` in `ui/.env`, which `.env.example`
+or by putting `KAGENT_VITE_EXAMPLE_EXTENSION=true` in `ui/.env`, which `.env.example`
 documents. It is read by the bundler rather than at runtime, so changing it needs
 the dev server restarted.
 
@@ -567,7 +567,7 @@ rule applies one level up: the earlier extension's providers wrap the later one'
 ## Settings an extension reads
 
 An extension that needs configuring — an API root, a feature flag, an account id —
-names a variable `EXTENSION_*`. Three steps, and none of them touch this
+names a variable `KAGENT_EXTENSION_*`. Three steps, and none of them touch this
 application.
 
 **Read it** with `readEnv`, which takes any key and a fallback:
@@ -575,7 +575,7 @@ application.
 ```ts
 import { readEnv } from "@/appExtensions";
 
-const apiUrl = readEnv("EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
+const apiUrl = readEnv("KAGENT_EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
 ```
 
 **Set it in a deployment** through `ui.env` in the `kagent` chart, which is passed
@@ -585,7 +585,7 @@ through to the UI deployment verbatim:
 # values.yaml
 ui:
   env:
-    - name: EXTENSION_EXAMPLE_API_URL
+    - name: KAGENT_EXTENSION_EXAMPLE_API_URL
       value: https://api.example.test
 ```
 
@@ -594,11 +594,11 @@ section at the bottom for exactly this, so a branch that installs an extension
 appends rather than editing the application's own settings above it:
 
 ```sh
-EXTENSION_EXAMPLE_API_URL=https://api.example.test
+KAGENT_EXTENSION_EXAMPLE_API_URL=https://api.example.test
 ```
 
 That is the whole mechanism, and nothing needs registering. The container's
-`scripts/init.sh` copies every `EXTENSION_*` variable out of the pod's environment
+`scripts/init.sh` copies every `KAGENT_EXTENSION_*` variable out of the pod's environment
 **by prefix**, and the dev server does the same from `.env` and your shell. Neither
 enumerates the keys, so this application never learns what your settings mean and
 needs no change when your extension grows one.
@@ -618,7 +618,7 @@ two consequences of it are worth knowing:
 **Do not add a `VITE_` prefix.** That prefix is Vite's `envPrefix` filter, which
 decides what `import.meta.env` exposes to bundled code; it applies to build-time
 variables and to nothing else. A prefixed name would no longer match the
-`EXTENSION_` prefix the init script and the dev server select on, so the value
+`KAGENT_EXTENSION_` prefix the init script and the dev server select on, so the value
 would never arrive and `readEnv` would quietly return the fallback.
 
 ---

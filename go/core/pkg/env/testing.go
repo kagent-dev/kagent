@@ -10,21 +10,21 @@ var (
 	)
 
 	UpdateGolden = RegisterBoolVar(
-		"UPDATE_GOLDEN",
+		"KAGENT_UPDATE_GOLDEN",
 		false,
 		"When true, update golden test files instead of comparing.",
 		ComponentTesting,
 	)
 
 	STSPort = RegisterStringVar(
-		"STS_PORT",
+		"KAGENT_STS_PORT",
 		"8091",
 		"Port for the mock STS (Security Token Service) server.",
 		ComponentTesting,
 	)
 
 	LLMPort = RegisterStringVar(
-		"LLM_PORT",
+		"KAGENT_LLM_PORT",
 		"8090",
 		"Port for the mock LLM server.",
 		ComponentTesting,
@@ -43,10 +43,10 @@ var (
 	_ = RegisterStringVar("KAGENT_E2E_SANDBOX_WORKER_POOL", "kagent-default", "Worker pool used by sandbox E2E resources.", ComponentTesting)
 	_ = RegisterStringVar("KAGENT_E2E_OTLP_LISTEN_ADDRESS", "", "Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver.", ComponentTesting)
 	_ = RegisterBoolVar("KAGENT_E2E_REQUIRE_TRACING", false, "Fail instead of skip when expected native harness tracing support is unavailable.", ComponentTesting)
-	_ = RegisterBoolVar("RUN_UPGRADE_TESTS", false, "Run upgrade integration tests when exactly true.", ComponentTesting)
-	_ = RegisterBoolVar("RUN_ROLLING_UPGRADE_TESTS", false, "Run rolling upgrade integration tests when exactly true.", ComponentTesting)
-	_ = RegisterStringVar("UI_LOOP_PORT", "8001", "Vite development/preview port and UI browser-test port.", ComponentTesting)
-	_ = RegisterStringVar("UI_LOOP_EXTENSION_PORT", "", "Example-extension browser-test port. Defaults to UI_LOOP_PORT plus 50.", ComponentTesting)
-	_ = RegisterBoolVar("UI_LOOP_LIVE", false, "Run UI browser tests against a real cluster when exactly true.", ComponentTesting)
-	_ = RegisterStringVar("UI_LOOP_LIVE_PORT", "8301", "Live-cluster UI browser-test port.", ComponentTesting)
+	_ = RegisterBoolVar("KAGENT_RUN_UPGRADE_TESTS", false, "Run upgrade integration tests when exactly true.", ComponentTesting)
+	_ = RegisterBoolVar("KAGENT_RUN_ROLLING_UPGRADE_TESTS", false, "Run rolling upgrade integration tests when exactly true.", ComponentTesting)
+	_ = RegisterStringVar("KAGENT_UI_LOOP_PORT", "8001", "Vite development/preview port and UI browser-test port.", ComponentTesting)
+	_ = RegisterStringVar("KAGENT_UI_LOOP_EXTENSION_PORT", "", "Example-extension browser-test port. Defaults to KAGENT_UI_LOOP_PORT plus 50.", ComponentTesting)
+	_ = RegisterBoolVar("KAGENT_UI_LOOP_LIVE", false, "Run UI browser tests against a real cluster when exactly true.", ComponentTesting)
+	_ = RegisterStringVar("KAGENT_UI_LOOP_LIVE_PORT", "8301", "Live-cluster UI browser-test port.", ComponentTesting)
 )

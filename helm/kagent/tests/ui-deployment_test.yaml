@@ -313,7 +313,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SSO_REDIRECT_PATH
+            name: KAGENT_SSO_REDIRECT_PATH
             value: "/oauth2/start"
       - contains:
           path: spec.template.spec.containers[0].env
@@ -416,7 +416,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SSO_REDIRECT_PATH
+            name: KAGENT_SSO_REDIRECT_PATH
             value: "/custom/start"
       - contains:
           path: spec.template.spec.containers[0].env

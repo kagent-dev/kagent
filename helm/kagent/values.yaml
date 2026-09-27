@@ -196,7 +196,7 @@ rbac:
   # If that is also unset, the chart creates cluster-scoped ClusterRole and
   # ClusterRoleBinding resources, and the controller watches all namespaces.
   # If set, the chart creates a Role and a RoleBinding per listed namespace.
-  # The controller's WATCH_NAMESPACES derives from the same list, unless
+  # The controller's KAGENT_WATCH_NAMESPACES derives from the same list, unless
   # controller.watchNamespaces overrides it.
   # An explicit empty list forces cluster-scoped RBAC, even under a parent that
   # sets global.watchNamespaces. This is why the key ships commented out: a
@@ -325,7 +325,7 @@ controller:
   # `<fullname>-metrics-reader` to your Prometheus ServiceAccount to grant
   # scrape access. Use `bindAddress` for any port change: the Service
   # `targetPort` and the pod `containerPort` are derived from it at
-  # template time, so overriding `METRICS_BIND_ADDRESS` via
+  # template time, so overriding `KAGENT_METRICS_BIND_ADDRESS` via
   # `controller.env` shifts only the runtime listener and leaves the
   # rendered Service pointing at the chart-time port. Setting
   # `bindAddress: "0"` (or empty) is treated as a disable signal —

@@ -36,17 +36,17 @@ export interface EnvironmentVariables {
  * publish every credential on the developer's machine into the HTML.
  *
  * An extension's own keys are not listed here, and are not listed anywhere: anything
- * named `EXTENSION_*` is passed through by the dev server and by `scripts/init.sh`,
+ * named `KAGENT_EXTENSION_*` is passed through by the dev server and by `scripts/init.sh`,
  * and read back with `readEnv`, which takes any key. This application does not know
  * what an extension's settings are and does not need to.
  */
-export const CORE_ENV_KEYS = [
-  "API_BASE_URL",
-  "SSO_REDIRECT_PATH",
-  "STREAM_TIMEOUT_MS",
-  "ENABLE_MOCK_UI",
-  "BASE_PATH",
-] as const satisfies readonly (keyof EnvironmentVariables)[];
+export const CORE_ENV_VARS = {
+  API_BASE_URL: "KAGENT_API_BASE_URL",
+  SSO_REDIRECT_PATH: "KAGENT_SSO_REDIRECT_PATH",
+  STREAM_TIMEOUT_MS: "KAGENT_STREAM_TIMEOUT_MS",
+  ENABLE_MOCK_UI: "KAGENT_ENABLE_MOCK_UI",
+  BASE_PATH: "KAGENT_UI_BASE_PATH",
+} as const satisfies Record<keyof EnvironmentVariables, string>;
 
 /**
  * What the app uses when a key is absent — the normal case for `yarn dev` and

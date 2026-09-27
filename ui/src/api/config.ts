@@ -27,7 +27,7 @@ export const MOCK_API_BASE_URL = "http://localhost:8083/api";
  *
  * Two sources, most specific first.
  *
- * `VITE_API_MODE` is a build-time pin and always wins — the e2e suite sets it so
+ * `KAGENT_VITE_API_MODE` is a build-time pin and always wins — the e2e suite sets it so
  * a run cannot be aimed at a real cluster by whatever the shell exported.
  *
  * Failing that, `ENABLE_MOCK_UI` decides, and **fixtures are never the default**.
@@ -41,8 +41,8 @@ export const MOCK_API_BASE_URL = "http://localhost:8083/api";
 export const apiMode: ApiMode = resolveApiMode();
 
 function resolveApiMode(): ApiMode {
-  if (import.meta.env.VITE_API_MODE === "live") return "live";
-  if (import.meta.env.VITE_API_MODE === "mock") return "mock";
+  if (import.meta.env.KAGENT_VITE_API_MODE === "live") return "live";
+  if (import.meta.env.KAGENT_VITE_API_MODE === "mock") return "mock";
 
   const wantsMock = envFlag("ENABLE_MOCK_UI");
 

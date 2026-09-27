@@ -51,7 +51,7 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+sts_well_known_uri = os.getenv("KAGENT_STS_WELL_KNOWN_URI")
 
 
 def _configure_openai_client() -> None:

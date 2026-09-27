@@ -11,7 +11,7 @@
 //
 //   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
 //     scoping. Falls back to the agent card name.
-//   - PORT: the port to listen on (default "8080").
+//   - KAGENT_PORT: the port to listen on (default "8080").
 //
 // Required environment variables:
 //

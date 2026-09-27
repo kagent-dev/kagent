@@ -61,7 +61,7 @@ If you would rather not build one, the UI runs entirely on in-browser fixtures:
 
 ```sh
 cd ui
-ENABLE_MOCK_UI=true yarn dev
+KAGENT_ENABLE_MOCK_UI=true yarn dev
 ```
 
 Every page works and says on the page that the data is not real. `?mock=empty`,

@@ -2,21 +2,21 @@ package env
 
 var (
 	HTTPBindAddress = RegisterStringVar(
-		"HTTP_BIND_ADDRESS", ":8083",
+		"KAGENT_HTTP_BIND_ADDRESS", ":8083",
 		"Listen address for the controller HTTP, gRPC, A2A, and MCP server.", ComponentController,
 	)
 	GRPCReflection = RegisterBoolVar(
-		"GRPC_REFLECTION", false,
+		"KAGENT_GRPC_REFLECTION", false,
 		"Enable gRPC server reflection on the controller.", ComponentController,
 	)
 	WatchNamespaces = RegisterStringVar(
-		"WATCH_NAMESPACES", "",
+		"KAGENT_WATCH_NAMESPACES", "",
 		"Comma-separated namespaces to watch. Empty watches all namespaces.", ComponentController,
 	)
 )
 
 // Shared settings read by logging and Kubernetes libraries.
 var (
-	_ = RegisterStringVar("LOG_LEVEL", "info", "Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels.", ComponentController, ComponentCLI, ComponentAgentRuntime)
+	_ = RegisterStringVar("KAGENT_LOG_LEVEL", "info", "Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels.", ComponentController, ComponentCLI, ComponentAgentRuntime)
 	_ = RegisterStringVar("KUBECONFIG", "", "Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery.", ComponentController, ComponentCLI, ComponentTesting)
 )

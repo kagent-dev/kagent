@@ -43,9 +43,9 @@ func (h traceHandler) WithGroup(name string) slog.Handler {
 	return traceHandler{h.Handler.WithGroup(name)}
 }
 
-// NewFromEnv returns a JSON logger using LOG_LEVEL, defaulting to info.
+// NewFromEnv returns a JSON logger using KAGENT_LOG_LEVEL, defaulting to info.
 func NewFromEnv(w io.Writer) (*slog.Logger, error) {
-	return New(w, cmp.Or(os.Getenv("LOG_LEVEL"), "info"))
+	return New(w, cmp.Or(os.Getenv("KAGENT_LOG_LEVEL"), "info"))
 }
 
 // IntoContext stores logger in the logr context slot used by controller-runtime.

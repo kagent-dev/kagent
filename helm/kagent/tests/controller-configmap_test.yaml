@@ -7,11 +7,11 @@ tests:
       - isSubset:
           path: data
           content:
-            SANDBOX_GUEST_IMAGE: ""
-            SANDBOX_CPU: "1"
-            SANDBOX_MEMORY: 1Gi
-            SANDBOX_DEFAULT_TTL: 1h
-            SANDBOX_MAX_TTL: 24h
+            KAGENT_SANDBOX_GUEST_IMAGE: ""
+            KAGENT_SANDBOX_CPU: "1"
+            KAGENT_SANDBOX_MEMORY: 1Gi
+            KAGENT_SANDBOX_DEFAULT_TTL: 1h
+            KAGENT_SANDBOX_MAX_TTL: 24h
 
   - it: applies sandbox policy overrides through the ConfigMap
     set:
@@ -23,10 +23,10 @@ tests:
       - isSubset:
           path: data
           content:
-            SANDBOX_CPU: "2"
-            SANDBOX_MEMORY: 2Gi
-            SANDBOX_DEFAULT_TTL: 30m
-            SANDBOX_MAX_TTL: 2h
+            KAGENT_SANDBOX_CPU: "2"
+            KAGENT_SANDBOX_MEMORY: 2Gi
+            KAGENT_SANDBOX_DEFAULT_TTL: 30m
+            KAGENT_SANDBOX_MAX_TTL: 2h
 
   - it: uses the guest image registry repository and digest
     set:
@@ -35,7 +35,7 @@ tests:
       controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     asserts:
       - equal:
-          path: data.SANDBOX_GUEST_IMAGE
+          path: data.KAGENT_SANDBOX_GUEST_IMAGE
           value: registry.example.com/team/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
   - it: uses the top-level registry when the guest registry is unset
@@ -45,7 +45,7 @@ tests:
       controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     asserts:
       - equal:
-          path: data.SANDBOX_GUEST_IMAGE
+          path: data.KAGENT_SANDBOX_GUEST_IMAGE
           value: registry.example.com/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
   - it: respects the global mirror without applying the global tag to the guest
@@ -56,7 +56,7 @@ tests:
       global.imageRegistry: mirror.example.com/
     asserts:
       - equal:
-          path: data.SANDBOX_GUEST_IMAGE
+          path: data.KAGENT_SANDBOX_GUEST_IMAGE
           value: mirror.example.com/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
   - it: preserves a custom guest repository under the global mirror
@@ -68,5 +68,5 @@ tests:
       global.imageRegistry: mirror.example.com
     asserts:
       - equal:
-          path: data.SANDBOX_GUEST_IMAGE
+          path: data.KAGENT_SANDBOX_GUEST_IMAGE
           value: mirror.example.com/team/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

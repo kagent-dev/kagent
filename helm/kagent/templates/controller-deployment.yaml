@@ -99,10 +99,10 @@ spec:
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
             {{- if .Values.database.postgres.urlFile }}
-            - name: POSTGRES_DATABASE_URL_FILE
+            - name: KAGENT_POSTGRES_DATABASE_URL_FILE
               value: {{ .Values.database.postgres.urlFile | quote }}
             {{- else if .Values.database.postgres.url }}
-            - name: POSTGRES_DATABASE_URL
+            - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ .Values.database.postgres.url | quote }}
             {{- else if .Values.database.postgres.bundled.enabled }}
             - name: POSTGRES_PASSWORD
@@ -110,31 +110,31 @@ spec:
                 secretKeyRef:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
-            - name: POSTGRES_DATABASE_URL
+            - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
             {{- if include "kagent.controller.metricsEnabled" . }}
-            - name: METRICS_BIND_ADDRESS
+            - name: KAGENT_METRICS_BIND_ADDRESS
               value: {{ .Values.controller.metrics.bindAddress | quote }}
-            - name: METRICS_SECURE
+            - name: KAGENT_METRICS_SECURE
               value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
-            - name: GRPC_REFLECTION
+            - name: KAGENT_GRPC_REFLECTION
               value: {{ .Values.controller.grpc.reflection | quote }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
-            - name: SUBSTRATE_ATE_API_ENDPOINT
+            - name: KAGENT_SUBSTRATE_ATE_API_ENDPOINT
               value: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
-            - name: SUBSTRATE_ATE_API_CA_FILE
+            - name: KAGENT_SUBSTRATE_ATE_API_CA_FILE
               value: /run/substrate-servicedns/trust-bundle.pem
-            - name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
+            - name: KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE
               value: /run/substrate-podidentity/credential-bundle.pem
             {{- with include "kagent.substrate.atenetRouterURL" . }}
-            - name: SUBSTRATE_ATENET_ROUTER_URL
+            - name: KAGENT_SUBSTRATE_ATENET_ROUTER_URL
               value: {{ . | quote }}
             {{- end }}
             {{- end }}

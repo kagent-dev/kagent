@@ -131,7 +131,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 }
 
 // SetupLogger installs the controller-runtime logger, at the level named by
-// LOG_LEVEL.
+// KAGENT_LOG_LEVEL.
 //
 // Run calls this itself, so a library consumer needs it only when it logs
 // before Run — and it must then call it first, because controller-runtime
@@ -145,7 +145,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 func SetupLogger() error {
 	logger, err := logging.NewFromEnv(os.Stderr)
 	if err != nil {
-		return fmt.Errorf("parse LOG_LEVEL: %w", err)
+		return fmt.Errorf("parse KAGENT_LOG_LEVEL: %w", err)
 	}
 	slog.SetDefault(logger)
 	ctrl.SetLogger(logging.AsLogr(logger))
@@ -430,7 +430,7 @@ func env(variable kagentenv.StringVar) string {
 	return variable.DefaultValue()
 }
 
-// metricsBindAddress resolves METRICS_BIND_ADDRESS. controller-runtime reads an
+// metricsBindAddress resolves KAGENT_METRICS_BIND_ADDRESS. controller-runtime reads an
 // empty address as "unset" and falls back to :8080, so an empty value would
 // serve metrics on a port nobody asked for. "0" disables the metrics server.
 func metricsBindAddress() string {

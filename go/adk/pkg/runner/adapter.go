@@ -108,7 +108,7 @@ func CreateRunnerConfig(
 
 func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.TokenPropagationPlugin, error) {
 	propagateToken := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PROPAGATE_TOKEN")), "true")
-	stsWellKnownURI := strings.TrimSpace(os.Getenv("STS_WELL_KNOWN_URI"))
+	stsWellKnownURI := strings.TrimSpace(os.Getenv("KAGENT_STS_WELL_KNOWN_URI"))
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
 	}

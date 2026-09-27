@@ -19,7 +19,7 @@ Sessions do not run this guest.
 - Process output is spooled under `/data/guest-logs`.
 - Both directories must be writable by the runtime user when mounting `/data`.
 - Flags `--listen`, `--workspace`, and `--log-dir` override these defaults.
-- JSON logs go to stderr; `LOG_LEVEL` selects debug, info (default), warn, or error.
+- JSON logs go to stderr; `KAGENT_LOG_LEVEL` selects debug, info (default), warn, or error.
 - SIGINT/SIGTERM stop serving and disconnect active RPCs, including output
   observers, before cleaning up the guest services and exiting.
 

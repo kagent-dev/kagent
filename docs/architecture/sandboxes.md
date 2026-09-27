@@ -103,7 +103,7 @@ pin the runtime artifacts they need.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.
-Configure `SANDBOX_GUEST_IMAGE` with an `image@sha256:...` reference, or set
+Configure `KAGENT_SANDBOX_GUEST_IMAGE` with an `image@sha256:...` reference, or set
 `controller.sandbox.guestImage.digest` in Helm alongside its registry and
 repository. The guest image is required for sandbox preparation and passes
 unchanged to Substrate. The controller does not resolve tags or contact image

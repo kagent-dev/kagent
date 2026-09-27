@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	dbURLEnv   = "POSTGRES_DATABASE_URL"
+	dbURLEnv   = "KAGENT_POSTGRES_DATABASE_URL"
 	sourceFlag = "source"
 )
 
@@ -93,7 +93,7 @@ func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
 		Use:   "migrate",
 		Short: "Apply, roll back, and inspect database migrations",
 		Long: `Apply, roll back, and inspect database migrations.
-The command reads POSTGRES_DATABASE_URL when --db-url is empty.`,
+The command reads KAGENT_POSTGRES_DATABASE_URL when --db-url is empty.`,
 	}
 	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL")
 	command.PersistentFlags().StringVar(&state.source, sourceFlag, "", "Migration source for down, goto, or version")

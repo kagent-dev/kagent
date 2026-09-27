@@ -88,11 +88,11 @@ func TestOptionsResolve(t *testing.T) {
 }
 
 func TestLeaderElectionConfiguration(t *testing.T) {
-	t.Setenv("LEADER_ELECT", "")
+	t.Setenv("KAGENT_LEADER_ELECT", "")
 	if !kagentenv.LeaderElect.Get() {
 		t.Fatal("leader election must default to enabled")
 	}
-	t.Setenv("LEADER_ELECT", "false")
+	t.Setenv("KAGENT_LEADER_ELECT", "false")
 	if kagentenv.LeaderElect.Get() {
 		t.Fatal("an explicit false must be preserved for startup validation")
 	}
@@ -111,7 +111,7 @@ func TestMetricsBindAddressNeverFallsBackToTheControllerRuntimeDefault(t *testin
 	} {
 		t.Run(name, func(t *testing.T) {
 			if testCase.value != nil {
-				t.Setenv("METRICS_BIND_ADDRESS", *testCase.value)
+				t.Setenv("KAGENT_METRICS_BIND_ADDRESS", *testCase.value)
 			}
 			if got := metricsBindAddress(); got != testCase.want {
 				t.Fatalf("metricsBindAddress() = %q, want %q", got, testCase.want)
@@ -122,11 +122,11 @@ func TestMetricsBindAddressNeverFallsBackToTheControllerRuntimeDefault(t *testin
 
 func TestMetricsSecureDefaultsOff(t *testing.T) {
 	if kagentenv.MetricsSecure.Get() {
-		t.Fatal("METRICS_SECURE must default to false")
+		t.Fatal("KAGENT_METRICS_SECURE must default to false")
 	}
-	t.Setenv("METRICS_SECURE", "true")
+	t.Setenv("KAGENT_METRICS_SECURE", "true")
 	if !kagentenv.MetricsSecure.Get() {
-		t.Fatal("METRICS_SECURE=true must enable secure serving")
+		t.Fatal("KAGENT_METRICS_SECURE=true must enable secure serving")
 	}
 }
 
@@ -208,9 +208,9 @@ func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
 // SetupLogger rejects a bad level before it touches the global logger, so this
 // case does not disturb whatever logger the rest of the suite runs under.
 func TestSetupLoggerRejectsBadLevel(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "not-a-level")
+	t.Setenv("KAGENT_LOG_LEVEL", "not-a-level")
 	if err := SetupLogger(); err == nil {
-		t.Fatal("SetupLogger accepted an unparseable LOG_LEVEL")
+		t.Fatal("SetupLogger accepted an unparseable KAGENT_LOG_LEVEL")
 	}
 }
 

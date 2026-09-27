@@ -13,11 +13,22 @@ Register shared settings once, passing each consuming component to
 `RegisterDurationVar`, for example:
 
 ```go
-RegisterStringVar("LOG_LEVEL", "info", "Logging level.", ComponentController, ComponentCLI, ComponentAgentRuntime)
+RegisterStringVar("KAGENT_LOG_LEVEL", "info", "Logging level.", ComponentController, ComponentCLI, ComponentAgentRuntime)
 ```
 
 The reference lists shared settings under each component. `kagent env --component`
 matches any registered component; JSON output includes a `components` array.
+
+Kagent-owned settings use the `KAGENT_` prefix. Keep names defined by upstream
+SDKs and tools, such as `OTEL_*`, provider credentials, and `KUBECONFIG`, unchanged.
+The pre-release rename replaces the old unprefixed names: for example,
+`LOG_LEVEL` becomes `KAGENT_LOG_LEVEL`, `HTTP_BIND_ADDRESS` becomes
+`KAGENT_HTTP_BIND_ADDRESS`, and the Go ADK's `PORT` becomes `KAGENT_PORT`.
+The old names are no longer read by kagent.
+
+UI containers and Vite development use the same `KAGENT_*` inputs, documented in
+`ui/.env.example`. UI build-time switches use `KAGENT_VITE_*`; extension settings
+use `KAGENT_EXTENSION_*`. Other `KAGENT_*` settings are not exposed to the browser.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 

@@ -79,7 +79,7 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- if .Values.ui.auth }}
-            - name: SSO_REDIRECT_PATH
+            - name: KAGENT_SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
             {{- end }}
             {{- if .Values.ui.streamTimeoutSeconds }}

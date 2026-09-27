@@ -76,7 +76,7 @@ func TestNew_ProvidedController(t *testing.T) {
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
-	t.Setenv("PORT", "")
+	t.Setenv("KAGENT_PORT", "")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
@@ -84,7 +84,7 @@ func TestApplyDefaults_Port(t *testing.T) {
 }
 
 func TestApplyDefaults_PortFromEnv(t *testing.T) {
-	t.Setenv("PORT", "9090")
+	t.Setenv("KAGENT_PORT", "9090")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != "9090" {
 		t.Errorf("expected port %q, got %q", "9090", cfg.Port)
@@ -92,7 +92,7 @@ func TestApplyDefaults_PortFromEnv(t *testing.T) {
 }
 
 func TestApplyDefaults_PortExplicit(t *testing.T) {
-	t.Setenv("PORT", "9090")
+	t.Setenv("KAGENT_PORT", "9090")
 	cfg := applyDefaults(AppConfig{Port: "3000"})
 	if cfg.Port != "3000" {
 		t.Errorf("expected port %q, got %q", "3000", cfg.Port)

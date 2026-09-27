@@ -21,7 +21,7 @@ func main() {
 	ctx := logging.IntoContext(context.Background(), logger)
 	agentServiceAccount := "system:serviceaccount:kagent:test-sts"
 	stsPort := 8091
-	if port := os.Getenv("STS_PORT"); port != "" {
+	if port := os.Getenv("KAGENT_STS_PORT"); port != "" {
 		stsPort, _ = strconv.Atoi(port)
 	}
 	stsServer := e2emocks.NewMockSTSServer(agentServiceAccount, uint16(stsPort))
@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 	mockllmCfg.ListenAddr = ":8090"
-	if port := os.Getenv("LLM_PORT"); port != "" {
+	if port := os.Getenv("KAGENT_LLM_PORT"); port != "" {
 		mockllmCfg.ListenAddr = ":" + port
 	}
 	server := mockllm.NewServer(mockllmCfg)

@@ -12,8 +12,8 @@ import (
 )
 
 func TestRollingUpgradeCompatibility(t *testing.T) {
-	if os.Getenv("RUN_ROLLING_UPGRADE_TESTS") != "true" {
-		t.Skip("set RUN_ROLLING_UPGRADE_TESTS=true to run rolling upgrade tests")
+	if os.Getenv("KAGENT_RUN_ROLLING_UPGRADE_TESTS") != "true" {
+		t.Skip("set KAGENT_RUN_ROLLING_UPGRADE_TESTS=true to run rolling upgrade tests")
 	}
 
 	env := loadUpgradeEnv(t)

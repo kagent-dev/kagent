@@ -3,14 +3,14 @@ package env
 // Core kagent environment variables used by the controller and agent runtime.
 var (
 	LeaderElect = RegisterBoolVar(
-		"LEADER_ELECT",
+		"KAGENT_LEADER_ELECT",
 		true,
 		"Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination.",
 		ComponentController,
 	)
 
 	MetricsBindAddress = RegisterStringVar(
-		"METRICS_BIND_ADDRESS",
+		"KAGENT_METRICS_BIND_ADDRESS",
 		"0",
 		"Address the controller-runtime metrics server binds to, e.g. :8080. "+
 			"\"0\" (the default) serves no metrics, so an installation that does not "+
@@ -20,7 +20,7 @@ var (
 	)
 
 	MetricsSecure = RegisterBoolVar(
-		"METRICS_SECURE",
+		"KAGENT_METRICS_SECURE",
 		false,
 		"Serve the metrics endpoint over HTTPS with authentication and authorization. "+
 			"A scraper then needs a token bound to the metrics-reader ClusterRole.",
@@ -93,7 +93,7 @@ var (
 	)
 
 	StsWellKnownURI = RegisterStringVar(
-		"STS_WELL_KNOWN_URI",
+		"KAGENT_STS_WELL_KNOWN_URI",
 		"",
 		"Well-known endpoint for the Security Token Service (STS) used for token exchange.",
 		ComponentAgentRuntime,
@@ -114,14 +114,14 @@ var (
 	)
 
 	DatabaseVectorEnabled = RegisterBoolVar(
-		"DATABASE_VECTOR_ENABLED",
+		"KAGENT_DATABASE_VECTOR_ENABLED",
 		false,
 		"Enable vector database migrations and vector-backed database functionality.",
 		ComponentDatabase, ComponentController, ComponentCLI,
 	)
 
 	SkipMigrations = RegisterBoolVar(
-		"SKIP_MIGRATIONS",
+		"KAGENT_SKIP_MIGRATIONS",
 		false,
 		"Verify required database migrations at startup without applying them.",
 		ComponentDatabase, ComponentController,

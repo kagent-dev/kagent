@@ -56,7 +56,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 		corev1.EnvVar{Name: env.KagentGatewayURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-		corev1.EnvVar{Name: "PORT", Value: "80"},
+		corev1.EnvVar{Name: "KAGENT_PORT", Value: "80"},
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 	)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{

@@ -10,8 +10,8 @@ from kagent.core.a2a._config import (
 
 
 def test_get_a2a_max_content_length_with_env_var():
-    """Test that setting A2A_MAX_CONTENT_LENGTH env var returns the configured value."""
-    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "52428800"}):
+    """Test that setting KAGENT_A2A_MAX_CONTENT_LENGTH env var returns the configured value."""
+    with patch.dict(os.environ, {"KAGENT_A2A_MAX_CONTENT_LENGTH": "52428800"}):
         result = get_a2a_max_content_length()
         assert result == 52428800  # 50MB
 
@@ -20,47 +20,47 @@ def test_get_a2a_max_content_length_without_env_var():
     """Test that without env var, the former a2a-sdk default is preserved."""
     with patch.dict(os.environ, {}, clear=True):
         # Ensure env var is not set
-        os.environ.pop("A2A_MAX_CONTENT_LENGTH", None)
+        os.environ.pop("KAGENT_A2A_MAX_CONTENT_LENGTH", None)
         result = get_a2a_max_content_length()
         assert result == DEFAULT_A2A_MAX_CONTENT_LENGTH
 
 
 def test_get_a2a_max_content_length_with_zero():
     """Test that setting env var to '0' returns None (unlimited)."""
-    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "0"}):
+    with patch.dict(os.environ, {"KAGENT_A2A_MAX_CONTENT_LENGTH": "0"}):
         result = get_a2a_max_content_length()
         assert result is None
 
 
 def test_get_a2a_max_content_length_with_none_string():
     """Test that setting env var to 'none' returns None (unlimited)."""
-    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "none"}):
+    with patch.dict(os.environ, {"KAGENT_A2A_MAX_CONTENT_LENGTH": "none"}):
         result = get_a2a_max_content_length()
         assert result is None
 
 
 def test_get_a2a_max_content_length_with_unlimited_string():
     """Test that setting env var to 'unlimited' returns None."""
-    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "unlimited"}):
+    with patch.dict(os.environ, {"KAGENT_A2A_MAX_CONTENT_LENGTH": "unlimited"}):
         result = get_a2a_max_content_length()
         assert result is None
 
 
 def test_get_a2a_max_content_length_with_invalid_value(caplog):
     """Test that invalid env var value logs a warning and returns default."""
-    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "not_a_number"}):
+    with patch.dict(os.environ, {"KAGENT_A2A_MAX_CONTENT_LENGTH": "not_a_number"}):
         result = get_a2a_max_content_length()
         assert result == DEFAULT_A2A_MAX_CONTENT_LENGTH
-        assert "Invalid A2A_MAX_CONTENT_LENGTH value" in caplog.text
+        assert "Invalid KAGENT_A2A_MAX_CONTENT_LENGTH value" in caplog.text
         assert "not_a_number" in caplog.text
 
 
 def test_get_a2a_max_content_length_with_negative_value(caplog):
     """Test that negative env var value logs a warning and returns default."""
-    with patch.dict(os.environ, {"A2A_MAX_CONTENT_LENGTH": "-1"}):
+    with patch.dict(os.environ, {"KAGENT_A2A_MAX_CONTENT_LENGTH": "-1"}):
         result = get_a2a_max_content_length()
         assert result == DEFAULT_A2A_MAX_CONTENT_LENGTH
-        assert "Invalid A2A_MAX_CONTENT_LENGTH value" in caplog.text
+        assert "Invalid KAGENT_A2A_MAX_CONTENT_LENGTH value" in caplog.text
         assert "-1" in caplog.text
         assert "must be non-negative" in caplog.text
 

@@ -208,7 +208,7 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 ### Logging
 
 - Use standard-library `log/slog`. Binaries write JSON to stderr and read the
-  minimum level from `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
+  minimum level from `KAGENT_LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
 - Carry loggers in `context.Context` with `pkg/logging`; do not add logger
   parameters, package-global loggers, or `NewXxxWithLogger` constructors.
 - Use `DebugContext`, `InfoContext`, `WarnContext`, or `ErrorContext` whenever
@@ -315,7 +315,7 @@ All new CRD API surface goes in `v1alpha3`.
   Side effects and async logic belong in the reconciler (or a dedicated
   controller).
 - Every behavioral change to a translator **SHOULD** come with golden tests
-  (`UPDATE_GOLDEN=true go test ...` to regenerate).
+  (`KAGENT_UPDATE_GOLDEN=true go test ...` to regenerate).
 
 ### Database
 

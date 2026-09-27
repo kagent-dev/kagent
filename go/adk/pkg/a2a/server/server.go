@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	a2aMaxContentLengthEnvVar = "A2A_MAX_CONTENT_LENGTH"
+	a2aMaxContentLengthEnvVar = "KAGENT_A2A_MAX_CONTENT_LENGTH"
 	defaultMaxContentLength   = int64(10 * 1024 * 1024)
 )
 

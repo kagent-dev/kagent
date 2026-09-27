@@ -10,7 +10,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `A2A_MAX_CONTENT_LENGTH` | String | `10485760` | Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default. |
 | `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `(none)` | Python Google ADK span content capture. When absent, derived from OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT (true for SPAN_ONLY or SPAN_AND_EVENT, false otherwise). |
 | `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN` | String | `2` | Python Google ADK telemetry schema version; set by kagent when absent. |
 | `ANTHROPIC_API_KEY` | String | `(none)` | API key for Anthropic. |
@@ -23,8 +22,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_AD_TOKEN` | String | `(none)` | Azure Active Directory authentication token for Azure OpenAI. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `AZURE_OPENAI_ENDPOINT` | String | `(none)` | Endpoint URL for Azure OpenAI service. |
-| `BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
-| `CONFIG_DIR` | String | `/config` | Go ADK configuration directory; --filepath takes precedence. |
 | `FOUNDRY_API_KEY` | String | `(none)` | API key for Azure AI Foundry. |
 | `FOUNDRY_API_VERSION` | String | `2024-10-21` | Azure AI Foundry OpenAI-compatible data-plane API version. |
 | `FOUNDRY_DEPLOYMENT` | String | `(none)` | Azure AI Foundry model deployment name. |
@@ -37,17 +34,22 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_CLOUD_REGION` | String | `(none)` | Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | String | `(none)` | When set to 'true', use Vertex AI for Gemini models. |
 | `KAGENT_A2A_GRPC_ADDRESS` | String | `[::]:80` | Python ADK gRPC listen address. |
+| `KAGENT_A2A_MAX_CONTENT_LENGTH` | String | `10485760` | Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default. |
 | `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
+| `KAGENT_BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
+| `KAGENT_CONFIG_DIR` | String | `/config` | Go ADK configuration directory; --filepath takes precedence. |
 | `KAGENT_ENABLE_FILE_SEARCH_TOOLS` | Boolean | `false` | When true, enables the list_files and grep_file skills tools, which let an agent enumerate and search the filesystem under its session/skills roots without a shell. Disabled by default; set in Harness env to opt in. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
+| `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
 | `KAGENT_NAME` | String | `(none)` | Agent name for standalone runtimes. Required by Python runtimes; supplied by the controller in managed runtimes. |
 | `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |
 | `KAGENT_OPENAI_AGENTS_NATIVE_TRACING` | Boolean | `false` | Keep the OpenAI Agents SDK native tracing processor alongside kagent OpenTelemetry export in the Python OpenAI runtime. |
+| `KAGENT_PORT` | String | `8080` | Go ADK listen port; --port takes precedence. The controller injects 80 for managed kagent runtimes. Codex and Claude use a fixed private port. |
 | `KAGENT_PROPAGATE_TOKEN` | String | `(none)` | Set to true to propagate authentication tokens to downstream services. Unset or any other value disables propagation. |
 | `KAGENT_SKILLS_FOLDER` | String | `/skills` | Skills directory for standalone Python skills tools. The Python ADK adds skills tools when set; managed Go ADK runtimes use their compiled skill configuration. |
 | `KAGENT_STS_AUDIENCE` | String | `(none)` | Comma-separated RFC 8693 audiences sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience. |
 | `KAGENT_STS_RESOURCE` | String | `(none)` | Comma-separated RFC 8707 resource indicators sent on STS token-exchange requests to scope issued tokens to target backends. |
-| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `KAGENT_STS_WELL_KNOWN_URI` | String | `(none)` | Well-known endpoint for the Security Token Service (STS) used for token exchange. |
 | `MISTRAL_API_BASE` | String | `(none)` | Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1). |
 | `MISTRAL_API_KEY` | String | `(none)` | API key for Mistral AI. |
 | `OLLAMA_API_BASE` | String | `(none)` | Base URL for the Ollama API endpoint; falls back to http://localhost:11434 when model configuration and this variable are unset. |
@@ -80,10 +82,8 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental` | Python Google ADK semantic-convention opt-in; set by kagent when absent. |
 | `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
 | `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `PORT` | String | `8080` | Go ADK listen port; --port takes precedence. The controller injects 80 for managed kagent runtimes. Codex and Claude use a fixed private port. |
 | `SAP_AI_CORE_CLIENT_ID` | String | `(none)` | OAuth2 client ID for SAP AI Core authentication. |
 | `SAP_AI_CORE_CLIENT_SECRET` | String | `(none)` | OAuth2 client secret for SAP AI Core authentication. |
-| `STS_WELL_KNOWN_URI` | String | `(none)` | Well-known endpoint for the Security Token Service (STS) used for token exchange. |
 
 ## cli
 
@@ -91,37 +91,50 @@ This reference covers user-configurable settings for the controller, CLI, standa
 |----------|------|---------|-------------|
 | `ANTHROPIC_API_KEY` | String | `(none)` | API key for Anthropic. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
-| `DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. |
 | `GEMINI_API_KEY` | String | `(none)` | Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs. |
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. |
 | `KAGENT_DEFAULT_MODEL_PROVIDER` | String | `openAI` | Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI). |
 | `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional arguments to pass to Helm commands. |
 | `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
 | `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
+| `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
-| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. |
-| `POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
 
 ## controller
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. |
-| `GRPC_REFLECTION` | Boolean | `false` | Enable gRPC server reflection on the controller. |
-| `HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
+| `KAGENT_GRPC_REFLECTION` | Boolean | `false` | Enable gRPC server reflection on the controller. |
+| `KAGENT_HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
+| `KAGENT_LEADER_ELECT` | Boolean | `true` | Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination. |
+| `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `KAGENT_METRICS_BIND_ADDRESS` | String | `0` | Address the controller-runtime metrics server binds to, e.g. :8080. "0" (the default) serves no metrics, so an installation that does not set this is unchanged. The Helm chart renders this variable, and its ServiceMonitor, from controller.metrics. |
+| `KAGENT_METRICS_SECURE` | Boolean | `false` | Serve the metrics endpoint over HTTPS with authentication and authorization. A scraper then needs a token bound to the metrics-reader ClusterRole. |
 | `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |
 | `KAGENT_OTEL_CAPTURE_RAW_API_BODIES` | Boolean | `false` | Set to true to enable native Claude raw API body logging when log export is enabled. Independent of span content capture; bodies may contain sensitive data. |
 | `KAGENT_OTEL_MAX_CAPTURE_BYTES` | Integer | `16384` | Per-input/output content capture budget in bytes when capture is enabled. Valid values are 1 through 65536; absent or invalid values use 16384. |
 | `KAGENT_OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Resource attributes, as key=value pairs, added to every agent runtime. |
+| `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
+| `KAGENT_POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over KAGENT_POSTGRES_DATABASE_URL in the controller. |
+| `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
+| `KAGENT_SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |
+| `KAGENT_SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
+| `KAGENT_SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
+| `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
+| `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
+| `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
+| `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
+| `KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE` | String | `(none)` | PEM bundle containing both the client certificate and private key for Substrate API mTLS. Reloaded for each TLS handshake. |
+| `KAGENT_SUBSTRATE_ATE_API_ENDPOINT` | String | `dns:///api.ate-system.svc:443` | Substrate control-plane gRPC endpoint. |
+| `KAGENT_WATCH_NAMESPACES` | String | `(none)` | Comma-separated namespaces to watch. Empty watches all namespaces. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
-| `LEADER_ELECT` | Boolean | `true` | Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination. |
-| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `METRICS_BIND_ADDRESS` | String | `0` | Address the controller-runtime metrics server binds to, e.g. :8080. "0" (the default) serves no metrics, so an installation that does not set this is unchanged. The Helm chart renders this variable, and its ServiceMonitor, from controller.metrics. |
-| `METRICS_SECURE` | Boolean | `false` | Serve the metrics endpoint over HTTPS with authentication and authorization. A scraper then needs a token bound to the metrics-reader ClusterRole. |
 | `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `gzip` | OTLP compression default applied by kagent. The native Codex process has this variable removed because its exporter does not support gzip. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | String | `(none)` | OTLP endpoint for every signal. `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` overrides it for one signal. |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | String | `(none)` | Log endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
@@ -144,28 +157,15 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_SDK_DISABLED` | Boolean | `false` | Set to true to disable SDK telemetry and forwarding of telemetry signals to managed runtimes. |
 | `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
 | `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
-| `POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over POSTGRES_DATABASE_URL in the controller. |
-| `SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
-| `SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |
-| `SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
-| `SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
-| `SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
-| `SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
-| `SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
-| `SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
-| `SUBSTRATE_ATE_API_CLIENT_CERT_FILE` | String | `(none)` | PEM bundle containing both the client certificate and private key for Substrate API mTLS. Reloaded for each TLS handshake. |
-| `SUBSTRATE_ATE_API_ENDPOINT` | String | `dns:///api.ate-system.svc:443` | Substrate control-plane gRPC endpoint. |
-| `WATCH_NAMESPACES` | String | `(none)` | Comma-separated namespaces to watch. Empty watches all namespaces. |
 
 ## database
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. |
-| `POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
-| `POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over POSTGRES_DATABASE_URL in the controller. |
-| `SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. |
+| `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
+| `KAGENT_POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over KAGENT_POSTGRES_DATABASE_URL in the controller. |
+| `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 
 ## testing
 
@@ -182,31 +182,30 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_RUNTIME_IMAGE` | String | `(none)` | Required digest-pinned Go ADK image for sandbox E2E tests and lifecycle manifests. |
 | `KAGENT_E2E_SANDBOX_NAMESPACE` | String | `kagent` | Namespace for sandbox E2E resources. |
 | `KAGENT_E2E_SANDBOX_WORKER_POOL` | String | `kagent-default` | Worker pool used by sandbox E2E resources. |
+| `KAGENT_LLM_PORT` | String | `8090` | Port for the mock LLM server. |
 | `KAGENT_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
+| `KAGENT_RUN_ROLLING_UPGRADE_TESTS` | Boolean | `false` | Run rolling upgrade integration tests when exactly true. |
+| `KAGENT_RUN_UPGRADE_TESTS` | Boolean | `false` | Run upgrade integration tests when exactly true. |
+| `KAGENT_STS_PORT` | String | `8091` | Port for the mock STS (Security Token Service) server. |
 | `KAGENT_TEST_PYTHON` | String | `(none)` | Python executable enabling the Python TaskStore/PostgreSQL interoperability test. That subtest is not run when unset. |
+| `KAGENT_UI_LOOP_EXTENSION_PORT` | String | `(none)` | Example-extension browser-test port. Defaults to KAGENT_UI_LOOP_PORT plus 50. |
+| `KAGENT_UI_LOOP_LIVE` | Boolean | `false` | Run UI browser tests against a real cluster when exactly true. |
+| `KAGENT_UI_LOOP_LIVE_PORT` | String | `8301` | Live-cluster UI browser-test port. |
+| `KAGENT_UI_LOOP_PORT` | String | `8001` | Vite development/preview port and UI browser-test port. |
+| `KAGENT_UPDATE_GOLDEN` | Boolean | `false` | When true, update golden test files instead of comparing. |
+| `KAGENT_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_ENABLE_MOCK_UI; leave unset for normal development. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
-| `LLM_PORT` | String | `8090` | Port for the mock LLM server. |
-| `RUN_ROLLING_UPGRADE_TESTS` | Boolean | `false` | Run rolling upgrade integration tests when exactly true. |
-| `RUN_UPGRADE_TESTS` | Boolean | `false` | Run upgrade integration tests when exactly true. |
-| `STS_PORT` | String | `8091` | Port for the mock STS (Security Token Service) server. |
-| `UI_LOOP_EXTENSION_PORT` | String | `(none)` | Example-extension browser-test port. Defaults to UI_LOOP_PORT plus 50. |
-| `UI_LOOP_LIVE` | Boolean | `false` | Run UI browser tests against a real cluster when exactly true. |
-| `UI_LOOP_LIVE_PORT` | String | `8301` | Live-cluster UI browser-test port. |
-| `UI_LOOP_PORT` | String | `8001` | Vite development/preview port and UI browser-test port. |
-| `UPDATE_GOLDEN` | Boolean | `false` | When true, update golden test files instead of comparing. |
 
 ## ui
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `API_BASE_URL` | String | `/api` | Browser API base URL. Set directly for Vite development; use KAGENT_API_BASE_URL in the UI container. |
-| `BASE_PATH` | String | `(none)` | Browser public path prefix. Set directly for Vite development; use KAGENT_UI_BASE_PATH in the UI container. |
-| `ENABLE_MOCK_UI` | Boolean | `false` | Serve the UI from in-browser fixtures when true. Overrides backend settings; no user is signed in. Applies in development and containers. |
-| `EXTENSION_<NAME>` | String | `(none)` | UI extension settings forwarded to the browser at runtime. Each installed extension owns its keys and defaults; these values are public. |
-| `KAGENT_API_BASE_URL` | String | `/api` | UI container setting mapped to the browser's API_BASE_URL at startup. |
+| `KAGENT_API_BASE_URL` | String | `/api` | Browser API base URL for UI containers and Vite development. |
 | `KAGENT_DEV_CONTROLLER_URL` | String | `http://127.0.0.1:8083` | Vite development proxy target for /api and /a2a; not sent to the browser. |
-| `KAGENT_STREAM_TIMEOUT_MS` | String | `1800000` | UI container chat stream inactivity timeout in milliseconds, mapped to STREAM_TIMEOUT_MS. 0 disables the timeout. |
-| `KAGENT_UI_BASE_PATH` | String | `(none)` | UI container public path prefix, such as /ui; empty serves at the root. Mapped to BASE_PATH; invalid or reserved prefixes fall back to the root. |
-| `SSO_REDIRECT_PATH` | String | `/oauth2/start` | UI path used by Sign in with SSO. |
-| `STREAM_TIMEOUT_MS` | String | `1800000` | Browser chat stream inactivity timeout in milliseconds. Set directly for Vite development; use KAGENT_STREAM_TIMEOUT_MS in the UI container. 0 disables the timeout. |
-| `VITE_EXAMPLE_EXTENSION` | Boolean | `false` | Build-time switch enabling the bundled example UI extension. |
+| `KAGENT_ENABLE_MOCK_UI` | Boolean | `false` | Serve the development UI from in-browser fixtures when true. Overrides backend settings; no user is signed in. Release bundles do not include the mock backend. |
+| `KAGENT_EXTENSION_<NAME>` | String | `(none)` | UI extension settings forwarded to the browser at runtime. Each installed extension owns its keys and defaults; these values are public. |
+| `KAGENT_SSO_REDIRECT_PATH` | String | `/oauth2/start` | UI path used by Sign in with SSO. |
+| `KAGENT_STREAM_TIMEOUT_MS` | String | `1800000` | UI chat stream inactivity timeout in milliseconds. 0 disables the timeout. Applies in containers and Vite development. |
+| `KAGENT_UI_BASE_PATH` | String | `(none)` | UI public path prefix, such as /ui; empty serves at the root. Applies in containers and Vite development; the container falls back to the root for invalid or reserved prefixes. |
+| `KAGENT_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_ENABLE_MOCK_UI; leave unset for normal development. |
+| `KAGENT_VITE_EXAMPLE_EXTENSION` | Boolean | `false` | Build-time switch enabling the bundled example UI extension. |
