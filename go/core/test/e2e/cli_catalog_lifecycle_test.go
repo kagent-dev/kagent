@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -161,7 +162,7 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(ctx, binary, args...)
-	kubeconfig := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	kubeconfig := kagentenv.Kubeconfig.Get()
 	if kubeconfig == "" {
 		kubeconfig = clientcmd.RecommendedHomeFile
 	}
@@ -180,7 +181,7 @@ func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...stri
 
 func kagentCLI(t *testing.T) string {
 	t.Helper()
-	binary := os.Getenv("KAGENT_E2E_CLI")
+	binary := kagentenv.E2ECLI.Get()
 	if binary == "" {
 		t.Fatal("KAGENT_E2E_CLI is not set; run E2E tests through `make -C go e2e`")
 	}

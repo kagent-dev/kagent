@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -447,7 +448,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	runtimeServer.Stop()
 	_, err = second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
-	if python := os.Getenv("KAGENT_TEST_PYTHON"); python != "" {
+	if python := kagentenv.TestPython.Get(); python != "" {
 		t.Run("python SDK with PostgreSQL", func(t *testing.T) {
 			// Run the Python adapter against this same API and PostgreSQL session.
 			// Only native work is a controlled fixture. Enable with the repository

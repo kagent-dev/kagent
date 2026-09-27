@@ -55,7 +55,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_AGENTS_DISABLE_TRACING` | Boolean | `false` | Disable OpenAI Agents SDK tracing, including the kagent bridge. The Python OpenAI runtime accepts true or 1. |
 | `OPENAI_API_BASE` | String | `(none)` | Custom base URL for the OpenAI API. |
-| `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. |
+| `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
 | `OPENAI_API_VERSION` | String | `(none)` | Azure OpenAI API version. The Go and Python ADKs fall back to 2024-02-15-preview when model configuration and this variable are unset. |
 | `OPENAI_ORGANIZATION` | String | `(none)` | OpenAI organization identifier. |
 | `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `gzip` | OTLP compression default applied by kagent. The native Codex process has this variable removed because its exporter does not support gzip. |
@@ -101,7 +101,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
-| `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. |
+| `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
 
 ## controller
 
@@ -176,24 +176,32 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_CLAUDE_IMAGE` | String | `(none)` | Digest-pinned Claude harness image substituted into E2E lifecycle manifests. |
 | `KAGENT_E2E_CLI` | String | `(none)` | CLI executable for catalog lifecycle E2E tests; make -C go e2e builds and supplies it. |
 | `KAGENT_E2E_CODEX_IMAGE` | String | `(none)` | Digest-pinned Codex harness image substituted into E2E lifecycle manifests. |
+| `KAGENT_E2E_DOCKER_REGISTRY` | String | `localhost:5001` | Image registry for upgrade tests; supplied by make from DOCKER_REGISTRY. |
+| `KAGENT_E2E_KIND_CLUSTER_NAME` | String | `kagent` | Kind cluster used by upgrade tests; supplied by make from KIND_CLUSTER_NAME. |
+| `KAGENT_E2E_KUBE_CONTEXT` | String | `(none)` | Kubernetes context for upgrade tests. Defaults to kind- followed by KAGENT_E2E_KIND_CLUSTER_NAME. |
 | `KAGENT_E2E_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
+| `KAGENT_E2E_NAMESPACE` | String | `kagent` | Kubernetes namespace used by upgrade tests. |
 | `KAGENT_E2E_OTLP_LISTEN_ADDRESS` | String | `(none)` | Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver. |
-| `KAGENT_E2E_REQUIRE_TRACING` | Boolean | `false` | Fail instead of skip when expected native harness tracing support is unavailable. |
+| `KAGENT_E2E_REPO_ROOT` | String | `(none)` | Repository root for upgrade tests. Falls back to git rev-parse --show-toplevel. |
+| `KAGENT_E2E_REQUIRE_TRACING` | String | `false` | Fail instead of skip when expected native harness tracing support is unavailable. Enabled by true, ignoring case and surrounding whitespace. |
 | `KAGENT_E2E_RUNTIME_IMAGE` | String | `(none)` | Required digest-pinned Go ADK image for sandbox E2E tests and lifecycle manifests. |
-| `KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS` | Boolean | `false` | Run rolling upgrade integration tests when exactly true. |
-| `KAGENT_E2E_RUN_UPGRADE_TESTS` | Boolean | `false` | Run upgrade integration tests when exactly true. |
+| `KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS` | String | `false` | Run rolling upgrade integration tests when exactly true. |
+| `KAGENT_E2E_RUN_UPGRADE_TESTS` | String | `false` | Run upgrade integration tests when exactly true. |
 | `KAGENT_E2E_SANDBOX_NAMESPACE` | String | `kagent` | Namespace for sandbox E2E resources. |
 | `KAGENT_E2E_SANDBOX_WORKER_POOL` | String | `kagent-default` | Worker pool used by sandbox E2E resources. |
 | `KAGENT_E2E_UI_LOOP_EXTENSION_PORT` | String | `(none)` | Example-extension browser-test port. Defaults to KAGENT_E2E_UI_LOOP_PORT plus 50. |
 | `KAGENT_E2E_UI_LOOP_LIVE` | Boolean | `false` | Run UI browser tests against a real cluster when exactly true. |
 | `KAGENT_E2E_UI_LOOP_LIVE_PORT` | String | `8301` | Live-cluster UI browser-test port. |
 | `KAGENT_E2E_UI_LOOP_PORT` | String | `8001` | Vite development/preview port and UI browser-test port. |
+| `KAGENT_E2E_UPGRADE_FROM_VERSION` | String | `(none)` | Required previous release version for upgrade tests; supplied by make from UPGRADE_FROM_VERSION. |
+| `KAGENT_E2E_VERSION` | String | `(none)` | Required current image tag for upgrade tests; supplied by make from VERSION. |
 | `KAGENT_TEST_LLM_PORT` | String | `8090` | Port for the mock LLM server. |
 | `KAGENT_TEST_PYTHON` | String | `(none)` | Python executable enabling the Python TaskStore/PostgreSQL interoperability test. That subtest is not run when unset. |
 | `KAGENT_TEST_STS_PORT` | String | `8091` | Port for the mock STS (Security Token Service) server. |
 | `KAGENT_TEST_UPDATE_GOLDEN` | Boolean | `false` | When true, update golden test files instead of comparing. |
 | `KAGENT_UI_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_UI_ENABLE_MOCK; leave unset for normal development. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
+| `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
 
 ## ui
 

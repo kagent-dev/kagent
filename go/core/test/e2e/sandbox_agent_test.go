@@ -3,7 +3,6 @@ package e2e_test
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -23,7 +23,7 @@ import (
 
 func TestSandboxAgentMCP(t *testing.T) {
 	target := interactionTarget(t)
-	image := os.Getenv("KAGENT_E2E_RUNTIME_IMAGE")
+	image := kagentenv.E2ERuntimeImage.Get()
 	require.NotEmpty(t, image, "KAGENT_E2E_RUNTIME_IMAGE must be set to a digest-pinned Go ADK image")
 	f := newSandboxFixture(t)
 	kube := interactionKubeClient(t)

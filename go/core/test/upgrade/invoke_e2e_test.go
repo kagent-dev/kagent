@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,7 +84,7 @@ func upgradeE2EEnv(t *testing.T, env upgradeEnv, port int) []string {
 func requireInvokeEnvironment(t *testing.T, treeGoDir, label string) {
 	t.Helper()
 
-	if os.Getenv("KAGENT_E2E_LOCAL_HOST") == "" {
+	if kagentenv.KagentLocalHost.Get() == "" {
 		t.Skipf("[%s] KAGENT_E2E_LOCAL_HOST is not set; run via make run-upgrade-tests", label)
 	}
 	if _, err := os.Stat(filepath.Join(treeGoDir, "go.mod")); err != nil {

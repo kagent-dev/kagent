@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -30,6 +29,7 @@ import (
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -628,9 +628,9 @@ type sharedInteractionFixture struct {
 
 func interactionTarget(t *testing.T) string {
 	t.Helper()
-	rawURL := os.Getenv("KAGENT_E2E_API_URL")
+	rawURL := kagentenv.E2EAPIURL.Get()
 	if rawURL == "" {
-		rawURL = os.Getenv("KAGENT_API_URL")
+		rawURL = kagentenv.KagentAPIURL.Get()
 	}
 	if rawURL == "" {
 		t.Skip("KAGENT_E2E_API_URL is not set")
@@ -942,7 +942,7 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 	if err != nil {
 		t.Fatalf("parse mock LLM address: %v", err)
 	}
-	host := os.Getenv("KAGENT_E2E_LOCAL_HOST")
+	host := kagentenv.KagentLocalHost.Get()
 	if host == "" {
 		switch goruntime.GOOS {
 		case "darwin":

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"os"
 	"testing"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -44,15 +44,15 @@ type sandboxFixture struct {
 func newSandboxFixture(t *testing.T) *sandboxFixture {
 	t.Helper()
 	target := interactionTarget(t)
-	image := os.Getenv("KAGENT_E2E_RUNTIME_IMAGE")
+	image := kagentenv.E2ERuntimeImage.Get()
 	require.NotEmpty(t, image, "KAGENT_E2E_RUNTIME_IMAGE must be set to a digest-pinned Go ADK image")
-	namespace := os.Getenv("KAGENT_E2E_SANDBOX_NAMESPACE")
+	namespace := kagentenv.E2ESandboxNamespace.Get()
 	if namespace == "" {
-		namespace = "kagent"
+		namespace = kagentenv.E2ESandboxNamespace.DefaultValue()
 	}
-	pool := os.Getenv("KAGENT_E2E_SANDBOX_WORKER_POOL")
+	pool := kagentenv.E2ESandboxWorkerPool.Get()
 	if pool == "" {
-		pool = "kagent-default"
+		pool = kagentenv.E2ESandboxWorkerPool.DefaultValue()
 	}
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)

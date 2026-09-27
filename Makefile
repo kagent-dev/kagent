@@ -597,12 +597,12 @@ run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test 
 	echo "kind gateway (KAGENT_E2E_LOCAL_HOST): $$kind_gw"; \
 	cd go && \
 	KAGENT_E2E_RUN_UPGRADE_TESTS=true \
-	REPO_ROOT=$(CURDIR) \
+	KAGENT_E2E_REPO_ROOT=$(CURDIR) \
 	KAGENT_E2E_LOCAL_HOST="$$kind_gw" \
-	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
-	VERSION=$(VERSION) \
-	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
-	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KAGENT_E2E_UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	KAGENT_E2E_VERSION=$(VERSION) \
+	KAGENT_E2E_DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KAGENT_E2E_KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
 	go test ./core/test/upgrade -run TestUpgrade -count=1 -timeout=45m -v
 
@@ -615,11 +615,11 @@ run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release 
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
 	KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS=true \
-	REPO_ROOT=$(CURDIR) \
-	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
-	VERSION=$(VERSION) \
-	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
-	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	KAGENT_E2E_REPO_ROOT=$(CURDIR) \
+	KAGENT_E2E_UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	KAGENT_E2E_VERSION=$(VERSION) \
+	KAGENT_E2E_DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KAGENT_E2E_KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
 	go test ./core/test/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
 

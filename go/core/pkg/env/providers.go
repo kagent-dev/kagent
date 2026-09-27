@@ -9,8 +9,8 @@ var (
 	OpenAIAPIKey = RegisterStringVar(
 		"OPENAI_API_KEY",
 		"",
-		"API key for OpenAI.",
-		ComponentAgentRuntime, ComponentCLI,
+		"API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty.",
+		ComponentAgentRuntime, ComponentCLI, ComponentTesting,
 	)
 
 	OpenAIOrganization = RegisterStringVar(

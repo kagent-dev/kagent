@@ -163,7 +163,12 @@ linters:
       - linters:
           - forbidigo
         text: Use a registered accessor from core/pkg/env
-        path: '(^|/)core/pkg/env/|_test\.go$'
+        path: '(^|/)core/pkg/env/'
+      - linters:
+          - forbidigo
+        text: Use a registered accessor from core/pkg/env
+        # Unit tests may inspect process state; core/test E2E settings use the registry.
+        path: '(^|/)(api|adk|harness|pkg|sandbox|core/(cli|internal|pkg))/.*_test\.go$'
       - linters:
           - kubeapilinter
         path-except: "api/v1alpha"
