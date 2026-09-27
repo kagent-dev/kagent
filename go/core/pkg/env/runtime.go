@@ -8,7 +8,6 @@ var (
 	_ = RegisterStringVar("CONFIG_DIR", "/config", "Go ADK configuration directory; --filepath takes precedence.", ComponentAgentRuntime)
 	_ = RegisterStringVar("A2A_MAX_CONTENT_LENGTH", "10485760", "Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default.", ComponentAgentRuntime)
 	_ = RegisterStringVar("KAGENT_A2A_GRPC_ADDRESS", "[::]:80", "Python ADK gRPC listen address.", ComponentAgentRuntime)
-	_ = RegisterStringVar("UVICORN_LOG_LEVEL", "", "Python ADK HTTP server log level. Falls back to LOG_LEVEL, then info.", ComponentAgentRuntime)
 	_ = RegisterStringVar("BASH_VENV_PATH", "", "Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set.", ComponentAgentRuntime)
 	_ = RegisterBoolVar("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", false, "Keep the OpenAI Agents SDK native tracing processor alongside kagent OpenTelemetry export in the Python OpenAI runtime.", ComponentAgentRuntime)
 	_ = RegisterBoolVar("OPENAI_AGENTS_DISABLE_TRACING", false, "Disable OpenAI Agents SDK tracing, including the kagent bridge. The Python OpenAI runtime accepts true or 1.", ComponentAgentRuntime)

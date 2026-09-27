@@ -47,7 +47,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SKILLS_FOLDER` | String | `/skills` | Skills directory for standalone Python skills tools. The Python ADK adds skills tools when set; managed Go ADK runtimes use their compiled skill configuration. |
 | `KAGENT_STS_AUDIENCE` | String | `(none)` | Comma-separated RFC 8693 audiences sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience. |
 | `KAGENT_STS_RESOURCE` | String | `(none)` | Comma-separated RFC 8707 resource indicators sent on STS token-exchange requests to scope issued tokens to target backends. |
-| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
 | `MISTRAL_API_BASE` | String | `(none)` | Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1). |
 | `MISTRAL_API_KEY` | String | `(none)` | API key for Mistral AI. |
 | `OLLAMA_API_BASE` | String | `(none)` | Base URL for the Ollama API endpoint; falls back to http://localhost:11434 when model configuration and this variable are unset. |
@@ -84,7 +84,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `SAP_AI_CORE_CLIENT_ID` | String | `(none)` | OAuth2 client ID for SAP AI Core authentication. |
 | `SAP_AI_CORE_CLIENT_SECRET` | String | `(none)` | OAuth2 client secret for SAP AI Core authentication. |
 | `STS_WELL_KNOWN_URI` | String | `(none)` | Well-known endpoint for the Security Token Service (STS) used for token exchange. |
-| `UVICORN_LOG_LEVEL` | String | `(none)` | Python ADK HTTP server log level. Falls back to LOG_LEVEL, then info. |
 
 ## cli
 
@@ -100,7 +99,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
 | `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
-| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. |
 | `POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
@@ -120,7 +119,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Resource attributes, as key=value pairs, added to every agent runtime. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `LEADER_ELECT` | Boolean | `true` | Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination. |
-| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
 | `METRICS_BIND_ADDRESS` | String | `0` | Address the controller-runtime metrics server binds to, e.g. :8080. "0" (the default) serves no metrics, so an installation that does not set this is unchanged. The Helm chart renders this variable, and its ServiceMonitor, from controller.metrics. |
 | `METRICS_SECURE` | Boolean | `false` | Serve the metrics endpoint over HTTPS with authentication and authorization. A scraper then needs a token bound to the metrics-reader ClusterRole. |
 | `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `gzip` | OTLP compression default applied by kagent. The native Codex process has this variable removed because its exporter does not support gzip. |

@@ -42,7 +42,7 @@ sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
 token_resource = _split_csv(os.getenv("KAGENT_STS_RESOURCE"))
 token_audience = _split_csv(os.getenv("KAGENT_STS_AUDIENCE"))
-uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
+uvicorn_log_level = os.getenv("LOG_LEVEL", "info").lower()
 
 
 def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
