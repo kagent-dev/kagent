@@ -20,6 +20,7 @@ import (
 )
 
 func TestSandboxAgentMCP(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	image := kagentenv.E2ERuntimeImage.Get()
 	require.NotEmpty(t, image, "KAGENT_E2E_RUNTIME_IMAGE must be set to a digest-pinned Go ADK image")

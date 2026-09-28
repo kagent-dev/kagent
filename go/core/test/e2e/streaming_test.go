@@ -21,6 +21,7 @@ import (
 func TestSessionCompletesAfterDisconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		started, release := make(chan struct{}), make(chan struct{})
 		var startedOnce, releaseOnce sync.Once
 		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
@@ -76,6 +77,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 func TestSessionStreamingResumeAndPersistence(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 
 		streamed := sendStreaming(t, fixture, "What is 2+2?")

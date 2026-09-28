@@ -145,6 +145,7 @@ func (f *sandboxFixture) read(t *testing.T, id, path string) []byte {
 }
 
 func TestSandboxLifecycle(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	sandbox := f.create(t, 5*time.Minute)
 	id := sandbox.Id
@@ -223,6 +224,7 @@ func TestSandboxLifecycle(t *testing.T) {
 }
 
 func TestSandboxMCP(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	// Preparation and guest execution are exercised independently of agent invocation.
 	sandbox := f.create(t, 5*time.Minute)
@@ -272,12 +274,14 @@ func TestSandboxMCP(t *testing.T) {
 }
 
 func TestSandboxExpiration(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	sandbox := f.create(t, 15*time.Second)
 	f.wait(t, sandbox.Id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
 }
 
 func TestSandboxTemplateRevisionRetention(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	first := f.create(t, 5*time.Minute)
 	kube := interactionKubeClient(t)

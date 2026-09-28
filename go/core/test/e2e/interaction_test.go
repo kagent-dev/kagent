@@ -57,6 +57,7 @@ const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":
 func TestSessionInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 		if task.Status.State != a2atype.TaskStateCompleted {
@@ -78,6 +79,7 @@ func TestSessionInteraction(t *testing.T) {
 func TestSessionStructuredOutput(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		switch harness.name {
 		case codexE2EHarness, claudeE2EHarness, "byo-adk-e2e":
 			t.Skip("the compiler only supports AgentTemplate outputSchema on the kagent harness")
@@ -132,6 +134,7 @@ func assertStructuredOutputArtifact(t *testing.T, artifact *a2atype.Artifact, an
 }
 
 func TestOpaqueBYOAgentInteraction(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixtureForHarnessTemplate(t, interactionTarget(t), "byo-e2e", "byo-smoke")
 	for range 2 {
 		_, _, task := fixture.send(t, "hello")
@@ -144,6 +147,7 @@ func TestOpaqueBYOAgentInteraction(t *testing.T) {
 func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		switch harness.name {
 		case codexE2EHarness, claudeE2EHarness:
 			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
@@ -241,6 +245,7 @@ func createCheckpoint(t *testing.T, ctx context.Context, client apiv1alpha1.Chec
 func TestSessionCheckpoint(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startForkMemoryMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 		created := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1alpha1.CreateCheckpointRequest{
@@ -380,6 +385,7 @@ func TestSessionCheckpoint(t *testing.T) {
 func TestMCPInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		mcpURL, mcpServer := startMCPMock(t)
 		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, false)
@@ -400,6 +406,7 @@ func TestMCPInteraction(t *testing.T) {
 func TestMCPToolApproval(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		mcpURL, mcpServer := startMCPMock(t)
 		template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true)
@@ -420,6 +427,7 @@ func TestMCPToolApproval(t *testing.T) {
 func TestSharedAgentInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		switch harness.name {
 		case codexE2EHarness:
 			t.Skip("a deterministic Codex subagent model fixture is not available yet")
@@ -456,6 +464,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 func TestSessionTaskPersistenceAndReconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
 
@@ -508,6 +517,7 @@ func TestSessionTaskPersistenceAndReconnect(t *testing.T) {
 func TestSessionActiveTask(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		modelURL, started := startBlockingInteractionMock(t)
 		fixture := newInteractionFixture(t, harness, target, modelURL)

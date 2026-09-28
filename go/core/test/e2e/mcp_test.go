@@ -30,6 +30,7 @@ const (
 func TestMCPSessionInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		endpoint := mcpEndpoint(t)
 
@@ -78,6 +79,7 @@ func TestMCPSessionInteraction(t *testing.T) {
 func TestMCPAskUserContinuation(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		switch harness.name {
 		case codexE2EHarness, claudeE2EHarness:
 			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
@@ -109,6 +111,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 func TestMCPCancelTask(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		modelURL, started := startBlockingInteractionMock(t)
 		fixture := newInteractionFixture(t, harness, target, modelURL)
@@ -127,6 +130,7 @@ func TestMCPCancelTask(t *testing.T) {
 func TestMCPCheckpointFork(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		endpoint := mcpEndpoint(t)
 		initial := mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", false)

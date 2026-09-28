@@ -63,6 +63,7 @@ Add portable tests using this pattern:
 func TestAgentTemplateBehavior(t *testing.T) {
     t.Parallel()
     forEachHarness(t, func(t *testing.T, harness testHarness) {
+        t.Parallel()
         fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
         // Exercise the public API and assert the behavior.
     })
@@ -90,14 +91,17 @@ go test ./core/test/e2e -run '^TestSessionInteraction$/^codex$' -v -count=1
 Run these commands from `go/` with `KUBECONFIG` pointing to the test Kind cluster
 and `KAGENT_E2E_API_URL` set. The existing CI E2E command runs the whole matrix
 without an additional flag. Both runners allow 30 minutes and finish the matrix
-after a failure so all harness results are visible. `-parallel` still bounds
-concurrent test scenarios. Most harness subtests run sequentially; the cron,
-scheduled timeout, session expiration, and runtime revision lifecycle cases run
-their harnesses in parallel to overlap cron ticks, deadlines, and periodic garbage
-collection.
-The inline/referenced configuration matrix runs its harnesses and configuration
-cases in parallel. The A2A conversation-creation test also runs its harnesses in
-parallel. These cases own their resources and only read the installed Harnesses.
+after a failure so all harness results are visible. Independent harness subtests
+run in parallel, sharing the suite's `-parallel` budget. Each case owns its mocks,
+configuration, Sessions, and cleanup; installed Harnesses are read-only fixtures.
+The inline/referenced configuration matrix also runs its configuration cases in
+parallel. Steps that share a Session, such as the CLI output-format subtests,
+remain sequential within each harness.
+
+Independent sandbox scenarios, opaque BYO invocation, and completed-chat trace
+checks also run in parallel. Trace cases share the receiver but select spans by
+their own trace IDs; the receiver is cleared once before starting those cases.
+
 Controller restart cases stay sequential with respect to the rest of the suite.
 The scheduled-run restart test starts all selected harness executions before one
 shared controller restart, then releases their model responses and checks recovery

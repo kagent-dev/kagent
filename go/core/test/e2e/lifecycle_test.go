@@ -13,6 +13,7 @@ import (
 func TestSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		deleted, err := fixture.sessions.DeleteSession(fixture.ctx, &apiv1alpha1.DeleteSessionRequest{
 			SessionId: fixture.sessionID,
