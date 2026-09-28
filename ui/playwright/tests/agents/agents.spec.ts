@@ -15,139 +15,69 @@ import { operationCalls, rpc } from "../../helpers/mockCalls";
 import { optionNamed } from "../../helpers/resource";
 import { background, settledPaint } from "../../helpers/style";
 
-/**
- * Agents — what can be run, and what each one is.
- *
- * An agent is an `AgentTemplate` paired with a `Harness`. An `AgentInstance` is one
- * *conversation* with an agent, not an agent — the A2A gateway files every task
- * under the instance as the task's `contextId`, so an instance holds a single thread
- * of turns. This page used to list those, under a heading that said "Agents".
- *
- * ## What this covers, and why each thing is here
- *
- * The properties a page cannot show you it got wrong:
- *
- * - **A row is a pair.** One template admitted by two harnesses is two agents, and
- *   the fixtures carry exactly that case. A page keyed on the template would render
- *   one row, look entirely correct, and merge two agents' conversations.
- * - **A template nothing admits is no agent.** It reaches no prepared revision and
- *   every `CreateAgentInstance` naming it is refused, so listing it as a runnable
- *   agent would be listing something that cannot run.
- * - **Selecting no namespace means all of them**, which is one state rather than two
- *   controls that could disagree — the toggle-beside-a-single-select this replaced.
- * - **The revision state is three answers, not two.** "Preparing" is not a failure
- *   and "not reported" is not one either.
- *
- * ## Why the assertions read the state and not the wording
- *
- * The revision tag carries its state in `data-revision-state` beside its label. The
- * wording is a product decision and may change; the state is derived from the
- * controller's status and may not. Asserting the value means a rename is a
- * deliberate edit here rather than a broken suite, while a row showing the wrong
- * state still fails.
- */
-
-test("agents: the list is agents, and an agent is a template paired with a harness", async ({
+/** Agents — each row is one explicit Agent, whose template and harness are each shared or inline. */
+test("agents: the list is Agent resources, with each half shared or inline", async ({
   page,
 }) => {
-  await test.step("1. every namespace by default, with no toggle to say so", async () => {
+  await test.step("1. every namespace by default", async () => {
     await loadPage(page, routes.agents, { title: "Agents" });
     await expectSettled(page);
-
-    // Five agents across two namespaces, which a page scoped to one could not show.
-    // The old "all namespaces" switch is gone: nothing selected *is* everything, so
-    // there is one control rather than two that could contradict each other.
-    //
-    // Six rows, because the fixtures also hold conversations whose pair no longer
-    // exists and those are gathered under a stand-in row — see the dedicated test
-    // below for why that row is there and when it is not.
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
+    await expect(page.getByTestId("agents-summary")).toHaveText("9 of 9 agents");
     await expect(page.getByTestId("agents-table")).toContainText("analytics");
-    await expect(page.getByTestId("instances-all-namespaces")).toHaveCount(0);
   });
 
-  await test.step("2. a template two harnesses admit is two agents, told apart by the harness", async () => {
-    // The load-bearing assertion of this whole page. `shared-brain` carries one
-    // label each of two harnesses selects on, so the controller materialises two
-    // pairs with two revisions — and they share a name, which is exactly why the
-    // harness is a column rather than a detail.
-    const shared = rowNamed(page, "shared-brain");
-    await expect(shared).toHaveCount(2);
-
-    const harnesses = await shared
-      .locator("[data-testid^='agent-harness-']")
-      .allInnerTexts();
-    expect(harnesses.sort()).toEqual(["fast-lane", "k8s-agent"]);
+  await test.step("2. each row says whether its template and harness are shared or inline", async () => {
+    const sources = async (name: string) => [
+      await page.getByTestId(`agent-template-kagent/${name}`).getAttribute("data-source"),
+      await page.getByTestId(`agent-harness-kagent/${name}`).getAttribute("data-source"),
+    ];
+    expect(await sources("shared-brain")).toEqual(["reference", "reference"]);
+    expect(await sources("release-notes")).toEqual(["inline", "reference"]);
+    expect(await sources("triage-on-claude")).toEqual(["reference", "inline"]);
+    expect(await sources("scratchpad")).toEqual(["inline", "inline"]);
+    await expect(page.getByTestId("agent-template-kagent/shared-brain")).toHaveText("shared-brain");
+    await expect(page.getByTestId("agent-harness-kagent/shared-brain")).toHaveText("k8s-agent");
   });
 
-  await test.step("3. each row links to its own agent, not to a shared one", async () => {
-    // Two links to two addresses. A page keyed on the template would produce the same
-    // href twice and the two rows would be the same page.
-    //
-    // The destination is a conversation that does not exist yet, which is what clicking
-    // an agent's name is for. It creates nothing until a message is sent; the agent's
-    // own page — `agentPage` — is reached from the Conversations control instead.
-    await expect(
-      page.getByTestId("agent-link-kagent-shared-brain-k8s-agent"),
-    ).toHaveAttribute("href", agentNewChat(agents.sharedOnK8s));
-    await expect(
-      page.getByTestId("agent-link-kagent-shared-brain-fast-lane"),
-    ).toHaveAttribute("href", agentNewChat(agents.sharedOnFastLane));
+  await test.step("3. two Agents with identical refs are two rows with two addresses", async () => {
+    await expect(page.getByTestId("agent-link-kagent-shared-brain")).toHaveAttribute(
+      "href", agentNewChat(agents.sharedOnK8s),
+    );
+    await expect(page.getByTestId("agent-link-kagent-shared-brain-twin")).toHaveAttribute(
+      "href", agentNewChat({ name: "shared-brain-twin", template: "", harness: "" }),
+    );
   });
 
-  await test.step("4. a template no harness admits is not listed as an agent", async () => {
-    // `note-taker` has no labels, so nothing admits it, so it reaches no prepared
-    // revision and cannot be run. It is a template, and the templates page is where
-    // that is said — listing it here would offer a "New chat" that cannot succeed.
+  await test.step("4. a template without an Agent is not listed", async () => {
     await expect(rowNamed(page, "note-taker")).toHaveCount(0);
   });
 
-  await test.step("5. the revision state is three answers, and 'preparing' is not a failure", async () => {
+  await test.step("5. status is ready, preparing or not reported", async () => {
     await expect(
-      page.getByTestId(`agent-revision-kagent/${agents.k8s.template}/${agents.k8s.harness}`),
+      page.getByTestId(`agent-revision-kagent/${agents.k8s.name}`),
     ).toHaveAttribute("data-revision-state", "ready");
-
-    // Admitted, with a desired revision and none successful yet, because its harness
-    // has not reported ready. A page that rendered this the same as a failure would
-    // send a reader looking for a broken template.
-    const preparing = page.getByTestId(
-      `agent-revision-kagent/${agents.preparing.template}/${agents.preparing.harness}`,
-    );
+    const preparing = page.getByTestId(`agent-revision-kagent/${agents.preparing.name}`);
     await expect(preparing).toHaveAttribute("data-revision-state", "preparing");
     await expect(preparing).toHaveText("Preparing");
   });
 
-  await test.step("6. each agent carries a count of the conversations people have had with it", async () => {
-    // Counted with `all_creators`, so it is what the agent is doing rather than what
-    // this reader has done with it. Four for the k8s agent: two of the caller's own
-    // and two of somebody else's.
-    await expect(
-      page.getByTestId(
-        `agent-conversations-kagent/${agents.k8s.template}/${agents.k8s.harness}`,
-      ),
-    ).toHaveText("4 conversations");
-    // One each for the two agents `shared-brain` is — which is the count being per
-    // *pair* rather than per template. Split the other way it would read 2 and 0.
-    await expect(
-      page.getByTestId(
-        `agent-conversations-kagent/${agents.sharedOnK8s.template}/${agents.sharedOnK8s.harness}`,
-      ),
-    ).toHaveText("1 conversation");
-    await expect(
-      page.getByTestId(
-        `agent-conversations-kagent/${agents.sharedOnFastLane.template}/${agents.sharedOnFastLane.harness}`,
-      ),
-    ).toHaveText("1 conversation");
+  await test.step("6. conversation counts are per Agent, not per template", async () => {
+    await expect(page.getByTestId(`agent-conversations-kagent/${agents.k8s.name}`)).toHaveText("4 conversations");
+    await expect(page.getByTestId(`agent-conversations-kagent/${agents.sharedOnK8s.name}`)).toHaveText("1 conversation");
+    await expect(page.getByTestId("agent-conversations-kagent/shared-brain-twin")).toHaveText("0 conversations");
   });
 
-  await test.step("7. a conversation belonging to no pair is said out loud, not dropped", async () => {
-    // The fixture instance with no harness and no template belongs to no agent, so
-    // it appears under none of them — which would otherwise be a conversation that
-    // silently vanished from the product. Deleting a template produces the same
-    // state on a cluster, and the conversation keeps running.
+  await test.step("7. a conversation whose Agent is gone is reported", async () => {
     await expect(page.getByTestId("agents-orphaned-conversations")).toBeVisible();
   });
 
+  await test.step("8. a shared template's description shows on its Agents and is searchable", async () => {
+    await expect(page.getByText("One configuration, run on two different runtimes.", { exact: true })).toHaveCount(3);
+    await page.getByPlaceholder("Search agents").fill("One configuration");
+    await expect(dataRows(page)).toHaveCount(3);
+    await expect(rowNamed(page, "support-triage-2b91d0e")).toHaveCount(0);
+  });
 });
 
 /**
@@ -165,8 +95,7 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
   await expectSettled(page);
 
   await test.step("1. nothing selected is every namespace", async () => {
-    // Five agents plus the stand-in row for conversations that belong to none of them.
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
     // No pills, because nothing is narrowing: a pill row over an unfiltered list
     // would be a control saying something is hidden when nothing is.
     await expect(page.getByTestId("agents-filters-pills")).toHaveCount(0);
@@ -181,18 +110,14 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
     await page.keyboard.press("Escape");
 
     await expect(page.getByTestId("agents-filters-pill-ns-analytics")).toBeVisible();
-    // One agent in that namespace, plus the stand-in row — which survives every filter
-    // deliberately: it belongs to no namespace in the sense the filter means, and
-    // hiding it because a namespace was chosen would take away the only way to reach
-    // the conversations it stands for.
-    await expect(dataRows(page)).toHaveCount(2);
+    await expect(dataRows(page)).toHaveCount(1);
     // In the address, so a narrowed view can be linked to and survives a reload.
     await expect(page).toHaveURL(/ns=analytics/);
   });
 
   await test.step("3. the pill removes exactly that filter", async () => {
     await page.getByTestId("agents-filters-pill-ns-analytics").click();
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
     await expect(page).not.toHaveURL(/ns=analytics/);
   });
 
@@ -201,55 +126,30 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
     // Matched on the harness, which is half of what an agent *is* — a search over
     // template names alone could never find one of two agents cut from one template.
     await expect(dataRows(page)).toHaveCount(1);
-    await expect(page.getByTestId("agents-summary")).toHaveText("1 of 5 agents");
+    await expect(page.getByTestId("agents-summary")).toHaveText("1 of 9 agents");
 
     // The search term is a filter like any other, so it has a pill and "clear
     // filters" means it.
     await expect(page.getByTestId("agents-filters-pill-search")).toBeVisible();
     await page.getByTestId("agents-filters-pill-clear").click();
-    // Back to five agents and the stand-in row.
-    await expect(dataRows(page)).toHaveCount(6);
+    await expect(dataRows(page)).toHaveCount(9);
   });
 });
 
-test("agents: conversations with no agent are gathered rather than only counted", async ({
-  page,
-}) => {
-  /*
-   * Deleting a template does not stop the conversations cut from it: an instance runs
-   * from the prepared revision it was built against, and the collector keeps that
-   * revision *for it*. So a conversation outlives its agent — and until now the list
-   * counted those in a sentence and offered nowhere to go, which left them running,
-   * holding a worker each, and reachable from nothing.
-   */
+test("agents: conversations with no agent are one click away", async ({ page }) => {
+  // Deleting an Agent leaves its conversations running on their prepared revision.
   await loadPage(page, routes.agents, { title: "Agents" });
   await expectSettled(page);
 
-  await test.step("1. the notice says where they went, not just that they exist", async () => {
-    const notice = page.getByTestId("agents-orphaned-conversations");
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText("unmapped-agentinstances");
+  await test.step("1. the notice counts them", async () => {
+    await expect(page.getByTestId("agents-orphaned-conversations")).toContainText("1 conversation belongs to no agent here");
   });
 
-  await test.step("2. and there is a row for them, last, because it is not an agent", async () => {
-    /*
-     * It used to be pinned first, as the exception. Last is better: it is a stand-in for
-     * conversations whose pair no longer exists, not something anybody came here to
-     * find, and putting it above every real agent made the list open on the one row
-     * most readers were not looking for.
-     */
-    await expect(dataRows(page).last()).toContainText("unmapped-agentinstances");
-  });
-
-  await test.step("3. it opens the conversations rather than offering a new one", async () => {
-    // There is no agent to start a conversation with — that is the condition the row
-    // describes — so the name goes to the list of what it stands for.
-    await page.getByTestId("agent-link-kagent-unmapped-agentinstances-—").click();
-    await page.waitForURL(/\/agents\/unmapped$/, { timeout: 30_000 });
+  await test.step("2. and links to where they can be opened and deleted", async () => {
+    await page.getByTestId("agents-orphaned-link").click();
+    await page.waitForURL(/\/agents\/unmapped$/);
     await expect(page.getByTestId("unmapped-table")).toBeVisible();
-    // Each row says which pair it *was* built from, which is the only clue to why it
-    // is here — a reader recognising a template they deleted has their answer.
-    await expect(page.getByTestId("unmapped-table")).toContainText("on");
+    await expect(page.getByTestId("unmapped-table").locator("tbody tr").first().locator("td").nth(1)).toHaveText("not reported");
   });
 });
 
@@ -271,13 +171,14 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
   await loadPage(page, routes.agents, { title: "Agents" });
 
   await test.step("1. the concepts are stated before the list", async () => {
-    // The model is not guessable from the nouns: "Agents" reads like a list of things
-    // somebody made, and there is no Agent CRD at all.
+    // The overview explains what each resource owns.
     const concepts = page.getByTestId("agent-concepts");
     await expect(concepts).toBeVisible();
     await expect(concepts).toContainText("AgentTemplate");
     await expect(concepts).toContainText("Harness");
-    await expect(concepts, "the derived one has to say that it is").toContainText("derived");
+    await expect(page.getByTestId("concepts-pairing")).toHaveText(
+      "An agent consists of one template (describing what it does), plus one harness (describing where and how it runs).",
+    );
   });
 
   await test.step("2. each tab is reachable and shows its own list", async () => {
@@ -297,11 +198,11 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
     await expect(page.getByTestId("harnesses-table")).toBeVisible({ timeout: 30_000 });
   });
 
-  await test.step("4. there is no way to create an agent, because there is no such thing", async () => {
+  await test.step("4. the header creates each of the three resources", async () => {
     await page.getByRole("tab", { name: "Agents" }).click();
-    await expect(page.getByTestId("agents-new")).toHaveCount(0);
-    // What it offers instead is the thing that actually makes one.
+    await expect(page.getByTestId("agents-new")).toBeVisible();
     await expect(page.getByTestId("agents-new-template")).toBeVisible();
+    await expect(page.getByTestId("agents-new-harness")).toBeVisible();
   });
 });
 
@@ -345,32 +246,12 @@ test("agents: pressing a row looks different from hovering it", async ({ page })
   }
 });
 
-/**
- * The list has an order of its own, and the stand-in row is not part of it.
- *
- * It arrived in whatever order the namespaces were read in — stable within a read and
- * meaningless to a reader, so an agent moved when an unrelated namespace answered more
- * slowly. And `Unmapped conversations` is not an agent: it stands in for conversations
- * whose pair no longer exists, so sorting it among real agents by name would drop it
- * into the middle of the list on a "U".
- */
-test("agents: the list is ordered by name, with the stand-in row last", async ({ page }) => {
+/** Ordered by name by default, not by the order namespaces answered in. */
+test("agents: the list is ordered by name", async ({ page }) => {
   await loadPage(page, routes.agents, { title: "Agents" });
-  await expect(page.locator("tbody tr").first()).toBeVisible({ timeout: 30_000 });
-
-  const names = await page
-    .locator('tbody tr [data-testid="agent-name"], tbody tr td:first-child')
-    .allTextContents();
-  const cleaned = names.map((name) => name.trim()).filter(Boolean);
-  const stranded = cleaned.findIndex((name) => name.includes("Unmapped"));
-
-  if (stranded !== -1) {
-    expect(stranded, "the stand-in row belongs at the bottom").toBe(cleaned.length - 1);
-  }
-
-  const real = stranded === -1 ? cleaned : cleaned.slice(0, stranded);
-  const sorted = [...real].sort((left, right) => left.localeCompare(right));
-  expect(real, "agents should be listed by name").toEqual(sorted);
+  await expect(dataRows(page)).toHaveCount(9);
+  const names = (await page.locator('[data-testid^="agent-link-"]').allTextContents()).map((name) => name.trim());
+  expect(names).toEqual([...names].sort((left, right) => left.localeCompare(right)));
 });
 
 /**
@@ -380,20 +261,8 @@ test("agents: the list is ordered by name, with the stand-in row last", async ({
  * and that it does not quietly report "there are no agents" when the truth is that
  * it could not find out.
  *
- * The list is `AgentTemplateService/ListAgentTemplates` now, because an agent is a
- * template paired with a harness and `status.harnesses[]` carries every pair. That
- * is asserted below rather than assumed: naming the failing call is what makes the
- * message actionable, and it also pins which service this page reads — which changed
- * with the model.
- *
- * **It reads two services, and the order matters when both fail.** Templates are read
- * one namespace at a time, because `ListAgentTemplates` validates its namespace first
- * and refuses an empty one rather than treating it as a wildcard. So `ListNamespaces`
- * is an *input* to the template read, not a nicety beside it: when it fails there are
- * no namespaces to iterate, the template read never runs, and a page that reported only
- * `templates.error` would sit at "no agents" — an empty state describing a backend that
- * was never asked. This scenario fails everything, so the alert correctly names the call
- * that actually failed, which is the namespace one. Step 5 covers the other order.
+ * AgentService lists one namespace at a time. A failed namespace discovery must
+ * report its error because the Agent read cannot run without those namespaces.
  */
 
 test("agents: a failed load is reported, not disguised as an empty list", async ({
@@ -499,7 +368,7 @@ test("agents: an agent whose conversations cannot be read says so, and is not em
 
     const alert = page.getByTestId("conversations-error");
     await expect(alert).toBeVisible();
-    await expect(alert).toContainText("AgentInstanceService/ListAgentInstances");
+    await expect(alert).toContainText("SessionService/ListSessions");
   });
 
   await test.step("2. and it is not reported as an agent nobody has talked to", async () => {

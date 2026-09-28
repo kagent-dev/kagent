@@ -12,22 +12,25 @@ import (
 	"buf.build/go/protovalidate"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -41,25 +44,29 @@ const (
 )
 
 type Config struct {
-	BindAddress           string
-	MaxMessageBytes       int
-	Reflection            bool
-	TLSCertFile           string
-	TLSKeyFile            string
-	Authenticator         auth.AuthProvider
-	ShareStore            agentinstance.ShareStore
-	Registerer            prometheus.Registerer
-	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
-	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
-	ModelService          *modelservice.Service
-	ToolService           *toolservice.Service
-	PromptTemplateService *prompttemplateservice.Service
-	SystemService         *systemservice.Service
-	MemoryService         *memoryservice.Service
-	AgentInstanceService  *agentinstance.Service
-	CheckpointService     *checkpoint.Service
-	ScheduledRunService   *scheduledrun.Service
-	A2AHandler            a2asrv.RequestHandler
+	SandboxService         *sandbox.Service
+	BindAddress            string
+	MaxMessageBytes        int
+	Reflection             bool
+	TLSCertFile            string
+	TLSKeyFile             string
+	Authenticator          auth.AuthProvider
+	RuntimeAuthenticator   auth.AuthProvider
+	ShareStore             sessionsvc.ShareStore
+	AgentService           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
+	AgentTemplateService   *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
+	ModelService           *modelservice.Service
+	ToolService            *toolservice.Service
+	PromptTemplateService  *prompttemplateservice.Service
+	SystemService          *systemservice.Service
+	MemoryService          *memoryservice.Service
+	TaskStoreService       *taskstore.Service
+	SessionService         *sessionsvc.Service
+	CheckpointService      *checkpoint.Service
+	ScheduledRunService    *scheduledrun.Service
+	A2AHandler             a2asrv.RequestHandler
+	SandboxTemplateService *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
 	RegisterServices func(grpc.ServiceRegistrar)
@@ -89,10 +96,6 @@ func New(config Config) (*Server, error) {
 		config.MethodPolicies = DefaultMethodPolicies()
 	}
 
-	metrics, err := newServerMetrics(config.Registerer)
-	if err != nil {
-		return nil, fmt.Errorf("create gRPC metrics: %w", err)
-	}
 	validator, err := protovalidate.New()
 	if err != nil {
 		return nil, fmt.Errorf("create protobuf validator: %w", err)
@@ -101,20 +104,19 @@ func New(config Config) (*Server, error) {
 	serverOptions := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(config.MaxMessageBytes),
 		grpc.MaxSendMsgSize(config.MaxMessageBytes),
-		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))),
 		grpc.ChainUnaryInterceptor(
 			loggingUnaryInterceptor,
-			metrics.unaryInterceptor,
 			recoverUnaryInterceptor,
-			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationUnaryInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
 			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			loggingStreamInterceptor,
-			metrics.streamInterceptor,
 			recoverStreamInterceptor,
-			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			authenticationStreamInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
+			protovalidatemiddleware.StreamServerInterceptor(validator),
 			errorMappingStreamInterceptor,
 		),
 	}
@@ -128,36 +130,23 @@ func New(config Config) (*Server, error) {
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
-	if config.AgentTemplateService != nil {
-		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
-	}
-	if config.HarnessService != nil {
-		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
-	}
-	if config.ModelService != nil {
-		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
-	}
-	if config.ToolService != nil {
-		apiv1alpha1.RegisterToolServiceServer(grpcServer, newToolServer(config.ToolService, config.MaxMessageBytes))
-	}
-	if config.PromptTemplateService != nil {
-		apiv1alpha1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))
-	}
-	if config.MemoryService != nil {
-		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
-	}
-	if config.AgentInstanceService != nil {
-		apiv1alpha1.RegisterAgentInstanceServiceServer(grpcServer, &agentInstanceServer{service: config.AgentInstanceService})
-	}
-	if config.ScheduledRunService != nil {
-		apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
-	}
-	if config.CheckpointService != nil {
-		apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
-	}
-	if config.A2AHandler != nil {
-		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
-	}
+	apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
+	apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
+	apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
+	apiv1alpha1.RegisterSandboxServiceServer(grpcServer, &sandboxServer{service: config.SandboxService})
+	guestServer := &sandboxGuestServer{service: config.SandboxService}
+	guestpb.RegisterProcessServiceServer(grpcServer, guestServer)
+	guestpb.RegisterFileSystemServiceServer(grpcServer, guestServer)
+	apiv1alpha1.RegisterSandboxTemplateServiceServer(grpcServer, &sandboxTemplateServer{service: config.SandboxTemplateService, maxMessageBytes: config.MaxMessageBytes})
+	apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
+	apiv1alpha1.RegisterToolServiceServer(grpcServer, newToolServer(config.ToolService, config.MaxMessageBytes))
+	apiv1alpha1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))
+	apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
+	apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
+	apiv1alpha1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
+	apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
+	apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
+	a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
 	// After core's own, so reflection sees them and a consumer registering a
 	// duplicate service name panics here rather than silently taking over.
 	if config.RegisterServices != nil {

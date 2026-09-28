@@ -79,8 +79,8 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			if providers.TracesEnabled() != tc.traces {
 				t.Fatalf("traces enabled = %v", providers.TracesEnabled())
 			}
-			ctx := SetKAgentSpanAttributes(t.Context(), map[string]string{"kagent.test": "inherited"})
-			_, span := StartInvocationSpan(ctx)
+			ctx := WithRequestAttributes(t.Context(), attribute.String("kagent.test", "inherited"))
+			_, span := otel.Tracer("test").Start(ctx, "turn")
 			span.End()
 			var record log.Record
 			record.SetBody(attribute.StringValue("test log"))
@@ -115,14 +115,14 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 				for _, scope := range resource.ScopeSpans {
 					for _, span := range scope.Spans {
 						for _, attr := range span.Attributes {
-							if span.Name == "invocation" && attr.Key == "kagent.test" && attr.Value.GetStringValue() == "inherited" {
+							if span.Name == "turn" && attr.Key == "kagent.test" && attr.Value.GetStringValue() == "inherited" {
 								found = true
 							}
 						}
 					}
 				}
 				if !found {
-					t.Fatal("ADK attribute processor did not enrich the exported invocation span")
+					t.Fatal("request attribute processor did not enrich the exported span")
 				}
 			}
 		})

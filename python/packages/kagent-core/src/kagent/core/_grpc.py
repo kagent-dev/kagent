@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import grpc
-from kagent.api.v1alpha1 import memory_pb2_grpc
+from kagent.api.v1alpha1 import memory_pb2_grpc, task_store_pb2_grpc
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_MESSAGE_BYTES = 16 << 20
@@ -59,6 +59,7 @@ class AsyncControllerClient:
         self._channel = channel
         self._closed = False
         self._memory_service: memory_pb2_grpc.MemoryServiceStub | None = None
+        self._task_store_service: task_store_pb2_grpc.TaskStoreServiceStub | None = None
 
     @property
     def channel(self) -> grpc.aio.Channel:
@@ -82,6 +83,12 @@ class AsyncControllerClient:
         if self._memory_service is None:
             self._memory_service = memory_pb2_grpc.MemoryServiceStub(self.channel)
         return self._memory_service
+
+    @property
+    def task_store_service(self) -> task_store_pb2_grpc.TaskStoreServiceStub:
+        if self._task_store_service is None:
+            self._task_store_service = task_store_pb2_grpc.TaskStoreServiceStub(self.channel)
+        return self._task_store_service
 
     async def call_options(self, user_id: str | None = None) -> dict[str, Any]:
         metadata: list[tuple[str, str]] = []

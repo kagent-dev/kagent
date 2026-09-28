@@ -1,10 +1,9 @@
 /**
  * A saved turn boundary in a conversation, which a fork can start from.
  *
- * `CheckpointService` takes no cutoff: a checkpoint is always the conversation's
- * *latest* boundary at the moment it is taken. Anchoring one to a message earlier in
- * the transcript is therefore not something the reader chooses at fork time — it is
- * something they had to have saved while that message was the newest.
+ * Creation names the terminal task the reader intends to save. That task must
+ * still be the latest boundary; if the conversation advances, creation fails.
+ * A pending snapshot may be retried using the same request and task IDs.
  *
  * `headTaskId` is what ties a checkpoint back to the transcript: it names the turn the
  * boundary sits at, and every message of that turn carries the same id. That is the

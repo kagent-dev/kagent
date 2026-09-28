@@ -37,7 +37,7 @@ yarn dev
 
 That is the whole reason this script holds two forwards open rather than one. It used to
 forward only the UI, and running the dev server then needed
-`KAGENT_DEV_CONTROLLER_URL=http://127.0.0.1:8080` in `ui/.env` — a line whose absence
+`KAGENT_UI_DEV_CONTROLLER_URL=http://127.0.0.1:8080` in `ui/.env` — a line whose absence
 looked like a broken backend rather than a missing forward, since the page loaded fine
 and every read failed with `ECONNREFUSED 127.0.0.1:8083`.
 
@@ -61,7 +61,7 @@ If you would rather not build one, the UI runs entirely on in-browser fixtures:
 
 ```sh
 cd ui
-ENABLE_MOCK_UI=true yarn dev
+KAGENT_UI_ENABLE_MOCK=true yarn dev
 ```
 
 Every page works and says on the page that the data is not real. `?mock=empty`,

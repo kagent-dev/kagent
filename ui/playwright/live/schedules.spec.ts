@@ -62,11 +62,17 @@ test("live: schedule configuration persists through the browser and controller",
     if (detailURL) {
       await page.goto(detailURL);
       await page.getByRole("button", { name: `Delete schedule ${name}`, exact: true }).click();
+      const listRead = page.waitForResponse((response) =>
+        response.url().includes("ScheduledRunService/ListScheduledRuns"));
       await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
-      await expect(page.getByText("This schedule was deleted. Its execution history is retained.")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
-      await page.getByRole("link", { name: "Back", exact: true }).click();
-      await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
+      // Deleting navigates back to the list, so the detail page's own controls are gone.
+      await expect(page).toHaveURL(/\/schedules(?:\?.*)?$/);
+      await listRead;
+      // The response can arrive before SWR has rendered it; a loading list is also empty.
+      await expect(page.locator(".ant-spin").filter({ has: page.getByTestId("schedules-table") }))
+        .toHaveAttribute("aria-busy", "false");
+      await expect(page.getByTestId("schedules-error")).toHaveCount(0);
+      await expect(page.getByTestId(`schedule-link-${name}`)).toHaveCount(0);
     }
   }
 });

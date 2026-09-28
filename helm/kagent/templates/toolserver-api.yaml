@@ -1,0 +1,13 @@
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "kagent.fullname" . }}-api
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  description: "Kagent API tools for Sessions, checkpoints, and sandboxes"
+  protocol: STREAMABLE_HTTP
+  url: "http://{{ include "kagent.controllerServiceAuthority" . }}/mcp"
+  timeout: 30s
+  sseReadTimeout: 5m0s

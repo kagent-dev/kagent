@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -36,7 +37,7 @@ const (
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {},
+	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
 }
 
 type Compiler struct {
@@ -65,7 +66,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
-		tracing.RuntimeCodex, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
+		tracing.RuntimeCodex, input.AgentName, template.Namespace, model.Spec)
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
 	if err != nil {
@@ -101,8 +102,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		environment = append(environment, envVar)
 	}
 	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
+		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
 	agents, err := compileAgents(input.Root)
@@ -131,7 +133,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}
@@ -146,12 +148,13 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations()...)
+	egress = append(egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
-			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+			Namespace: template.Namespace,
+			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
@@ -303,27 +306,27 @@ type provenanceEntry struct {
 }
 
 func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec)}
+	var entries []provenanceEntry
+	// Inline configuration is recorded by the enclosing Agent provenance.
+	if input.Harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
+	}
 	seenObjects := map[string]struct{}{}
+	addObject := func(kind, name string, uid types.UID, generation int64, value any) {
+		identity := kind + "\x00" + name
+		if _, ok := seenObjects[identity]; !ok {
+			seenObjects[identity] = struct{}{}
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), kind, name, uid, generation, value))
+		}
+	}
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
 		model := agent.ResolvedModelConfig.Config
-		for _, object := range []struct {
-			kind, name string
-			uid        types.UID
-			generation int64
-			value      any
-		}{
-			{"AgentTemplate", agent.Template.Name, agent.Template.UID, agent.Template.Generation, agent.Template.Spec},
-			{"ModelConfig", model.Name, model.UID, model.Generation, model.Spec},
-		} {
-			identity := object.kind + "\x00" + object.name
-			if _, ok := seenObjects[identity]; !ok {
-				seenObjects[identity] = struct{}{}
-				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), object.kind, object.name, object.uid, object.generation, object.value))
-			}
+		if source := agent.Template.Source; source != nil {
+			addObject("AgentTemplate", source.Name, source.UID, source.Generation, agent.Template.Spec)
 		}
+		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if agent.Template.Spec.SystemPromptFrom != nil {
 			configMaps[agent.Template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}

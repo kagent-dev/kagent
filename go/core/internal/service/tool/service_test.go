@@ -87,10 +87,10 @@ func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, verb
 
 func TestServiceDiscoveryAndAuthorization(t *testing.T) {
 	store := &fakeDiscoveryStore{
-		tools: []database.Tool{{ID: "server-tool", ServerName: "default/server", GroupKind: "RemoteMCPServer.kagent.dev", Description: "server"}},
+		tools: []database.Tool{{ID: "server-tool", ServerName: "default/server", GroupKind: "RemoteMCPServer.api.kagent.dev", Description: "server"}},
 		servers: []database.ToolServer{{
 			Name:      "default/server",
-			GroupKind: "RemoteMCPServer.kagent.dev",
+			GroupKind: "RemoteMCPServer.api.kagent.dev",
 		}},
 	}
 	authorizer := &recordingAuthorizer{}
@@ -187,7 +187,7 @@ func TestServiceDeleteToolServer(t *testing.T) {
 	kubeClient := toolTestKube(t, true, server)
 	store := &fakeDiscoveryStore{servers: []database.ToolServer{{
 		Name:      "default/remote",
-		GroupKind: "RemoteMCPServer.kagent.dev",
+		GroupKind: "RemoteMCPServer.api.kagent.dev",
 	}}}
 	service := NewService(kubeClient, store, &recordingAuthorizer{}, "default", nil)
 
@@ -245,7 +245,7 @@ func TestRuntimeMCPClientResolveServer(t *testing.T) {
 
 	remoteResult, err := client.ResolveServer(t.Context(), MCPServerRef{
 		Ref:       types.NamespacedName{Namespace: "default", Name: "shared"},
-		GroupKind: "RemoteMCPServer.kagent.dev",
+		GroupKind: "RemoteMCPServer.api.kagent.dev",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "https://remote.example/mcp", remoteResult.Spec.URL)

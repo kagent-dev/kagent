@@ -9,7 +9,6 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
@@ -227,7 +226,6 @@ func runResponsesNonStreaming(
 		return
 	}
 	out := responseToLLMResponse(resp)
-	telemetry.SetLLMResponseAttributes(ctx, out)
 	yield(out, nil)
 }
 
@@ -311,7 +309,6 @@ func runResponsesStreaming(
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, out)
 	_ = yield(out, nil)
 }
 

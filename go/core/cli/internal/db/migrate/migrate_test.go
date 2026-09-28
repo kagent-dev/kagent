@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
@@ -90,19 +92,26 @@ func TestNewCommandAcceptsHyphenatedNames(t *testing.T) {
 
 func TestResolveDSN(t *testing.T) {
 	tests := []struct {
-		name    string
-		flag    string
-		env     string
-		want    string
-		wantErr bool
+		name     string
+		flag     string
+		env      string
+		want     string
+		wantErr  bool
+		unsetEnv bool
 	}{
 		{name: "flag wins over env", flag: "postgres://flag", env: "postgres://env", want: "postgres://flag"},
 		{name: "env fallback", env: "postgres://env", want: "postgres://env"},
 		{name: "neither set", wantErr: true},
+		{name: "unset env does not use controller default", unsetEnv: true, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(dbURLEnv, tt.env)
+			t.Setenv(env.PostgresDatabaseURL.Name(), tt.env)
+			if tt.unsetEnv {
+				if err := os.Unsetenv(env.PostgresDatabaseURL.Name()); err != nil {
+					t.Fatal(err)
+				}
+			}
 			s := &commandState{dbURL: tt.flag}
 			got, err := s.resolveDSN()
 			if (err != nil) != tt.wantErr {
@@ -175,7 +184,7 @@ func TestArgValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(dbURLEnv, "")
+			t.Setenv(env.PostgresDatabaseURL.Name(), "")
 			_, _, err := runCLI(t, testSources(), tt.args...)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)

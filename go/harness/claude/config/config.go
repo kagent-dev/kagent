@@ -17,7 +17,9 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version                             = 5
+	Version = 5
+	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
+	// must recheck the telemetry gate in the driver.
 	PinnedClaudeVersion                 = "2.1.260"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
@@ -53,6 +55,7 @@ func OwnsEnvironment(name string) bool {
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER",
 		"OTEL_LOGS_EXPORTER", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT",
 		"OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES", "TRACEPARENT", "TRACESTATE",
+		"OTEL_EXPORTER_PROMETHEUS_HOST", "OTEL_EXPORTER_PROMETHEUS_PORT",
 		"KAGENT_NAME", "KAGENT_NAMESPACE":
 		return true
 	default:

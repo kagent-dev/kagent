@@ -58,7 +58,6 @@ func SanitizeCallerRequest(req *a2atype.SendMessageRequest) {
 	if req == nil || req.Message == nil {
 		return
 	}
-	ClearStoredTask(req.Message)
 	clearGatewayMetadata(req.Metadata)
 	clearGatewayMessageMetadata(req.Message)
 }

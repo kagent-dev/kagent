@@ -1,0 +1,14 @@
+{{- if .Values.database.postgres.bundled.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.postgresqlServiceName" . }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+data:
+  POSTGRES_DB: "kagent"
+  POSTGRES_USER: "kagent"
+  PGDATA: /var/lib/postgresql/data/pgdata
+{{- end }}

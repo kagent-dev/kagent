@@ -9,8 +9,10 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/propagators/autoprop"
 	"go.opentelemetry.io/otel"
@@ -27,15 +29,12 @@ import (
 // FlushTimeout bounds one ForceFlush.
 const FlushTimeout = 3 * time.Second
 
-// Default is an SDK setting kagent applies when the environment leaves it unset.
-type Default struct{ Name, Value string }
-
 // Defaults keep baggage from leaking to tools and model providers, compress
 // exports, and give every runtime the same histogram buckets.
-var Defaults = []Default{
-	{Name: "OTEL_PROPAGATORS", Value: "tracecontext"},
-	{Name: "OTEL_EXPORTER_OTLP_COMPRESSION", Value: "gzip"},
-	{Name: "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION", Value: "base2_exponential_bucket_histogram"},
+var Defaults = []env.StringVar{
+	env.OtelPropagators,
+	env.OtelExporterOTLPCompression,
+	env.OtelExporterOTLPMetricsDefaultHistogramAggregation,
 }
 
 // WithDefaults adds each default that a child process environment leaves unset.
@@ -43,20 +42,22 @@ func WithDefaults(environment []string) []string {
 	result := slices.Clone(environment)
 	for _, value := range Defaults {
 		if !slices.ContainsFunc(environment, func(variable string) bool {
-			current, found := strings.CutPrefix(variable, value.Name+"=")
+			current, found := strings.CutPrefix(variable, value.Name()+"=")
 			return found && current != ""
 		}) {
-			result = append(result, value.Name+"="+value.Value)
+			result = append(result, value.Name()+"="+value.DefaultValue())
 		}
 	}
 	return result
 }
 
 // Options identify the process. The environment wins over Defaults.
+// MetricReaders are added beside the reader the environment configures.
 type Options struct {
 	Runtime        string
 	Defaults       []attribute.KeyValue
 	SpanProcessors []sdktrace.SpanProcessor
+	MetricReaders  []sdkmetric.Reader
 }
 
 // Providers holds the SDK providers Init installed, nil for a disabled signal.
@@ -74,13 +75,13 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		slog.Default().ErrorContext(context.Background(), "opentelemetry", "error", err)
 	}))
 	for _, value := range Defaults {
-		if os.Getenv(value.Name) == "" {
-			_ = os.Setenv(value.Name, value.Value)
+		if current, set := value.Lookup(); !set || current == "" {
+			_ = os.Setenv(value.Name(), value.DefaultValue())
 		}
 	}
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
 	providers := &Providers{}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_SDK_DISABLED")), "true") {
+	if strings.EqualFold(strings.TrimSpace(env.OtelSDKDisabled.Get()), "true") {
 		return providers, nil
 	}
 	var errs []error
@@ -101,10 +102,18 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		providers.tracer = sdktrace.NewTracerProvider(append(options, sdktrace.WithBatcher(exporter))...)
 		otel.SetTracerProvider(providers.tracer)
 	}
+	readers := slices.Clone(opts.MetricReaders)
 	if reader, err := autoexport.NewMetricReader(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("metrics: %w", err))
 	} else if !autoexport.IsNoneMetricReader(reader) {
-		providers.meter = sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(reader))
+		readers = append(readers, reader)
+	}
+	if len(readers) > 0 {
+		options := []sdkmetric.Option{sdkmetric.WithResource(res)}
+		for _, reader := range readers {
+			options = append(options, sdkmetric.WithReader(reader))
+		}
+		providers.meter = sdkmetric.NewMeterProvider(options...)
 		otel.SetMeterProvider(providers.meter)
 	}
 	if exporter, err := autoexport.NewLogExporter(ctx); err != nil {
@@ -133,19 +142,40 @@ func (p *Providers) TracesEnabled() bool {
 	return p != nil && p.tracer != nil
 }
 
-// ForceFlush exports buffered spans and metrics, even for a canceled request.
+type flushRecordKey struct{}
+
+// WithFlushRecord marks ctx as one request. Once a ForceFlush under it fails,
+// later ones return at once, so an unreachable collector costs one
+// FlushTimeout per request instead of one per flush.
+func WithFlushRecord(ctx context.Context) context.Context {
+	return context.WithValue(ctx, flushRecordKey{}, new(atomic.Bool))
+}
+
+// ForceFlush exports buffered logs, spans and metrics, even for a canceled
+// request. Logs go first because audit events are the telemetry most likely
+// to be lost when the process is suspended right after the response closes.
 func (p *Providers) ForceFlush(ctx context.Context) error {
-	if p == nil || (p.tracer == nil && p.meter == nil) {
+	if p == nil || (p.tracer == nil && p.meter == nil && p.logger == nil) {
+		return nil
+	}
+	failed, _ := ctx.Value(flushRecordKey{}).(*atomic.Bool)
+	if failed != nil && failed.Load() {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), FlushTimeout)
 	defer cancel()
 	var err error
+	if p.logger != nil {
+		err = p.logger.ForceFlush(ctx)
+	}
 	if p.tracer != nil {
-		err = p.tracer.ForceFlush(ctx)
+		err = errors.Join(err, p.tracer.ForceFlush(ctx))
 	}
 	if p.meter != nil {
 		err = errors.Join(err, p.meter.ForceFlush(ctx))
+	}
+	if err != nil && failed != nil {
+		failed.Store(true)
 	}
 	return err
 }

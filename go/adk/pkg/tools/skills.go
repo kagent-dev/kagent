@@ -6,37 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 )
-
-// enableFileSearchToolsEnv gates the list_files and grep_file tools, which
-// are opt-in (disabled by default): they let an agent enumerate and search
-// the filesystem under its session/skills roots without invoking a shell, so
-// deployments that want to grant that visibility deliberately can, rather
-// than having it enabled implicitly.
-//
-// Also registered (separately, for `kagent env` CLI discoverability only,
-// not read here) as KagentEnableFileSearchTools in go/core/pkg/env/kagent.go.
-// TestEnableFileSearchToolsEnvMatchesRegistry pins the two literals together
-// so they cannot drift.
-const enableFileSearchToolsEnv = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
-
-// fileSearchToolsEnabled accepts the same case-insensitive true-values as
-// Python's file_search_tools_enabled() (kagent-skills/shell.py), so the
-// same literal env var value behaves identically in either runtime rather
-// than relying on Go's strconv.ParseBool grammar, which Python doesn't
-// replicate exactly (e.g. ParseBool requires the exact casing "True", not
-// "tRue").
-func fileSearchToolsEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(enableFileSearchToolsEnv))) {
-	case "1", "t", "true":
-		return true
-	default:
-		return false
-	}
-}
 
 const (
 	readFileDescription = `Reads a file from the filesystem with line numbers.
@@ -233,7 +207,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	// list_files/grep_file are opt-in: they give an agent broad filesystem
 	// visibility, so deployments enable them deliberately. Note this gate is
 	// theirs alone -- bash below is always registered.
-	fileSearchEnabled := fileSearchToolsEnabled()
+	fileSearchEnabled := env.KagentEnableFileSearchTools.Get()
 	if fileSearchEnabled {
 		listFilesTool, err := functiontool.New(functiontool.Config{
 			Name:        "list_files",

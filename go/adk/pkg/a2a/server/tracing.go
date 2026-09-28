@@ -79,8 +79,7 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 	context.AfterFunc(ctx, func() {
 		detached := context.WithoutCancel(ctx)
 		if _, err := invocation.EndTransport(detached, tracing.Result{Disposition: tracing.DispositionAbandoned}); err != nil {
-			i.logger.ErrorContext(detached, "failed to flush traces for an abandoned A2A request", "error", err,
-				"trace_id", invocation.SpanContext().TraceID().String())
+			i.logger.ErrorContext(detached, "failed to flush traces for an abandoned A2A request", "error", err)
 		}
 	})
 	return ctx, nil, nil
@@ -124,8 +123,7 @@ func (i *invocationInterceptor) After(ctx context.Context, callCtx *a2asrv.CallC
 		result.Error = "transport_error"
 	}
 	if _, err := invocation.EndTransport(ctx, result); err != nil {
-		i.logger.ErrorContext(ctx, "failed to flush traces before quiescent A2A response", "error", err,
-			"trace_id", invocation.SpanContext().TraceID().String(), "task_state", state)
+		i.logger.ErrorContext(ctx, "failed to flush traces before quiescent A2A response", "error", err, "task_state", state)
 	}
 	return nil
 }

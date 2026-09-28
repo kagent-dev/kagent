@@ -1,17 +1,79 @@
 package e2e_test
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/stretchr/testify/require"
 )
 
-func TestAgentInstanceStreamingResumeAndPersistence(t *testing.T) {
+// Completion must reach durable storage with no public stream left attached.
+// A reconnect reads the completed task after native work and cleanup finish.
+func TestSessionCompletesAfterDisconnect(t *testing.T) {
+	t.Parallel()
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		started, release := make(chan struct{}), make(chan struct{})
+		var startedOnce, releaseOnce sync.Once
+		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
+		recorder := startModelRecorder(t, upstream, func([]byte) error {
+			startedOnce.Do(func() { close(started) })
+			select {
+			case <-release:
+				return nil
+			case <-t.Context().Done():
+				return t.Context().Err()
+			}
+		})
+		t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), reachableModelURL(t, recorder.URL))
+		_, request := newMessageRequest(t, "What is 2+2?")
+		request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
+		ctx, disconnect := context.WithCancel(fixture.ctx)
+		defer disconnect()
+		start := time.Now()
+		stream, err := fixture.client.SendStreamingMessage(ctx, request)
+		require.NoError(t, err)
+		first, err := stream.Recv()
+		require.NoError(t, err)
+		firstEventLatency := time.Since(start)
+		event, err := pbconv.FromProtoStreamResponse(first)
+		require.NoError(t, err)
+		taskID := string(event.TaskInfo().TaskID)
+		require.NotEmpty(t, taskID)
+		select {
+		case <-started:
+		case <-time.After(time.Minute):
+			t.Fatal("runtime did not call the model")
+		}
+		disconnect()
+		for err == nil {
+			_, err = stream.Recv()
+		}
+		nativeStart := time.Now()
+		releaseOnce.Do(func() { close(release) })
+		require.Eventually(t, func() bool {
+			task, err := fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Tenant: fixture.tenant, Id: taskID})
+			return err == nil && task.GetStatus().GetState() == a2apb.TaskState_TASK_STATE_COMPLETED
+		}, time.Minute, 100*time.Millisecond, "disconnected task did not finish and publish")
+		t.Logf("first event including actor resume: %s; model release through persisted completion: %s", firstEventLatency, time.Since(nativeStart))
+		reconnected, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Tenant: fixture.tenant, Id: taskID})
+		require.NoError(t, err)
+		waitForTaskState(t, reconnected, a2atype.TaskStateCompleted)
+		assertTaskStreamClosed(t, reconnected)
+		require.Contains(t, taskText(getTask(t, fixture, a2atype.TaskID(taskID))), "The answer is 4.")
+	})
+}
+
+func TestSessionStreamingResumeAndPersistence(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
@@ -61,6 +123,7 @@ type toolEvent struct {
 func sendStreaming(t *testing.T, fixture *interactionFixture, text string) streamResult {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming A2A message: %v", err)
@@ -196,7 +259,7 @@ func assertToolEvents(t *testing.T, events []toolEvent, toolNames ...string) {
 
 func getTask(t *testing.T, fixture *interactionFixture, taskID a2atype.TaskID) *a2atype.Task {
 	t.Helper()
-	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: taskID})
+	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: fixture.tenant, ID: taskID})
 	if err != nil {
 		t.Fatalf("build GetTask request: %v", err)
 	}
@@ -213,7 +276,7 @@ func getTask(t *testing.T, fixture *interactionFixture, taskID a2atype.TaskID) *
 
 func assertTaskHistory(t *testing.T, fixture *interactionFixture, taskIDs ...a2atype.TaskID) {
 	t.Helper()
-	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
+	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
 	if err != nil {
 		t.Fatalf("build ListTasks request: %v", err)
 	}

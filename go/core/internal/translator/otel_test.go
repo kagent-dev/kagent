@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -129,7 +130,7 @@ func TestTelemetryEnvironmentKeepsIdentityOverOperatorAndHarnessAttributes(t *te
 	clearTelemetryEnvironment(t)
 	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-	t.Setenv(translator.OperatorResourceAttributesVariable, "deployment.environment.name=prod, service.namespace=forged,k8s.cluster.name=east")
+	t.Setenv(env.OtelResourceAttributes.Name(), "deployment.environment.name=prod, service.namespace=forged,k8s.cluster.name=east")
 
 	got, warnings := translator.TelemetryConfigFromProcess()
 	if len(warnings) != 0 {
@@ -193,11 +194,66 @@ func TestTelemetryConfigFromProcessRejectsInvalidSignalConfiguration(t *testing.
 func TestTelemetryConfigFromProcessReportsInvalidOperatorSettings(t *testing.T) {
 	clearTelemetryEnvironment(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "15s")
-	t.Setenv(translator.OperatorResourceAttributesVariable, "deployment.environment.name=prod,broken")
+	t.Setenv(env.OtelResourceAttributes.Name(), "deployment.environment.name=prod,broken")
 
 	got, warnings := translator.TelemetryConfigFromProcess()
 	if len(warnings) != 2 || got.Timeout != "" || got.ResourceAttributes != "deployment.environment.name=prod" {
 		t.Fatalf("telemetry = %#v, warnings = %v", got, warnings)
+	}
+}
+
+func TestTelemetryCaptureBudgetValidation(t *testing.T) {
+	for _, tt := range []struct {
+		input       string
+		want        int
+		wantWarning bool
+	}{
+		{input: ""},
+		{input: " "},
+		{input: " 4096 ", want: 4096},
+		{input: "65536", want: 65536},
+		{input: "0", wantWarning: true},
+		{input: "-1", wantWarning: true},
+		{input: "65537", wantWarning: true},
+		{input: "garbage", wantWarning: true},
+		{input: "99999999999999999999999999", wantWarning: true},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			clearTelemetryEnvironment(t)
+			t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", tt.input)
+			got, warnings := translator.TelemetryConfigFromProcess()
+			if got.MaxCaptureBytes != tt.want || (len(warnings) > 0) != tt.wantWarning {
+				t.Fatalf("MaxCaptureBytes = %d, warnings = %v", got.MaxCaptureBytes, warnings)
+			}
+			if tt.wantWarning && !strings.Contains(warnings[0].Error(), "KAGENT_OTEL_MAX_CAPTURE_BYTES") {
+				t.Fatalf("warning does not identify the setting: %v", warnings)
+			}
+		})
+	}
+}
+
+func TestTelemetryBooleanGrammars(t *testing.T) {
+	for _, tt := range []struct {
+		input             string
+		disabled, capture bool
+	}{
+		{input: " TrUe ", disabled: true, capture: true},
+		{input: "1", capture: true},
+		{input: "t", capture: true},
+		{input: "false"},
+		{input: "invalid"},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			clearTelemetryEnvironment(t)
+			t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
+			t.Setenv("OTEL_SDK_DISABLED", tt.input)
+			t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", tt.input)
+			got, warnings := translator.TelemetryConfigFromProcess()
+			if len(warnings) != 0 || got.Traces.Enabled == tt.disabled || got.CaptureRawAPIBodies != tt.capture {
+				t.Fatalf("telemetry = %#v, warnings = %v", got, warnings)
+			}
+		})
 	}
 }
 

@@ -27,7 +27,7 @@ const (
 	// AttributeRuntime names the runtime behind an invocation. A Harness
 	// object's configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
-	// AttributeAgentName is the compiled agent identity, <template>-<harness>.
+	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.
@@ -80,8 +80,10 @@ const (
 // span reports.
 const OperationInvokeAgent = conv.GenAIOperationNameInvokeAgent
 
-// TransportSpanName names the wrapper span of a runtime whose invocation
-// span comes from the runtime itself.
+// TransportSpanName names the wrapper span of a runtime that emits its own
+// invoke_agent. It ends and flushes before a quiescent event leaves the
+// process, because the gateway may suspend the Actor on that event while the
+// inbound request, and so its SERVER span, is still open.
 const TransportSpanName = "a2a.request"
 
 // Segment values for AttributeSegment.
@@ -128,14 +130,8 @@ func (r Runtime) NativeHarness() bool {
 	return r == RuntimeClaude || r == RuntimeCodex
 }
 
-// CaptureContentEnvironmentVariable is the OpenTelemetry GenAI instrumentation
-// switch for recording prompts and responses. The controller renders it into
-// every runtime from one setting, so the runtimes that read it directly and
-// the ones that carry the decision in their compiled configuration agree.
-const CaptureContentEnvironmentVariable = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-
-// Values the controller renders for CaptureContentEnvironmentVariable. The ADK
-// runtimes read the variable as a mode and treat a plain true as log records
+// Values the controller renders for OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT.
+// The ADK runtimes read the variable as a mode and treat a plain true as log records
 // only, so the span form is spelled out; false is what every runtime,
 // including kagent's own ADK payload capture, reads as off.
 const (

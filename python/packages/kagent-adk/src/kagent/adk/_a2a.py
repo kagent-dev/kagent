@@ -20,7 +20,7 @@ from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
-from google.adk.sessions import DatabaseSessionService, InMemorySessionService
+from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
@@ -31,9 +31,11 @@ from kagent.core.a2a import (
     attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
+from ._local_session_service import LocalSessionService
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
 from .types import AgentConfig
@@ -82,7 +84,7 @@ class KAgentApp:
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
-        self.a2a_grpc_address = a2a_grpc_address or os.getenv("KAGENT_A2A_GRPC_ADDRESS", "[::]:80")
+        self.a2a_grpc_address = a2a_grpc_address or f"[::]:{os.getenv('KAGENT_PORT') or '80'}"
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
@@ -109,7 +111,7 @@ class KAgentApp:
                 token_provider=token_service,
             )
             if session_db_url:
-                session_service = DatabaseSessionService(db_url=session_db_url)
+                session_service = LocalSessionService(db_url=session_db_url)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(
@@ -144,7 +146,7 @@ class KAgentApp:
                 memory_service=memory_service,
             )
 
-        task_store = InMemoryTaskStore()
+        task_store = KAgentTaskStore(controller_client) if controller_client else InMemoryTaskStore()
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
@@ -152,7 +154,8 @@ class KAgentApp:
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandlerV2(
+        handler_type = KAgentRequestHandler if controller_client else DefaultRequestHandlerV2
+        request_handler = handler_type(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,

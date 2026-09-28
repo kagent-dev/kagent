@@ -31,9 +31,9 @@ export interface AgentConversations {
 }
 
 /**
- * The conversations with one agent — a `(AgentTemplate, Harness)` pair.
+ * The conversations with one agent — a Agent definition.
  *
- * Narrowed by the server: `ListAgentInstances` takes `agent_template` and `harness`
+ * Narrowed by the server: `ListAgentInstances` takes `agent`
  * and resolves them through the prepared revision, so the filtering happens before
  * the page is cut. Filtering in the browser would search one page of a paged read
  * and report "no conversations" about a row further down.
@@ -43,17 +43,15 @@ export interface AgentConversations {
  */
 export function useAgentConversations(
   namespace: string | undefined,
-  agentTemplate: string | undefined,
-  harness: string | undefined,
+  agent: string | undefined,
 ): ApiResource<AgentConversations> {
   return useApiResource(
-    namespace && agentTemplate && harness
-      ? ["agentInstances.forAgent", namespace, agentTemplate, harness]
+    namespace && agent
+      ? ["agentInstances.forAgent", namespace, agent]
       : null,
     async () => {
       const scope = {
-        agentTemplate: { namespace: namespace ?? "", name: agentTemplate ?? "" },
-        harness: { namespace: namespace ?? "", name: harness ?? "" },
+        agent: { namespace: namespace ?? "", name: agent ?? "" },
       };
       /*
        * The narrow read is the one that must succeed, so it is awaited on its own
