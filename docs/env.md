@@ -129,6 +129,8 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
 | `KAGENT_SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
+| `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
+| `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
 | `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
