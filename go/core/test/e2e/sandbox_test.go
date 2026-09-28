@@ -17,9 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -54,9 +52,7 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 	if pool == "" {
 		pool = kagentenv.E2ESandboxWorkerPool.DefaultValue()
 	}
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
 	t.Cleanup(cancel)
 	ref := &apiv1alpha1.ResourceReference{Namespace: namespace, Name: "scratch-" + uuid.NewString()[:8]}

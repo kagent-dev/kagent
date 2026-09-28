@@ -15,9 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,9 +34,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		modelURL := startInteractionMock(t)
 		templateName := createInteractionTemplate(t, harness, modelURL)
 		kube := interactionKubeClient(t)
-		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = conn.Close() })
+		conn := newControllerConn(t, target)
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
 		t.Cleanup(cancel)
 		sessions := apiv1alpha1.NewSessionServiceClient(conn)

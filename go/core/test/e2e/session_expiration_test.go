@@ -108,7 +108,7 @@ func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) 
 		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 		defer func() { require.NoError(t, conn.Close()) }()
-		_, err = apiv1alpha1.NewSystemServiceClient(conn).GetVersion(ctx, &apiv1alpha1.GetVersionRequest{}, grpc.WaitForReady(true))
+		err = waitForControllerAPI(ctx, conn)
 		require.NoError(t, err, "controller API did not become reachable after rollout")
 	}
 	t.Cleanup(func() { apply(original) })

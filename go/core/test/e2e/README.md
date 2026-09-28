@@ -97,6 +97,12 @@ their harnesses in parallel to overlap cron ticks, deadlines, and periodic garba
 collection.
 Controller restart cases stay sequential with respect to the rest of the suite.
 
+Each gRPC fixture checks the controller API on its own connection before creating
+resources. The read-only probe waits up to one minute for transport readiness,
+including retries of failed dials after controller rollouts. Subsequent calls
+keep their normal failure and retry behavior; fixture setup does not retry
+mutations or suppress errors returned by the server.
+
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate
 v0.3.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
 so test concurrency is no longer limited to the worker count. A scenario may need
