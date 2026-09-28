@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"iter"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,12 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"log/slog"
-
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -83,6 +83,23 @@ func startTestServer(t *testing.T) (*httptest.Server, *grpc.ClientConn) {
 		testServer.Close()
 	})
 	return testServer, conn
+}
+
+func TestStartFailsBeforeReadinessWhenA2APortIsUnavailable(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.httpServer.Addr = listener.Addr().String()
+	server.readyServer.Addr = "127.0.0.1:0"
+	if err := server.Start(); err == nil {
+		t.Fatal("Start succeeded with an unavailable A2A port")
+	}
 }
 
 func TestHTTPAndGRPCHealthSharePort(t *testing.T) {
@@ -289,7 +306,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(a2aMaxContentLengthEnvVar, "5")
+			t.Setenv(env.KagentA2AMaxContentLength.Name(), "5")
 			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 			if err != nil {
 				t.Fatalf("NewA2AServer: %v", err)
@@ -312,7 +329,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 }
 
 func TestA2ARequestSizeLimitDisabled(t *testing.T) {
-	t.Setenv(a2aMaxContentLengthEnvVar, "unlimited")
+	t.Setenv(env.KagentA2AMaxContentLength.Name(), "unlimited")
 	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
@@ -362,7 +379,7 @@ func TestGetMaxContentLength(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(a2aMaxContentLengthEnvVar, tt.value)
+			t.Setenv(env.KagentA2AMaxContentLength.Name(), tt.value)
 			got := getMaxContentLength(slog.New(slog.DiscardHandler))
 			if tt.unlimited {
 				if got != nil {

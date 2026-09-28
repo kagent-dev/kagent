@@ -55,9 +55,11 @@ export function useConversationTitles(
       const entries = await Promise.all(
         targets.map(async (instance) => {
           try {
+            if (!instance.agent) return undefined;
             const history = await getChatClient().history({
 
               id: instance.id,
+              agent: instance.agent,
             });
             const said = history.messages
               .find((message) => message.role === "user")

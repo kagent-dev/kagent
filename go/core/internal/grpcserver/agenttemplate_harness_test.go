@@ -33,14 +33,20 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		t.Fatalf("v1alpha3.AddToScheme() error = %v", err)
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	return newConfigurationConnection(t, kubeClient)
+}
 
+func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grpc.ClientConn {
+	t.Helper()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
-		Listener:             listener,
-		Authenticator:        &authimpl.UnsecureAuthenticator{},
-		SystemService:        testSystemService(),
-		AgentTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
+		Listener:               listener,
+		Authenticator:          &authimpl.InsecureAuthenticator{},
+		SystemService:          testSystemService(),
+		AgentService:           kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent"),
+		AgentTemplateService:   kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
+		SandboxTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -83,9 +89,9 @@ func testHarness(namespace, name, workerPool string) *v1alpha3.Harness {
 		Spec: v1alpha3.HarnessSpec{
 			Codex:    &v1alpha3.CodexHarness{},
 			Workload: v1alpha3.HarnessWorkload{Image: testHarnessImage},
-			Substrate: v1alpha3.HarnessSubstratePolicy{
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: workerPool},
-				SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "s3://snapshots"},
+				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 			},
 		},
 	}
@@ -108,13 +114,8 @@ func assertCode(t *testing.T, err error, want codes.Code) {
 }
 
 func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
-	// The existing template carries controller-written status so the response
-	// can be checked for the admitting-harness denormalisation, which a caller
-	// cannot derive from the template alone.
 	existing := testAgentTemplate("team", "z-existing", "gpt")
-	existing.Status = v1alpha3.AgentTemplateStatus{
-		Harnesses: []v1alpha3.AgentTemplateHarnessStatus{{Harness: "shared", DesiredRevision: "rev-1"}},
-	}
+
 	client := apiv1alpha1.NewAgentTemplateServiceClient(newTemplateAndHarnessConnection(t, existing))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
 	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "a-created"}
@@ -178,9 +179,6 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	}
 	if name := listed.GetAgentTemplates()[0].GetRef().GetName(); name != "a-created" {
 		t.Fatalf("ListAgentTemplates()[0] = %q, want a-created first", name)
-	}
-	if harnesses := listed.GetAgentTemplates()[1].GetAdmittingHarnesses(); len(harnesses) != 1 || harnesses[0] != "shared" {
-		t.Fatalf("ListAgentTemplates()[1].admittingHarnesses = %v, want [shared]", harnesses)
 	}
 
 	// A resource whose metadata names a different object must be rejected rather

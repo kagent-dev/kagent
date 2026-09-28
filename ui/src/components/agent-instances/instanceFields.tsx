@@ -4,13 +4,11 @@ import type { Theme } from "@emotion/react";
 import { Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
-import { bareName } from "@/api";
 import {
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { NotReported } from "@/components/agent-instances/InstanceTags";
-import { buildPath, paths } from "@/router/routes";
 import type { AgentInstance } from "@/api";
 
 const { Text } = Typography;
@@ -25,7 +23,7 @@ const { Text } = Typography;
 export function instanceFields(
   data: AgentInstance,
   theme: Theme,
-  /** Where the agent's own page is, when this record names a pair. */
+  /** Where the agent's own page is, when this record names an Agent. */
   agentHref?: string,
   /**
    * Offered where the reader can act on it, and omitted where they cannot.
@@ -98,39 +96,14 @@ export function instanceFields(
         data-testid="instance-agent-link"
         css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
       >
-        {`${bareName(data.agentTemplate ?? "")} on ${bareName(data.harness ?? "")}`}
+        {data.agent}
       </Link>
     ) : (
       // Not a link and not a blank cell: an instance with no prepared revision
-      // belongs to no pair, which is a fact about the record rather than a
+      // belongs to no Agent, which is a fact about the record rather than a
       // link this page forgot to render.
       <ValueOrNotReported value={undefined} />
     ),
-  },
-  {
-    key: "agentTemplate",
-    label: "Agent template",
-    children: data.agentTemplate ? (
-      <Link
-        to={buildPath(paths.agentTemplateDetail, {
-          namespace: data.agentTemplate?.split("/")[0],
-          name: bareName(data.agentTemplate),
-        })}
-        data-testid="instance-template-link"
-        css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
-      >
-        {data.agentTemplate}
-      </Link>
-    ) : (
-      <ValueOrNotReported value={undefined} />
-    ),
-  },
-  {
-    key: "harness",
-    label: "Harness",
-    // Not a link: `HarnessService` is read-only in this build, so there is no
-    // harness page to open. The template is the half a reader can change.
-    children: <ValueOrNotReported value={data.harness} mono />,
   },
   {
     key: "preparedRevision",

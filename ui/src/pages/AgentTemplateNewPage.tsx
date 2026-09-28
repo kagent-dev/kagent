@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, Button, Select, Space, Typography } from "antd";
+import { Alert, Button, Form, Select, Space } from "antd";
 import toast from "react-hot-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
@@ -14,7 +14,6 @@ import {
 import { agentTemplatesTab } from "@/router/routes";
 import { apiClient, useInvalidateAgentTemplates, useNamespaces } from "@/api";
 
-const { Text } = Typography;
 
 /**
  * Create an agent template.
@@ -95,31 +94,30 @@ export function AgentTemplateNewPage() {
           />
         ) : null}
 
-        <Space size={8}>
-          <Text css={{ color: theme.color.textMuted }}>Namespace</Text>
-          <div data-testid="template-form-namespace">
-            <Select
-              css={{ minWidth: 220 }}
-              value={effective}
-              loading={namespaces.isLoading}
-              onChange={(value: string) =>
-                // The model configurations and harnesses on offer are all
-                // same-namespace, so changing it changes what the form can select.
-                setDraft({ ...draft, namespace: value, modelConfig: "" })
-              }
-              options={(namespaces.data ?? []).map((entry) => ({
-                value: entry.name,
-                label: entry.name,
-              }))}
-            />
-          </div>
-        </Space>
-
         <AgentTemplateForm
           draft={{ ...draft, namespace: effective }}
           onChange={setDraft}
           isCreate
           namespace={effective}
+          namespaceField={
+            <Form.Item label="Namespace" required>
+              <div data-testid="template-form-namespace">
+                <Select
+                  value={effective}
+                  loading={namespaces.isLoading}
+                  onChange={(value: string) =>
+                    // The model configurations and harnesses on offer are all
+                    // same-namespace, so changing it changes what the form can select.
+                    setDraft({ ...draft, namespace: value, modelConfig: "" })
+                  }
+                  options={(namespaces.data ?? []).map((entry) => ({
+                    value: entry.name,
+                    label: entry.name,
+                  }))}
+                />
+              </div>
+            </Form.Item>
+          }
         />
 
         {/*

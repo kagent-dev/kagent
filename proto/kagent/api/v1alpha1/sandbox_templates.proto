@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "buf/validate/validate.proto";
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// SandboxTemplateService manages namespaced api.kagent.dev/v1alpha3 SandboxTemplate
+// configuration. The controller prepares its runtime snapshot asynchronously;
+// creating a template does not create a user Sandbox.
+service SandboxTemplateService {
+  rpc ListSandboxTemplates(ListSandboxTemplatesRequest) returns (ListSandboxTemplatesResponse);
+  rpc CreateSandboxTemplate(CreateSandboxTemplateRequest) returns (CreateSandboxTemplateResponse);
+  rpc DeleteSandboxTemplate(DeleteSandboxTemplateRequest) returns (DeleteSandboxTemplateResponse);
+}
+
+message SandboxTemplate {
+  ResourceReference ref = 1;
+  // The complete CR, with its schema owned by the Kubernetes API.
+  StructuredObject resource = 2;
+  // The digest-pinned spec.workload.image, for catalog display.
+  string workload_image = 3;
+}
+
+message ListSandboxTemplatesRequest {
+  // Empty lists all namespaces allowed by the caller's authorization scope.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
+}
+
+message ListSandboxTemplatesResponse {
+  repeated SandboxTemplate sandbox_templates = 1;
+}
+
+message CreateSandboxTemplateRequest {
+  option (buf.validate.message).cel = {
+    id: "sandbox_template.metadata_matches_ref"
+    message: "resource metadata must match the template reference"
+    expression: "!has(this.resource.value.metadata) || ((!has(this.resource.value.metadata.name) || this.resource.value.metadata.name == '' || this.resource.value.metadata.name == this.ref.name) && (!has(this.resource.value.metadata.namespace) || this.resource.value.metadata.namespace == '' || this.resource.value.metadata.namespace == this.ref.namespace))"
+  };
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field) = {
+    required: true
+    cel: [
+      {
+        id: "sandbox_template.resource_type"
+        message: "resource must contain a api.kagent.dev/v1alpha3 SandboxTemplate"
+        expression: "this.api_version == 'api.kagent.dev/v1alpha3' && this.kind == 'SandboxTemplate' && has(this.value)"
+      },
+      {
+        id: "sandbox_template.type_metadata_matches"
+        message: "resource type metadata must match its envelope"
+        expression: "(!has(this.value.apiVersion) || this.value.apiVersion == this.api_version) && (!has(this.value.kind) || this.value.kind == this.kind)"
+      }
+    ]
+  }];
+}
+
+message CreateSandboxTemplateResponse {
+  SandboxTemplate sandbox_template = 1;
+}
+
+message DeleteSandboxTemplateRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+}
+
+message DeleteSandboxTemplateResponse {}

@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "test:pw": "playwright test",
     "test:e2e": "yarn test:pw",
-    "test:pw:live": "UI_LOOP_LIVE=true playwright test"
+    "test:pw:live": "KAGENT_E2E_UI_LOOP_LIVE=true playwright test"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.15.0",

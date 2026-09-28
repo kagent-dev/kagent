@@ -31,7 +31,7 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := &translator.Revision{
-				Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+				Namespace: "agents", AgentName: "helper",
 				WorkerPoolName: "pool",
 				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
 					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
@@ -58,7 +58,7 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 
 func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
-		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+		Namespace: "agents", AgentName: "helper",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Command:        []string{"/agent"},
 		Args:           []string{"serve"},
@@ -75,21 +75,21 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-kagent-"+revisionID.Short() {
+	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-"+revisionID.Short() {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.GetContainers()[0]
 	if !slices.Equal(container.Command, spec.Command) || !slices.Equal(container.Args, spec.Args) {
 		t.Fatalf("container command/args = %v %v", container.Command, container.Args)
 	}
-	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetReadyz().GetHttpGet().GetPath() != "/readyz" || container.GetReadyz().GetHttpGet().GetPort() != 8081 || container.GetReadyz().GetTimeoutSeconds() != 30 {
+	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
-		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotsConfig().GetOnResume())
+	if template.GetSnapshotConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
+		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotConfig().GetOnResume())
 	}
-	if template.GetSnapshotsConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
-		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotsConfig().GetOnPause())
+	if template.GetSnapshotConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
+		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotConfig().GetOnPause())
 	}
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
@@ -100,9 +100,13 @@ func TestActorTemplateForRevision(t *testing.T) {
 			t.Fatalf("missing gateway trust for %s", name)
 		}
 	}
-	trust := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
+	trust := template.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
 	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
 		t.Fatal("gateway trust bundle was not projected")
+	}
+	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
+	if len(identity) != 3 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
+		t.Fatal("actor routing identity was not projected")
 	}
 	var rendered a2atype.AgentCard
 	if err := json.Unmarshal([]byte(environment["KAGENT_AGENT_CARD_JSON"].Value), &rendered); err != nil {
@@ -118,7 +122,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 
 func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
 	spec := &translator.Revision{
-		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", WorkerPoolName: "default",
+		Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
 		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
 			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},

@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/core/cli"
@@ -83,52 +84,55 @@ func TestRootCommandInvokeContract(t *testing.T) {
 	assert.True(t, rootCmd.SilenceErrors)
 	assert.True(t, rootCmd.SilenceUsage)
 
-	invokeCmd, _, err := rootCmd.Find([]string{"invoke"})
+	invokeCmd, _, err := rootCmd.Find([]string{"agent", "invoke"})
 	require.NoError(t, err)
-	for _, flag := range []string{"agent-instance", "task", "file", "stream", "token"} {
+	for _, flag := range []string{"session", "task", "file", "stream", "token"} {
 		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
-	for _, legacyFlag := range []string{"agent", "session", "url-override"} {
+	for _, legacyFlag := range []string{"agent", "url-override"} {
 		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
 	}
 
-	getInstanceCmd, _, err := rootCmd.Find([]string{"get", "agent-instance"})
+	listSessionCmd, _, err := rootCmd.Find([]string{"agent", "session", "list"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-instance [ID]", getInstanceCmd.Use)
+	assert.Equal(t, "list", listSessionCmd.Use)
 	for _, flag := range []string{"page-size", "page-token"} {
-		assert.NotNil(t, getInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+		assert.NotNil(t, listSessionCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 }
 
 func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	rootCmd := cli.Root()
 
-	getTemplateCmd, _, err := rootCmd.Find([]string{"get", "agent-template"})
+	listTemplateCmd, _, err := rootCmd.Find([]string{"agent", "template", "list"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-template [NAME]", getTemplateCmd.Use)
+	assert.Equal(t, "list", listTemplateCmd.Use)
 	for _, flag := range []string{"page-size", "page-token"} {
-		assert.NotNil(t, getTemplateCmd.Flags().Lookup(flag), "missing --%s", flag)
+		assert.NotNil(t, listTemplateCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 
-	createInstanceCmd, _, err := rootCmd.Find([]string{"create", "agent-instance"})
+	createSessionCmd, _, err := rootCmd.Find([]string{"agent", "session", "create"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-instance", createInstanceCmd.Use)
-	for _, flag := range []string{"harness", "agent-template", "request-id"} {
-		assert.NotNil(t, createInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+	assert.Equal(t, "create", createSessionCmd.Use)
+	for _, flag := range []string{"agent", "request-id"} {
+		assert.NotNil(t, createSessionCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 
-	deleteInstanceCmd, _, err := rootCmd.Find([]string{"delete", "agent-instance"})
+	deleteSessionCmd, _, err := rootCmd.Find([]string{"agent", "session", "delete"})
 	require.NoError(t, err)
-	assert.Equal(t, "agent-instance ID", deleteInstanceCmd.Use)
+	assert.Equal(t, "delete ID", deleteSessionCmd.Use)
 
 	applyCmd, _, err := rootCmd.Find([]string{"apply"})
 	require.NoError(t, err)
 	assert.Equal(t, "apply -f FILE", applyCmd.Use)
 	assert.NotNil(t, applyCmd.Flags().Lookup("file"))
-	for _, command := range []string{"suspend", "resume"} {
-		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
-		assert.Error(t, err, "%s must not be exposed by the CLI", command)
+	sessionCmd, _, err := rootCmd.Find([]string{"agent", "session"})
+	require.NoError(t, err)
+	var sessionCommands []string
+	for _, command := range sessionCmd.Commands() {
+		sessionCommands = append(sessionCommands, command.Name())
 	}
+	assert.ElementsMatch(t, []string{"create", "list", "get", "delete"}, sessionCommands)
 }
 
 func TestRootCommandRemovesLegacyPaths(t *testing.T) {
@@ -138,26 +142,19 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range rootCmd.Commands() {
 		rootCommands = append(rootCommands, command.Name())
 	}
-	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp"} {
+	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "get", "create", "delete", "invoke", "session"} {
 		assert.NotContains(t, rootCommands, command)
 	}
 	assert.NotContains(t, rootCommands, "update")
 	assert.Contains(t, rootCommands, "mcp")
 
-	createCmd, _, err := rootCmd.Find([]string{"create"})
+	agentCmd, _, err := rootCmd.Find([]string{"agent"})
 	require.NoError(t, err)
-	assert.Len(t, createCmd.Commands(), 1)
-	assert.Equal(t, "agent-instance", createCmd.Commands()[0].Name())
-
-	getCmd, _, err := rootCmd.Find([]string{"get"})
-	require.NoError(t, err)
-	getCommands := make([]string, 0, len(getCmd.Commands()))
-	for _, command := range getCmd.Commands() {
-		getCommands = append(getCommands, command.Name())
+	agentCommands := make([]string, 0, len(agentCmd.Commands()))
+	for _, command := range agentCmd.Commands() {
+		agentCommands = append(agentCommands, command.Name())
 	}
-	for _, command := range []string{"agent", "session", "tool"} {
-		assert.NotContains(t, getCommands, command)
-	}
+	assert.ElementsMatch(t, []string{"list", "get", "invoke", "session", "template"}, agentCommands)
 }
 
 func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
@@ -170,19 +167,23 @@ func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "kagent requires a terminal")
-	assert.Contains(t, err.Error(), "kagent invoke")
+	assert.Contains(t, err.Error(), "kagent agent invoke")
 }
 
 func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	// An unparseable format is rejected before any command connects, so this
 	// reaches the run function without touching the network or a cluster.
 	for name, args := range map[string][]string{
-		"get agent-instance":    {"get", "agent-instance"},
-		"get agent-template":    {"get", "agent-template"},
-		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
-		"apply agent-template":  {"apply", "--file", "template.yaml"},
-		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
-		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
+		"list agents":    {"agent", "list"},
+		"get agent":      {"agent", "get", "example"},
+		"list templates": {"agent", "template", "list"},
+		"get template":   {"agent", "template", "get", "example"},
+		"list sessions":  {"agent", "session", "list"},
+		"get session":    {"agent", "session", "get", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
+		"create session": {"agent", "session", "create", "--agent", "example"},
+		"apply template": {"apply", "--file", "template.yaml"},
+		"delete session": {"agent", "session", "delete", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
+		"invoke":         {"agent", "invoke", "--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootCmd := cli.Root()
@@ -198,20 +199,27 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	}
 }
 
-func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
-	for name, want := range map[string]string{
-		"get":    "agent-instance, agent-template",
-		"create": "agent-instance",
-		"delete": "agent-instance",
-	} {
-		t.Run(name, func(t *testing.T) {
-			rootCmd := cli.Root()
-			rootCmd.SetArgs([]string{name})
-
-			err := rootCmd.ExecuteContext(t.Context())
-
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "available resource types: "+want)
-		})
+func TestAgentReadCommandsRequireExplicitTargets(t *testing.T) {
+	for _, path := range [][]string{{"agent"}, {"agent", "template"}, {"agent", "session"}} {
+		for _, tt := range []struct {
+			name string
+			args []string
+			want string
+		}{
+			{name: "missing get target", args: []string{"get"}, want: "accepts 1 arg(s), received 0"},
+			{name: "empty get target", args: []string{"get", ""}, want: "must not be empty"},
+			{name: "multiple get targets", args: []string{"get", "one", "two"}, want: "accepts 1 arg(s), received 2"},
+			{name: "list with target", args: []string{"list", "one"}, want: "unknown command"},
+			{name: "pagination on get", args: []string{"get", "one", "--page-size", "2"}, want: "unknown flag: --page-size"},
+		} {
+			t.Run(strings.Join(path, " ")+"/"+tt.name, func(t *testing.T) {
+				rootCmd := cli.Root()
+				rootCmd.SetArgs(append(append([]string{}, path...), tt.args...))
+				rootCmd.SetOut(&bytes.Buffer{})
+				rootCmd.SetErr(&bytes.Buffer{})
+				err := rootCmd.ExecuteContext(t.Context())
+				require.ErrorContains(t, err, tt.want)
+			})
+		}
 	}
 }

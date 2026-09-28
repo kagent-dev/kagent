@@ -28,6 +28,9 @@ const (
 const egressTrustVolume = "egress-trust"
 const egressTrustMount = "/run/kagent/egress"
 
+const actorIdentityVolume = "actor-identity"
+const actorIdentityMount = "/run/kagent/identity"
+
 var egressTrustEnvironment = map[string]struct{}{
 	"SSL_CERT_FILE": {}, "SSL_CERT_DIR": {}, "REQUESTS_CA_BUNDLE": {}, "AWS_CA_BUNDLE": {},
 	"NODE_EXTRA_CA_CERTS": {}, "CURL_CA_BUNDLE": {}, "GIT_SSL_CAINFO": {},
@@ -41,7 +44,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
-	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
+	name := revisionActorTemplateName(spec.AgentName, revisionID)
 	// Config and SDK placeholders contain no Secret values. Render the typed
 	// card only at this boundary.
 	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
@@ -90,14 +93,18 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			Command: append([]string(nil), spec.Command...),
 			Args:    append([]string(nil), spec.Args...),
 			Env:     actorEnv,
-			Readyz: &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
-			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}, {Name: egressTrustVolume, MountPath: egressTrustMount}},
+			VolumeMounts: []*ateapipb.VolumeMount{
+				{Name: durableDataVolume, MountPath: durableDataMount},
+				{Name: egressTrustVolume, MountPath: egressTrustMount},
+				{Name: actorIdentityVolume, MountPath: actorIdentityMount},
+			},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
-		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
@@ -105,6 +112,15 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
+			// Substrate regenerates this projection on Run and Restore. A fork
+			// therefore routes storage calls as its own actor, never its source.
+			{Name: actorIdentityVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
+				{ActorMetadata: &ateapipb.ActorMetadataDataSource{Items: []*ateapipb.ActorMetadataItem{
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME, Path: "name"},
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_ATESPACE, Path: "atespace"},
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID, Path: "uid"},
+				}}},
+			}}},
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
 				{TrustBundle: &ateapipb.TrustBundleDataSource{Name: "egress-mitm.ate.dev", Path: "trust-bundle.pem"}},
 			}}},
@@ -128,12 +144,12 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector:  template.GetWorkerSelector(),
-		Containers:      template.GetContainers(),
-		Volumes:         template.GetVolumes(),
-		SnapshotsConfig: template.GetSnapshotsConfig(),
-		SandboxConfig:   template.GetSandboxConfig(),
-		Resources:       template.GetResources(),
+		WorkerSelector: template.GetWorkerSelector(),
+		Containers:     template.GetContainers(),
+		Volumes:        template.GetVolumes(),
+		SnapshotConfig: template.GetSnapshotConfig(),
+		SandboxConfig:  template.GetSandboxConfig(),
+		Resources:      template.GetResources(),
 	}
 }
 
@@ -148,10 +164,10 @@ func withServiceVersion(environment []corev1.EnvVar, version string) []corev1.En
 	return environment
 }
 
-func revisionActorTemplateName(agentTemplate, harness string, revision translator.RevisionID) string {
+func revisionActorTemplateName(agentName string, revision translator.RevisionID) string {
 	// Twelve digest characters keep names readable while the full digest remains
 	// the database identity and immutable-content check.
-	base := truncateDNS1123(agentTemplate + "-" + harness)
+	base := truncateDNS1123(agentName)
 	base = truncateDNS1123To(base, 50)
 	return base + "-" + revision.Short()
 }

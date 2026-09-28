@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.context import ServerCallContext
+from a2a.types import Message, Part, Role, SendMessageRequest, Task, TaskState, TaskStatus
 from google.adk.a2a.converters.part_converter import (
     convert_a2a_part_to_genai_part,
     convert_genai_part_to_a2a_part,
@@ -24,6 +26,7 @@ from kagent.core.a2a import (
     get_tool_approval_request,
 )
 
+from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._hitl import (
     RemoteHitlState,
@@ -183,6 +186,26 @@ def test_direct_ask_user_response():
 
     assert confirmation.confirmed is True
     assert confirmation.payload == {"answers": [{"answer": ["default"]}]}
+
+
+def test_executor_hitl_translation_preserves_the_admitted_public_input():
+    incoming = _incoming(AskUserResponse(id="ask-confirm", answers=[{"answer": ["default"]}]))
+    task = _stored_task(AskUserRequest(id="ask-confirm", questions=[{"question": "Which namespace?"}]))
+    request = SendMessageRequest(message=incoming, metadata={"source": "test"})
+    request.configuration.history_length = 3
+    context = RequestContext(ServerCallContext(), request, task_id=task.id, context_id=task.context_id, task=task)
+    admitted_input = context.message.SerializeToString(deterministic=True)
+
+    translated = A2aAgentExecutor(runner=lambda: None)._translate_hitl_response(context)
+
+    assert context.message.SerializeToString(deterministic=True) == admitted_input
+    confirmation = _confirmations(translated.message)["ask-confirm"]
+    assert confirmation.confirmed is True
+    assert confirmation.payload == {"answers": [{"answer": ["default"]}]}
+    assert translated.call_context is context.call_context
+    assert translated.current_task is task
+    assert translated.configuration == context.configuration
+    assert translated.metadata == context.metadata
 
 
 def test_nested_tool_approvals_restore_remote_state():

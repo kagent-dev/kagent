@@ -30,7 +30,7 @@ dependencies = [
   "pydantic>=2.5.0",
   "typing-extensions>=4.16.0",
   "jsonref>=1.1.0",
-  "a2a-sdk>=1.1.0,<2",
+  "a2a-sdk>=1.1.5,<2",
   "grpcio>=1.83.0",
   "grpcio-health-checking>=1.74.0,<1.75.0",
   # Security: pin minimum versions for CVE fixes in transitive dependencies

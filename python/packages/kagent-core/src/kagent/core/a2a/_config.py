@@ -5,7 +5,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-A2A_MAX_CONTENT_LENGTH_ENV_VAR = "A2A_MAX_CONTENT_LENGTH"
+A2A_MAX_CONTENT_LENGTH_ENV_VAR = "KAGENT_A2A_MAX_CONTENT_LENGTH"
 DEFAULT_A2A_MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10MB (preserves the pre-v1 SDK default)
 
 
@@ -16,7 +16,7 @@ def get_a2a_max_content_length() -> int | None:
     middleware.
 
     Environment variable:
-        A2A_MAX_CONTENT_LENGTH: Maximum payload size in bytes.
+        KAGENT_A2A_MAX_CONTENT_LENGTH: Maximum payload size in bytes.
                                 Default: 10485760 (10MB, a2a-sdk default)
                                 Example: 52428800 (50MB)
                                 Set to "0" or "none" for unlimited.

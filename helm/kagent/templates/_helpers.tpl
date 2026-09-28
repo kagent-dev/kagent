@@ -293,7 +293,7 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/* Public A2A endpoint advertised by AgentInstance Agent Cards. */}}
+{{/* Public A2A endpoint advertised by Session Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}
 {{- .Values.controller.a2aGatewayUrl -}}
@@ -428,6 +428,16 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- $root := dict "registry" (.Values.controller.image.registry | default .Values.registry) "repository" .Values.controller.image.repository "tag" (coalesce .Values.tag .Values.controller.image.tag .Chart.Version) -}}
 {{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+
+{{/* Pass the configured guest digest through to Substrate. */}}
+{{- define "kagent.sandboxGuestImage" -}}
+{{- $image := .Values.controller.sandbox.guestImage -}}
+{{- if $image.digest -}}
+{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "digest" $image.digest -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

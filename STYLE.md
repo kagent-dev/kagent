@@ -205,10 +205,23 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
   HTTP calls use `http.NewRequestWithContext`. Never drop a `cancel` function.
 - Context keys use unexported struct types, never strings.
 
+### Environment variables
+
+- Read user-configurable settings through registered accessors in `core/pkg/env`.
+  Register each setting once, listing every consuming component.
+- Use `Get()` for the registered default and `Lookup()` when a caller must
+  distinguish unset values. Use boolean/integer `LookupWithError()` when invalid
+  input needs a diagnostic; it distinguishes invalid input from unset or empty.
+- Registered booleans accept `true`, `t`, `1`, `false`, `f`, and `0`, ignoring case
+  and surrounding whitespace. Upstream settings with a different grammar use
+  string registrations and their own parser.
+- Direct process reads require an explained lint exception, such as resolving
+  controller-generated payloads or arbitrary credential placeholders.
+
 ### Logging
 
 - Use standard-library `log/slog`. Binaries write JSON to stderr and read the
-  minimum level from `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
+  minimum level from `KAGENT_LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
 - Carry loggers in `context.Context` with `pkg/logging`; do not add logger
   parameters, package-global loggers, or `NewXxxWithLogger` constructors.
 - Use `DebugContext`, `InfoContext`, `WarnContext`, or `ErrorContext` whenever
@@ -315,7 +328,7 @@ All new CRD API surface goes in `v1alpha3`.
   Side effects and async logic belong in the reconciler (or a dedicated
   controller).
 - Every behavioral change to a translator **SHOULD** come with golden tests
-  (`UPDATE_GOLDEN=true go test ...` to regenerate).
+  (`KAGENT_TEST_UPDATE_GOLDEN=true go test ...` to regenerate).
 
 ### Database
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -25,6 +26,37 @@ func TestNew(t *testing.T) {
 	}
 	if record["level"] != "WARN" || record["msg"] != "visible" || record["task_id"] != "task-1" {
 		t.Fatalf("unexpected record: %#v", record)
+	}
+}
+
+func TestNewFromEnv(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		level   string
+		want    slog.Level
+		wantErr bool
+	}{
+		{name: "empty defaults to info", want: slog.LevelInfo},
+		{name: "debug", level: "debug", want: slog.LevelDebug},
+		{name: "case insensitive", level: "WARN", want: slog.LevelWarn},
+		{name: "invalid", level: "verbose", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(env.LogLevel.Name(), tt.level)
+			logger, err := NewFromEnv(&bytes.Buffer{})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected invalid log level to fail")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !logger.Enabled(t.Context(), tt.want) || logger.Enabled(t.Context(), tt.want-1) {
+				t.Fatalf("expected minimum log level %s", tt.want)
+			}
+		})
 	}
 }
 
