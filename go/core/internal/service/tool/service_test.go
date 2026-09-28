@@ -199,6 +199,37 @@ func TestServiceDeleteToolServer(t *testing.T) {
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound), err)
 }
 
+// TestServiceDeleteToolServerBeforeReconcile pins #2849: a server not yet in the discovery projection must still be deletable.
+func TestServiceDeleteToolServerBeforeReconcile(t *testing.T) {
+	t.Run("RemoteMCPServer", func(t *testing.T) {
+		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "remote", Namespace: "default"}}
+		kubeClient := toolTestKube(t, true, server)
+		service := NewService(kubeClient, &fakeDiscoveryStore{}, &recordingAuthorizer{}, "default", nil)
+
+		require.NoError(t, service.DeleteToolServer(toolTestContext(), types.NamespacedName{Namespace: "default", Name: "remote"}))
+		err := kubeClient.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "remote"}, &v1alpha3.RemoteMCPServer{})
+		assert.True(t, apierrors.IsNotFound(err), err)
+	})
+
+	t.Run("MCPServer", func(t *testing.T) {
+		server := &kmcp.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: "local", Namespace: "default"}}
+		kubeClient := toolTestKube(t, true, server)
+		service := NewService(kubeClient, &fakeDiscoveryStore{}, &recordingAuthorizer{}, "default", nil)
+
+		require.NoError(t, service.DeleteToolServer(toolTestContext(), types.NamespacedName{Namespace: "default", Name: "local"}))
+		err := kubeClient.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "local"}, &kmcp.MCPServer{})
+		assert.True(t, apierrors.IsNotFound(err), err)
+	})
+
+	t.Run("genuinely absent still 404s", func(t *testing.T) {
+		kubeClient := toolTestKube(t, true)
+		service := NewService(kubeClient, &fakeDiscoveryStore{}, &recordingAuthorizer{}, "default", nil)
+
+		err := service.DeleteToolServer(toolTestContext(), types.NamespacedName{Namespace: "default", Name: "missing"})
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound), err)
+	})
+}
+
 func TestServiceMCPFacade(t *testing.T) {
 	ref := MCPServerRef{
 		Ref:       types.NamespacedName{Namespace: "default", Name: "server"},

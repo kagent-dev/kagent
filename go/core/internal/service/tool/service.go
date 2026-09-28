@@ -212,7 +212,10 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 		}
 	}
 	if groupKind == "" {
-		return serviceerrors.NewNotFound("ToolServer not found", nil)
+		groupKind = s.liveToolServerGroupKind(ctx, ref)
+		if groupKind == "" {
+			return serviceerrors.NewNotFound("ToolServer not found", nil)
+		}
 	}
 
 	var object client.Object
@@ -236,6 +239,20 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 		return serviceerrors.NewInternal("Failed to delete "+objectKindName(object)+" from Kubernetes", err)
 	}
 	return nil
+}
+
+// liveToolServerGroupKind returns the GroupKind of a live object matching ref, or "".
+func (s *Service) liveToolServerGroupKind(ctx context.Context, ref types.NamespacedName) string {
+	if err := s.kubeClient.Get(ctx, ref, &v1alpha3.RemoteMCPServer{}); err == nil {
+		return remoteMCPServerGVK.GroupKind().String()
+	}
+	if err := s.kubeClient.Get(ctx, ref, &kmcp.MCPServer{}); err == nil {
+		return mcpServerGVK.GroupKind().String()
+	}
+	if err := s.kubeClient.Get(ctx, ref, &corev1.Service{}); err == nil {
+		return "Service"
+	}
+	return ""
 }
 
 func (s *Service) ListToolServerTypes(ctx context.Context) ([]ServerType, error) {
