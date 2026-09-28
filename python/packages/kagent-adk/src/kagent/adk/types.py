@@ -2,6 +2,7 @@ import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
+import httpx2
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
@@ -151,7 +152,7 @@ def _build_tls_httpx_client_factory(
     disable_verify: bool,
     ca_cert_path: str | None,
     disable_system_cas: bool,
-) -> Callable[..., httpx.AsyncClient]:
+) -> Callable[..., httpx2.AsyncClient]:
     ssl_ctx = create_ssl_context(
         disable_verify=disable_verify,
         ca_cert_path=ca_cert_path,
@@ -160,9 +161,9 @@ def _build_tls_httpx_client_factory(
 
     def _factory(
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
         kwargs: dict[str, Any] = {
             "follow_redirects": True,
             "verify": ssl_ctx,
@@ -170,12 +171,12 @@ def _build_tls_httpx_client_factory(
         if timeout is not None:
             kwargs["timeout"] = timeout
         else:
-            kwargs["timeout"] = httpx.Timeout(30, read=300)
+            kwargs["timeout"] = httpx2.Timeout(30, read=300)
         if headers is not None:
             kwargs["headers"] = headers
         if auth is not None:
             kwargs["auth"] = auth
-        return httpx.AsyncClient(**kwargs)
+        return httpx2.AsyncClient(**kwargs)
 
     return _factory
 

@@ -4,12 +4,12 @@ import asyncio
 import logging
 from typing import Any, Optional
 
-import httpx
+import httpx2
 from google.adk.tools import BaseTool
 from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, ReadonlyContext
 from google.adk.tools.tool_context import ToolContext
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 from kagent.adk._mcp_apps import MCPAppToolNames
 
@@ -22,21 +22,21 @@ logger = logging.getLogger("kagent_adk." + __name__)
 #
 # - ConnectionError: stdlib base for ConnectionResetError, ConnectionRefusedError, etc.
 # - TimeoutError: stdlib timeout (e.g. socket.timeout)
-# - httpx.TransportError: covers httpx.NetworkError (ConnectError, ReadError,
-#   WriteError, CloseError), httpx.TimeoutException, httpx.ProtocolError, etc.
+# - httpx2.TransportError: covers httpx2.NetworkError (ConnectError, ReadError,
+#   WriteError, CloseError), httpx2.TimeoutException, httpx2.ProtocolError, etc.
 #   These do NOT inherit from stdlib ConnectionError/OSError.
 #
-# McpError is handled separately in ConnectionSafeMcpTool.run_async() because
-# it is the general MCP protocol error class. Only transport-level McpErrors
-# (e.g., session read timeouts) should be caught; protocol-level McpErrors
+# MCPError is handled separately in ConnectionSafeMcpTool.run_async() because
+# it is the general MCP protocol error class. Only transport-level MCPErrors
+# (e.g., session read timeouts) should be caught; protocol-level MCPErrors
 # (e.g., invalid tool arguments) must propagate so the LLM can correct itself.
 _CONNECTION_ERROR_TYPES = (
     ConnectionError,
     TimeoutError,
-    httpx.TransportError,
+    httpx2.TransportError,
 )
 
-# Keywords in McpError messages that indicate transport-level failures
+# Keywords in MCPError messages that indicate transport-level failures
 # (as opposed to protocol-level errors like invalid arguments).
 _TRANSPORT_MCP_ERROR_KEYWORDS = (
     "timeout",
@@ -51,10 +51,10 @@ _TRANSPORT_MCP_ERROR_KEYWORDS = (
 )
 
 
-def _is_transport_mcp_error(error: McpError) -> bool:
-    """Check if an McpError represents a transport-level failure.
+def _is_transport_mcp_error(error: MCPError) -> bool:
+    """Check if an MCPError represents a transport-level failure.
 
-    McpError wraps all MCP protocol errors, but only transport-level failures
+    MCPError wraps all MCP protocol errors, but only transport-level failures
     (e.g., session read timeouts, stream closures) should be caught and
     returned to the LLM as non-retryable errors. Protocol-level errors
     (e.g., invalid tool arguments, server validation failures) should
@@ -121,7 +121,7 @@ class ConnectionSafeMcpTool(McpTool):
             return await self._inner_tool.run_async(args=args, tool_context=tool_context)
         except _CONNECTION_ERROR_TYPES as error:
             return self._connection_error_response(error)
-        except McpError as error:
+        except MCPError as error:
             if not _is_transport_mcp_error(error):
                 raise
             return self._connection_error_response(error)
