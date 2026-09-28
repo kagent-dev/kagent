@@ -137,12 +137,12 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		defer cancel()
 
 		result, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
-			Message: protocol.Message{
-				Kind:      protocol.KindMessage,
-				Role:      protocol.MessageRoleUser,
-				ContextID: sessionID,
-				Parts:     []protocol.Part{protocol.NewTextPart(task)},
-			},
+			Message: protocol.NewMessageWithContext(
+				protocol.MessageRoleUser,
+				[]protocol.Part{protocol.NewTextPart(task)},
+				nil,
+				sessionID,
+			),
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
@@ -154,12 +154,12 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		defer cancel()
 
 		result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
-			Message: protocol.Message{
-				Kind:      protocol.KindMessage,
-				Role:      protocol.MessageRoleUser,
-				ContextID: sessionID,
-				Parts:     []protocol.Part{protocol.NewTextPart(task)},
-			},
+			Message: protocol.NewMessageWithContext(
+				protocol.MessageRoleUser,
+				[]protocol.Part{protocol.NewTextPart(task)},
+				nil,
+				sessionID,
+			),
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
