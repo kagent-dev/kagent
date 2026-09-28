@@ -13,7 +13,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "a2a-sdk>=1.1.5",
   "kagent-core>=0.1.0",
-  "langsmith[otel]>=0.10.10",
+  "langsmith[otel]>=0.14.0",
 ]
 
 [project.optional-dependencies]
