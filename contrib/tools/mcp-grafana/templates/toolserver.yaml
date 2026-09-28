@@ -1,13 +1,12 @@
-apiVersion: kagent.dev/v1alpha1
-kind: ToolServer
+apiVersion: kagent.dev/v1alpha3
+kind: RemoteMCPServer
 metadata:
   name: {{ include "mcp-grafana.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "mcp-grafana.labels" . | nindent 4 }}
 spec:
-  config:
-    streamableHttp:
-      url: http://{{ include "mcp-grafana.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/mcp
-      timeout: 30s
+  url: http://{{ include "mcp-grafana.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/mcp
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
   description: "Grafana MCP server for monitoring and dashboard management"

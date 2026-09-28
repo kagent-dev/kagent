@@ -5,7 +5,7 @@ tests:
   - it: should render toolserver with default values
     asserts:
       - isKind:
-          of: ToolServer
+          of: RemoteMCPServer
       - equal:
           path: metadata.name
           value: mcp-grafana
@@ -18,14 +18,11 @@ tests:
   - it: should have correct spec configuration
     asserts:
       - equal:
-          path: spec.config.sse.url
-          value: http://RELEASE-NAME-mcp-grafana.NAMESPACE.svc.cluster.local:8000
+          path: spec.url
+          value: http://RELEASE-NAME-mcp-grafana.NAMESPACE.svc.cluster.local:8000/mcp
       - equal:
-          path: spec.config.sse.timeout
-          value: 5s
-      - equal:
-          path: spec.config.sse.sseReadTimeout
-          value: 5m0s
+          path: spec.timeout
+          value: 30s
 
   - it: should have correct description
     asserts:
