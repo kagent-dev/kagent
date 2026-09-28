@@ -33,15 +33,17 @@ In addition there is a top-level kagent package which contains the main entry po
 
 ### Runtime entrypoint
 
-The Python ADK image uses uv for package installation and environment creation.
-Application dependencies are installed from `uv.lock` during the build. The final
-image includes uv and omits pip and its `ensurepip` bootstrap bundle.
+The Python ADK image uses Debian Bookworm with a standalone Python interpreter
+installed by uv. uv installs production dependencies from `uv.lock` during the
+build. The final image includes uv, the interpreter, and the application
+environment, without development dependencies, pip, or its `ensurepip` bootstrap
+bundle.
 
 For additional packages, create a separate environment in the writable `/config`
 directory using the image's Python interpreter:
 
 ```bash
-uv venv --python /usr/local/bin/python3 /config/tools
+uv venv /config/tools
 uv pip install --python /config/tools/bin/python <package>
 ```
 

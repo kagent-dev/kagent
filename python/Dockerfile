@@ -1,14 +1,21 @@
 ARG UV_VERSION=0.12.3
-ARG TOOLS_PYTHON_VERSION=3.13
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
-FROM python:${TOOLS_PYTHON_VERSION}-slim AS builder
+# Match the BYO images' glibc version for Substrate checkpoint/restore.
+FROM debian:bookworm-slim AS base
+ENV UV_PYTHON_INSTALL_DIR=/python
+COPY --from=uv-bin /uv /usr/local/bin/uv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS builder
+ARG TOOLS_PYTHON_VERSION=3.13
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_NO_PROGRESS=1 \
     UV_PROJECT_ENVIRONMENT=/.kagent/.venv \
-    UV_PYTHON_DOWNLOADS=never
-COPY --from=uv-bin /uv /usr/local/bin/uv
+    UV_PYTHON_PREFERENCE=only-managed
 WORKDIR /.kagent
 COPY pyproject.toml .python-version uv.lock README.md ./
 COPY packages/kagent-adk packages/kagent-adk
@@ -18,20 +25,16 @@ COPY packages/kagent-skills packages/kagent-skills
 COPY packages/agentsts-adk packages/agentsts-adk
 COPY packages/agentsts-core packages/agentsts-core
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --package kagent-adk --no-editable
+    uv sync --frozen --package kagent-adk --no-editable --no-dev --python "$TOOLS_PYTHON_VERSION" \
+    # The standalone interpreter bundles pip; uv handles package installation.
+    && uv pip uninstall --system --break-system-packages pip \
+    && rm -rf /python/cpython-*/lib/python*/ensurepip
 
-FROM python:${TOOLS_PYTHON_VERSION}-slim
+FROM base
 ARG VERSION
-COPY --from=uv-bin /uv /usr/local/bin/uv
-# uv manages environments without pip. Remove both the installed copy and the
-# bootstrap wheel so pip's vendored dependencies are absent from the runtime.
-RUN python -m pip uninstall --yes pip \
-    && python -c 'import ensurepip, pathlib, shutil; shutil.rmtree(pathlib.Path(ensurepip.__file__).parent)' \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir /config \
+RUN mkdir /config \
     && chown 65532:65532 /config
+COPY --from=builder /python /python
 COPY --from=builder /.kagent/.venv /.kagent/.venv
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
