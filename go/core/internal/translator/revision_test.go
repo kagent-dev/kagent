@@ -15,11 +15,13 @@ func TestRevisionDigestIncludesSandboxClass(t *testing.T) {
 	revision := &Revision{Namespace: "agents", AgentName: "helper"}
 	original, err := revision.Digest()
 	require.NoError(t, err)
+	require.NotEqual(t, "563beefdd1b191baae375aa92e70bcab812a3c4fd2a189cdf74668f1ad45456d", original.String(),
+		"the default class must participate in the digest instead of preserving the legacy digest")
 
 	revision.SandboxClass = atev1alpha1.SandboxClassGvisor
 	gvisor, err := revision.Digest()
 	require.NoError(t, err)
-	require.Equal(t, original, gvisor, "explicit gVisor must preserve the existing default revision")
+	require.Equal(t, original, gvisor, "empty and explicit gVisor select the same runtime")
 	require.Equal(t, atev1alpha1.SandboxClassGvisor, revision.SandboxClass, "hashing must not mutate the revision")
 
 	revision.SandboxClass = atev1alpha1.SandboxClassMicroVM

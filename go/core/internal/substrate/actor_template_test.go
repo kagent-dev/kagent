@@ -3,6 +3,7 @@ package substrate
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -165,5 +166,48 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right.Containers[0].Image = "agent:v2"
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")
+	}
+}
+
+func TestActorTemplateEnvironmentValueSize(t *testing.T) {
+	const configOverhead = len(`{"instruction":""}`)
+	for _, test := range []struct {
+		name        string
+		instruction string
+		description string
+		environment []corev1.EnvVar
+		wantError   string
+	}{
+		{name: "ASCII boundary", instruction: strings.Repeat("a", 32768-configOverhead)},
+		{name: "ASCII overflow", instruction: strings.Repeat("a", 32769-configOverhead), wantError: `environment variable "KAGENT_CONFIG_JSON" is 32769 characters; Substrate supports at most 32768`},
+		{name: "Unicode boundary", instruction: strings.Repeat("日", 32768-configOverhead)},
+		{name: "Unicode overflow", instruction: strings.Repeat("日", 32769-configOverhead), wantError: `environment variable "KAGENT_CONFIG_JSON" is 32769 characters; Substrate supports at most 32768`},
+		{name: "JSON escaping", instruction: strings.Repeat("<>&", 2000), wantError: `environment variable "KAGENT_CONFIG_JSON" is 36018 characters; Substrate supports at most 32768`},
+		{name: "user environment", environment: []corev1.EnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}, wantError: `environment variable "EXTRA" is 32769 characters; Substrate supports at most 32768`},
+		{name: "agent card", description: strings.Repeat("x", 32769), wantError: `environment variable "KAGENT_AGENT_CARD_JSON"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config, err := json.Marshal(struct {
+				Instruction string `json:"instruction"`
+			}{test.instruction})
+			require.NoError(t, err)
+			spec := &translator.Revision{
+				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+				ConfigJSON: config, Environment: test.environment,
+				AgentCard: &a2apb.AgentCard{Name: "helper", Description: test.description, Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+			}
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, id)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, template)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, template)
+		})
 	}
 }

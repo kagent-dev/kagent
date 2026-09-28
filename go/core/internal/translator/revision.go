@@ -84,8 +84,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 	sandboxClass := r.SandboxClass
 	switch sandboxClass {
 	case "", atev1alpha1.SandboxClassGvisor:
-		// Omit the default class to preserve pre-selection revision digests.
-		sandboxClass = ""
+		sandboxClass = atev1alpha1.SandboxClassGvisor
 	case atev1alpha1.SandboxClassMicroVM:
 	default:
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
@@ -104,7 +103,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Provenance         json.RawMessage          `json:"provenance"`
 		Credentials        []egress.Credential      `json:"credentials,omitempty"`
 		EgressDestinations []string                 `json:"egressDestinations"`
-		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass,omitempty"`
+		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass"`
 	}{
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
