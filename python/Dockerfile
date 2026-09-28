@@ -22,7 +22,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:${TOOLS_PYTHON_VERSION}-slim
 ARG VERSION
-RUN apt-get update \
+COPY --from=uv-bin /uv /usr/local/bin/uv
+# uv manages environments without pip. Remove both the installed copy and the
+# bootstrap wheel so pip's vendored dependencies are absent from the runtime.
+RUN python -m pip uninstall --yes pip \
+    && python -c 'import ensurepip, pathlib, shutil; shutil.rmtree(pathlib.Path(ensurepip.__file__).parent)' \
+    && apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /config \
@@ -31,6 +36,8 @@ COPY --from=builder /.kagent/.venv /.kagent/.venv
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONUNBUFFERED=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_CACHE_DIR=/config/.cache/uv \
     PATH="/.kagent/.venv/bin:$PATH" \
     VIRTUAL_ENV=/.kagent/.venv
 WORKDIR /app

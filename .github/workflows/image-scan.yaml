@@ -83,10 +83,24 @@ jobs:
           export VERSION=${{ steps.vars.outputs.version }}
           make build-${{ matrix.build_target }}
         working-directory: ./
+      - name: Check Python runtime
+        if: matrix.build_target == 'kagent-adk'
+        env:
+          IMAGE: localhost:5001/kagent-dev/kagent/${{ matrix.image_name }}:${{ steps.vars.outputs.version }}${{ matrix.tag_suffix }}
+        run: |
+          docker run --rm --entrypoint bash "$IMAGE" -ec '
+            kagent-adk --help
+            uv venv --python /usr/local/bin/python3 /config/tools
+            uv pip list --python /config/tools/bin/python
+            /usr/local/bin/python3 -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None; assert importlib.util.find_spec(\"ensurepip\") is None"
+          '
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_SHOW_SUPPRESSED: 'true'
         with:
           image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image_name }}:${{ steps.vars.outputs.version }}${{ matrix.tag_suffix }}
+          ignore-policy: .github/image-scan.rego
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
