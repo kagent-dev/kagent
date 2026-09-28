@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -292,12 +294,17 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, 
 	return session, nil
 }
 
-func (s *Service) CreateShare(ctx context.Context, sessionID string, permission apiv1alpha1.SessionSharePermission) (*apiv1alpha1.SessionShare, string, error) {
+// CreateShare mints a share of the caller's session. A positive ttl bounds how long its
+// token grants access; zero leaves it valid until it is revoked or the session deleted.
+func (s *Service) CreateShare(ctx context.Context, sessionID string, permission apiv1alpha1.SessionSharePermission, ttl time.Duration) (*apiv1alpha1.SessionShare, string, error) {
 	if err := validateIdentity(sessionID); err != nil {
 		return nil, "", err
 	}
 	if permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE {
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
+	}
+	if ttl < 0 {
+		return nil, "", serviceerrors.NewInvalidArgument("share ttl must be positive", nil)
 	}
 	userID, err := s.authorize(ctx, auth.VerbCreate, sessionID+"/shares")
 	if err != nil {
@@ -311,8 +318,11 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, permission 
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
-	share, err := s.store.CreateSessionShare(ctx, &apiv1alpha1.SessionShare{Id: id.String(), SessionId: sessionID,
-		Permission: permission}, tokenHash, userID)
+	value := &apiv1alpha1.SessionShare{Id: id.String(), SessionId: sessionID, Permission: permission}
+	if ttl > 0 {
+		value.ExpiresAt = timestamppb.New(time.Now().Add(ttl))
+	}
+	share, err := s.store.CreateSessionShare(ctx, value, tokenHash, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, "", serviceerrors.NewNotFound("Session not found", err)
 	}
