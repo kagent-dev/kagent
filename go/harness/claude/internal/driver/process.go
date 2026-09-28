@@ -449,7 +449,7 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	case EventCompleted:
 		return &runtime.Outcome{Usage: event.Usage, StoppedBy: event.Category}, nil
 	case EventFailed:
-		return &runtime.Outcome{Failure: &runtime.Failure{Message: event.SafeMessage}}, nil
+		return &runtime.Outcome{Failure: &runtime.Failure{Message: event.SafeMessage}, Usage: event.Usage}, nil
 	default:
 		return nil, fmt.Errorf("unsupported Claude event kind %q", event.Kind)
 	}

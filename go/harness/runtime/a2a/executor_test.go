@@ -263,6 +263,36 @@ func TestExecuteFailureBoundary(t *testing.T) {
 	if last.Status.State != a2atype.TaskStateFailed || last.Status.Message.Parts[0].Text() != "budget limit reached" {
 		t.Fatalf("failure event = %#v", last)
 	}
+	if _, ok := last.Status.Message.Metadata[apia2a.UsageMetadataKey]; ok {
+		t.Fatalf("a failure without usage reports none: %#v", last.Status.Message.Metadata)
+	}
+}
+
+func TestExecuteReportsTheUsageAFailedTurnSpent(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{
+			Failure: &runtime.Failure{Message: "boom"},
+			Usage:   &runtime.Usage{TotalCostUSD: 0.1, NumTurns: 2, InputTokens: 50, OutputTokens: 7},
+		}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	last := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
+	if last.Status.State != a2atype.TaskStateFailed || last.Status.Message.Parts[0].Text() != "boom" {
+		t.Fatalf("failure event = %#v", last)
+	}
+	usage, _ := last.Status.Message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
+	if usage["promptTokenCount"] != 50 || usage["candidatesTokenCount"] != 7 || usage["costUsd"] != 0.1 {
+		t.Fatalf("usage metadata = %#v", usage)
+	}
+	if _, ok := last.Status.Message.Metadata[apia2a.TimelinePositionMetadataKey]; !ok {
+		t.Fatalf("the failure keeps its timeline position: %#v", last.Status.Message.Metadata)
+	}
 }
 
 func TestExecuteReleasesActiveTaskBeforeTerminalEvent(t *testing.T) {

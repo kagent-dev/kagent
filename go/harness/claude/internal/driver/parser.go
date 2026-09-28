@@ -128,7 +128,7 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 			if message == "" {
 				message = "Claude execution failed"
 			}
-			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message})
+			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message, Usage: usage})
 		}
 		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result, Usage: usage})
 	}

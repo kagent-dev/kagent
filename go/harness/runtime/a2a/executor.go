@@ -351,6 +351,9 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
 		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
+		if outcome.Usage != nil {
+			message.Metadata = usageMetadata(outcome)
+		}
 		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 	}
