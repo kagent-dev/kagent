@@ -29,7 +29,7 @@ func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
-	compiled, err := c.config.Build(ctx, input)
+	compiled, err := c.config.BuildWithAgentID(ctx, input)
 	if err != nil {
 		return nil, err
 	}
