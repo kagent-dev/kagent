@@ -96,13 +96,15 @@ scheduled timeout, session expiration, and runtime revision lifecycle cases run
 their harnesses in parallel to overlap cron ticks, deadlines, and periodic garbage
 collection.
 Controller restart cases stay sequential with respect to the rest of the suite.
+The scheduled-run restart test starts all selected harness executions before one
+shared controller restart, then releases their model responses and checks recovery
+in parallel. Each harness retains its own Session, task, and prompt-count assertions.
 
 Each gRPC fixture calls `grpc.health.v1.Health/Check` on its own connection before
 creating resources and requires a `SERVING` response. The read-only probe waits up
 to one minute for transport readiness, including retries of failed dials after
 controller rollouts. Subsequent calls keep their normal failure and retry behavior;
-fixture setup does not retry
-mutations or suppress errors returned by the server.
+fixture setup does not retry mutations or suppress errors returned by the server.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate
 v0.3.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
