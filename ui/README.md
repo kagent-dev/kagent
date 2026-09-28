@@ -11,16 +11,18 @@ Node is pinned in [`.nvmrc`](.nvmrc); Yarn ships via corepack.
 
 ```bash
 yarn install
-yarn dev          # http://localhost:8001
+KAGENT_UI_ENABLE_MOCK=true yarn dev # http://localhost:8001
 ```
 
-**No cluster is required.** By default the app runs against an in-browser mock
-backend, so a fresh checkout is usable immediately.
+This explicitly enables the in-browser mock backend; **no cluster is required**.
+Plain `yarn dev` uses the real API by default. To keep mock mode enabled across
+runs, copy [`.env.example`](.env.example) to `.env` and uncomment
+`KAGENT_UI_ENABLE_MOCK=true`.
 
 ### Driving states in mock mode
 
-Append `?mock=<scenario>` to any route to force a state that is otherwise hard to
-reach by hand:
+With mock mode enabled, append `?mock=<scenario>` to any route to force a state
+that is otherwise hard to reach by hand:
 
 | Scenario | Effect |
 | --- | --- |
@@ -32,6 +34,9 @@ reach by hand:
 The choice persists across in-app navigation, e.g. `/agents?mock=error`.
 
 ### Running against a real backend
+
+If you enabled mock mode in your shell or `.env`, unset `KAGENT_UI_ENABLE_MOCK`
+or set it to `false` before starting the dev server.
 
 The quickest way from nothing to this app running on real data is
 [`scripts/setup-cluster`](../scripts/setup-cluster/README.md). One command builds a Kind
