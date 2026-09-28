@@ -274,6 +274,16 @@ func unprivileged(input Input, skillRoot string) (*driver.Identity, error) {
 		if err := utils.ChownTree(root, config.UnprivilegedUID, config.UnprivilegedGID); err != nil {
 			return nil, fmt.Errorf("hand %s to the unprivileged user: %w", root, err)
 		}
+		// The directories above a tree, up to the durable directory, are
+		// created private by root; Claude must be able to traverse them.
+		for dir := filepath.Dir(root); strings.HasPrefix(dir, input.DurableDir); dir = filepath.Dir(dir) {
+			if err := os.Lchown(dir, config.UnprivilegedUID, config.UnprivilegedGID); err != nil && !os.IsNotExist(err) {
+				return nil, fmt.Errorf("hand %s to the unprivileged user: %w", dir, err)
+			}
+			if dir == input.DurableDir {
+				break
+			}
+		}
 	}
 	return &driver.Identity{UID: config.UnprivilegedUID, GID: config.UnprivilegedGID}, nil
 }
