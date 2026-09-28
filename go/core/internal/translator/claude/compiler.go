@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -49,7 +50,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
-		tracing.RuntimeClaude, template.Name+"-"+harness.Name, template.Namespace, model.Spec)
+		tracing.RuntimeClaude, input.AgentName, template.Namespace, model.Spec)
 
 	providerEnvironment, egress, err := c.provider(ctx, model)
 	if err != nil {
@@ -73,7 +74,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		if v2translator.IsResourceAttributesVariable(variable.Name) {
 			continue
 		}
-		if claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
+		if variable.Name == env.KagentAPIURL.Name() || claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
@@ -88,8 +89,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
 	environment = append(environment,
 		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
+		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
 	// The adapter derives Claude Code's own telemetry flags; raw bodies have no
@@ -116,7 +118,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Claude config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}
@@ -132,12 +134,13 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations()...)
+	egress = append(egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
-			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-			Image: harness.Spec.Workload.Image, Environment: environment,
+			Namespace: template.Namespace,
+			Image:     harness.Spec.Workload.Image, Environment: environment,
 			ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
@@ -369,7 +372,11 @@ type provenanceEntry struct {
 
 func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	harness := input.Harness
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
+	var entries []provenanceEntry
+	// Inline configuration is recorded by the enclosing Agent provenance.
+	if harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
+	}
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {
@@ -383,7 +390,9 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
 		template, model := agent.Template, agent.ResolvedModelConfig.Config
-		addObject("AgentTemplate", template.Name, template.UID, template.Generation, template.Spec)
+		if template.Source != nil {
+			addObject("AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec)
+		}
 		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}

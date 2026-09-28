@@ -222,7 +222,10 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := nativeTelemetryEnvironment(test.environment, tracing.RuntimeTelemetry{CaptureContent: test.capture})
+			got, enabled := nativeTelemetryEnvironment(test.environment, tracing.RuntimeTelemetry{CaptureContent: test.capture})
+			if enabled != slices.Contains(got, "CLAUDE_CODE_ENABLE_TELEMETRY=1") {
+				t.Errorf("enabled = %t for %v", enabled, got)
+			}
 			for _, flag := range test.want {
 				if !slices.Contains(got, flag+"=1") {
 					t.Errorf("%s missing from %v", flag, got)

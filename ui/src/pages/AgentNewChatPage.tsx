@@ -9,7 +9,7 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { buildPath, paths } from "@/router/routes";
-import { apiClient, useAgentConversations, useHarnessTakesFiles } from "@/api";
+import { apiClient, useAgentConversations, useAgentTakesFiles } from "@/api";
 import { randomId } from "@/api/randomId";
 import { handOffFiles } from "@/api/chat/attachments";
 
@@ -46,10 +46,10 @@ import { handOffFiles } from "@/api/chat/attachments";
 export function AgentNewChatPage() {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { namespace, agentTemplate, harness } = useParams();
+  const { namespace, name } = useParams();
 
-  const conversations = useAgentConversations(namespace, agentTemplate, harness);
-  const canAttach = useHarnessTakesFiles(namespace && harness && `${namespace}/${harness}`);
+  const conversations = useAgentConversations(namespace, name);
+  const canAttach = useAgentTakesFiles(namespace && name && `${namespace}/${name}`);
   const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
 
   const [isCreating, setCreating] = useState(false);
@@ -74,14 +74,13 @@ export function AgentNewChatPage() {
   const [requestId] = useState(() => randomId());
 
   async function startWith(text: string, files: File[] = []): Promise<void> {
-    if (!namespace || !agentTemplate || !harness) return;
+    if (!namespace || !name) return;
     setCreating(true);
     setError(undefined);
     setLastAttempt({ text, files });
     try {
       const created = await apiClient.agentInstances.create({
-        harness: { namespace, name: harness },
-        agentTemplate: { namespace, name: agentTemplate },
+        agent: { namespace, name },
         requestId,
       });
       // Refreshed before leaving, so the rail on the page being navigated to already
@@ -123,14 +122,14 @@ export function AgentNewChatPage() {
       >
         {namespace ? (
           <AgentRail
-            agentRef={{}}
+            instanceRef={{}}
             agentTitle={{
-              primary: agentTemplate ?? namespace,
-              secondary: harness ? `on ${harness}` : namespace,
+              primary: name ?? namespace,
+              secondary: namespace,
             }}
-            agentHref={agentPageUrl({ namespace, agentTemplate, harness })}
+            agentHref={agentPageUrl({ namespace, name })}
             // From the URL, since there is no conversation here to read it from.
-            agentPair={{ namespace: namespace ?? "", agentTemplate, harness }}
+            agentRef={{ namespace: namespace ?? "", name }}
             instances={{ ...conversations, data: rows }}
           />
         ) : null}
@@ -211,13 +210,13 @@ export function AgentNewChatPage() {
             {/* Which agent, said here as well as in the rail: this is the page's own
                 subject, and a reader who has collapsed the rail would otherwise have
                 nothing on screen naming what they are about to talk to. */}
-            {agentTemplate && harness ? (
+            {name ? (
               <Text
                 data-testid="new-chat-agent"
                 css={{ fontSize: 16, color: theme.color.text }}
               >
-                {agentTemplate}{" "}
-                <Text css={{ color: theme.color.textMuted }}>on {harness}</Text>
+                {name}{" "}
+
               </Text>
             ) : null}
             <Text css={{ color: theme.color.textMuted, fontSize: 14 }}>
@@ -307,7 +306,7 @@ export function AgentNewChatPage() {
               isStreaming={isCreating}
               variant="inviting"
               canAttach={canAttach}
-              disabled={!namespace || !agentTemplate || !harness}
+              disabled={!namespace || !name}
               // This page is two lines of text and this box. Arriving with the caret
               // already in it is the difference between a page that is ready and one
               // that wants a click first for no reason it can explain.

@@ -19,6 +19,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -33,8 +34,7 @@ import (
 )
 
 const (
-	a2aMaxContentLengthEnvVar = "A2A_MAX_CONTENT_LENGTH"
-	defaultMaxContentLength   = int64(10 * 1024 * 1024)
+	defaultMaxContentLength = int64(10 * 1024 * 1024)
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -206,7 +206,7 @@ func (h rpcEndSignal) HandleRPC(ctx context.Context, rpcStats stats.RPCStats) {
 }
 
 func getMaxContentLength(logger *slog.Logger) *int64 {
-	value, ok := os.LookupEnv(a2aMaxContentLengthEnvVar)
+	value, ok := env.KagentA2AMaxContentLength.Lookup()
 	if !ok {
 		maxContentLength := defaultMaxContentLength
 		return &maxContentLength
@@ -222,7 +222,7 @@ func getMaxContentLength(logger *slog.Logger) *int64 {
 	if err != nil || maxContentLength < 0 {
 		logger.Info(
 			"invalid A2A request size limit, using default",
-			"environment_variable", a2aMaxContentLengthEnvVar,
+			"environment_variable", env.KagentA2AMaxContentLength.Name(),
 			"value", value,
 			"default", defaultMaxContentLength,
 		)
@@ -246,14 +246,25 @@ func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handle
 func (s *A2AServer) Start() error {
 	s.logger.Info("starting Go ADK server!", "addr", s.httpServer.Addr)
 
-	s.listenErr = make(chan error, 1)
+	// Substrate may snapshot immediately after /readyz succeeds. Bind A2A
+	// before exposing readiness so that snapshot always contains its listener.
+	listener, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return fmt.Errorf("listen for A2A: %w", err)
+	}
+	ready, err := net.Listen("tcp", s.readyServer.Addr)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("listen for readiness: %w", err)
+	}
+	s.listenErr = make(chan error, 2)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.listenErr <- err
 		}
 	}()
 	go func() {
-		if err := s.readyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.readyServer.Serve(ready); err != nil && err != http.ErrServerClosed {
 			s.listenErr <- err
 		}
 	}()

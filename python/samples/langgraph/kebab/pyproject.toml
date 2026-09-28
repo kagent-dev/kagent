@@ -6,14 +6,14 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "kagent-langgraph",
-    "langgraph>=1.2.9",
+    "langgraph>=1.2.12",
     "langchain-core>=1.4.9",
     "langchain-openai>=0.3.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
 ]
 
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel>=0.47.0"]
+requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]

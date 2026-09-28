@@ -96,7 +96,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
   await test.step("3. the worker pools the sandboxes run on", async () => {
     const pools = page.getByTestId("substrate-pools-table");
     await expect(pools).toBeVisible();
-    await expect(pools).toContainText("kagent/default-pool");
+    await expect(pools).toContainText("kagent/kagent-default");
     await expect(pools).toContainText("platform/gpu-pool");
     // The image tag, which is what an operator checks against a release.
     await expect(pools).toContainText("ateom:1.4.0");
@@ -113,7 +113,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
 
     // The rest of what decides where and how a template runs.
     await expect(templates).toContainText("gvisor");
-    await expect(templates).toContainText("pool=default-pool");
+    await expect(templates).toContainText("pool=kagent-default");
     await expect(templates.getByRole("columnheader", { name: "Harness", exact: true })).toHaveCount(0);
 
     // Both phases, and coloured by what they mean rather than all alike: a Ready template
@@ -131,7 +131,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(actors).toContainText("actor-7f21");
     await expect(actors).toContainText("kagent/coder-template");
     // The pod, with its IP appended — the two facts an operator needs to go and look.
-    await expect(actors).toContainText("kagent/ateom-default-pool-0");
+    await expect(actors).toContainText("kagent/ateom-kagent-default-0");
     await expect(actors).toContainText("10.42.1.19");
 
     // Both wire constants are read to the operator as words — a humaniser that only knew
@@ -146,8 +146,8 @@ test("substrate: the inventory renders, and partial runtime data says so", async
   await test.step("6. the workers, and no claim about which actor is on them", async () => {
     const workers = page.getByTestId("substrate-workers-table");
     await expect(workers).toBeVisible();
-    await expect(workers).toContainText("kagent/ateom-default-pool-0");
-    await expect(workers).toContainText("default-pool");
+    await expect(workers).toContainText("kagent/ateom-kagent-default-0");
+    await expect(workers).toContainText("kagent-default");
     await expect(workers).toContainText("10.42.1.19");
 
     /*
@@ -182,7 +182,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expect(page.getByTestId("substrate-namespace")).toContainText(
       "All watched namespaces",
     );
-    await expect(page.getByTestId("substrate-pools-table")).toContainText("kagent/default-pool");
+    await expect(page.getByTestId("substrate-pools-table")).toContainText("kagent/kagent-default");
     await expect(page.getByTestId("substrate-pools-table")).toContainText("platform/gpu-pool");
   });
 
@@ -198,7 +198,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: kagent; ATE: all");
 
     const pools = page.getByTestId("substrate-pools-table");
-    await expect(pools).toContainText("kagent/default-pool");
+    await expect(pools).toContainText("kagent/kagent-default");
     await expect(pools).not.toContainText("platform/gpu-pool");
 
     const templates = page.getByTestId("substrate-templates-table");
@@ -216,7 +216,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expect(page.getByTestId("substrate-actors-table")).toContainText("team-a/actor-7f21");
     await expect(page.getByTestId("substrate-actors-table")).toContainText("kagent/coder-template");
     await expect(page.getByTestId("substrate-templates-table")).not.toContainText("coder-template");
-    await expect(page.getByTestId("substrate-pools-table")).toContainText("kagent/default-pool");
+    await expect(page.getByTestId("substrate-pools-table")).toContainText("kagent/kagent-default");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
     await page.reload();
     await expect(page.getByRole("searchbox", { name: "ATE atespace", exact: true })).toHaveValue("team-a");

@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
@@ -52,7 +53,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		return nil, fmt.Errorf("agent config is required")
 	}
 
-	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
+	propagateToken := strings.EqualFold(strings.TrimSpace(env.KagentPropagateToken.Get()), "true")
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
@@ -60,7 +61,9 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
 	if skillsDirectory == "" && legacySkillsEnv {
-		skillsDirectory = strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
+		if folder, set := env.KagentSkillsFolder.Lookup(); set {
+			skillsDirectory = strings.TrimSpace(folder)
+		}
 	}
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
@@ -284,9 +287,9 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
 	case *adk.Gemini:
-		apiKey := os.Getenv("GOOGLE_API_KEY")
+		apiKey := env.GoogleAPIKey.Get()
 		if apiKey == "" {
-			apiKey = os.Getenv("GEMINI_API_KEY")
+			apiKey = env.GeminiAPIKey.Get()
 		}
 		if apiKey == "" {
 			return nil, fmt.Errorf("gemini model requires GOOGLE_API_KEY or GEMINI_API_KEY environment variable")
@@ -305,10 +308,10 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		})
 
 	case *adk.GeminiVertexAI:
-		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
-		location := os.Getenv("GOOGLE_CLOUD_LOCATION")
+		project := env.GoogleCloudProject.Get()
+		location := env.GoogleCloudLocation.Get()
 		if location == "" {
-			location = os.Getenv("GOOGLE_CLOUD_REGION")
+			location = env.GoogleCloudRegion.Get()
 		}
 		if project == "" || location == "" {
 			return nil, fmt.Errorf("GeminiVertexAI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_CLOUD_REGION) environment variables")
@@ -356,7 +359,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		// then applies the cloud/local routing. Defaulting it to localhost here
 		// would look like an operator-chosen endpoint and pin every cloud model
 		// to the local daemon.
-		baseURL := os.Getenv("OLLAMA_API_BASE")
+		baseURL := env.OllamaAPIBase.Get()
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultOllamaModel
@@ -367,7 +370,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Model:           modelName,
 			Host:            baseURL,
 			// The environment holds only the gateway credential placeholder.
-			APIKey:  os.Getenv("OLLAMA_API_KEY"),
+			APIKey:  env.OllamaAPIKey.Get(),
 			Options: m.Options,
 		}
 		return models.NewOllamaModel(ctx, cfg)
@@ -375,7 +378,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	case *adk.Bedrock:
 		region := m.Region
 		if region == "" {
-			region = os.Getenv("AWS_REGION")
+			region = env.AWSRegion.Get()
 		}
 		if region == "" {
 			return nil, fmt.Errorf("bedrock requires AWS_REGION environment variable or region in model config")
@@ -408,10 +411,10 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	case *adk.GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
 		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
-		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
-		region := os.Getenv("GOOGLE_CLOUD_LOCATION")
+		project := env.GoogleCloudProject.Get()
+		region := env.GoogleCloudLocation.Get()
 		if region == "" {
-			region = os.Getenv("GOOGLE_CLOUD_REGION")
+			region = env.GoogleCloudRegion.Get()
 		}
 		if project == "" || region == "" {
 			return nil, fmt.Errorf("GeminiAnthropic (Anthropic on Vertex AI) requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION environment variables")

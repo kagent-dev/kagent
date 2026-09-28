@@ -7,10 +7,10 @@ LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 
 def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
+    """Configure logging based on KAGENT_LOG_LEVEL environment variable."""
     global _logging_configured
 
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = os.getenv("KAGENT_LOG_LEVEL", "INFO").upper()
     formatter = logging.Formatter(LOG_FORMAT)
 
     # Only configure if not already configured (avoid duplicate handlers)

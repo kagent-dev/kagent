@@ -60,7 +60,7 @@ func TestModelServiceCRUD(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	server, err := New(Config{
 		Listener:      listener,
-		Authenticator: &authimpl.UnsecureAuthenticator{},
+		Authenticator: &authimpl.InsecureAuthenticator{},
 		SystemService: testSystemService(),
 		ModelService:  service,
 	})

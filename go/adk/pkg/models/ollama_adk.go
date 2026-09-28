@@ -276,9 +276,12 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 						Arguments: api.NewToolCallFunctionArguments(),
 					},
 				}
-				// Copy arguments
-				for k, v := range part.FunctionCall.Args {
-					toolCall.Function.Arguments.Set(k, v)
+				// Copy arguments. Sort: api.ToolCallFunctionArguments preserves
+				// insertion order, so ranging the map directly would re-serialize
+				// past tool calls differently on every request and break prompt
+				// prefix caching.
+				for _, k := range slices.Sorted(maps.Keys(part.FunctionCall.Args)) {
+					toolCall.Function.Arguments.Set(k, part.FunctionCall.Args[k])
 				}
 				toolCalls = append(toolCalls, toolCall)
 				continue

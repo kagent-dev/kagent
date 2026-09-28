@@ -25,7 +25,7 @@ func runBugReport(namespace string, verbose bool) {
 	kubectl := commonexec.NewKubectlExecutor(verbose, namespace)
 
 	// Get kagent resource YAMLs.
-	resources := []string{"agenttemplate", "harness", "modelconfig", "toolserver", "mcpserver", "remotemcpserver"}
+	resources := []string{"agent", "agenttemplate", "harness", "modelconfig", "toolserver", "mcpserver", "remotemcpserver"}
 	for _, resource := range resources {
 		output, err := kubectl.RunWithOutput("get", resource, "-n", namespace, "-o", "yaml")
 		if err != nil {

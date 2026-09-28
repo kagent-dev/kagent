@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	e2emocks "github.com/kagent-dev/kagent/go/core/test/e2e/mocks"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/mockllm"
@@ -21,7 +22,7 @@ func main() {
 	ctx := logging.IntoContext(context.Background(), logger)
 	agentServiceAccount := "system:serviceaccount:kagent:test-sts"
 	stsPort := 8091
-	if port := os.Getenv("STS_PORT"); port != "" {
+	if port := env.STSPort.Get(); port != "" {
 		stsPort, _ = strconv.Atoi(port)
 	}
 	stsServer := e2emocks.NewMockSTSServer(agentServiceAccount, uint16(stsPort))
@@ -40,7 +41,7 @@ func main() {
 		return
 	}
 	mockllmCfg.ListenAddr = ":8090"
-	if port := os.Getenv("LLM_PORT"); port != "" {
+	if port := env.LLMPort.Get(); port != "" {
 		mockllmCfg.ListenAddr = ":" + port
 	}
 	server := mockllm.NewServer(mockllmCfg)

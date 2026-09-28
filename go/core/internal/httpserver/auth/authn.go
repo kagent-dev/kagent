@@ -19,9 +19,9 @@ func (s *SimpleSession) Principal() auth.Principal {
 	return s.P
 }
 
-type UnsecureAuthenticator struct{}
+type InsecureAuthenticator struct{}
 
-func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (auth.Session, error) {
+func (a *InsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (auth.Session, error) {
 	userID := query.Get("user_id")
 	if userID == "" {
 		userID = reqHeaders.Get("X-User-Id")
@@ -45,8 +45,8 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 	}, nil
 }
 
-func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
-	// for unsecure, just forward user id in header
+func (a *InsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
+	// for insecure, just forward user id in header
 	if session == nil || session.Principal().User.ID == "" {
 		return nil
 	}

@@ -98,10 +98,7 @@ cert_dir = Path(__file__).parent / "fixtures" / "certs"
 
 # Create SSL context for test server
 server_ssl = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-server_ssl.load_cert_chain(
-    cert_dir / "server-cert.pem",
-    cert_dir / "server-key.pem"
-)
+server_ssl.load_cert_chain(cert_dir / "server-cert.pem", cert_dir / "server-key.pem")
 
 # Create SSL context for client with custom CA
 client_ssl = ssl.create_default_context(cafile=str(cert_dir / "ca-cert.pem"))

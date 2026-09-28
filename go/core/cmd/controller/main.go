@@ -24,7 +24,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func main() {
@@ -36,10 +39,24 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// No options: core's own controller runs with the default authenticator and
-	// authorizer. A library consumer supplies its own by calling app.Run directly.
-	if err := app.Run(ctx, app.Options{}); err != nil {
+	authenticator, err := controllerAuthenticator(env.AuthMode.Get(), env.AuthUserIDClaim.Get())
+	if err != nil {
+		logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
+		os.Exit(1)
+	}
+	if err := app.Run(ctx, app.Options{Authenticator: authenticator}); err != nil {
 		logger.ErrorContext(ctx, "controller stopped", "error", err)
 		os.Exit(1)
+	}
+}
+
+func controllerAuthenticator(mode, userIDClaim string) (auth.AuthProvider, error) {
+	switch mode {
+	case env.AuthModeInsecure:
+		return &authimpl.InsecureAuthenticator{}, nil
+	case env.AuthModeTrustedProxy:
+		return authimpl.NewProxyAuthenticator(userIDClaim), nil
+	default:
+		return nil, fmt.Errorf("unsupported %s %q: expected %s or %s", env.AuthMode.Name(), mode, env.AuthModeInsecure, env.AuthModeTrustedProxy)
 	}
 }

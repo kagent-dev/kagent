@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
@@ -72,7 +72,7 @@ func startOTLPTraceReceiver(t *testing.T) *otlpTraceReceiver {
 	if suiteTraceReceiver != nil {
 		return suiteTraceReceiver
 	}
-	address := os.Getenv("KAGENT_E2E_OTLP_LISTEN_ADDRESS")
+	address := kagentenv.E2EOTLPListenAddress.Get()
 	if address == "" {
 		address = ":14317"
 	}
@@ -235,9 +235,12 @@ func stringAttribute(attributes []*commonpb.KeyValue, key string) string {
 }
 
 func TestE2ECompletedChatFlushesTraces(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	requireTracingHarnesses(t)
 	receiver := startOTLPTraceReceiver(t)
+	// Clear before starting parallel cases; each assertion filters by trace ID.
+	receiver.clear()
 
 	for _, test := range []struct {
 		name          string
@@ -292,10 +295,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// One receiver serves both cases. Clear retained spans for readability;
-			// the injected trace ID remains the authoritative correlation key because
-			// unrelated controller exports can reach the same listener concurrently.
-			receiver.clear()
+			t.Parallel()
 			model := test.createModel(t, test.modelURL(t))
 			template := createTracingTemplate(t, test.harness, test.templateLabel, model.Name)
 			fixture := newInteractionFixtureForHarnessTemplate(t, target, test.harness, template)
@@ -313,7 +313,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			// missing an attribute fails the test rather than going unseen. The
 			// compiler owns this identity, so the assertion holds without any
 			// user-supplied resource marker on the Harness.
-			agentName := template + "-" + test.harness
+			agentName := template
 			spans := receiver.selectSpans(traceID, "", "", "", map[string]string{tracing.AttributeOperationName: tracing.OperationInvokeAgent})
 			if len(spans) != 1 {
 				t.Fatalf("invoke_agent spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
@@ -392,7 +392,7 @@ func requireTracingHarnesses(t *testing.T) {
 		if err := kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: name}, &harness); apierrors.IsNotFound(err) {
 			// A job dedicated to tracing must fail rather than silently skip both
 			// cases when its fixtures are missing.
-			if strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_E2E_REQUIRE_TRACING")), "true") {
+			if strings.EqualFold(strings.TrimSpace(kagentenv.E2ERequireTracing.Get()), "true") {
 				t.Fatalf("tracing Harness %s is not installed", name)
 			}
 			t.Skip("dedicated tracing Harnesses are not installed")
@@ -446,6 +446,7 @@ type tracedTurn struct {
 func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) tracedTurn {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
 		t.Fatalf("start streaming traced A2A message: %v", err)
@@ -489,7 +490,7 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 	t.Helper()
-	actorID := substrate.ActorName(fixture.instanceID)
+	actorID := substrate.ActorName(fixture.sessionID)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 30*time.Second)
 	defer cancel()
 	err := wait.PollUntilContextTimeout(ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {

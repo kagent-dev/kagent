@@ -40,7 +40,7 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:              listener,
-		Authenticator:         &authimpl.UnsecureAuthenticator{},
+		Authenticator:         &authimpl.InsecureAuthenticator{},
 		SystemService:         testSystemService(),
 		PromptTemplateService: service,
 	})

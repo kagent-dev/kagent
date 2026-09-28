@@ -416,7 +416,7 @@ async def execute_command(
 
     # If a separate venv for shell commands is specified, use its python and pip
     # Otherwise the system python/pip will be used for backward compatibility
-    bash_venv_path = os.environ.get("BASH_VENV_PATH")
+    bash_venv_path = os.environ.get("KAGENT_BASH_VENV_PATH")
     if bash_venv_path:
         bash_venv_bin = os.path.join(bash_venv_path, "bin")
         # Prepend bash venv to PATH so its python and pip are used

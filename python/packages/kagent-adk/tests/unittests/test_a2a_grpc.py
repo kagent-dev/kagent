@@ -9,7 +9,7 @@ import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
 
 
-def make_app(address: str = "127.0.0.1:0"):
+def make_app(address: str | None = "127.0.0.1:0"):
     card = ParseDict(
         {
             "name": "test-app",
@@ -29,12 +29,25 @@ def make_app(address: str = "127.0.0.1:0"):
         kagent_api_url="http://unused",
         app_name="test-app",
         a2a_grpc_address=address,
-    ).build(local=True)
+    )
+
+
+@pytest.mark.parametrize("port,expected", [(None, "[::]:80"), ("", "[::]:80"), ("9090", "[::]:9090")])
+def test_grpc_address_from_shared_port(monkeypatch, port, expected):
+    monkeypatch.delenv("KAGENT_PORT", raising=False)
+    if port is not None:
+        monkeypatch.setenv("KAGENT_PORT", port)
+    assert make_app(address=None).a2a_grpc_address == expected
 
 
 @pytest.mark.asyncio
-async def test_grpc_health():
-    app = make_app()
+@pytest.mark.parametrize("address", ["127.0.0.1:0", None])
+async def test_grpc_health(monkeypatch, address):
+    # An explicit address takes precedence; otherwise the shared port selects
+    # an ephemeral listener. The removed variable must have no effect.
+    monkeypatch.setenv("KAGENT_PORT", "invalid" if address else "0")
+    monkeypatch.setenv("KAGENT_A2A_GRPC_ADDRESS", "invalid")
+    app = make_app(address).build(local=True)
 
     async with app.router.lifespan_context(app):
         async with grpc.aio.insecure_channel(f"127.0.0.1:{app.state.a2a_grpc_port}") as channel:
@@ -61,7 +74,7 @@ async def test_grpc_dispatch_uses_jsonrpc_handler(monkeypatch):
 
     monkeypatch.setattr(_a2a, "create_jsonrpc_routes", capture_jsonrpc_handler)
     monkeypatch.setattr(_a2a, "GrpcHandler", capture_grpc_handler)
-    app = make_app()
+    app = make_app().build(local=True)
 
     async with app.router.lifespan_context(app):
         async with grpc.aio.insecure_channel(f"127.0.0.1:{app.state.a2a_grpc_port}") as channel:

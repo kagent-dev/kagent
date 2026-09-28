@@ -12,8 +12,9 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc"
@@ -24,15 +25,16 @@ import (
 )
 
 var forwardedMetadataKeys = map[string]string{
-	"authorization": "Authorization",
-	"x-user-id":     "X-User-Id",
-	"x-agent-name":  "X-Agent-Name",
-	"x-share-token": "X-Share-Token",
+	apia2a.InsecureRuntimeIdentityHeader: apia2a.InsecureRuntimeIdentityHeader,
+	"authorization":                      "Authorization",
+	"x-user-id":                          "X-User-Id",
+	"x-agent-name":                       "X-Agent-Name",
+	"x-share-token":                      "X-Share-Token",
 }
 
-func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
+func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, shareStore, policies)
+		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
 		if err != nil {
 			return nil, err
 		}
@@ -40,9 +42,9 @@ func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore 
 	}
 }
 
-func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
+func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, shareStore, policies)
+		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
 		if err != nil {
 			return err
 		}
@@ -50,13 +52,16 @@ func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore
 	}
 }
 
-func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore agentinstance.ShareStore, policies MethodPolicies) (context.Context, error) {
+func authenticate(ctx context.Context, fullMethod string, authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) (context.Context, error) {
 	access, ok := policies[fullMethod]
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
 	}
 	if access == auth.AccessPublic {
 		return ctx, nil
+	}
+	if access == auth.AccessRuntime {
+		authenticator = runtimeAuthenticator
 	}
 	if authenticator == nil {
 		return ctx, status.Error(codes.Unauthenticated, "authentication is not configured")
@@ -69,15 +74,21 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	}
 
 	authenticatedContext := auth.AuthSessionTo(ctx, session)
-	share, err := agentinstance.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
+	if access == auth.AccessRuntime {
+		if headers.Get("X-Share-Token") != "" {
+			return ctx, status.Error(codes.PermissionDenied, "share credentials cannot access runtime storage")
+		}
+		return authenticatedContext, nil
+	}
+	share, err := sessionsvc.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
 	if err != nil {
 		return ctx, mapError(err)
 	}
 	if share == nil {
 		return authenticatedContext, nil
 	}
-	// A2A owns share authorization in its transport-independent gateway. Other
-	// services still rely on the per-RPC policy for read-only share restrictions.
+	// A2A delegates Session share authorization to the Session service. Retain
+	// the coarse read-only gate for other RPCs, including non-Session services.
 	a2aMethod := strings.HasPrefix(fullMethod, "/"+a2apb.A2AService_ServiceDesc.ServiceName+"/")
 	if !a2aMethod && share.ReadOnly && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
@@ -159,9 +170,6 @@ func mapError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := status.FromError(err); ok {
-		return err
-	}
 	if errors.Is(err, context.Canceled) {
 		return status.Error(codes.Canceled, "request canceled")
 	}
@@ -173,6 +181,9 @@ func mapError(err error) error {
 			return status.Error(codes.Internal, "internal server error")
 		}
 		return status.Error(serviceErrorCode(code), serviceerrors.MessageOf(err))
+	}
+	if _, ok := status.FromError(err); ok {
+		return err
 	}
 	return status.Error(codes.Internal, "internal server error")
 }
