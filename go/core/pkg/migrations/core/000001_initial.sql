@@ -145,6 +145,7 @@ CREATE TABLE session (
     pinned_checkpoint_id UUID        REFERENCES session_checkpoint(id) ON DELETE RESTRICT,
     -- Immutable identity of the actor created for this session.
     actor_uid            TEXT CHECK (actor_uid IS NULL OR actor_uid <> ''),
+    deletion_reason      TEXT CHECK (deletion_reason IN ('user_requested', 'idle_timeout')),
     -- Fences gateway dispatch until its first active task save. Expiry only
     -- revokes unaccepted work; it never transfers native execution ownership.
     dispatch_id          UUID,

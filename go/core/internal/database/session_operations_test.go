@@ -61,6 +61,7 @@ func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 	require.NoError(t, err)
 	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, deletion.Instance.State)
 	deleter := uuid.New()
 	claimed, err = client.ClaimSessionOperation(t.Context(), session.Id, deletion.ID, deleter)
 	require.NoError(t, err)

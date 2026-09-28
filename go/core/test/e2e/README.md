@@ -25,6 +25,18 @@ its default naming; the test requires that registration and leaves it intact.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
+
+`TestSessionIdleExpiration` runs its harness cases in parallel so they share the
+idle period and expiration sweep. Its parent stays sequential to isolate the
+controller rollouts from the rest of the suite. It temporarily sets
+`KAGENT_SESSION_IDLE_TTL=30s` and `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=5s` on the
+controller Deployment and restores its environment afterward, rolling the
+controller both times and waiting for a
+fresh API connection after each rollout. Use a disposable test cluster and a
+stable API endpoint for this case. It verifies completed-turn
+expiration, Actor removal, NotFound, and a fresh conversation from the same
+caller/request ID. PostgreSQL-backed service tests cover active/waiting turns,
+dispatch and quiescence races, retry recovery, and retained checkpoint history.
 Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
@@ -80,8 +92,9 @@ and `KAGENT_E2E_API_URL` set. The existing CI E2E command runs the whole matrix
 without an additional flag. Both runners allow 30 minutes and finish the matrix
 after a failure so all harness results are visible. `-parallel` still bounds
 concurrent test scenarios. Most harness subtests run sequentially; the cron,
-scheduled timeout, and runtime revision lifecycle cases run their harnesses in
-parallel to overlap cron ticks, deadlines, and periodic garbage collection.
+scheduled timeout, session expiration, and runtime revision lifecycle cases run
+their harnesses in parallel to overlap cron ticks, deadlines, and periodic garbage
+collection.
 Controller restart cases stay sequential with respect to the rest of the suite.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate

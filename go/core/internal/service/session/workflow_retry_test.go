@@ -271,6 +271,48 @@ func TestLifecycleReadFailureCanRetryPreparation(t *testing.T) {
 	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.State)
 }
 
+func TestDeletePreparationFailureKeepsAdmissionClosed(t *testing.T) {
+	for _, state := range []apiv1alpha1.RuntimeState{
+		apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING,
+		apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED,
+	} {
+		t.Run(state.String(), func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			workflow := NewActorWorkflow(store, base)
+			var err error
+			if state != apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING {
+				session, err = workflow.Create(t.Context(), session)
+				require.NoError(t, err)
+			}
+			if state == apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED {
+				session, err = workflow.Suspend(t.Context(), session)
+				require.NoError(t, err)
+			}
+			actors := &retryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Unavailable, "lookup unavailable")}
+			_, err = NewActorWorkflow(store, actors).Delete(t.Context(), session)
+			require.Equal(t, codes.Unavailable, status.Code(err))
+			require.Zero(t, actors.mutations.Load())
+			current, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, current.State)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next turn"), database.ErrConflict)
+			_, err = workflow.Resume(t.Context(), session)
+			require.ErrorIs(t, err, database.ErrConflict)
+			worker, err := NewExpirationWorker(store, workflow, time.Hour, time.Minute)
+			require.NoError(t, err)
+			require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Now()), database.ErrConflict,
+				"explicit deletion still requires a client retry")
+			deleted, err := workflow.Delete(t.Context(), session)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
+			require.Empty(t, base.actors)
+		})
+	}
+}
+
 // completionTestStore injects failures at the database/runtime boundary while
 // retaining real PostgreSQL session ownership.
 type completionTestStore struct {
