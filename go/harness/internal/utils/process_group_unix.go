@@ -18,7 +18,7 @@ func RunAs(command *exec.Cmd, uid, gid uint32) {
 	if command.SysProcAttr == nil {
 		command.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	command.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, NoSetGroups: true}
+	command.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
 }
 
 // InterruptProcessGroup interrupts the process group.
