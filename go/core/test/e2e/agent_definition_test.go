@@ -14,7 +14,9 @@ import (
 )
 
 func TestAgentInlineAndReferencedConfiguration(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		for _, inlineTemplate := range []bool{false, true} {
 			for _, inlineHarness := range []bool{false, true} {
 				name := "template-ref"
@@ -26,6 +28,7 @@ func TestAgentInlineAndReferencedConfiguration(t *testing.T) {
 					name = name[:len(name)-3] + "inline"
 				}
 				t.Run(name, func(t *testing.T) {
+					t.Parallel()
 					target := interactionTarget(t)
 					kube := interactionKubeClient(t)
 					agentName := createInteractionTemplate(t, harness, startInteractionMock(t))

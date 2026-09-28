@@ -1380,7 +1380,9 @@ func mockOriginService(t *testing.T, address, port string) string {
 // Exercise first-message creation through the public API, including recovery
 // after a response is lost and the client retries without learning its context.
 func TestAgentA2ACreatesConversation(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		send := func(messageID string) *a2apb.Task {
 			t.Helper()

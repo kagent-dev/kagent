@@ -95,6 +95,9 @@ concurrent test scenarios. Most harness subtests run sequentially; the cron,
 scheduled timeout, session expiration, and runtime revision lifecycle cases run
 their harnesses in parallel to overlap cron ticks, deadlines, and periodic garbage
 collection.
+The inline/referenced configuration matrix runs its harnesses and configuration
+cases in parallel. The A2A conversation-creation test also runs its harnesses in
+parallel. These cases own their resources and only read the installed Harnesses.
 Controller restart cases stay sequential with respect to the rest of the suite.
 The scheduled-run restart test starts all selected harness executions before one
 shared controller restart, then releases their model responses and checks recovery
