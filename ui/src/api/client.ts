@@ -1,3 +1,4 @@
+import type { Agent, AgentResource } from "./domain/agents";
 /**
  * The typed API surface the rest of the app calls.
  *
@@ -123,6 +124,12 @@ export interface SubstrateApi {
 
 /** The two halves an AgentInstance is created from. */
 export interface AgentBuildingBlocksApi {
+ agents(namespace?: string, options?: ReadOptions): Promise<Agent[]>;
+ agent(namespace: string, name: string, options?: ReadOptions): Promise<Agent>;
+ createAgent(input: {namespace: string; name: string; resource: AgentResource}): Promise<Agent>;
+ updateAgent(input: {namespace: string; name: string; resource: AgentResource}): Promise<Agent>;
+ removeAgent(namespace: string, name: string): Promise<void>;
+
   /**
    * Every `Harness` — the runtime half — in one namespace, or in all of them.
    *
@@ -141,7 +148,7 @@ export interface AgentBuildingBlocksApi {
     name: string;
     resource: HarnessResource;
   }): Promise<Harness>;
-  /** Deletes a harness. Templates admitted only by it then run nowhere. */
+
   removeHarness(namespace: string, name: string): Promise<void>;
   /** Every `AgentTemplate` — the behaviour half — in one namespace, or in all of them. */
   agentTemplates(namespace?: string, options?: ReadOptions): Promise<AgentTemplate[]>;
@@ -180,8 +187,7 @@ export interface AgentInstancesApi {
   list(
     options?: ReadOptions & {
       allCreators?: boolean;
-      agentTemplate?: ResourceRefInput;
-      harness?: ResourceRefInput;
+      agent?: ResourceRefInput;
     },
   ): Promise<AgentInstance[]>;
   get(id: string, options?: ReadOptions): Promise<AgentInstance>;
@@ -200,8 +206,7 @@ export interface AgentInstancesApi {
   resume(id: string): Promise<AgentInstance>;
 
   create(input: {
-    harness: ResourceRefInput;
-    agentTemplate: ResourceRefInput;
+    agent: ResourceRefInput;
     /**
      * The controller's idempotency key. Required — blank is `InvalidArgument`.
      *
@@ -333,6 +338,11 @@ export function createApiClient(): KagentApiClient {
     },
 
     agentBuildingBlocks: {
+      agents: (namespace, options) => invoke("agents.list", {namespace}, options).then(sortedByRef),
+      agent: (namespace, name, options) => invoke("agents.get", {namespace, name}, options),
+      createAgent: input => invoke("agents.create", input),
+      updateAgent: input => invoke("agents.update", input),
+      removeAgent: (namespace, name) => invoke("agents.delete", {namespace, name}),
       harnesses: (namespace, options) =>
         invoke("harnesses.list", { namespace }, options).then(sortedByRef),
       createHarness: (input) => invoke("harnesses.create", input),
@@ -354,8 +364,7 @@ export function createApiClient(): KagentApiClient {
           "agentInstances.list",
           {
             allCreators: options?.allCreators,
-            agentTemplate: options?.agentTemplate,
-            harness: options?.harness,
+            agent: options?.agent,
           },
           options,
         ).then((rows) => rows.sort((a, b) => a.id.localeCompare(b.id))),

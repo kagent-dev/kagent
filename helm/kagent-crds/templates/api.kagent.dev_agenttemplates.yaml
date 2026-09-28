@@ -1,0 +1,437 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: agenttemplates.api.kagent.dev
+spec:
+  group: api.kagent.dev
+  names:
+    categories:
+    - kagent
+    kind: AgentTemplate
+    listKind: AgentTemplateList
+    plural: agenttemplates
+    singular: agenttemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha3
+    schema:
+      openAPIV3Schema:
+        description: AgentTemplate defines portable agent behavior.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AgentTemplateSpec defines portable agent behavior.
+            properties:
+              description:
+                type: string
+              modelConfig:
+                description: ModelConfig is required by managed harnesses and optional
+                  for BYO harnesses.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: name must not be empty
+                  rule: has(self.name) && self.name != ''
+              outputSchema:
+                description: |-
+                  OutputSchema constrains successful terminal output when this template is
+                  compiled as the root agent.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              outputSchemaFrom:
+                description: |-
+                  OutputSchemaFrom references a JSON Schema stored as JSON in a
+                  same-namespace ConfigMap key.
+                properties:
+                  key:
+                    minLength: 1
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - key
+                - name
+                type: object
+              plugins:
+                items:
+                  description: PluginBundle selects Agent Skills from one immutable
+                    Agent Plugins package.
+                  properties:
+                    skills:
+                      description: An empty selection enables nothing.
+                      items:
+                        minLength: 1
+                        type: string
+                      maxItems: 50
+                      type: array
+                      x-kubernetes-list-type: set
+                    source:
+                      description: ArtifactSource selects exactly one immutable artifact.
+                      properties:
+                        bucket:
+                          description: BucketArtifact selects the supported object-store
+                            provider.
+                          properties:
+                            s3:
+                              description: S3Object identifies one immutable S3 object
+                                version.
+                              properties:
+                                bucket:
+                                  minLength: 1
+                                  type: string
+                                endpoint:
+                                  description: Endpoint is the HTTP(S) endpoint of
+                                    an AWS or S3-compatible service.
+                                  pattern: ^https?://[^[:space:]]+$
+                                  type: string
+                                key:
+                                  minLength: 1
+                                  type: string
+                                region:
+                                  description: Region is used for request signing
+                                    when required by the service.
+                                  type: string
+                                versionId:
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - bucket
+                              - endpoint
+                              - key
+                              - versionId
+                              type: object
+                          required:
+                          - s3
+                          type: object
+                        git:
+                          description: GitArtifact identifies immutable content at
+                            a full Git commit ID.
+                          properties:
+                            commit:
+                              pattern: ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
+                              type: string
+                            url:
+                              minLength: 1
+                              pattern: ^https?://[^[:space:]]+$
+                              type: string
+                          required:
+                          - commit
+                          - url
+                          type: object
+                        oci:
+                          description: OCI is a digest-pinned image reference.
+                          pattern: ^[^[:space:]@]+@sha256:[0-9a-f]{64}$
+                          type: string
+                        path:
+                          description: Path selects a directory within the immutable
+                            artifact.
+                          maxLength: 1024
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of oci, git or bucket must be specified
+                        rule: '(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) +
+                          (has(self.bucket) ? 1 : 0) == 1'
+                      - message: path must be relative and must not contain '..' segments
+                        rule: '!has(self.path) || (!self.path.startsWith(''/'') &&
+                          !self.path.split(''/'').exists(p, p == ''..''))'
+                  required:
+                  - source
+                  type: object
+                maxItems: 20
+                type: array
+              promptTemplate:
+                description: AgentTemplatePromptTemplateSpec enables Go template rendering
+                  and ConfigMap includes.
+                properties:
+                  dataSources:
+                    description: DataSources are same-namespace ConfigMaps available
+                      to include("source/key").
+                    items:
+                      description: AgentTemplatePromptSource makes a same-namespace
+                        ConfigMap available to a prompt template.
+                      properties:
+                        alias:
+                          description: Alias is the name used by include. The ConfigMap
+                            name is used when omitted.
+                          minLength: 1
+                          type: string
+                        name:
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                type: object
+              skills:
+                items:
+                  description: AgentTemplateSkill identifies one standalone skill
+                    and its immutable source.
+                  properties:
+                    name:
+                      minLength: 1
+                      type: string
+                    source:
+                      description: ArtifactSource selects exactly one immutable artifact.
+                      properties:
+                        bucket:
+                          description: BucketArtifact selects the supported object-store
+                            provider.
+                          properties:
+                            s3:
+                              description: S3Object identifies one immutable S3 object
+                                version.
+                              properties:
+                                bucket:
+                                  minLength: 1
+                                  type: string
+                                endpoint:
+                                  description: Endpoint is the HTTP(S) endpoint of
+                                    an AWS or S3-compatible service.
+                                  pattern: ^https?://[^[:space:]]+$
+                                  type: string
+                                key:
+                                  minLength: 1
+                                  type: string
+                                region:
+                                  description: Region is used for request signing
+                                    when required by the service.
+                                  type: string
+                                versionId:
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - bucket
+                              - endpoint
+                              - key
+                              - versionId
+                              type: object
+                          required:
+                          - s3
+                          type: object
+                        git:
+                          description: GitArtifact identifies immutable content at
+                            a full Git commit ID.
+                          properties:
+                            commit:
+                              pattern: ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
+                              type: string
+                            url:
+                              minLength: 1
+                              pattern: ^https?://[^[:space:]]+$
+                              type: string
+                          required:
+                          - commit
+                          - url
+                          type: object
+                        oci:
+                          description: OCI is a digest-pinned image reference.
+                          pattern: ^[^[:space:]@]+@sha256:[0-9a-f]{64}$
+                          type: string
+                        path:
+                          description: Path selects a directory within the immutable
+                            artifact.
+                          maxLength: 1024
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of oci, git or bucket must be specified
+                        rule: '(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) +
+                          (has(self.bucket) ? 1 : 0) == 1'
+                      - message: path must be relative and must not contain '..' segments
+                        rule: '!has(self.path) || (!self.path.startsWith(''/'') &&
+                          !self.path.split(''/'').exists(p, p == ''..''))'
+                  required:
+                  - name
+                  - source
+                  type: object
+                maxItems: 50
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              systemPrompt:
+                type: string
+              systemPromptFrom:
+                description: SystemPromptFrom references prompt text in a same-namespace
+                  ConfigMap.
+                properties:
+                  key:
+                    minLength: 1
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - key
+                - name
+                type: object
+              tools:
+                items:
+                  description: ToolBinding selects exactly one MCP or subagent tool
+                    source.
+                  properties:
+                    mcp:
+                      description: MCPToolBinding binds tools from a same-namespace
+                        MCP server.
+                      properties:
+                        requireApproval:
+                          description: |-
+                            RequireApproval pauses before each invocation of a tool exposed by this
+                            binding. It applies to the selected tools, or to every server tool when
+                            Tools is omitted or empty.
+                          type: boolean
+                        server:
+                          description: |-
+                            TypedLocalObjectReference contains enough information to let you locate the
+                            typed referenced object inside the same namespace.
+                          properties:
+                            apiGroup:
+                              description: |-
+                                APIGroup is the group for the resource being referenced.
+                                If APIGroup is not specified, the specified Kind must be in the core API group.
+                                For any other third-party types, APIGroup is required.
+                              type: string
+                            kind:
+                              description: Kind is the type of resource being referenced
+                              type: string
+                            name:
+                              description: Name is the name of resource being referenced
+                              type: string
+                          required:
+                          - kind
+                          - name
+                          type: object
+                          x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: kind must be RemoteMCPServer
+                            rule: self.kind == 'RemoteMCPServer'
+                          - message: apiGroup must be omitted
+                            rule: '!has(self.apiGroup)'
+                        tools:
+                          description: |-
+                            Tools optionally limits which server tools are exposed. An omitted or empty
+                            list exposes every tool. Harnesses that cannot enforce a partial selection
+                            may expose the whole server and report a warning.
+                          items:
+                            minLength: 1
+                            type: string
+                          maxItems: 50
+                          type: array
+                          x-kubernetes-list-type: set
+                      required:
+                      - server
+                      type: object
+                    subAgent:
+                      description: SubAgentToolBinding exposes a same-namespace AgentTemplate
+                        or Agent as a logical tool.
+                      properties:
+                        agentRef:
+                          description: |-
+                            AgentRef selects a Dedicated subagent with its own Harness and Session, invoked over A2A.
+                            Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
+                          properties:
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                          type: object
+                          x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: agentRef.name must not be empty
+                            rule: has(self.name) && self.name != ''
+                        description:
+                          description: Description tells the parent when to route
+                            work to this binding.
+                          minLength: 1
+                          type: string
+                        name:
+                          minLength: 1
+                          type: string
+                        templateRef:
+                          description: TemplateRef selects a Shared subagent compiled
+                            into the parent's runtime using its Harness.
+                          properties:
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                          type: object
+                          x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: templateRef.name must not be empty
+                            rule: has(self.name) && self.name != ''
+                      required:
+                      - description
+                      - name
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of templateRef or agentRef must be specified
+                        rule: has(self.templateRef) != has(self.agentRef)
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of mcp or subAgent must be specified
+                    rule: has(self.mcp) != has(self.subAgent)
+                maxItems: 50
+                type: array
+            type: object
+            x-kubernetes-validations:
+            - message: systemPrompt and systemPromptFrom are mutually exclusive
+              rule: '!(has(self.systemPrompt) && has(self.systemPromptFrom))'
+            - message: outputSchema and outputSchemaFrom are mutually exclusive
+              rule: '!(has(self.outputSchema) && has(self.outputSchemaFrom))'
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

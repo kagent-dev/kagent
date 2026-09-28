@@ -90,7 +90,8 @@ function ThemedApp() {
               value={{ revalidateOnFocus: false, shouldRetryOnError: false }}
             >
               <AppRouter />
-              <Toaster position="bottom-right" />
+              {/* Top centre, over the header's empty middle: bottom-right covered the chat's Send button. */}
+              <Toaster position="top-center" />
             </SWRConfig>
           </ExtensionProviders>
         </ThemeProvider>

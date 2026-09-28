@@ -78,15 +78,15 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	// If model provider is openai, check if the API key is set
-	apiKeyName := GetProviderAPIKey(modelProvider)
-	apiKeyValue := os.Getenv(apiKeyName)
-
-	if apiKeyName != "" && apiKeyValue == "" {
-		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
-		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
-		fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
-		return nil
+	apiKeyValue := ""
+	if apiKey, ok := providerAPIKey(modelProvider); ok {
+		apiKeyValue = apiKey.Get()
+		if apiKeyValue == "" {
+			fmt.Fprintf(os.Stderr, "%s is not set\n", apiKey.Name())
+			fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKey.Name())
+			fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
+			return nil
+		}
 	}
 
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
@@ -125,9 +125,12 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 	}
 
 	// allow user to set the helm registry and version
-	helmRegistry := GetEnvVarWithDefault(env.KagentHelmRepo.Name(), DefaultHelmOciRegistry)
-	helmVersion := GetEnvVarWithDefault(env.KagentHelmVersion.Name(), version.Version)
-	helmExtraArgs := GetEnvVarWithDefault(env.KagentHelmExtraArgs.Name(), "")
+	helmRegistry := env.KagentHelmRepo.Get()
+	helmVersion, versionSet := env.KagentHelmVersion.Lookup()
+	if !versionSet {
+		helmVersion = version.Version
+	}
+	helmExtraArgs := env.KagentHelmExtraArgs.Get()
 
 	// split helmExtraArgs by "--set" to get additional values
 	extraValues := strings.Split(helmExtraArgs, "--set")
@@ -204,14 +207,19 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 // deleteCRDs manually deletes Kubernetes CRDs for kagent
 // This is a workaround for the fact that helm doesn't delete CRDs automatically
 func deleteCRDs(ctx context.Context) error {
-	crds := []string{
-		"modelconfigs.kagent.dev",
-		"sandboxagents.kagent.dev",
+	resources := []string{
+		"agents",
+		"agenttemplates",
+		"harnesses",
+		"modelconfigs",
+		"modelproviderconfigs",
+		"remotemcpservers",
 	}
 
 	var deleteErrors []string
 
-	for _, crd := range crds {
+	for _, resource := range resources {
+		crd := v1alpha3.GroupVersion.WithResource(resource).GroupResource().String()
 		deleteCmd := exec.CommandContext(ctx, "kubectl", "delete", "crd", crd)
 		if out, err := deleteCmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(out), "not found") {

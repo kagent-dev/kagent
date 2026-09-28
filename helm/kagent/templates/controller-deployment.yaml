@@ -141,15 +141,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- /* Kubelet expands pod identity here; envFrom values are not expanded. */}}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
-            - name: AUTH_MODE
-              value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
-            {{- if .Values.controller.auth.userIdClaim }}
-            - name: AUTH_USER_ID_CLAIM
-              value: {{ .Values.controller.auth.userIdClaim | quote }}
-            {{- end }}
-            - name: POSTGRES_DATABASE_URL
+            - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ printf "@file:%s/%s" $databaseSecretMountPath $databaseSecretFileName | quote }}
             - name: KAGENT_DATABASE_BOOTSTRAP
               value: {{ $bootstrapEnabled | quote }}
@@ -159,42 +154,8 @@ spec:
             - name: POSTGRES_ADMIN_PASSWORD_FILE
               value: /var/run/secrets/kagent/postgres-admin/password
             {{- end }}
-            {{- if include "kagent.controller.metricsEnabled" . }}
-            - name: METRICS_BIND_ADDRESS
-              value: {{ .Values.controller.metrics.bindAddress | quote }}
-            - name: METRICS_SECURE
-              value: {{ .Values.controller.metrics.secureServing | quote }}
-            {{- end }}
-            - name: GRPC_MAX_MESSAGE_BYTES
-              value: {{ printf "%.0f" (.Values.controller.grpc.maxMessageBytes | float64) | quote }}
-            - name: GRPC_REFLECTION
-              value: {{ .Values.controller.grpc.reflection | quote }}
-            {{- with .Values.controller.grpc.tlsCertFile }}
-            - name: GRPC_TLS_CERT_FILE
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.grpc.tlsKeyFile }}
-            - name: GRPC_TLS_KEY_FILE
-              value: {{ . | quote }}
-            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
-            {{- end }}
-            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
-            - name: SUBSTRATE_ATE_API_ENDPOINT
-              value: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
-            - name: SUBSTRATE_ATE_API_CA_FILE
-              value: /run/substrate-servicedns/trust-bundle.pem
-            - name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
-              value: /run/substrate-podidentity/credential-bundle.pem
-            {{- with include "kagent.substrate.atenetRouterURL" . }}
-            - name: SUBSTRATE_ATENET_ROUTER_URL
-              value: {{ . | quote }}
-            {{- end }}
-            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
-              value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
-            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
-              value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
             {{- end }}
           envFrom:
             - configMapRef:

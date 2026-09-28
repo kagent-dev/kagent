@@ -11,7 +11,7 @@ import (
 
 func TestInsecureRuntimeIdentity(t *testing.T) {
 	id := uuid.NewString()
-	valid := "team-a/ai-" + id + "/actor-uid"
+	valid := "team-a/session-" + id + "/actor-uid"
 	for _, test := range []struct {
 		name   string
 		values []string
@@ -20,9 +20,9 @@ func TestInsecureRuntimeIdentity(t *testing.T) {
 		{"valid", []string{valid}, true},
 		{"missing", nil, false},
 		{"duplicate", []string{valid, valid}, false},
-		{"invalid instance", []string{"team-a/ai-invalid/actor-uid"}, false},
-		{"missing namespace", []string{"/ai-" + id + "/actor-uid"}, false},
-		{"missing UID", []string{"team-a/ai-" + id + "/"}, false},
+		{"invalid session", []string{"team-a/session-invalid/actor-uid"}, false},
+		{"missing namespace", []string{"/session-" + id + "/actor-uid"}, false},
+		{"missing UID", []string{"team-a/session-" + id + "/"}, false},
 		{"extra component", []string{valid + "/extra"}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestInsecureRuntimeIdentity(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, runtimeSession{instanceID: id, atespace: "team-a", actorUID: "actor-uid"}, session)
+			require.Equal(t, runtimeSession{sessionID: id, atespace: "team-a", actorUID: "actor-uid"}, session)
 		})
 	}
 }

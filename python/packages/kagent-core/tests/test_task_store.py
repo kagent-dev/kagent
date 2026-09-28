@@ -19,8 +19,8 @@ from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 
 
 class Storage(storerpc.TaskStoreServiceServicer):
-    def __init__(self, instance_id):
-        self.instance_id = instance_id
+    def __init__(self, session_id):
+        self.session_id = session_id
         self.task = None
         self.version = 0
         self.receipts = {}
@@ -37,7 +37,7 @@ class Storage(storerpc.TaskStoreServiceServicer):
         self.dispatch_ids = []
 
     async def CreateTask(self, request, context):
-        assert request.agent_instance_id == self.instance_id
+        assert request.session_id == self.session_id
         version = await self._save(request, 0, context)
         self.creation_committed.set()
         await self.creation_release.wait()
@@ -62,7 +62,7 @@ class Storage(storerpc.TaskStoreServiceServicer):
         if self.reject_saves:
             await context.abort(grpc.StatusCode.UNAVAILABLE, "storage outage")
         assert dict(context.invocation_metadata())["x-kagent-insecure-runtime-identity"] == (
-            f"team-a/ai-{self.instance_id}/actor-uid"
+            f"team-a/session-{self.session_id}/actor-uid"
         )
         payload = request.SerializeToString(deterministic=True)
         if key in self.receipts:
@@ -197,12 +197,12 @@ def send(message_id, task_id=""):
 
 @pytest.fixture
 async def runtime(tmp_path: Path):
-    instance_id = str(uuid4())
+    session_id = str(uuid4())
     identity = tmp_path / "name"
-    identity.write_text("ai-" + instance_id)
+    identity.write_text("session-" + session_id)
     (tmp_path / "atespace").write_text("team-a")
     (tmp_path / "uid").write_text("actor-uid")
-    service = Storage(instance_id)
+    service = Storage(session_id)
     server = grpc.aio.server()
     storerpc.add_TaskStoreServiceServicer_to_server(service, server)
     port = server.add_insecure_port("127.0.0.1:0")
@@ -347,7 +347,7 @@ async def test_dispatch_fence_survives_save_retries(runtime):
     assert set(service.dispatch_ids) == {dispatch_id}
 
 
-async def test_instance_rejects_concurrent_tasks(runtime):
+async def test_session_rejects_concurrent_tasks(runtime):
     service, _, runner, handler = runtime
     stream = handler.on_message_send_stream(send("first"), ServerCallContext())
     async with asyncio.timeout(5):
@@ -357,13 +357,14 @@ async def test_instance_rejects_concurrent_tasks(runtime):
             await handler.on_message_send(send("second"), ServerCallContext())
         assert runner.calls == 1
         runner.release.set()
-    await stream.aclose()
+        async for _ in stream:
+            pass
 
 
 async def test_observer_read_does_not_advance_writer_version(runtime):
     service, store, _, _ = runtime
     writer = ServerCallContext()
-    task = a2a.Task(id="task", context_id=service.instance_id, status=a2a.TaskStatus(state=a2a.TASK_STATE_SUBMITTED))
+    task = a2a.Task(id="task", context_id=service.session_id, status=a2a.TaskStatus(state=a2a.TASK_STATE_SUBMITTED))
     await store.save(task, writer)
     task.status.state = a2a.TASK_STATE_WORKING
     await store.save(task, writer)

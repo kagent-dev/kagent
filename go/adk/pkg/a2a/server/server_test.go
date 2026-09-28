@@ -18,6 +18,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -305,7 +306,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(a2aMaxContentLengthEnvVar, "5")
+			t.Setenv(env.KagentA2AMaxContentLength.Name(), "5")
 			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 			if err != nil {
 				t.Fatalf("NewA2AServer: %v", err)
@@ -328,7 +329,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 }
 
 func TestA2ARequestSizeLimitDisabled(t *testing.T) {
-	t.Setenv(a2aMaxContentLengthEnvVar, "unlimited")
+	t.Setenv(env.KagentA2AMaxContentLength.Name(), "unlimited")
 	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
@@ -378,7 +379,7 @@ func TestGetMaxContentLength(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(a2aMaxContentLengthEnvVar, tt.value)
+			t.Setenv(env.KagentA2AMaxContentLength.Name(), tt.value)
 			got := getMaxContentLength(slog.New(slog.DiscardHandler))
 			if tt.unlimited {
 				if got != nil {

@@ -26,8 +26,10 @@ import (
 	"syscall"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func main() {
@@ -38,7 +40,7 @@ func main() {
 	logger := slog.Default()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	switch os.Getenv("KAGENT_DATABASE_BOOTSTRAP") {
+	switch env.DatabaseBootstrap.Get() {
 	case "", "false":
 	case "true":
 		if err := runDatabaseBootstrap(ctx); err != nil {
@@ -50,35 +52,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	// No options: core's own controller runs with the default authenticator and
-	// authorizer. A library consumer supplies its own by calling app.Run directly.
-	if err := app.Run(ctx, app.Options{}); err != nil {
+	authenticator, err := controllerAuthenticator(env.AuthMode.Get(), env.AuthUserIDClaim.Get())
+	if err != nil {
+		logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
+		os.Exit(1)
+	}
+	if err := app.Run(ctx, app.Options{Authenticator: authenticator}); err != nil {
 		logger.ErrorContext(ctx, "controller stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
 func runDatabaseBootstrap(ctx context.Context) error {
-	adminUsername, err := readRequiredFile("POSTGRES_ADMIN_USERNAME_FILE")
+	adminUsername, err := readRequiredFile(env.PostgresAdminUsernameFile)
 	if err != nil {
 		return err
 	}
-	adminPassword, err := readRequiredFile("POSTGRES_ADMIN_PASSWORD_FILE")
+	adminPassword, err := readRequiredFile(env.PostgresAdminPasswordFile)
 	if err != nil {
 		return err
 	}
 	return database.Bootstrap(ctx, database.BootstrapConfig{
-		EndpointSource: os.Getenv("POSTGRES_DATABASE_URL"),
+		EndpointSource: env.PostgresDatabaseURL.Get(),
 		AdminUsername:  adminUsername,
 		AdminPassword:  adminPassword,
-		Schema:         kagentenv.DatabaseSchema.Get(),
-		VectorEnabled:  kagentenv.DatabaseVectorEnabled.Get(),
-		VectorSchema:   kagentenv.DatabaseVectorSchema.Get(),
+		Schema:         env.DatabaseSchema.Get(),
+		VectorEnabled:  env.DatabaseVectorEnabled.Get(),
+		VectorSchema:   env.DatabaseVectorSchema.Get(),
 	})
 }
 
-func readRequiredFile(envName string) (string, error) {
-	path := os.Getenv(envName)
+func readRequiredFile(variable env.StringVar) (string, error) {
+	envName := variable.Name()
+	path := variable.Get()
 	if path == "" {
 		return "", fmt.Errorf("%s must name a credential file", envName)
 	}
@@ -90,4 +96,15 @@ func readRequiredFile(envName string) (string, error) {
 		return value, nil
 	}
 	return "", fmt.Errorf("%s credential file is empty", envName)
+}
+
+func controllerAuthenticator(mode, userIDClaim string) (auth.AuthProvider, error) {
+	switch mode {
+	case env.AuthModeInsecure:
+		return &authimpl.InsecureAuthenticator{}, nil
+	case env.AuthModeTrustedProxy:
+		return authimpl.NewProxyAuthenticator(userIDClaim), nil
+	default:
+		return nil, fmt.Errorf("unsupported %s %q: expected %s or %s", env.AuthMode.Name(), mode, env.AuthModeInsecure, env.AuthModeTrustedProxy)
+	}
 }

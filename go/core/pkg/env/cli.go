@@ -19,7 +19,7 @@ var (
 	KagentHelmVersion = RegisterStringVar(
 		"KAGENT_HELM_VERSION",
 		"",
-		"Helm chart version to deploy.",
+		"Helm chart version to deploy. When unset, the CLI uses its own version.",
 		ComponentCLI,
 	)
 

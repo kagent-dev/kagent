@@ -314,41 +314,6 @@ thousands of conversations — the search and the sort must go server-side in th
 change. The fields to add are the four in the table above, and there is no longer an RPC
 in this repository carrying them to copy from.
 
-## An agent's page is derived, because a pair is not an object
-
-`/agents/:namespace/:agentTemplate/on/:harness` reads a template and filters
-conversations; there is no `GetAgentPair` because there is no pair *service*. A pair is
-derived — the controller materialises it from admission and retires it when the labels
-stop matching — so nothing creates one and nothing could name one.
-
-Two consequences are visible on screen and are deliberate. An agent cannot be renamed,
-so two agents cut from one template share a name and are told apart by the harness
-column. And an agent's page cannot show a revision history, a creation time, or who made
-it: `agent_template_harness_pair` holds all three and no RPC exposes the table. Adding
-one is the change that would unblock both, and it is a larger decision than this
-surface.
-
-## A new template labelled for the only harness
-
-**What is not covered:** that a new agent template arrives already labelled for the
-harness that will run it, when the cluster has exactly one.
-
-**Why:** the fixtures carry more than one harness on purpose — one of them exists
-specifically so a template can be admitted by *two*, which is what makes an agent list
-show two rows for one template. A single-harness cluster is therefore not a state these
-fixtures can be in, and the default correctly does nothing against them.
-
-The opposite half *is* covered: with several harnesses nothing is chosen for the reader,
-and a template no harness admits says so ("creating one, and being told when nothing
-will run it").
-
-**How it was checked instead:** against the live cluster, which has one harness
-(`kagent`) — the same shape the default exists for.
-
-**What would close it:** a fixture scenario with a single harness. Worth doing when
-something else needs one; a scenario knob added for one assertion is a second fixture
-backend to keep honest.
-
 ## A broken create takes that resource's failure states with it
 
 Each resource spec runs its empty, failure and retry states after the lifecycle, and a

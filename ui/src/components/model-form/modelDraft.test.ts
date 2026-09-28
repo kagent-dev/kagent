@@ -126,11 +126,6 @@ describe("buildModelPayload — authentication modes", () => {
   });
 
   it("Ollama defaults the Secret key when only the Secret is named", () => {
-    // The chart's OLLAMA_API_KEY already lives in a Secret, so naming only the
-    // Secret is the intended workflow. The key has to be filled in rather than
-    // omitted: the CRD requires apiKeySecretKey whenever apiKeySecret is set
-    // (Bedrock and SAPAICore are the only exemptions), so the previous payload
-    // here was rejected at admission.
     const req = buildModelPayload(
       draft({
         provider: "Ollama",

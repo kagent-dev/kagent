@@ -91,16 +91,16 @@ The `requests` channel carries a new pending request from the MCP handler to the
 process driver. The per-request `decision chan runtime.ApprovalDecision` carries
 the response in the other direction. The channel is not durable storage: the
 full Actor memory snapshot preserves the live Claude process, blocked handler,
-and channel together until the same task resumes. If we want to switch to DATA 
-snapshot in the future, we will need to switch to using deferred tool call with 
+and channel together until the same task resumes. If we want to switch to DATA
+snapshot in the future, we will need to switch to using deferred tool call with
 hooks instead.
 
 See [defer a tool call for later](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later).
 
-The `permission-prompt-tool` might not work if you modify the permission rules, 
-permission mode, hooks (like `PreToolUse / PermissionRequest`) since they resolve 
-the tool calls first before Claude's permission system invoke the `permission-prompt-tool`. 
-If this tool does not respond (e.g. error or timeout or failed connection), 
+The `permission-prompt-tool` might not work if you modify the permission rules,
+permission mode, hooks (like `PreToolUse / PermissionRequest`) since they resolve
+the tool calls first before Claude's permission system invoke the `permission-prompt-tool`.
+If this tool does not respond (e.g. error or timeout or failed connection),
 the unresolved requests are denied, not approved.
 
 ## Planned / not yet supported
@@ -108,55 +108,48 @@ the unresolved requests are denied, not approved.
 - [ ] Ask User tool (removed upstream, see https://github.com/anthropics/claude-code/issues/77994, would require Agents SDK)
 - [ ] Checkpoint and fork continuity for Claude sessions
 - [ ] Enforced selection of individual tools from an MCP server
-- [ ] Dedicated subagents running in separate AgentInstances
+- [ ] Dedicated subagents running in separate Sessions
 - [ ] Skills, MCP tools, and nested subagents on local subagents
 - [ ] Configuring Claude Code permission mode and trust boundary in Harness CRD
 
 ## Example usage
 
+One `Agent` holds both the template and Harness inline. The referenced ModelConfig
+and RemoteMCPServer must already exist in `kagent`. Replace `${KAGENT_CLAUDE_IMAGE}`
+with the full harness image reference, including its `@sha256:` digest.
+
 ```yaml
-apiVersion: kagent.dev/v1alpha3
-kind: Harness
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
 metadata:
-  name: claude-e2e
-  namespace: kagent
-spec:
-  claude: {}
-  workload:
-    image: ${KAGENT_CLAUDE_IMAGE}
-  substrate:
-    workerPoolRef:
-      name: kagent-default
-    snapshotPolicy:
-      location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: claude
----
-apiVersion: kagent.dev/v1alpha3
-kind: AgentTemplate
-metadata:
-  labels:
-    kagent.dev/e2e-runtime: claude
   name: kagent-claude
   namespace: kagent
 spec:
-  description: test
-  modelConfig:
-    name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
-  systemPrompt: |
-      Follow the selected skill and use the configured MCP tool.
-  tools:
-    - mcp:
-        server:
-          kind: RemoteMCPServer
-          name: kagent-tool-server
-  plugins:
-    - source:
-        git:
-          url: https://github.com/agentplugins/agent-plugins-example.git
-          commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
-      skills:
-        - migrate-agent-plugin
+  template:
+    description: test
+    modelConfig:
+      name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
+    systemPrompt: |
+        Follow the selected skill and use the configured MCP tool.
+    tools:
+      - mcp:
+          server:
+            kind: RemoteMCPServer
+            name: kagent-tool-server
+    plugins:
+      - source:
+          git:
+            url: https://github.com/agentplugins/agent-plugins-example.git
+            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
+        skills:
+          - migrate-agent-plugin
+  harness:
+    claude: {}
+    workload:
+      image: ${KAGENT_CLAUDE_IMAGE}
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: gs://ate-snapshots/kagent/
 ```

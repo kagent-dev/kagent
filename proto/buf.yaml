@@ -10,6 +10,7 @@ lint:
   ignore:
     - a2a.proto
     - ateapi.proto
+    - ateenv/v1alpha/guest.proto
 breaking:
   use:
     - FILE

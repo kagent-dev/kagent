@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -19,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -41,37 +41,24 @@ func resolveScope(scope string) string {
 	return scope
 }
 
-// Foundry-specific configuration conventions. These are the environment variables
-// the controller injects for a Foundry ModelConfig plus the default api-version.
-const (
-	FoundryEndpointEnvVar   = "FOUNDRY_ENDPOINT"
-	FoundryDeploymentEnvVar = "FOUNDRY_DEPLOYMENT"
-	FoundryAPIVersionEnvVar = "FOUNDRY_API_VERSION"
-	FoundryAPIKeyEnvVar     = "FOUNDRY_API_KEY"
-)
-
-// FoundryDefaultAPIVersion is the Foundry OpenAI-compatible data-plane API
-// version used when none is configured.
-const FoundryDefaultAPIVersion = "2024-10-21"
-
 // ResolveFoundry applies FOUNDRY_* environment-variable fallbacks and the default
 // api-version. Empty endpoint/deployment are returned as-is so callers can
 // produce context-specific validation errors.
 func ResolveFoundry(endpoint, deployment, apiVersion string) (ep, dep, ver string) {
 	ep = endpoint
 	if ep == "" {
-		ep = os.Getenv(FoundryEndpointEnvVar)
+		ep = env.FoundryEndpoint.Get()
 	}
 	dep = deployment
 	if dep == "" {
-		dep = os.Getenv(FoundryDeploymentEnvVar)
+		dep = env.FoundryDeployment.Get()
 	}
 	ver = apiVersion
 	if ver == "" {
-		ver = os.Getenv(FoundryAPIVersionEnvVar)
+		ver = env.FoundryAPIVersion.Get()
 	}
 	if ver == "" {
-		ver = FoundryDefaultAPIVersion
+		ver = env.FoundryAPIVersion.DefaultValue()
 	}
 	return ep, dep, ver
 }

@@ -1,8 +1,51 @@
 suite: test postgresql
 templates:
+  - postgresql-configmap.yaml
   - postgresql.yaml
   - postgresql-secret.yaml
 tests:
+  - it: loads non-secret database settings from the ConfigMap
+    template: postgresql.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            configMapRef:
+              name: RELEASE-NAME-postgresql
+        documentIndex: 2
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 2
+        documentIndex: 2
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/configmap"]
+          pattern: "^[a-f0-9]{64}$"
+        documentIndex: 2
+      - notExists:
+          path: data.POSTGRES_PASSWORD
+        template: postgresql-configmap.yaml
+
+  - it: keeps database name and storage path in the ConfigMap
+    template: postgresql-configmap.yaml
+    asserts:
+      - equal:
+          path: data.POSTGRES_DB
+          value: kagent
+      - equal:
+          path: data.PGDATA
+          value: /var/lib/postgresql/data/pgdata
+      - notExists:
+          path: data.POSTGRES_USER
+
+  - it: omits the database ConfigMap when bundled postgres is disabled
+    template: postgresql-configmap.yaml
+    set:
+      database.postgres.bundled.enabled: false
+      database.postgres.secretRef.name: external-postgres
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: should render the bundled PostgreSQL resources
     template: postgresql.yaml
     asserts:
@@ -71,11 +114,6 @@ tests:
       - equal:
           path: spec.strategy.type
           value: Recreate
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DB
-            value: kagent
       - equal:
           path: spec.template.spec.containers[0].image
           value: docker.io/library/postgres:18.6-alpine3.23
@@ -342,11 +380,6 @@ tests:
     template: postgresql.yaml
     documentIndex: 2
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PGDATA
-            value: /var/lib/postgresql/data/pgdata
       - equal:
           path: spec.template.spec.containers[0].resources.requests.cpu
           value: 250m

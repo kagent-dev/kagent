@@ -26,8 +26,8 @@ const (
 type StoredTask struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Task  *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
-	// Opaque, increasing within an instance. Reload after restoring a fork; A2A
-	// task IDs are inherited by forks, but storage versions are instance-scoped.
+	// Opaque task storage version, scoped to its session. Reload after restoring
+	// a fork, which receives new public context and task IDs.
 	Version       int64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -78,9 +78,9 @@ func (x *StoredTask) GetVersion() int64 {
 }
 
 type TaskStoreServiceCreateTaskRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Task            *v1.Task               `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Task      *v1.Task               `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
 	// Gateway attempt fence, consumed by the first active save before native work.
 	DispatchId    *string `protobuf:"bytes,3,opt,name=dispatch_id,json=dispatchId,proto3,oneof" json:"dispatch_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -117,9 +117,9 @@ func (*TaskStoreServiceCreateTaskRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_task_store_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *TaskStoreServiceCreateTaskRequest) GetAgentInstanceId() string {
+func (x *TaskStoreServiceCreateTaskRequest) GetSessionId() string {
 	if x != nil {
-		return x.AgentInstanceId
+		return x.SessionId
 	}
 	return ""
 }
@@ -183,11 +183,11 @@ func (x *TaskStoreServiceCreateTaskResponse) GetVersion() int64 {
 }
 
 type TaskStoreServiceGetTaskRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskStoreServiceGetTaskRequest) Reset() {
@@ -220,9 +220,9 @@ func (*TaskStoreServiceGetTaskRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_task_store_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *TaskStoreServiceGetTaskRequest) GetAgentInstanceId() string {
+func (x *TaskStoreServiceGetTaskRequest) GetSessionId() string {
 	if x != nil {
-		return x.AgentInstanceId
+		return x.SessionId
 	}
 	return ""
 }
@@ -280,7 +280,7 @@ func (x *TaskStoreServiceGetTaskResponse) GetStored() *StoredTask {
 
 type TaskStoreServiceUpdateTaskRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	Task            *v1.Task               `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
 	ExpectedVersion int64                  `protobuf:"varint,3,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
 	// Go's SDK supplies the triggering event. Snapshot-only SDKs omit it; the
@@ -321,9 +321,9 @@ func (*TaskStoreServiceUpdateTaskRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_task_store_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *TaskStoreServiceUpdateTaskRequest) GetAgentInstanceId() string {
+func (x *TaskStoreServiceUpdateTaskRequest) GetSessionId() string {
 	if x != nil {
-		return x.AgentInstanceId
+		return x.SessionId
 	}
 	return ""
 }
@@ -403,11 +403,11 @@ func (x *TaskStoreServiceUpdateTaskResponse) GetVersion() int64 {
 }
 
 type TaskStoreServiceListTasksRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Request         *v1.ListTasksRequest   `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Request       *v1.ListTasksRequest   `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskStoreServiceListTasksRequest) Reset() {
@@ -440,9 +440,9 @@ func (*TaskStoreServiceListTasksRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_task_store_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *TaskStoreServiceListTasksRequest) GetAgentInstanceId() string {
+func (x *TaskStoreServiceListTasksRequest) GetSessionId() string {
 	if x != nil {
-		return x.AgentInstanceId
+		return x.SessionId
 	}
 	return ""
 }
@@ -499,12 +499,12 @@ func (x *TaskStoreServiceListTasksResponse) GetResult() *v1.ListTasksResponse {
 }
 
 type TaskStoreServiceSettleTaskRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Version         int64                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Version       int64                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskStoreServiceSettleTaskRequest) Reset() {
@@ -537,9 +537,9 @@ func (*TaskStoreServiceSettleTaskRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_task_store_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *TaskStoreServiceSettleTaskRequest) GetAgentInstanceId() string {
+func (x *TaskStoreServiceSettleTaskRequest) GetSessionId() string {
 	if x != nil {
-		return x.AgentInstanceId
+		return x.SessionId
 	}
 	return ""
 }
@@ -602,23 +602,26 @@ const file_kagent_api_v1alpha1_task_store_proto_rawDesc = "" +
 	"\n" +
 	"StoredTask\x12#\n" +
 	"\x04task\x18\x01 \x01(\v2\x0f.lf.a2a.v1.TaskR\x04task\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\x03R\aversion\"\xbe\x02\n" +
-	"!TaskStoreServiceCreateTaskRequest\x124\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12+\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\"\xb1\x02\n" +
+	"!TaskStoreServiceCreateTaskRequest\x12'\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\x12+\n" +
 	"\x04task\x18\x02 \x01(\v2\x0f.lf.a2a.v1.TaskB\x06\xbaH\x03\xc8\x01\x01R\x04task\x12.\n" +
 	"\vdispatch_id\x18\x03 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01H\x00R\n" +
 	"dispatchId\x88\x01\x01:v\xbaHs\x1aq\n" +
 	"\x1atask_store.create_identity\x12!task and context IDs are required\x1a0this.task.id != '' && this.task.context_id != ''B\x0e\n" +
 	"\f_dispatch_id\">\n" +
 	"\"TaskStoreServiceCreateTaskResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x03R\aversion\"x\n" +
-	"\x1eTaskStoreServiceGetTaskRequest\x124\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12 \n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\"k\n" +
+	"\x1eTaskStoreServiceGetTaskRequest\x12'\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\x12 \n" +
 	"\atask_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06taskId\"Z\n" +
 	"\x1fTaskStoreServiceGetTaskResponse\x127\n" +
-	"\x06stored\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.StoredTaskR\x06stored\"\xa1\x03\n" +
-	"!TaskStoreServiceUpdateTaskRequest\x124\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12+\n" +
+	"\x06stored\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.StoredTaskR\x06stored\"\x94\x03\n" +
+	"!TaskStoreServiceUpdateTaskRequest\x12'\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\x12+\n" +
 	"\x04task\x18\x02 \x01(\v2\x0f.lf.a2a.v1.TaskB\x06\xbaH\x03\xc8\x01\x01R\x04task\x122\n" +
 	"\x10expected_version\x18\x03 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x0fexpectedVersion\x12/\n" +
 	"\x05event\x18\x04 \x01(\v2\x19.lf.a2a.v1.StreamResponseR\x05event\x12.\n" +
@@ -627,14 +630,16 @@ const file_kagent_api_v1alpha1_task_store_proto_rawDesc = "" +
 	"\x18task_store.task_identity\x12!task and context IDs are required\x1a0this.task.id != '' && this.task.context_id != ''B\x0e\n" +
 	"\f_dispatch_id\">\n" +
 	"\"TaskStoreServiceUpdateTaskResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x03R\aversion\"\x97\x01\n" +
-	" TaskStoreServiceListTasksRequest\x124\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12=\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\"\x8a\x01\n" +
+	" TaskStoreServiceListTasksRequest\x12'\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\x12=\n" +
 	"\arequest\x18\x02 \x01(\v2\x1b.lf.a2a.v1.ListTasksRequestB\x06\xbaH\x03\xc8\x01\x01R\arequest\"Y\n" +
 	"!TaskStoreServiceListTasksResponse\x124\n" +
-	"\x06result\x18\x01 \x01(\v2\x1c.lf.a2a.v1.ListTasksResponseR\x06result\"\x9e\x01\n" +
-	"!TaskStoreServiceSettleTaskRequest\x124\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12 \n" +
+	"\x06result\x18\x01 \x01(\v2\x1c.lf.a2a.v1.ListTasksResponseR\x06result\"\x91\x01\n" +
+	"!TaskStoreServiceSettleTaskRequest\x12'\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\tsessionId\x12 \n" +
 	"\atask_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06taskId\x12!\n" +
 	"\aversion\x18\x03 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aversion\"$\n" +
 	"\"TaskStoreServiceSettleTaskResponse2\x81\x05\n" +

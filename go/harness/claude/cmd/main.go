@@ -34,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 	ctx := logging.IntoContext(context.Background(), logger)
-	if err := run(ctx, *check, os.Getenv, os.Environ()); err != nil {
+	if err := run(ctx, *check, os.Getenv, os.Environ()); err != nil { //nolint:forbidigo // Reads only controller-generated config and agent-card payloads.
 		logger.ErrorContext(ctx, "claude harness stopped", "error", err)
 		os.Exit(1)
 	}

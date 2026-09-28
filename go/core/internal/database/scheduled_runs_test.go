@@ -18,13 +18,13 @@ import (
 
 func createTestSchedule(t *testing.T, c *Client) (*apiv1alpha1.ScheduledRun, []byte) {
 	t.Helper()
-	agentInstanceFixture(t, c, t.Context(), "team-a", "scheduled-revision", "report", "runtime")
+	sessionFixture(t, c, t.Context(), "team-a", "scheduled-revision", "report", "runtime")
 	hash := sha256.Sum256([]byte("original request"))
 	request := &apiv1alpha1.ScheduledRun{
-		Creator:       "alice",
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "runtime"},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "report"},
-		Config:        scheduledrun.Normalize(&apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original prompt"}),
+		Creator: "alice",
+
+		Agent:  &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "report"},
+		Config: scheduledrun.Normalize(&apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original prompt"}),
 	}
 	result, err := c.CreateScheduledRun(t.Context(), request, "create", hash[:])
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	batch[0].Execution.Prompt = "changed"
 	batch[0].Execution.Deadline = nil
 	batch[0].Execution.Creator = "mallory"
-	batch[0].Execution.AgentInstanceId = "replaced"
+	batch[0].Execution.SessionId = "replaced"
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), batch[0].Lease, ScheduledRunExecutionProgress{State: batch[0].Execution.State, FailureReason: batch[0].Execution.FailureReason}))
 	finished, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), schedule.Creator)
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	require.Equal(t, execution.Prompt, finished.Prompt)
 	require.True(t, proto.Equal(execution.Deadline, finished.Deadline))
 	require.Equal(t, execution.Creator, finished.Creator)
-	require.Empty(t, finished.AgentInstanceId)
+	require.Empty(t, finished.SessionId)
 	require.Equal(t, batch[0].Execution.FailureReason, finished.FailureReason)
 	batch, err = c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
@@ -332,25 +332,25 @@ func TestScheduledRunExecutionConstraints(t *testing.T) {
 	require.True(t, proto.Equal(execution, loaded))
 }
 
-func TestScheduledExecutionSurvivesInstanceDeletion(t *testing.T) {
+func TestScheduledExecutionSurvivesSessionDeletion(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
-	require.Empty(t, execution.AgentInstanceId)
+	require.Empty(t, execution.SessionId)
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
-	// Concurrent worker retries must atomically reserve one instance and its link.
+	// Concurrent worker retries must atomically reserve one session and its link.
 	ids := make(chan string, 12)
 	var wg sync.WaitGroup
 	for range 12 {
 		wg.Go(func() {
-			linked, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+			linked, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			ids <- linked.AgentInstanceId
+			ids <- linked.SessionId
 		})
 	}
 	wg.Wait()
@@ -362,29 +362,29 @@ func TestScheduledExecutionSurvivesInstanceDeletion(t *testing.T) {
 	require.Len(t, unique, 1)
 	linked, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
-	require.NotEmpty(t, linked.AgentInstanceId)
-	require.NotEqual(t, execution.Id, linked.AgentInstanceId)
-	instance, err := c.GetAgentInstance(t.Context(), linked.AgentInstanceId, "alice")
+	require.NotEmpty(t, linked.SessionId)
+	require.NotEqual(t, execution.Id, linked.SessionId)
+	session, err := c.GetSession(t.Context(), linked.SessionId, "alice")
 	require.NoError(t, err)
-	require.Equal(t, "scheduled-revision", instance.PreparedRevision)
-	require.NoError(t, deleteInstance(t.Context(), c, instance.Id))
-	// Instance deletion follows the ordinary hard-delete path.
-	_, err = c.GetAgentInstance(t.Context(), instance.Id, "alice")
+	require.Equal(t, "scheduled-revision", session.PreparedRevision)
+	require.NoError(t, deleteSession(t.Context(), c, session.Id))
+	// Session deletion follows the ordinary hard-delete path.
+	_, err = c.GetSession(t.Context(), session.Id, "alice")
 	require.ErrorIs(t, err, ErrNotFound)
 	replayed, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(linked, replayed))
-	retried, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	retried, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(linked, retried))
-	instances, err := c.ListAgentInstances(t.Context(), AgentInstanceQuery{UserID: "alice", Limit: 10})
+	sessions, err := c.ListSessions(t.Context(), SessionQuery{UserID: "alice", Limit: 10})
 	require.NoError(t, err)
-	require.Empty(t, instances)
+	require.Empty(t, sessions)
 	history, err := c.ListScheduledRunExecutions(t.Context(), ScheduledRunExecutionQuery{ScheduledRunQuery: ScheduledRunQuery{Creator: "alice", Limit: 10}, ScheduledRunID: uuid.MustParse(schedule.Id)})
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	require.True(t, proto.Equal(linked, history[0]))
-	_, err = c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "bob")
+	_, err = c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "bob")
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -392,17 +392,17 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
 	schedule, _ := createTestSchedule(t, c)
-	require.NoError(t, c.RetirePairIdentities(t.Context(), "team-a", "report", "runtime", nil))
+	require.NoError(t, c.RetireAgentIdentities(t.Context(), "team-a", "report", nil))
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
-	_, err = c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	_, err = c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	loaded, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(execution, loaded))
-	instances, err := c.ListAgentInstances(t.Context(), AgentInstanceQuery{UserID: "alice", Limit: 10})
+	sessions, err := c.ListSessions(t.Context(), SessionQuery{UserID: "alice", Limit: 10})
 	require.NoError(t, err)
-	require.Empty(t, instances)
+	require.Empty(t, sessions)
 	// Unready targets no longer roll back due reservations or block other schedules.
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '1 second' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
@@ -410,16 +410,16 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	due := listTestScheduleExecutions(t, c, schedule)
 	require.Len(t, due, 2, "manual and due executions survive unready targets")
 	require.NotNil(t, due[0].GetScheduledTime())
-	require.Empty(t, due[0].AgentInstanceId)
-	agentInstanceFixture(t, c, t.Context(), "team-a", "scheduled-revision-2", "report", "runtime")
-	linked, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	require.Empty(t, due[0].SessionId)
+	sessionFixture(t, c, t.Context(), "team-a", "scheduled-revision-2", "report", "runtime")
+	linked, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
-	instance, err := c.GetAgentInstance(t.Context(), linked.AgentInstanceId, "alice")
+	session, err := c.GetSession(t.Context(), linked.SessionId, "alice")
 	require.NoError(t, err)
-	require.Equal(t, "scheduled-revision-2", instance.PreparedRevision)
+	require.Equal(t, "scheduled-revision-2", session.PreparedRevision)
 }
 
-func TestScheduledExecutionExpiresBeforeInstanceCreation(t *testing.T) {
+func TestScheduledExecutionExpiresBeforeSessionCreation(t *testing.T) {
 	c := NewClient(setupTestDB(t))
 	schedule, _ := createTestSchedule(t, c)
 	config := proto.CloneOf(schedule.Config)
@@ -428,9 +428,9 @@ func TestScheduledExecutionExpiresBeforeInstanceCreation(t *testing.T) {
 	require.NoError(t, err)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "expires")
 	require.NoError(t, err)
-	expired, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	expired, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
-	require.Empty(t, expired.AgentInstanceId)
+	require.Empty(t, expired.SessionId)
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, expired.State)
 	replayed, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "expires")
 	require.NoError(t, err)
@@ -469,7 +469,7 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
-	linked, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	linked, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	leases, err := c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
@@ -491,7 +491,7 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	loaded, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	require.Equal(t, execution.Id, loaded.TaskId)
-	require.Equal(t, linked.AgentInstanceId, loaded.AgentInstanceId)
+	require.Equal(t, linked.SessionId, loaded.SessionId)
 	require.Equal(t, progress.State, loaded.State)
 }
 
@@ -611,7 +611,7 @@ func TestScheduledDispatchClaimSurvivesLeaseReplacement(t *testing.T) {
 	schedule, _ := createTestSchedule(t, client)
 	execution, err := client.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "dispatch")
 	require.NoError(t, err)
-	_, err = client.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
+	_, err = client.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	leases, err := client.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)

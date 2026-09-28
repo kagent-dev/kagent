@@ -43,46 +43,13 @@ func NewBuilder(ctx krt.HandlerContext, collections v2translator.Collections) *B
 type Result struct {
 	Config      *adk.AgentConfig
 	Models      []*v2translator.ResolvedModelConfig
-	Templates   []*v1alpha3.AgentTemplate
+	Templates   []*v2translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
-}
-
-// ModelResult is the runtime configuration contributed by one ModelConfig.
-type ModelResult struct {
-	Resolved    *v2translator.ResolvedModelConfig
-	Model       adk.Model
-	Environment []corev1.EnvVar
-	Egress      []string
-}
-
-// BuildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) BuildModel(namespace, name string) (*ModelResult, error) {
-	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
-	if resolved == nil {
-		return nil, fmt.Errorf("model config %q not found", name)
-	}
-	if failures := resolved.SemanticFailures; len(failures) > 0 {
-		return nil, v2translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	if failures := resolved.ReferenceFailures; len(failures) > 0 {
-		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	runtime, err := resolveModel(resolved)
-	if err != nil {
-		return nil, err
-	}
-	if runtime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
-	return &ModelResult{
-		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
-		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
-	}, nil
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
-func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
+func HarnessEnvironment(harness *v2translator.HarnessConfiguration) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
 	for _, value := range harness.Spec.Env {
 		variable := corev1.EnvVar{Name: value.Name}
@@ -96,50 +63,34 @@ func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
 	return environment
 }
 
-func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	return c.compileAgent(ctx, input)
-}
-
-// ApplyCompaction translates the Harness's kagent compaction policy into the
-// ADK context configuration of a compiled root agent. Compaction is a property
-// of the runner that drives the root agent, so it is runtime policy on the
-// Harness rather than portable behavior on the AgentTemplate.
-//
-// A summarizer ModelConfig other than the agent's own is resolved like the
-// agent model: its runtime configuration lands in config.json, its credentials
-// and egress join the revision, and it joins the provenance so a change to it
-// compiles a new revision. The agent's own model is left out because the
-// runtime already summarizes with it by default.
-func (c *Builder) ApplyCompaction(result *Result, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
-	spec := harness.Spec.Kagent.Compaction
-	if spec == nil {
-		return nil
-	}
-	compaction := &adk.AgentCompressionConfig{
-		CompactionInterval: spec.CompactionInterval,
-		OverlapSize:        spec.OverlapSize,
-		TokenThreshold:     spec.TokenThreshold,
-		EventRetentionSize: spec.EventRetentionSize,
-	}
-	if summarizer := spec.Summarizer; summarizer != nil {
-		compaction.PromptTemplate = summarizer.PromptTemplate
-		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.BuildModel(harness.Namespace, ref.Name)
-			if err != nil {
-				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
-			}
-			compaction.SummarizerModel = model.Model
-			result.Models = append(result.Models, model.Resolved)
-			result.Environment = append(result.Environment, model.Environment...)
-			result.Egress = append(result.Egress, model.Egress...)
+// Build returns the complete ADK configuration shared by kagent and BYO.
+// Runtime policy belongs to the root runner; shared subagents contribute only
+// agent behavior and use that runner's session store.
+func (c *Builder) Build(ctx context.Context, input *v2translator.HarnessInput) (*Result, error) {
+	if input.Harness.Spec.Kagent != nil {
+		if err := requireModels(input.Root); err != nil {
+			return nil, err
 		}
 	}
-	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
-	return nil
-}
-
-func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
-	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
+	result, err := c.compileAgent(ctx, input.Root)
+	if err != nil {
+		return nil, err
+	}
+	if input.Harness.Spec.Kagent != nil {
+		if err := applyOutputSchema(result.Config, input.OutputSchema); err != nil {
+			return nil, err
+		}
+		if err := c.applyCompaction(result, input.Harness, input.Root.Template); err != nil {
+			return nil, err
+		}
+		if err := c.applyMemory(result, input.Harness); err != nil {
+			return nil, err
+		}
+	}
+	// The Python runtime needs an async SQLite driver; the Go runtime accepts
+	// this URL and strips the driver before opening the same durable database.
+	result.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
+	return result, nil
 }
 
 func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
@@ -181,7 +132,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		return nil, v2translator.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	result := &Result{
-		Config: cfg, Templates: []*v1alpha3.AgentTemplate{input.Template},
+		Config: cfg, Templates: []*v2translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
 		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
@@ -205,11 +156,17 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
+func (c *Builder) BuildProvenance(ctx context.Context, harness *v2translator.HarnessConfiguration, templates []*v2translator.TemplateConfiguration, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+	var entries []provenanceEntry
+	// Inline configuration is recorded by the enclosing Agent provenance.
+	if harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
+	}
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec))
+		if template.Source != nil {
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec))
+		}
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}

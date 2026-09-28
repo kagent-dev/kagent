@@ -47,7 +47,8 @@ service Control {
   // Only crashed, running or paused actors can be reverted.
   rpc RevertActor(RevertActorRequest) returns (RevertActorResponse) {}
 
-  // Delete an actor. Only suspended actors can be deleted.
+  // Delete an actor. Only suspended or crashed actors can be deleted unless
+  // any_state is set.
   rpc DeleteActor(DeleteActorRequest) returns (Actor) {}
 
   // Get the egress policy resource nested under an Actor.
@@ -69,9 +70,8 @@ service Control {
 
   // Create a Substrate-issued SPIFFE certificate asserting the actor identity.
   //
-  // * Called by atelet to provision an atunnel with a certificate for
-  //   communication with the egress gateway.  TODO(identity): Migrate this use
-  //   case to a distinct certificate to prevent actor/atunnel confusion.
+  // SPIFFE URI: spiffe://${trustdomain}/actor/${atespace}/${actor}
+  //
   // * Called by the egress gateway when actor client certificate injection is
   //   configured for outbound requests.
   rpc MintActorCertificate(MintActorCertificateRequest) returns (MintActorCertificateResponse) {}
@@ -151,6 +151,7 @@ message ExternalSnapshot {
   // snapshot_uri addresses the snapshot's prefix in object storage.
   //
   // +k8s:required
+  // +k8s:maxLength=2048 # the template's storage_location bound plus the owner prefix and snapshot name
   string snapshot_uri = 1;
 
   // content_scope is what the snapshot captured.
@@ -159,9 +160,17 @@ message ExternalSnapshot {
   // +k8s:minimum=1
   // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
   SnapshotContentScope content_scope = 2;
+
+  // UID of the ActorTemplate whose sandbox this snapshot's guest state was
+  // captured from.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-uuid
+  string actor_template_uid = 3;
 }
 
-message LocalSnapshotInfo {
+// LocalSnapshot records information about a node-local snapshot.
+message LocalSnapshot {
   // The name of the local checkpoint on each of the nodes below. Checkpoint
   // names are server-generated UUIDs, but any resource name is valid here.
   //
@@ -550,7 +559,7 @@ message ActorStatus {
   // snapshot the Actor is currently taking.
   //
   // +k8s:optional
-  // +k8s:maxLength=2048
+  // +k8s:maxLength=2048 # the template's storage_location bound plus the owner prefix and snapshot name
   string in_progress_snapshot_uri = 3;
 
   // external_snapshot is the Actor's current external snapshot.
@@ -563,7 +572,7 @@ message ActorStatus {
   // Node-local state used only while the Actor is paused.
   //
   // +k8s:optional
-  LocalSnapshotInfo local_snapshot_info = 5;
+  LocalSnapshot local_snapshot = 5;
 
   // Volumes attached to the actor. These volumes only live as long as the actor.
   // They are deleted when the actor is deleted. Each template volume
@@ -582,17 +591,25 @@ message ActorStatus {
   // +k8s:format=k8s-short-name
   string in_progress_local_snapshot_name = 8;
 
-  // The UID of the actor template the Actor's guest state is currently built
-  // on: the one its latest sprint booted with, recorded when the resume (or
-  // first boot) commits RUNNING, or at creation for an Actor seeded from a tag,
-  // since that Actor borrows guest state that was already built. Empty means
-  // the Actor has no guest state yet.
-  // Diverges from the UID of the Actor's actor_template ref when a suspended
-  // Actor is repointed at a replacement template, which forces the next
-  // restore to data-only.
+  // crash records why and when the Actor entered CRASHED. It is set with the
+  // CRASHED state and cleared when a revert returns the Actor to SUSPENDED.
   //
   // +k8s:optional
-  string current_actor_template_uid = 11;
+  ActorCrash crash = 9;
+}
+
+// ActorCrash describes the failure that moved an Actor to CRASHED.
+message ActorCrash {
+  // message is a human-readable description of the failure.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=4096
+  string message = 1;
+
+  // crash_time is when the Actor entered CRASHED.
+  //
+  // +k8s:optional
+  google.protobuf.Timestamp crash_time = 2;
 }
 
 // WorkerAssignment points at the Worker currently hosting an Actor.
@@ -665,17 +682,19 @@ message TagStatus {
 
   // UID of the ActorTemplate the snapshot was taken under. Actors can only be
   // seeded from a tag under the same template.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
   string actor_template_uid = 2;
 
   // storage_location is the base object-storage URI for this tag's snapshot.
   // Set by the server from the source actor's template when the tag is created
   // and immutable thereafter. The full snapshot URI is available in
   // snapshot.snapshot_uri once tag creation completes.
+  //
+  // +k8s:required
+  // +k8s:maxLength=1024
   string storage_location = 3;
-
-  // source_actor_uid is the UID of the Actor this tag's snapshot was copied
-  // from.
-  string source_actor_uid = 4;
 }
 
 // Tag is an Atespace-owned, stable name for one external snapshot. The
@@ -775,7 +794,7 @@ message ActorTemplate {
   repeated Volume volumes = 4;
 
   // +k8s:required
-  SnapshotsConfig snapshots_config = 5;
+  SnapshotConfig snapshot_config = 5;
 
   // sandbox_config selects the sandbox runtime this version's actors run on.
   //
@@ -826,8 +845,15 @@ message GoldenSnapshotStatus {
 
   // take_golden_snapshot_at is when the golden-actor warmup ends and the
   // golden snapshot may be taken.
+  //
+  // +k8s:optional
   google.protobuf.Timestamp take_golden_snapshot_at = 2;
 
+  // error_message is set when the golden snapshot build fails and will not be
+  // retried, formatted as "<Reason>: <detail>". A nonempty value is terminal.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=4096
   string error_message = 3;
 }
 
@@ -854,7 +880,7 @@ message SandboxConfig {
 }
 
 // +k8s:customValidation # on_commit must be a subset of on_pause
-message SnapshotsConfig {
+message SnapshotConfig {
   // on_pause defines the scope of the snapshot captured when an actor
   // is paused. Defaults to FULL when unset.
   //
@@ -959,11 +985,12 @@ message Container {
   // +k8s:listMapKey=name
   repeated EnvVar env = 5;
 
-  // readyz is an optional HTTP readiness probe; when set the actor is not
-  // ready until the endpoint returns 200.
+  // wakeup_probe gates each wakeup on this container: ResumeActor returns
+  // only after the probe answers HTTP 200. Without it, ResumeActor returns
+  // as soon as the container has started, which may be before it listens.
   //
   // +k8s:optional
-  ContainerReadyz readyz = 6;
+  ContainerWakeupProbe wakeup_probe = 6;
 
   // Keyed by mount_path: each path hosts exactly one mount, while a volume
   // may be mounted at multiple paths.
@@ -1035,18 +1062,21 @@ message EnvVar {
   //
   // +k8s:optional
   // +k8s:maxLength=32768 # guardrail;
-  string value = 2;
+  string value = 2 [ debug_redact = true ];
 }
 
-// ContainerReadyz configures the readiness signal for a container.
-message ContainerReadyz {
-  // http_get specifies the HTTP request to perform. Required.
+// ContainerWakeupProbe tells the platform when a container is serving. It is
+// polled on every wakeup, whether the actor cold-boots or is restored from a
+// snapshot, and not again while the actor stays running. A probe that does
+// not answer 200 within timeout_seconds crashes the actor.
+message ContainerWakeupProbe {
+  // http_get is the request to poll.
   //
   // +k8s:required
   HTTPGetAction http_get = 1;
 
-  // timeout_seconds bounds how long to poll http_get before failing the
-  // actor start. Defaults to 30 when unset.
+  // timeout_seconds is how long to keep polling before giving up.
+  // Defaults to 30 when unset.
   //
   // +k8s:required
   // +k8s:minimum=1
@@ -1054,17 +1084,19 @@ message ContainerReadyz {
   int32 timeout_seconds = 2;
 }
 
-// HTTPGetAction describes an HTTP GET against the container's interior IP.
+// HTTPGetAction describes the HTTP GET the probe polls.
 message HTTPGetAction {
   // path must be a URL path starting with "/", using only RFC 3986
   // path-segment characters, without query or fragment.
-  // Defaults to "/readyz" when unset.
+  // Defaults to "/" when unset.
   //
   // +k8s:required
   // +k8s:maxLength=1024
   // +k8s:customValidation # RFC 3986 path shape; no regex/pattern tag exists
   string path = 1;
 
+  // port is the container port to connect to.
+  //
   // +k8s:required
   // +k8s:minimum=1
   // +k8s:maximum=65535
@@ -1124,6 +1156,7 @@ message ExternalVolumeTemplate {
   // form (e.g. "10Gi"). Required.
   //
   // +k8s:required
+  // +k8s:maxLength=32 # matches Limits.quantity's bound
   // +k8s:customValidation # must parse as a resource.Quantity
   string capacity = 1;
 
@@ -1282,6 +1315,11 @@ message DeleteAtespaceRequest {
   // +k8s:required
   // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
   ObjectRef atespace = 1;
+
+  // Optional per-delete preconditions.
+  //
+  // +k8s:optional
+  DeleteOptions options = 2;
 }
 
 message CreateActorTemplateRequest {
@@ -1336,6 +1374,11 @@ message DeleteActorTemplateRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef actor_template = 1;
+
+  // Optional per-delete preconditions.
+  //
+  // +k8s:optional
+  DeleteOptions options = 2;
 }
 
 message GetActorRequest {
@@ -1426,6 +1469,11 @@ message DeleteActorRequest {
   //
   // +k8s:optional
   bool any_state = 2;
+
+  // Optional per-delete preconditions.
+  //
+  // +k8s:optional
+  DeleteOptions options = 3;
 }
 
 // GetActorEgressPolicyRequest identifies an Actor's egress policy.
@@ -1478,6 +1526,11 @@ message DeleteActorEgressPolicyRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef actor = 1;
+
+  // Optional per-delete preconditions.
+  //
+  // +k8s:optional
+  DeleteOptions options = 2;
 }
 
 message GetTagRequest {
@@ -1535,7 +1588,7 @@ message MintActorJWTResponse {
   // * `ate.dev`: Ate/Substrate Extension - JSON object
   //   * atespace: (string) The atespace the actor belongs to
   //   * actorName: (string) The actor's name, unique within its atespace
-  string actor_jwt = 1;
+  string actor_jwt = 1 [ debug_redact = true ];
 }
 
 // Request message for MintActorCertificate.
@@ -1562,24 +1615,8 @@ message MintActorCertificateRequest {
   // +k8s:maxBytes=16384
   bytes certificate_signing_request = 2;
 
-  // Purpose of the certificate.  Used to distinguish between system components
-  // acting on behalf of an actor, and the actor itself taking action.
-  //
-  // +k8s:required
-  // +k8s:minimum=1
-  // +k8s:maximum=1 # keep this in sync with the ActorCertificatePurpose enum
-  ActorCertificatePurpose purpose = 4;
-}
-
-// Purpose of the certificate.  Used to distinguish between system components
-// acting on behalf of an actor, and the actor itself taking action.
-//
-// TODO(identity): This should be removed once ateom/atunnel certs are separated
-// from plain actor certs.
-enum ActorCertificatePurpose {
-  ACTOR_CERTIFICATE_PURPOSE_UNSPECIFIED = 0;
-  ACTOR_CERTIFICATE_PURPOSE_ATUNNEL = 1;
-  // Keep this in sync with MintCertRequest.purpose's maximum.
+  reserved 4;
+  reserved "purpose";
 }
 
 // Response message for MintActorCertificate.
@@ -1588,16 +1625,6 @@ message MintActorCertificateResponse {
   // leaf certificate, and any remaining entries are intermediates in
   // leaf-to-root order.
   repeated bytes actor_certificates = 1;
-}
-
-message GetActorSnapshotRequest {
-  // +k8s:opaqueType
-  ObjectRef actor_snapshot = 1;
-}
-
-message GetActorSnapshotTagRequest {
-  // +k8s:opaqueType
-  ObjectRef actor_snapshot_tag = 1;
 }
 
 message ListTagsRequest {
@@ -1670,24 +1697,25 @@ message DeleteTagRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef tag = 1;
+
+  // Optional per-delete preconditions.
+  //
+  // +k8s:optional
+  DeleteOptions options = 2;
 }
 
-// DeleteOptions carries per-delete controls. Today it holds optional
-// preconditions that guard against acting on a resource that is not in the
-// state the caller expects. Future delete-specific controls (e.g. dry-run)
-// should be added here.
-//
-// Intended to be reused across every Delete<Type>Request; only
-// DeleteWorkerRequest carries it so far.
+// DeleteOptions are the optional guards a Delete request may carry.
 message DeleteOptions {
-  // If non-zero, delete only if the server's current version matches.
+  // Delete only if the resource is still at this version, that is, unchanged
+  // since the caller read it. Zero skips the check.
   //
   // +k8s:optional
   // +k8s:minimum=1
   int64 version = 1;
 
-  // If non-empty, delete only if the server's current uid matches. Guards
-  // against name reuse across lifecycles.
+  // Delete only if the resource still has this uid, that is, it is the one
+  // the caller read and not a later one created under the same name. Empty
+  // skips the check.
   //
   // +k8s:optional
   // +k8s:format=k8s-uuid
@@ -2002,7 +2030,7 @@ message ActorAssignment {
   Resources resources = 5;
 }
 
-// WorkerService is how a Worker tells the control plane about itself. It is
+// WorkerService is how a Worker tells the control plane what it observes. It is
 // separate from Control because the two have different callers and different
 // authorization: Control is the client-facing API, while these RPCs are served
 // only to an atelet, and only for the Workers on its own node.
@@ -2015,6 +2043,33 @@ service WorkerService {
   // atelet calls this with its own client certificate, as it does for
   // MintCert. Idempotent: re-sending the same capacity is not a write.
   rpc SetWorkerCapacity(SetWorkerCapacityRequest) returns (SetWorkerCapacityResponse);
+
+  // Create a Substrate-issued SPIFFE certificate that asserts an ateom acting
+  // on behalf of a particular actor.
+  //
+  // SPIFFE URI: spiffe://${trustdomain}/ateom-for-actor/${atespace}/${actor}
+  rpc MintAteomActorCertificate(MintAteomActorCertificateRequest) returns (MintAteomActorCertificateResponse);
+
+  // RequestActorSuspend asks the control plane to suspend an Actor that the
+  // calling Worker hosts. Only the Worker can observe what makes an Actor
+  // worth reclaiming -- whether its workload still has anything to do -- and
+  // only the control plane can decide whether to act on that.
+  //
+  // This is a request, not a command. It runs the same suspend workflow
+  // Control.SuspendActor runs, behind the same preconditions, so a proposal
+  // that races a resume, pause, or delete loses to it.
+  //
+  // atelet calls this with its own client certificate, as it does for
+  // SetWorkerCapacity, naming the Worker its caller proved itself to be. The
+  // control plane serves it only for an Actor that is assigned to that Worker.
+  //
+  // Not idempotent, unlike Control.SuspendActor, which reports an
+  // already-suspended Actor as the success it is. A suspend releases the
+  // Worker it ran on, so the second request names an Actor the caller no
+  // longer hosts, and is refused as NotFound like any other. A Worker that
+  // retries a suspend it had already been granted therefore sees a failure
+  // rather than a repeat of its success.
+  rpc RequestActorSuspend(RequestActorSuspendRequest) returns (RequestActorSuspendResponse);
 }
 
 message SetWorkerCapacityRequest {
@@ -2036,4 +2091,67 @@ message SetWorkerCapacityRequest {
 message SetWorkerCapacityResponse {
   // The Worker as recorded, so a caller sees what its report resolved to.
   Worker worker = 1;
+}
+
+// Request message for MintAteomActorCertificate.
+message MintAteomActorCertificateRequest {
+  // The actor for which the certificate should be issued.
+  //
+  // Must be a valid actor that currently exists according to the actor store.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 1;
+
+  // The UID of the actor --- used to guard against deletion and recreation of
+  // an actor with the same name.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
+  string actor_uid = 2;
+
+  // Request contains DER encoded bytes of a x509 certificate signing request.
+  // The signer will ignore the contents of the CSR except to extract the
+  // subject public key.
+  //
+  // +k8s:required
+  // +k8s:maxBytes=16384
+  bytes certificate_signing_request = 3;
+}
+
+// Response message for MintAteomActorCertificate.
+message MintAteomActorCertificateResponse {
+  // Response contains a list of DER encoded certificates. The first entry is the
+  // leaf certificate, and any remaining entries are intermediates in
+  // leaf-to-root order.
+  repeated bytes actor_certificates = 1;
+}
+
+message RequestActorSuspendRequest {
+  // The Worker making the request. atespace is always empty; Workers are
+  // global-scoped. atelet fills this in from its caller's certificate, so it
+  // names the Worker the request provably came from.
+  //
+  // +k8s:required
+  // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
+  ObjectRef worker = 1;
+
+  // The Actor to suspend. It must be assigned to worker; a Worker may speak
+  // only for what it hosts.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 2;
+
+  // The UID of the Actor the Worker believes it is hosting, which pins the
+  // request to one incarnation. Without it a request could outlive the Actor
+  // it was made about and suspend the recreation that took its name.
+  //
+  // +k8s:required
+  string actor_uid = 3;
+}
+
+message RequestActorSuspendResponse {
+  // The Actor as the suspend workflow left it.
+  Actor actor = 1;
 }

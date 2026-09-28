@@ -13,6 +13,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -26,7 +27,7 @@ import (
 type userIDContextKey struct{}
 
 // parentContextIDContextKey is the context key carrying this agent's own
-// A2A context_id (== ADK session id) into the outbound interceptor so it can
+// public A2A context_id into the outbound interceptor so it can
 // be stamped as the parent_context_id header on every outbound A2A call.
 type parentContextIDContextKey struct{}
 
@@ -170,10 +171,11 @@ type remoteA2AState struct {
 	// sub-agent when isolateSessions is false (the default): all calls land
 	// in one shared sub-agent session, giving stateful sub-agents session
 	// continuity across calls. Unused when isolateSessions is true — each
-	// call mints its own id instead (see contextIDForCall).
+	// call requests a new conversation instead (see contextIDForCall).
 	sharedContextID string
+	callMu          sync.Mutex
 
-	// isolateSessions mints a fresh context_id per call (see contextIDForCall)
+	// isolateSessions requests a fresh conversation per call (see contextIDForCall)
 	// instead of reusing sharedContextID, so each call runs in its own isolated
 	// sub-agent session. Required for parallel fan-out: without it, N
 	// parallel calls in one turn collapse into a single shared sub-agent
@@ -225,7 +227,6 @@ func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.
 		httpClient:      httpClient,
 		extraHeaders:    extraHeaders,
 		propagateToken:  propagateToken,
-		sharedContextID: a2atype.NewContextID(),
 		isolateSessions: isolateSessions,
 	}
 	ft, err := functiontool.New(functiontool.Config{
@@ -241,12 +242,12 @@ func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.
 }
 
 // contextIDForCall returns the A2A context_id to stamp on the next outbound
-// call: a fresh id when isolateSessions is enabled (isolated per-call
+// call: empty when isolateSessions is enabled (a new per-call
 // session), or the tool's stable sharedContextID otherwise (shared session
 // for the lifetime of the tool).
 func (s *remoteA2AState) contextIDForCall() string {
 	if s.isolateSessions {
-		return a2atype.NewContextID()
+		return ""
 	}
 	return s.sharedContextID
 }
@@ -311,6 +312,10 @@ func (s *remoteA2AState) run(ctx adkagent.Context, requestText string) (remoteA2
 
 // handleFirstCall is Phase 1: send the request to the remote agent.
 func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText string) (remoteA2AResponse, error) {
+	if !s.isolateSessions {
+		s.callMu.Lock()
+		defer s.callMu.Unlock()
+	}
 	if requestText == "" {
 		return remoteA2AResponse{Error: "missing or empty 'request' argument"}, nil
 	}
@@ -327,14 +332,22 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 	)
 	message.ContextID = contextID
 
-	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
-	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
+	sendCtx := remoteCallContext(ctx)
 	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "remote agent request failed", "tool", s.name, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
 	}
 
+	switch r := result.(type) {
+	case *a2atype.Task:
+		contextID = r.ContextID
+	case *a2atype.Message:
+		contextID = r.ContextID
+	}
+	if !s.isolateSessions {
+		s.sharedContextID = contextID
+	}
 	return s.processResult(ctx, contextID, result)
 }
 
@@ -380,8 +393,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 		return remoteA2AResponse{Error: err.Error()}, nil
 	}
 
-	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
-	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
+	sendCtx := remoteCallContext(ctx)
 	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "remote agent resume failed", "tool", subagentName, "error", err)
@@ -583,4 +595,17 @@ func extractTextFromMessage(message *a2atype.Message) (string, error) {
 		texts = append(texts, text)
 	}
 	return strings.Join(texts, "\n"), nil
+}
+
+func remoteCallContext(ctx adkagent.Context) context.Context {
+	userID := auth.UserIDFromContext(ctx)
+	if userID == "" {
+		userID = ctx.UserID()
+	}
+	contextID := a2a.ContextIDFromContext(ctx)
+	if contextID == "" {
+		contextID = ctx.SessionID()
+	}
+	sendCtx := context.WithValue(ctx, userIDContextKey{}, userID)
+	return context.WithValue(sendCtx, parentContextIDContextKey{}, contextID)
 }

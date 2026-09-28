@@ -40,7 +40,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			require.Equal(t, test.host, bindings[0].Hostname)
 			require.Equal(t, test.header, bindings[0].Header)
 			require.Equal(t, test.prefix, bindings[0].Prefix)
-			require.Equal(t, "ate-secret://kubernetes.io/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
+			require.Equal(t, "ate-secret://k8s.io/default/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
 		})
 	}
 }
@@ -63,7 +63,7 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
 	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot use gateway header injection")
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "CUSTOM", CredentialRef: credentialEnv("CUSTOM", "auth", "token").ValueFrom.SecretKeyRef}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "CUSTOM", CredentialRef: credentialEnv("CUSTOM", "auth", "token").ValueFrom.SecretKeyRef}}
 	_, _, err = CompileCredentials(input, nil, nil)
 	require.ErrorContains(t, err, "arbitrary credentialRef")
 }
@@ -86,8 +86,8 @@ func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
 		resolved.FoundryEndpoint = spec.Foundry.Endpoint
 	}
 	return &HarnessInput{
-		Harness: &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}},
-		Root:    &AgentInput{Template: &v1alpha3.AgentTemplate{}, ResolvedModelConfig: resolved},
+		Harness: &HarnessConfiguration{Name: "", Namespace: "team", Source: &metav1.ObjectMeta{Namespace: "team"}},
+		Root:    &AgentInput{Template: &TemplateConfiguration{}, ResolvedModelConfig: resolved},
 	}
 }
 

@@ -4,6 +4,30 @@ templates:
   - controller-configmap.yaml
   - postgresql-secret.yaml
 tests:
+  - it: keeps chart defaults in the ConfigMap and pod identity and credentials in env
+    template: controller-deployment.yaml
+    set:
+      controller.substrate.enabled: true
+      controller.metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            configMapRef:
+              name: RELEASE-NAME-controller
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL|KAGENT_DATABASE_BOOTSTRAP|POSTGRES_ADMIN_USERNAME_FILE|POSTGRES_ADMIN_PASSWORD_FILE)$"
+      - notExists:
+          path: data.KAGENT_POSTGRES_DATABASE_URL
+        template: controller-configmap.yaml
+      - notExists:
+          path: data.POSTGRES_PASSWORD
+        template: controller-configmap.yaml
+      - notExists:
+          path: data.OTEL_RESOURCE_ATTRIBUTES
+        template: controller-configmap.yaml
+
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
     asserts:
@@ -93,19 +117,12 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
 
-  - it: should configure the gRPC server
-    template: controller-deployment.yaml
+  - it: should disable gRPC reflection by default
+    template: controller-configmap.yaml
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: GRPC_MAX_MESSAGE_BYTES
-            value: "16777216"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: GRPC_REFLECTION
-            value: "false"
+      - equal:
+          path: data.KAGENT_GRPC_REFLECTION
+          value: "false"
 
   - it: should set global annotations on deployment
     template: controller-deployment.yaml
@@ -150,21 +167,18 @@ tests:
           enabled: true
           ateApiEndpoint: "dns:///api.ate-system.svc:443"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SUBSTRATE_ATE_API_ENDPOINT
-            value: "dns:///api.ate-system.svc:443"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SUBSTRATE_ATE_API_CA_FILE
-            value: /run/substrate-servicedns/trust-bundle.pem
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
-            value: /run/substrate-podidentity/credential-bundle.pem
+      - equal:
+          path: data.KAGENT_SUBSTRATE_ATE_API_ENDPOINT
+          value: "dns:///api.ate-system.svc:443"
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_SUBSTRATE_ATE_API_CA_FILE
+          value: /run/substrate-servicedns/trust-bundle.pem
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE
+          value: /run/substrate-podidentity/credential-bundle.pem
+        template: controller-configmap.yaml
       - equal:
           path: spec.template.spec.volumes[1].name
           value: substrate-servicedns
@@ -379,7 +393,7 @@ tests:
         loglevel: "debug"
     asserts:
       - equal:
-          path: data.LOG_LEVEL
+          path: data.KAGENT_LOG_LEVEL
           value: "debug"
   - it: should configure watch namespaces
     template: controller-configmap.yaml
@@ -390,7 +404,7 @@ tests:
           - namespace-2
     asserts:
       - equal:
-          path: data.WATCH_NAMESPACES
+          path: data.KAGENT_WATCH_NAMESPACES
           value: "namespace-1,namespace-2"
 
   - it: should derive watch namespaces from rbac.namespaces when controller.watchNamespaces is unset
@@ -402,10 +416,10 @@ tests:
           - ns2
     asserts:
       - equal:
-          path: data.WATCH_NAMESPACES
+          path: data.KAGENT_WATCH_NAMESPACES
           value: "NAMESPACE,ns2"
 
-  - it: controller.watchNamespaces should override rbac.namespaces for WATCH_NAMESPACES
+  - it: controller.watchNamespaces should override rbac.namespaces for KAGENT_WATCH_NAMESPACES
     template: controller-configmap.yaml
     set:
       controller:
@@ -416,7 +430,7 @@ tests:
           - NAMESPACE
     asserts:
       - equal:
-          path: data.WATCH_NAMESPACES
+          path: data.KAGENT_WATCH_NAMESPACES
           value: "explicit-ns"
 
   - it: should derive watch namespaces from global.watchNamespaces, install namespace included
@@ -427,7 +441,7 @@ tests:
           - team-a
     asserts:
       - equal:
-          path: data.WATCH_NAMESPACES
+          path: data.KAGENT_WATCH_NAMESPACES
           value: "NAMESPACE,team-a"
 
   - it: should watch all namespaces when an explicit empty rbac.namespaces overrides the global
@@ -440,7 +454,7 @@ tests:
           - team-a
     asserts:
       - equal:
-          path: data.WATCH_NAMESPACES
+          path: data.KAGENT_WATCH_NAMESPACES
           value: ""
 
   - it: should set podAnnotations
@@ -641,7 +655,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             value: "@file:/var/run/secrets/kagent/postgres/connection-string"
       - notExists:
           path: spec.template.spec.initContainers
@@ -670,7 +684,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             value: "@file:/var/run/secrets/kagent/postgres/connection-string"
 
   - it: should keep the managed Kagent Secret when Substrate is enabled
@@ -682,7 +696,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             value: "@file:/var/run/secrets/kagent/postgres/connection-string"
 
   - it: should keep an explicitly separate Substrate database Secret separate
@@ -698,12 +712,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             value: "@file:/var/run/secrets/kagent/postgres/connection-string"
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             valueFrom:
               secretKeyRef:
                 name: substrate-db
@@ -723,12 +737,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             value: "@file:/var/run/secrets/kagent/postgres/connection-string"
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_DATABASE_URL
             valueFrom:
               secretKeyRef:
                 name: external-postgres
@@ -809,14 +823,14 @@ tests:
             secret:
               secretName: substrate-owner-db
 
-  - it: should set DATABASE_VECTOR_ENABLED to false by default
+  - it: should set KAGENT_DATABASE_VECTOR_ENABLED to false by default
     template: controller-configmap.yaml
     asserts:
       - equal:
-          path: data.DATABASE_VECTOR_ENABLED
+          path: data.KAGENT_DATABASE_VECTOR_ENABLED
           value: "false"
 
-  - it: should set DATABASE_VECTOR_ENABLED to true when enabled
+  - it: should set KAGENT_DATABASE_VECTOR_ENABLED to true when enabled
     template: controller-configmap.yaml
     set:
       database:
@@ -824,7 +838,7 @@ tests:
           vectorEnabled: true
     asserts:
       - equal:
-          path: data.DATABASE_VECTOR_ENABLED
+          path: data.KAGENT_DATABASE_VECTOR_ENABLED
           value: "true"
 
   - it: should set the default PostgreSQL role
@@ -913,11 +927,11 @@ tests:
           path: data.DB_MAX_CONN_LIFETIME
           value: "10m"
 
-  - it: should not set POSTGRES_DATABASE_URL in configmap
+  - it: should not set KAGENT_POSTGRES_DATABASE_URL in configmap
     template: controller-configmap.yaml
     asserts:
       - notExists:
-          path: data.POSTGRES_DATABASE_URL
+          path: data.KAGENT_POSTGRES_DATABASE_URL
 
   - it: should reject the removed url value
     template: controller-deployment.yaml
@@ -1023,18 +1037,12 @@ tests:
           any: true
 
   - it: should not set metrics env vars by default
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_BIND_ADDRESS
-          any: true
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_SECURE
-          any: true
+      - notExists:
+          path: data.KAGENT_METRICS_BIND_ADDRESS
+      - notExists:
+          path: data.KAGENT_METRICS_SECURE
 
   - it: should expose metrics container port when enabled
     template: controller-deployment.yaml
@@ -1049,32 +1057,26 @@ tests:
             protocol: TCP
 
   - it: should set metrics env vars when enabled
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller.metrics.enabled: true
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_BIND_ADDRESS
-            value: ":8443"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_SECURE
-            value: "true"
+      - equal:
+          path: data.KAGENT_METRICS_BIND_ADDRESS
+          value: ":8443"
+      - equal:
+          path: data.KAGENT_METRICS_SECURE
+          value: "true"
 
   - it: should reflect insecure serving in env
-    template: controller-deployment.yaml
+    template: controller-configmap.yaml
     set:
       controller.metrics.enabled: true
       controller.metrics.secureServing: false
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_SECURE
-            value: "false"
+      - equal:
+          path: data.KAGENT_METRICS_SECURE
+          value: "false"
 
   - it: should derive metrics container port from bindAddress
     template: controller-deployment.yaml
@@ -1082,11 +1084,10 @@ tests:
       controller.metrics.enabled: true
       controller.metrics.bindAddress: ":9443"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_BIND_ADDRESS
-            value: ":9443"
+      - equal:
+          path: data.KAGENT_METRICS_BIND_ADDRESS
+          value: ":9443"
+        template: controller-configmap.yaml
       - contains:
           path: spec.template.spec.containers[0].ports
           content:
@@ -1126,16 +1127,12 @@ tests:
       controller.metrics.enabled: true
       controller.metrics.bindAddress: "0"
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_BIND_ADDRESS
-          any: true
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_SECURE
-          any: true
+      - notExists:
+          path: data.KAGENT_METRICS_BIND_ADDRESS
+        template: controller-configmap.yaml
+      - notExists:
+          path: data.KAGENT_METRICS_SECURE
+        template: controller-configmap.yaml
       - notContains:
           path: spec.template.spec.containers[0].ports
           content:
@@ -1148,16 +1145,12 @@ tests:
       controller.metrics.enabled: true
       controller.metrics.bindAddress: ""
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_BIND_ADDRESS
-          any: true
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_SECURE
-          any: true
+      - notExists:
+          path: data.KAGENT_METRICS_BIND_ADDRESS
+        template: controller-configmap.yaml
+      - notExists:
+          path: data.KAGENT_METRICS_SECURE
+        template: controller-configmap.yaml
       - notContains:
           path: spec.template.spec.containers[0].ports
           content:
@@ -1169,16 +1162,15 @@ tests:
     set:
       controller.metrics.enabled: true
       controller.env:
-        - name: METRICS_BIND_ADDRESS
+        - name: KAGENT_METRICS_BIND_ADDRESS
           value: "0"
     asserts:
+      - equal:
+          path: data.KAGENT_METRICS_BIND_ADDRESS
+          value: ":8443"
+        template: controller-configmap.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: METRICS_BIND_ADDRESS
-            value: ":8443"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: METRICS_BIND_ADDRESS
+            name: KAGENT_METRICS_BIND_ADDRESS
             value: "0"

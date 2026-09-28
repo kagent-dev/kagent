@@ -56,12 +56,12 @@ describe("envIsSet", () => {
 
 describe("readEnv", () => {
   it("reads a key the application knows nothing about", () => {
-    window.environmentVariables = { EXTENSION_ANYTHING: "a-value" };
-    expect(readEnv("EXTENSION_ANYTHING", "a-fallback")).toBe("a-value");
+    window.environmentVariables = { KAGENT_UI_EXTENSION_ANYTHING: "a-value" };
+    expect(readEnv("KAGENT_UI_EXTENSION_ANYTHING", "a-fallback")).toBe("a-value");
   });
 
   it("uses the caller's fallback when it is absent", () => {
-    expect(readEnv("EXTENSION_ANYTHING", "a-fallback")).toBe("a-fallback");
+    expect(readEnv("KAGENT_UI_EXTENSION_ANYTHING", "a-fallback")).toBe("a-fallback");
   });
 });
 

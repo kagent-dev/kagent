@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -54,6 +55,11 @@ func DefaultMethodPolicies() MethodPolicies {
 		grpc_health_v1.Health_Watch_FullMethodName:                            auth.AccessPublic,
 		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":           auth.AccessPublic,
 		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo":      auth.AccessPublic,
+		apiv1alpha1.AgentService_ListAgents_FullMethodName:                    auth.AccessRead,
+		apiv1alpha1.AgentService_GetAgent_FullMethodName:                      auth.AccessRead,
+		apiv1alpha1.AgentService_CreateAgent_FullMethodName:                   auth.AccessCreate,
+		apiv1alpha1.AgentService_UpdateAgent_FullMethodName:                   auth.AccessUpdate,
+		apiv1alpha1.AgentService_DeleteAgent_FullMethodName:                   auth.AccessDelete,
 		apiv1alpha1.AgentTemplateService_ListAgentTemplates_FullMethodName:    auth.AccessRead,
 		apiv1alpha1.AgentTemplateService_GetAgentTemplate_FullMethodName:      auth.AccessRead,
 		apiv1alpha1.AgentTemplateService_CreateAgentTemplate_FullMethodName:   auth.AccessCreate,
@@ -62,24 +68,28 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.HarnessService_ListHarnesses_FullMethodName:               auth.AccessRead,
 		apiv1alpha1.HarnessService_CreateHarness_FullMethodName:               auth.AccessCreate,
 		apiv1alpha1.HarnessService_DeleteHarness_FullMethodName:               auth.AccessDelete,
+
+		apiv1alpha1.SandboxTemplateService_ListSandboxTemplates_FullMethodName:  auth.AccessRead,
+		apiv1alpha1.SandboxTemplateService_CreateSandboxTemplate_FullMethodName: auth.AccessCreate,
+		apiv1alpha1.SandboxTemplateService_DeleteSandboxTemplate_FullMethodName: auth.AccessDelete,
 	}
-	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = auth.AccessCreate
-	policies[apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName] = auth.AccessRead
-	policies[apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SessionService_CreateSession_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.SessionService_GetSession_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SessionService_ListSessions_FullMethodName] = auth.AccessRead
 	// A rename is the only write on this service that is not a lifecycle
 	// operation, and it must not inherit the read mode its neighbours carry.
-	policies[apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName] = auth.AccessUpdate
-	policies[apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName] = auth.AccessUpdate
-	policies[apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName] = auth.AccessUpdate
-	policies[apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName] = auth.AccessDelete
-	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName] = auth.AccessCreate
-	policies[apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName] = auth.AccessRead
-	policies[apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName] = auth.AccessDelete
+	policies[apiv1alpha1.SessionService_UpdateSessionName_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SessionService_SuspendSession_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SessionService_ResumeSession_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SessionService_DeleteSession_FullMethodName] = auth.AccessDelete
+	policies[apiv1alpha1.SessionService_CreateSessionShare_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.SessionService_ListSessionShares_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SessionService_RevokeSessionShare_FullMethodName] = auth.AccessDelete
 	policies[apiv1alpha1.CheckpointService_CreateCheckpoint_FullMethodName] = auth.AccessCreate
 	policies[apiv1alpha1.CheckpointService_GetCheckpoint_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.CheckpointService_ListCheckpoints_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.CheckpointService_DeleteCheckpoint_FullMethodName] = auth.AccessDelete
-	policies[apiv1alpha1.CheckpointService_ForkAgentInstance_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.CheckpointService_ForkSession_FullMethodName] = auth.AccessCreate
 	policies[apiv1alpha1.CheckpointService_UpdateCheckpointName_FullMethodName] = auth.AccessUpdate
 	policies[a2apb.A2AService_SendMessage_FullMethodName] = auth.AccessCreate
 	policies[a2apb.A2AService_SendStreamingMessage_FullMethodName] = auth.AccessCreate
@@ -100,5 +110,17 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1alpha1.ScheduledRunService_ListScheduledRuns_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.ScheduledRunService_GetScheduledRunExecution_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.ScheduledRunService_ListScheduledRunExecutions_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SandboxService_CreateSandbox_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.SandboxService_GetSandbox_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SandboxService_ListSandboxes_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.SandboxService_SuspendSandbox_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SandboxService_ResumeSandbox_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.SandboxService_DeleteSandbox_FullMethodName] = auth.AccessDelete
+	policies[guestpb.ProcessService_StartProcess_FullMethodName] = auth.AccessCreate
+	policies[guestpb.ProcessService_GetProcess_FullMethodName] = auth.AccessRead
+	policies[guestpb.ProcessService_KillProcess_FullMethodName] = auth.AccessUpdate
+	policies[guestpb.ProcessService_StreamProcessOutputs_FullMethodName] = auth.AccessRead
+	policies[guestpb.FileSystemService_ReadFile_FullMethodName] = auth.AccessRead
+	policies[guestpb.FileSystemService_WriteFile_FullMethodName] = auth.AccessUpdate
 	return policies
 }

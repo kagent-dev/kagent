@@ -8,23 +8,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
-const (
-	dbURLEnv   = "POSTGRES_DATABASE_URL"
-	dbRoleEnv  = "POSTGRES_DATABASE_ROLE"
-	sourceFlag = "source"
-)
+const sourceFlag = "source"
 
 var (
 	sourceNameRE    = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -95,7 +91,7 @@ func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
 		Use:   "migrate",
 		Short: "Apply, roll back, and inspect database migrations",
 		Long: `Apply, roll back, and inspect database migrations.
-The command reads POSTGRES_DATABASE_URL and POSTGRES_DATABASE_ROLE when their flags are empty.`,
+The command reads KAGENT_POSTGRES_DATABASE_URL and POSTGRES_DATABASE_ROLE when their flags are empty.`,
 	}
 	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL")
 	command.PersistentFlags().StringVar(&state.dbRole, "db-role", "", "Stable PostgreSQL role to assume after authentication")
@@ -112,16 +108,18 @@ func (s *commandState) role() string {
 	if role := strings.TrimSpace(s.dbRole); role != "" {
 		return role
 	}
-	return strings.TrimSpace(os.Getenv(dbRoleEnv))
+	return strings.TrimSpace(env.DatabaseRole.Get())
 }
 
 func (s *commandState) resolveDSN() (string, error) {
 	dsn := strings.TrimSpace(s.dbURL)
 	if dsn == "" {
-		dsn = os.Getenv(dbURLEnv)
+		if value, set := env.PostgresDatabaseURL.Lookup(); set {
+			dsn = value
+		}
 	}
 	if dsn == "" {
-		return "", fmt.Errorf("set the database URL with --db-url or %s", dbURLEnv)
+		return "", fmt.Errorf("set the database URL with --db-url or %s", env.PostgresDatabaseURL.Name())
 	}
 	return dsn, nil
 }

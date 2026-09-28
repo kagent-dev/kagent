@@ -4,8 +4,8 @@ package kagent.api.v1alpha1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
-import "kagent/api/v1alpha1/agent_instances.proto";
 import "kagent/api/v1alpha1/common.proto";
+import "kagent/api/v1alpha1/sessions.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
@@ -14,7 +14,7 @@ service CheckpointService {
   rpc GetCheckpoint(GetCheckpointRequest) returns (GetCheckpointResponse);
   rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
   rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (DeleteCheckpointResponse);
-  rpc ForkAgentInstance(ForkAgentInstanceRequest) returns (ForkAgentInstanceResponse);
+  rpc ForkSession(ForkSessionRequest) returns (ForkSessionResponse);
   rpc UpdateCheckpointName(UpdateCheckpointNameRequest) returns (UpdateCheckpointNameResponse);
 }
 
@@ -28,20 +28,20 @@ enum CheckpointState {
 
 message Checkpoint {
   string id = 1;
-  string agent_instance_id = 2;
+  string session_id = 2;
   string head_task_id = 3;
   uint64 history_sequence = 4;
   CheckpointState state = 5;
   google.protobuf.Timestamp created_at = 6;
   Failure failure = 7;
   // Display name for the checkpoint, and the name a fork taken from it is given.
-  // Defaulted at creation from the source instance and the turn the boundary sits
+  // Defaulted at creation from the source session and the turn the boundary sits
   // at, because both are what a reader has to tell two boundaries apart by.
   string name = 8;
 }
 
 message CreateCheckpointRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   string request_id = 2 [(buf.validate.field).string = {
     min_len: 1
     max_len: 128
@@ -64,7 +64,7 @@ message GetCheckpointResponse {
 }
 
 message ListCheckpointsRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
   PageRequest page = 2;
 }
 
@@ -79,7 +79,7 @@ message DeleteCheckpointRequest {
 
 message DeleteCheckpointResponse {}
 
-message ForkAgentInstanceRequest {
+message ForkSessionRequest {
   string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
   string request_id = 2 [(buf.validate.field).string = {
     min_len: 1
@@ -87,8 +87,8 @@ message ForkAgentInstanceRequest {
   }];
 }
 
-message ForkAgentInstanceResponse {
-  AgentInstance agent_instance = 1;
+message ForkSessionResponse {
+  Session session = 1;
 }
 
 message UpdateCheckpointNameRequest {

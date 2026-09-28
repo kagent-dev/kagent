@@ -11,7 +11,7 @@
 //
 //   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
 //     scoping. Falls back to the agent card name.
-//   - PORT: the port to listen on (default "8080").
+//   - KAGENT_PORT: the port to listen on (default "8080").
 //
 // Required environment variables:
 //
@@ -47,7 +47,7 @@ func main() {
 	logger, _ := logging.New(os.Stderr, "info")
 	slog.SetDefault(logger)
 
-	modelName := os.Getenv("MODEL_NAME")
+	modelName := os.Getenv("MODEL_NAME") //nolint:forbidigo // Application-specific setting in this standalone BYO example.
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}
