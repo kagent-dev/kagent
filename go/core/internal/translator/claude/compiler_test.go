@@ -147,7 +147,7 @@ func TestCompileTracing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(revision.Capabilities, []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"}) {
+	if !reflect.DeepEqual(revision.Capabilities, []string{"CHOWN", "SETGID", "SETUID"}) {
 		t.Fatalf("a Claude revision asks for what running Claude Code unprivileged needs, got %v", revision.Capabilities)
 	}
 	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://collector:4317", "http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"}) {

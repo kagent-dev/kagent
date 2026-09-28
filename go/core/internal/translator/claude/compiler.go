@@ -155,7 +155,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 // root, hand the workspace and Claude's state to the image's unprivileged user
 // and start Claude Code as that user, so Claude and its tools cannot read the
 // harness process that holds the turn's credential.
-var unprivilegedClaudeCapabilities = []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"}
+var unprivilegedClaudeCapabilities = []string{"CHOWN", "SETGID", "SETUID"}
 
 func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]claudeconfig.Agent, error) {
 	if len(root.Shared) == 0 {
