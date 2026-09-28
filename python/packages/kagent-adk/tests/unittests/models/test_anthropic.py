@@ -2,7 +2,7 @@
 
 from unittest import mock
 
-import httpx
+import httpx2
 import pytest
 from anthropic import AsyncAnthropic
 from anthropic.lib.credentials import AccessToken
@@ -181,10 +181,10 @@ class TestFoundryAnthropic:
     async def test_api_key_uses_messages_path_and_x_api_key(self):
         captured_request = None
 
-        async def handler(request: httpx.Request) -> httpx.Response:
+        async def handler(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_request
             captured_request = request
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "id": "msg_1",
@@ -197,7 +197,7 @@ class TestFoundryAnthropic:
                 },
             )
 
-        http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
         with (
             mock.patch.dict("os.environ", {"FOUNDRY_API_KEY": "foundry-key"}, clear=True),
             mock.patch.object(FoundryAnthropic, "_create_http_client", return_value=http_client),
@@ -225,10 +225,10 @@ class TestFoundryAnthropic:
     async def test_workload_identity_uses_bearer_without_x_api_key(self):
         captured_request = None
 
-        async def handler(request: httpx.Request) -> httpx.Response:
+        async def handler(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_request
             captured_request = request
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "id": "msg_1",
@@ -241,7 +241,7 @@ class TestFoundryAnthropic:
                 },
             )
 
-        http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
         token_provider = mock.Mock(return_value=AccessToken(token="entra-token", expires_at=4_102_444_800))
         with (
             mock.patch.dict("os.environ", {}, clear=True),

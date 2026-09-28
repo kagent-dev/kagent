@@ -6,6 +6,7 @@ import os
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 import httpx
+import httpx2
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from openai.lib.azure import API_KEY_SENTINEL
@@ -156,7 +157,7 @@ def build_foundry_anthropic_client(
     api_key: Optional[str],
     api_key_passthrough: Optional[bool],
     default_headers: Optional[dict[str, str]],
-    http_client: Optional[httpx.AsyncClient],
+    http_client: Optional[httpx2.AsyncClient],
 ) -> AsyncAnthropic:
     """Build a Foundry Anthropic client using key, passthrough, or Workload Identity auth."""
     if api_key_passthrough and not api_key:
