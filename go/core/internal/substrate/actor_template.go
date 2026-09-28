@@ -88,6 +88,10 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, err
 	}
 
+	var securityContext *ateapipb.SecurityContext
+	if len(spec.Capabilities) != 0 {
+		securityContext = &ateapipb.SecurityContext{Capabilities: &ateapipb.Capabilities{Add: append([]string(nil), spec.Capabilities...)}}
+	}
 	template := &ateapipb.ActorTemplate{
 		Metadata:      &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
 		SandboxConfig: sandboxConfig,
@@ -106,6 +110,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				{Name: egressTrustVolume, MountPath: egressTrustMount},
 				{Name: actorIdentityVolume, MountPath: actorIdentityMount},
 			},
+			SecurityContext: securityContext,
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{

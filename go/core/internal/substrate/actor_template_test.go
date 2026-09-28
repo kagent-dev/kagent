@@ -216,3 +216,39 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 		})
 	}
 }
+
+func TestActorTemplateAddsTheRevisionsCapabilities(t *testing.T) {
+	spec := &translator.Revision{
+		Namespace: "agents", AgentName: "helper",
+		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		WorkerPoolName: "default", SnapshotLocation: "snapshots",
+		ConfigJSON: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
+	}
+	plainID, err := spec.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := ActorTemplateForRevision(spec, plainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.GetContainers()[0].GetSecurityContext() != nil {
+		t.Fatalf("a revision without capabilities keeps Substrate's default set, got %v", plain.GetContainers()[0].GetSecurityContext())
+	}
+	spec.Capabilities = []string{"SETUID", "SETGID"}
+	id, err := spec.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == plainID {
+		t.Fatal("the capabilities are part of the revision identity")
+	}
+	template, err := ActorTemplateForRevision(spec, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := template.GetContainers()[0].GetSecurityContext().GetCapabilities().GetAdd(); !slices.Equal(got, []string{"SETUID", "SETGID"}) {
+		t.Fatalf("added capabilities = %v", got)
+	}
+}

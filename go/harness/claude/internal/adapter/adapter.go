@@ -157,7 +157,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, err
 	}
 	if runAs != nil {
-		environment = setEnvironment(environment, config.HomeEnvName, input.DurableDir)
+		environment = setEnvironment(environment, config.HomeEnvName, claudeDir)
 	}
 	processConfig := driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
