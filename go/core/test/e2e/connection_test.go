@@ -2,17 +2,18 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -32,8 +33,14 @@ func waitForControllerAPI(ctx context.Context, conn *grpc.ClientConn) error {
 	// NewClient connects lazily. A fresh connection can time out while Service
 	// routing settles after a controller rollout, even if a previous probe passed.
 	// Wait only on this read-only probe; mutations keep their normal retry contract.
-	_, err := apiv1alpha1.NewSystemServiceClient(conn).GetVersion(ctx, &apiv1alpha1.GetVersionRequest{}, grpc.WaitForReady(true))
-	return err
+	response, err := grpc_health_v1.NewHealthClient(conn).Check(ctx, &grpc_health_v1.HealthCheckRequest{}, grpc.WaitForReady(true))
+	if err != nil {
+		return err
+	}
+	if response.GetStatus() != grpc_health_v1.HealthCheckResponse_SERVING {
+		return fmt.Errorf("controller gRPC health is %s", response.GetStatus())
+	}
+	return nil
 }
 
 func TestControllerConnectionReadiness(t *testing.T) {
@@ -41,19 +48,23 @@ func TestControllerConnectionReadiness(t *testing.T) {
 		name        string
 		failedDials int32
 		serverCode  codes.Code
+		health      grpc_health_v1.HealthCheckResponse_ServingStatus
 		wantCode    codes.Code
 		wantCalls   int32
+		wantError   string
 	}{
-		{name: "healthy", wantCalls: 1},
-		{name: "first dial times out", failedDials: 1, wantCalls: 1},
+		{name: "healthy", health: grpc_health_v1.HealthCheckResponse_SERVING, wantCalls: 1},
+		{name: "first dial times out", failedDials: 1, health: grpc_health_v1.HealthCheckResponse_SERVING, wantCalls: 1},
 		{name: "unreachable until deadline", failedDials: -1, wantCode: codes.DeadlineExceeded},
 		{name: "server error is not retried", serverCode: codes.Unavailable, wantCode: codes.Unavailable, wantCalls: 1},
+		{name: "not serving", health: grpc_health_v1.HealthCheckResponse_NOT_SERVING, wantCode: codes.Unknown, wantCalls: 1, wantError: "controller gRPC health is NOT_SERVING"},
+		{name: "unknown health", health: grpc_health_v1.HealthCheckResponse_UNKNOWN, wantCode: codes.Unknown, wantCalls: 1, wantError: "controller gRPC health is UNKNOWN"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			listener := bufconn.Listen(1024 * 1024)
 			server := grpc.NewServer()
-			service := &readinessSystemServer{code: test.serverCode}
-			apiv1alpha1.RegisterSystemServiceServer(server, service)
+			service := &readinessHealthServer{code: test.serverCode, health: test.health}
+			grpc_health_v1.RegisterHealthServer(server, service)
 			serveErr := make(chan error, 1)
 			go func() { serveErr <- server.Serve(listener) }()
 			t.Cleanup(func() {
@@ -86,6 +97,9 @@ func TestControllerConnectionReadiness(t *testing.T) {
 			defer cancel()
 			err = waitForControllerAPI(ctx, conn)
 			require.Equal(t, test.wantCode, status.Code(err), "%v", err)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+			}
 			require.Equal(t, test.wantCalls, service.calls.Load())
 			if test.failedDials >= 0 {
 				require.Equal(t, test.failedDials+1, dials.Load())
@@ -94,15 +108,16 @@ func TestControllerConnectionReadiness(t *testing.T) {
 	}
 }
 
-type readinessSystemServer struct {
-	apiv1alpha1.UnimplementedSystemServiceServer
-	code  codes.Code
-	calls atomic.Int32
+type readinessHealthServer struct {
+	grpc_health_v1.UnimplementedHealthServer
+	code   codes.Code
+	health grpc_health_v1.HealthCheckResponse_ServingStatus
+	calls  atomic.Int32
 }
 
-var _ apiv1alpha1.SystemServiceServer = (*readinessSystemServer)(nil)
+var _ grpc_health_v1.HealthServer = (*readinessHealthServer)(nil)
 
-func (s *readinessSystemServer) GetVersion(context.Context, *apiv1alpha1.GetVersionRequest) (*apiv1alpha1.GetVersionResponse, error) {
+func (s *readinessHealthServer) Check(context.Context, *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	s.calls.Add(1)
-	return &apiv1alpha1.GetVersionResponse{}, status.Error(s.code, "controller unavailable")
+	return &grpc_health_v1.HealthCheckResponse{Status: s.health}, status.Error(s.code, "controller unavailable")
 }
