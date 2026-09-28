@@ -78,12 +78,12 @@
 
 ### Core Principles
 
-- **Kubernetes Native**: Agents and tools are managed as Kubernetes custom resources using familiar `kubectl` workflows.
-- **Extensible**: Kagent is designed to be extensible, so you can add your own agents and tools.
-- **Flexible**: Kagent is designed to be flexible, to suit any AI agent use case.
-- **Observable**: Kagent is designed to be observable, so you can monitor the agents and tools using all common monitoring frameworks.
-- **Declarative**: Kagent is designed to be declarative, so you can define the agents and tools in a YAML file.
-- **Testable**: Kagent is designed to be tested and debugged easily. This is especially important for AI agent applications.
+- **Kubernetes Native**: Manage agent and tool configuration through Kubernetes APIs and familiar `kubectl` workflows.
+- **Extensible**: Add custom tools, skills, and runtimes to connect agents to your own systems.
+- **Flexible**: Choose the models and runtimes that fit your workload, and reuse agent templates across compatible harnesses.
+- **Observable**: Trace agent, model, and tool execution with OpenTelemetry and your existing observability stack.
+- **Declarative**: Define agents in YAML, keep configuration in version control, and deploy through GitOps workflows.
+- **Testable**: Test agents through their public APIs and use task history and traces to diagnose failures.
 
 ### Architecture
 
