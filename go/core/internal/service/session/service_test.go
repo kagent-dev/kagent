@@ -288,39 +288,37 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	}
 }
 
-func TestServiceCreateShareSetsExpiryFromTTL(t *testing.T) {
-	store := &serviceTestStore{}
-	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-	before := time.Now()
-
-	share, _, err := service.CreateShare(serviceTestContext("alice"), "11111111-1111-4111-8111-111111111111",
-		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expires := share.GetExpiresAt().AsTime()
-	if expires.Before(before.Add(time.Hour)) || expires.After(time.Now().Add(time.Hour)) {
-		t.Fatalf("share expires at %v, want an hour after its creation", expires)
-	}
-}
-
-func TestServiceCreateShareAppliesMaxTTL(t *testing.T) {
-	sessionID := "11111111-1111-4111-8111-111111111111"
-	permission := apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY
+func TestServiceCreateShareTTL(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		ttl  time.Duration
-		want time.Duration
+		name    string
+		maxTTL  time.Duration
+		ttl     time.Duration
+		want    time.Duration
+		wantErr bool
 	}{
-		{name: "unset ttl takes the maximum", want: 24 * time.Hour},
-		{name: "shorter ttl is kept", ttl: time.Hour, want: time.Hour},
-		{name: "ttl equal to the maximum is kept", ttl: 24 * time.Hour, want: 24 * time.Hour},
+		{name: "ttl without a maximum is kept", ttl: time.Hour, want: time.Hour},
+		{name: "unset ttl takes the maximum", maxTTL: 24 * time.Hour, want: 24 * time.Hour},
+		{name: "shorter ttl is kept", maxTTL: 24 * time.Hour, ttl: time.Hour, want: time.Hour},
+		{name: "ttl equal to the maximum is kept", maxTTL: 24 * time.Hour, ttl: 24 * time.Hour, want: 24 * time.Hour},
+		{name: "ttl above the maximum is refused", maxTTL: 24 * time.Hour, ttl: 25 * time.Hour, wantErr: true},
+		{name: "negative ttl is refused", ttl: -time.Second, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithShareMaxTTL(24*time.Hour))
+			store := &serviceTestStore{}
+			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithShareMaxTTL(test.maxTTL))
 			before := time.Now()
 
-			share, _, err := service.CreateShare(serviceTestContext("alice"), sessionID, permission, test.ttl)
+			share, _, err := service.CreateShare(serviceTestContext("alice"), "11111111-1111-4111-8111-111111111111",
+				apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, test.ttl)
+			if test.wantErr {
+				if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
+					t.Fatalf("CreateShare error = %v, want InvalidArgument", err)
+				}
+				if store.share != nil {
+					t.Fatal("a refused share reached the store")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -329,34 +327,6 @@ func TestServiceCreateShareAppliesMaxTTL(t *testing.T) {
 				t.Fatalf("share expires at %v, want %v after its creation", expires, test.want)
 			}
 		})
-	}
-}
-
-func TestServiceCreateShareRejectsTTLAboveMax(t *testing.T) {
-	store := &serviceTestStore{}
-	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithShareMaxTTL(24*time.Hour))
-
-	_, _, err := service.CreateShare(serviceTestContext("alice"), "11111111-1111-4111-8111-111111111111",
-		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, 25*time.Hour)
-	if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
-		t.Fatalf("CreateShare error = %v, want InvalidArgument", err)
-	}
-	if store.share != nil {
-		t.Fatal("a refused share reached the store")
-	}
-}
-
-func TestServiceCreateShareRejectsNegativeTTL(t *testing.T) {
-	store := &serviceTestStore{}
-	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-
-	_, _, err := service.CreateShare(serviceTestContext("alice"), "11111111-1111-4111-8111-111111111111",
-		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, -time.Second)
-	if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
-		t.Fatalf("CreateShare error = %v, want InvalidArgument", err)
-	}
-	if store.share != nil {
-		t.Fatal("a refused share reached the store")
 	}
 }
 

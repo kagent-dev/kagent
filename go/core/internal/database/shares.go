@@ -12,17 +12,18 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// toSessionShare decodes a share and rejects disagreement between its payload and
-// indexed identity, session, permission, or expiry.
+// toSessionShare decodes a share, rejects disagreement between its payload and
+// indexed identity, session, or permission, and takes its expiry from the column.
 func toSessionShare(row sessionShareRow) (*apiv1alpha1.SessionShare, error) {
 	share := &apiv1alpha1.SessionShare{}
 	if err := proto.Unmarshal(row.Data, share); err != nil {
 		return nil, fmt.Errorf("decode Session share %s: %w", row.ID, err)
 	}
 	if share.GetId() != row.ID.String() || share.GetSessionId() != row.SessionID.String() ||
-		share.GetPermission().String() != row.Permission || !sameExpiry(share.GetExpiresAt(), row.ExpiresAt) {
+		share.GetPermission().String() != row.Permission {
 		return nil, fmt.Errorf("session share %s payload disagrees with indexed columns", row.ID)
 	}
+	share.ExpiresAt = optionalTimestamp(row.ExpiresAt)
 	return share, nil
 }
 
@@ -39,10 +40,10 @@ func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.Sess
 	value.CreatedAt = timestamppb.Now()
 	var expiresAt *time.Time
 	if value.ExpiresAt != nil {
-		// The column keeps microseconds; the payload is truncated alike so both agree.
-		at := value.GetExpiresAt().AsTime().Truncate(time.Microsecond)
-		value.ExpiresAt, expiresAt = timestamppb.New(at), &at
+		at := value.GetExpiresAt().AsTime()
+		expiresAt = &at
 	}
+	value.ExpiresAt = nil
 	data, err := proto.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("encode Session share: %w", err)
@@ -139,12 +140,4 @@ type sessionShareRow struct {
 	ExpiresAt  *time.Time
 	// Only token resolution joins the owner; other queries omit this column.
 	OwnerUserID *string
-}
-
-// sameExpiry reports whether a share payload's expiry and its column agree.
-func sameExpiry(payload *timestamppb.Timestamp, column *time.Time) bool {
-	if payload == nil || column == nil {
-		return payload == nil && column == nil
-	}
-	return payload.AsTime().Equal(*column)
 }

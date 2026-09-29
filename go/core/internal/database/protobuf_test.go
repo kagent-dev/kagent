@@ -3,7 +3,6 @@ package database
 import (
 	"crypto/sha256"
 	"testing"
-	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
@@ -343,7 +342,4 @@ func TestProtobufRowsRejectInconsistentIndexes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = toSessionShare(sessionShareRow{ID: id, SessionID: id, Permission: "SESSION_SHARE_PERMISSION_READ_ONLY", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
-	column := time.Now()
-	_, err = toSessionShare(sessionShareRow{ID: id, SessionID: id, Permission: share.GetPermission().String(), Data: data, ExpiresAt: &column})
-	require.ErrorContains(t, err, "disagrees with indexed columns", "an expiry only the column holds")
 }

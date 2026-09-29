@@ -65,6 +65,10 @@ func TestSessionRequestValidation(t *testing.T) {
 		{"checkpoint without selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
 		{"checkpoint selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request", ExpectedHeadTaskId: "task"}, true},
 		{"checkpoint rename control character", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
+		{"share without ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}, true},
+		{"share positive ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(time.Hour)}, true},
+		{"share zero ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(0)}, false},
+		{"share negative ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(-time.Second)}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)
@@ -157,34 +161,6 @@ func TestAgentRequestValidation(t *testing.T) {
 			}
 			if status.Code(err) != want {
 				t.Fatalf("validation code = %v, want %v", status.Code(err), want)
-			}
-		})
-	}
-}
-
-func TestShareTTLMustBePositive(t *testing.T) {
-	validator, err := protovalidate.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessionID := "11111111-1111-4111-8111-111111111111"
-	readWrite := apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE
-	for name, test := range map[string]struct {
-		ttl   *durationpb.Duration
-		valid bool
-	}{
-		"unset":    {ttl: nil, valid: true},
-		"positive": {ttl: durationpb.New(time.Hour), valid: true},
-		"zero":     {ttl: durationpb.New(0)},
-		"negative": {ttl: durationpb.New(-time.Second)},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := validator.Validate(&apiv1alpha1.CreateSessionShareRequest{SessionId: sessionID, Permission: readWrite, Ttl: test.ttl})
-			if test.valid && err != nil {
-				t.Fatalf("Validate = %v, want valid", err)
-			}
-			if !test.valid && err == nil {
-				t.Fatal("Validate accepted the ttl")
 			}
 		})
 	}
