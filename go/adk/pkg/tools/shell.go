@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -256,6 +257,10 @@ func ListDirContent(path string) (string, error) {
 	return strings.TrimSuffix(result.String(), "\n"), nil
 }
 
+// commandWaitDelay bounds how long ExecuteCommand keeps reading output after
+// the shell has exited or been killed.
+const commandWaitDelay = 2 * time.Second
+
 func NewCommandExecutor() *CommandExecutor {
 	return &CommandExecutor{}
 }
@@ -313,13 +318,21 @@ func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, wo
 	if strings.Contains(command, "python") {
 		timeout = 60 * time.Second
 	}
+	return e.executeCommand(ctx, command, workingDir, timeout)
+}
 
+func (e *CommandExecutor) executeCommand(ctx context.Context, command string, workingDir string, timeout time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
 	cmd.Env = commandEnv(os.Environ(), workingDir)
+	killProcessGroupOnCancel(cmd)
+	// Stop waiting for the output pipes this long after the shell exits or is
+	// killed. A background job the command started inherits them and would
+	// otherwise block the call for as long as it runs.
+	cmd.WaitDelay = commandWaitDelay
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -328,6 +341,11 @@ func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, wo
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("command timed out after %v", timeout)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The shell exited successfully; only a background job still held
+		// the output pipes, so report what the command printed.
+		err = nil
 	}
 
 	stdoutStr := stdout.String()
