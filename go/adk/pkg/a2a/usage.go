@@ -32,7 +32,7 @@ type usageActivationInterceptor struct {
 }
 
 func (*usageActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
-	if callCtx != nil && callCtx.Extensions().Requested(&usageAgentExtension) {
+	if extensionRequested(callCtx, UsageExtensionURI) {
 		callCtx.Extensions().Activate(&usageAgentExtension)
 	}
 	return ctx, nil, nil

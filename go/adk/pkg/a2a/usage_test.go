@@ -412,6 +412,7 @@ func TestUsageActivationInterceptor(t *testing.T) {
 		want      bool
 	}{
 		"requested":     {requested: []string{HITLExtensionURI, UsageExtensionURI}, want: true},
+		"joined value":  {requested: []string{HITLExtensionURI + ", " + UsageExtensionURI}, want: true},
 		"not requested": {requested: []string{HITLExtensionURI}, want: false},
 		"other version": {requested: []string{"https://kagent.dev/extensions/usage/v2"}, want: false},
 	}
