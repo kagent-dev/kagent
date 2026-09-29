@@ -588,7 +588,10 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			}
 			return
 		case nil:
+			// The runtime holds nothing for the task, so there is nothing to
+			// stop; the caller's saved task still needs its terminal boundary.
 			e.mu.Unlock()
+			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
 			return
 		default:
 			e.mu.Unlock()

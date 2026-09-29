@@ -406,3 +406,51 @@ func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
 		})
 	}
 }
+
+// cancelProbe is a native executor that records whether it was asked to run or
+// to cancel.
+type cancelProbe struct {
+	executes atomic.Int32
+	cancels  atomic.Int32
+}
+
+func (p *cancelProbe) Execute(context.Context, *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	p.executes.Add(1)
+	return func(func(a2a.Event, error) bool) {}
+}
+
+func (p *cancelProbe) Cancel(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	p.cancels.Add(1)
+	return func(yield func(a2a.Event, error) bool) {
+		yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateCanceled, nil), nil)
+	}
+}
+
+// A cancel that reaches the runtime before native execution starts stops that
+// start and goes to the native executor, whose cancel yields the one CANCELED
+// boundary for the task saved as SUBMITTED; the execution itself ends silently.
+func TestCancelBeforeNativeStartLeavesTheBoundaryToTheNativeCancel(t *testing.T) {
+	native := &cancelProbe{}
+	wrapper := (&Store{}).WrapExecutor(native, tracing.RuntimeClaude, nil)
+	input := &a2asrv.ExecutorContext{TaskID: "task", ContextID: "conversation"}
+	state := &execution{ready: make(chan struct{})}
+	ctx := context.WithValue(t.Context(), executionKey{}, state)
+	cancelCtx := context.WithValue(t.Context(), executionKey{}, &execution{ready: make(chan struct{})})
+
+	var events, cancelEvents []a2a.Event
+	for event, err := range wrapper.Execute(ctx, input) {
+		require.NoError(t, err)
+		events = append(events, event)
+		for cancelEvent, cancelErr := range wrapper.Cancel(cancelCtx, input) {
+			require.NoError(t, cancelErr)
+			cancelEvents = append(cancelEvents, cancelEvent)
+		}
+		recordSave(ctx, &a2a.Task{Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}, 1)
+	}
+	require.Len(t, events, 1)
+	require.Equal(t, a2a.TaskStateSubmitted, events[0].(*a2a.Task).Status.State)
+	require.Len(t, cancelEvents, 1)
+	require.Equal(t, a2a.TaskStateCanceled, cancelEvents[0].(*a2a.TaskStatusUpdateEvent).Status.State)
+	require.Zero(t, native.executes.Load(), "native execution must not start after the cancel")
+	require.Equal(t, int32(1), native.cancels.Load())
+}

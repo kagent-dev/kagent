@@ -544,3 +544,23 @@ func collect(seq iter.Seq2[a2atype.Event, error]) ([]a2atype.Event, []error) {
 	}
 	return events, errs
 }
+
+// A cancel for a task the runtime holds nothing for still yields the CANCELED
+// boundary, so the caller's saved task does not stay SUBMITTED or WORKING.
+func TestCancelWithoutActiveTaskYieldsCanceled(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+		t.Fatal("nothing runs on a cancel")
+		return runtime.Outcome{}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelEvents, cancelErrs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
+	if len(cancelErrs) != 0 || len(cancelEvents) != 1 {
+		t.Fatalf("Cancel() events/errors = %#v/%v", cancelEvents, cancelErrs)
+	}
+	update, ok := cancelEvents[0].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || update.Status.State != a2atype.TaskStateCanceled || update.TaskID != "task-1" {
+		t.Fatalf("cancel event = %#v", cancelEvents[0])
+	}
+}
