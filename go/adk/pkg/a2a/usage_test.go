@@ -430,3 +430,136 @@ func TestUsageActivationInterceptor(t *testing.T) {
 		})
 	}
 }
+
+func cancelledStatus(t *testing.T, executor *KAgentExecutor, reqCtx *a2asrv.ExecutorContext) *a2atype.TaskStatusUpdateEvent {
+	t.Helper()
+	for event, err := range executor.Cancel(t.Context(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Cancel() error = %v", err)
+		}
+		if status, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && status.Status.State == a2atype.TaskStateCanceled {
+			return status
+		}
+	}
+	t.Fatal("no canceled status update emitted")
+	return nil
+}
+
+// TestTurnUsageReportedOnCancelOfRunningExecution covers a cancel request that
+// interrupts an execution: a2a-go makes the canceled status the task's final
+// event and discards the execution's own, so the canceled status must carry
+// the calls completed before the cancel.
+func TestTurnUsageReportedOnCancelOfRunningExecution(t *testing.T) {
+	const appName = "cancel-usage-app"
+	counted := make(chan struct{})
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "cancel-usage-agent",
+		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				for _, response := range []model.LLMResponse{usageResponse("first", 10, 5, 15), usageResponse("second", 20, 7, 27)} {
+					if !yield(&adksession.Event{
+						Author: ic.Agent().Name(), InvocationID: ic.InvocationID(), Branch: ic.Branch(), LLMResponse: response,
+					}, nil) {
+						return
+					}
+				}
+				close(counted)
+				<-ic.Done()
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName: appName, SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
+		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
+	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
+
+	stored := &a2atype.Task{
+		ID: "task-1", ContextID: "context-1",
+		Metadata: map[string]any{UsageExtensionURI: map[string]any{
+			"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120),
+		}},
+	}
+	executionCtx, stopExecution := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range executor.Execute(executionCtx, &a2asrv.ExecutorContext{
+			TaskID: "task-1", ContextID: "context-1", StoredTask: stored,
+			Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+		}) {
+		}
+	}()
+	t.Cleanup(func() {
+		stopExecution()
+		<-done
+	})
+	<-counted
+
+	status := cancelledStatus(t, executor, &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1", StoredTask: stored})
+
+	usage := usageFrom(t, status)
+	assertTotals(t, usage, 130, 32, 162)
+	want := []apia2a.ModelUsage{{Model: "gpt-4o-2024-11-20", TokenCounts: apia2a.TokenCounts{InputTokens: 30, OutputTokens: 12, TotalTokens: 42}}}
+	if !slices.Equal(usage.Models, want) {
+		t.Fatalf("models = %+v, want %+v", usage.Models, want)
+	}
+}
+
+// TestTurnUsageReportedOnCancelOfParkedTask covers a cancel request for a task
+// with no running execution, such as one waiting for input: the canceled
+// status repeats the persisted total so it stays the task's latest value.
+func TestTurnUsageReportedOnCancelOfParkedTask(t *testing.T) {
+	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName: "parked-app", SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
+		RunnerConfig: runner.Config{AppName: "parked-app", Agent: mustNoopAgent(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewKAgentExecutor() error = %v", err)
+	}
+	stored := &a2atype.Task{
+		ID: "task-1", ContextID: "context-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired},
+		Metadata: map[string]any{UsageExtensionURI: map[string]any{
+			"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120),
+		}},
+	}
+
+	status := cancelledStatus(t, executor, &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1", StoredTask: stored})
+
+	assertTotals(t, usageFrom(t, status), 100, 20, 120)
+}
+
+func mustNoopAgent(t *testing.T) adkagent.Agent {
+	t.Helper()
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "noop-agent",
+		Run: func(adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(func(*adksession.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	return agent
+}
+
+func TestRunningUsageTracksOnlyTheLatestExecution(t *testing.T) {
+	var running runningUsage
+	first, second := &turnUsage{}, &turnUsage{}
+
+	untrackFirst := running.track("task-1", first)
+	untrackSecond := running.track("task-1", second)
+	untrackFirst()
+	if got := running.of("task-1"); got != second {
+		t.Fatalf("of(task-1) = %p, want the latest execution %p", got, second)
+	}
+	untrackSecond()
+	if got := running.of("task-1"); got != nil {
+		t.Fatalf("of(task-1) = %p, want nil after the execution ends", got)
+	}
+}

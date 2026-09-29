@@ -175,6 +175,10 @@ class A2aAgentExecutor(AgentExecutor):
     ):
         self._runner = runner
         self._kagent_config = config or A2aAgentExecutorConfig()
+        # A cancel request arrives with its own context while the execution it
+        # interrupts may still be running; its canceled status is the task's
+        # final event, so it reports that execution's usage.
+        self._running_usage: dict[str, TurnUsage] = {}
 
     async def _resolve_runner(self) -> Runner:
         if not callable(self._runner):
@@ -186,11 +190,21 @@ class A2aAgentExecutor(AgentExecutor):
         return resolved_runner
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        executor = UpstreamA2aAgentExecutor(
-            runner=self._runner,
-            force_new_version=True,
+        if not context.task_id:
+            raise ValueError("A2A cancellation must have a task ID")
+        usage = self._running_usage.get(context.task_id)
+        if usage is None:
+            usage = TurnUsage()
+            usage.seed_from_task(context.current_task)
+        event = TaskStatusUpdateEvent(
+            task_id=context.task_id,
+            context_id=context.context_id,
+            status=TaskStatus(state=TaskState.TASK_STATE_CANCELED, timestamp=now_timestamp()),
         )
-        await executor.cancel(context, event_queue)
+        metadata: dict[str, Any] = {}
+        usage.stamp(metadata)
+        event.metadata.update(metadata)
+        await event_queue.enqueue_event(event)
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         if not context.message:
@@ -202,6 +216,9 @@ class A2aAgentExecutor(AgentExecutor):
         # Resumed tasks (HITL cycles, follow-up messages) carry the previously
         # persisted total, so the usage total stays a task-lifetime sum.
         execution_state.usage.seed_from_task(context.current_task)
+        task_id = context.task_id
+        if task_id:
+            self._running_usage[task_id] = execution_state.usage
         identity_token = public_context_id.set(context.context_id)
         user_token = None
         try:
@@ -268,6 +285,8 @@ class A2aAgentExecutor(AgentExecutor):
                 context, event_queue, _friendly_error_message(str(error)), execution_state.usage
             )
         finally:
+            if task_id and self._running_usage.get(task_id) is execution_state.usage:
+                del self._running_usage[task_id]
             public_context_id.reset(identity_token)
             if user_token is not None:
                 request_user_id.reset(user_token)

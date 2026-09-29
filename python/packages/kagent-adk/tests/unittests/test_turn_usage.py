@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
@@ -17,14 +20,17 @@ from a2a.types import (
 )
 from google.adk.a2a.converters.event_converter import convert_event_to_a2a_message
 from google.adk.a2a.converters.long_running_functions import LongRunningFunctions
+from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.a2a.executor.executor_context import ExecutorContext
 from google.adk.agents.base_agent import BaseAgent
+from google.adk.agents.run_config import RunConfig
 from google.adk.events import Event
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import USAGE_EXTENSION_URI
 
+import kagent.adk._agent_executor as executor_module
 from kagent.adk._agent_executor import A2aAgentExecutor, _ExecutionState
 from kagent.adk._turn_usage import (
     TURN_USAGE_PLUGIN_NAME,
@@ -345,3 +351,106 @@ async def test_failed_status_event_carries_the_total():
     assert len(published) == 1
     assert published[0].status.state == TaskState.TASK_STATE_FAILED
     assert MessageToDict(published[0].metadata)[USAGE_EXTENSION_URI] == counts(100, 20, 120)
+
+
+class _ListQueue:
+    def __init__(self) -> None:
+        self.events: list = []
+
+    async def enqueue_event(self, event) -> None:
+        self.events.append(event)
+
+
+def _cancel_context(task: Task | None) -> RequestContext:
+    return RequestContext(
+        ServerCallContext(state={}),
+        None,
+        task_id="task-1",
+        context_id="ctx-1",
+        task=task,
+    )
+
+
+def _canceled_usage(queue: _ListQueue) -> dict:
+    [event] = [e for e in queue.events if e.status.state == TaskState.TASK_STATE_CANCELED]
+    return MessageToDict(event.metadata)[USAGE_EXTENSION_URI]
+
+
+@pytest.mark.asyncio
+async def test_cancel_reports_usage_of_the_running_execution(monkeypatch):
+    """A cancel request's canceled status is the task's final event, so it
+    carries the calls the interrupted execution completed."""
+    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
+    executor = A2aAgentExecutor(runner=lambda: None)
+    executor._resolve_runner = AsyncMock(return_value=runner)
+    executor._convert_request = lambda request_context, part_converter: AgentRunRequest(
+        user_id="user-1", session_id="ctx-1", run_config=RunConfig()
+    )
+    executor._prepare_session = AsyncMock()
+    executor._safe_close_runner = AsyncMock()
+    counted = asyncio.Event()
+
+    class BlockingUpstreamExecutor:
+        def __init__(self, *, runner, config, force_new_version):
+            self.runner = runner
+
+        async def execute(self, request_context, queue):
+            plugin = self.runner.plugin_manager.get_plugin(TURN_USAGE_PLUGIN_NAME)
+            await plugin.on_event_callback(
+                invocation_context=None, event=usage_event(10, 5, 15, "model-a", partial=False, event_id="e1")
+            )
+            counted.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(executor_module, "UpstreamA2aAgentExecutor", BlockingUpstreamExecutor)
+    stored = task_with_usage(counts(100, 20, 120))
+    message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
+    execution_queue = _ListQueue()
+    execution = asyncio.create_task(
+        executor.execute(
+            RequestContext(
+                ServerCallContext(state={}),
+                SendMessageRequest(message=message),
+                task_id="task-1",
+                context_id="ctx-1",
+                task=stored,
+            ),
+            execution_queue,
+        )
+    )
+    await counted.wait()
+
+    cancel_queue = _ListQueue()
+    await executor.cancel(_cancel_context(stored), cancel_queue)
+    execution.cancel()
+    await execution
+
+    assert _canceled_usage(cancel_queue) == {
+        **counts(110, 25, 135),
+        "models": [{"model": "model-a", **counts(10, 5, 15)}],
+    }
+    assert executor._running_usage == {}, "the finished execution must stop being tracked"
+
+
+@pytest.mark.asyncio
+async def test_cancel_of_parked_task_repeats_the_persisted_usage():
+    """A task waiting for input has no running execution; its canceled status
+    keeps the persisted total as the task's latest value."""
+    executor = A2aAgentExecutor(runner=lambda: None)
+    queue = _ListQueue()
+
+    await executor.cancel(_cancel_context(task_with_usage(counts(100, 20, 120))), queue)
+
+    assert _canceled_usage(queue) == counts(100, 20, 120)
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_usage_emits_a_bare_canceled_status():
+    executor = A2aAgentExecutor(runner=lambda: None)
+    queue = _ListQueue()
+
+    await executor.cancel(_cancel_context(None), queue)
+
+    [event] = queue.events
+    assert event.status.state == TaskState.TASK_STATE_CANCELED
+    assert USAGE_EXTENSION_URI not in MessageToDict(event.metadata)

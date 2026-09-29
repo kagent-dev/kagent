@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -40,10 +41,44 @@ func (*usageActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.C
 // turnUsage accumulates token usage across the ADK events of a task so the
 // total can be emitted on the terminal status update. Partial (streaming chunk)
 // events are skipped: each LLM call reports its usage on the final non-partial
-// event, so summing partials would double-count.
+// event, so summing partials would double-count. A cancel request reads it
+// while the execution is still adding to it.
 type turnUsage struct {
+	mu     sync.Mutex
 	total  apia2a.TokenCounts
 	models map[string]apia2a.TokenCounts
+}
+
+// runningUsage indexes the accumulators of in-flight executions by task, so a
+// cancel request, which arrives with its own executor context, can report the
+// usage of the execution it interrupts. a2a-go writes the canceled status into
+// the pipe of that execution and discards the execution's own final event.
+type runningUsage struct {
+	mu     sync.Mutex
+	byTask map[a2atype.TaskID]*turnUsage
+}
+
+// track registers usage for the task and returns the function removing it.
+func (r *runningUsage) track(taskID a2atype.TaskID, usage *turnUsage) func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.byTask == nil {
+		r.byTask = map[a2atype.TaskID]*turnUsage{}
+	}
+	r.byTask[taskID] = usage
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.byTask[taskID] == usage {
+			delete(r.byTask, taskID)
+		}
+	}
+}
+
+func (r *runningUsage) of(taskID a2atype.TaskID) *turnUsage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.byTask[taskID]
 }
 
 type turnUsageContextKey struct{}
@@ -99,6 +134,8 @@ func (u *turnUsage) add(event *adksession.Event) {
 		return
 	}
 	counts := callTokenCounts(event)
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	u.total = u.total.Add(counts)
 	if event.ModelVersion != "" {
 		u.addModel(event.ModelVersion, counts)
@@ -124,6 +161,8 @@ func (u *turnUsage) seedFromTask(task *a2atype.Task) {
 	if !ok {
 		return
 	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	u.total = u.total.Add(prior.TokenCounts)
 	for _, model := range prior.Models {
 		if model.Model != "" {
@@ -133,11 +172,15 @@ func (u *turnUsage) seedFromTask(task *a2atype.Task) {
 }
 
 func (u *turnUsage) empty() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	return u.total.IsZero()
 }
 
 // snapshot returns the accumulated usage with models in a stable order.
 func (u *turnUsage) snapshot() apia2a.Usage {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	usage := apia2a.Usage{TokenCounts: u.total}
 	for model, counts := range u.models {
 		usage.Models = append(usage.Models, apia2a.ModelUsage{Model: model, TokenCounts: counts})
@@ -150,12 +193,16 @@ func (u *turnUsage) snapshot() apia2a.Usage {
 
 // stampEvent attaches the task usage to a terminal status update.
 func (u *turnUsage) stampEvent(event *a2atype.TaskStatusUpdateEvent) {
-	if u == nil || event == nil || u.empty() {
+	if u == nil || event == nil {
+		return
+	}
+	usage := u.snapshot()
+	if usage.IsZero() {
 		return
 	}
 	if event.Metadata == nil {
 		event.Metadata = map[string]any{}
 	}
 	// Encoding a struct of integers cannot fail.
-	_ = apia2a.AttachUsage(event.Metadata, u.snapshot())
+	_ = apia2a.AttachUsage(event.Metadata, usage)
 }

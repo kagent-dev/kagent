@@ -32,8 +32,8 @@ does not echo the header. Emission is unaffected.
 ## Payload
 
 The payload is stored in the metadata of the status update that ends an
-execution (`completed`, `input-required`, or `failed`) under the extension URI
-key:
+execution (`completed`, `input-required`, `failed`, or `canceled`) under the
+extension URI key:
 
 ```json
 {
@@ -90,9 +90,13 @@ the latest one; they never sum values across status updates.
   extension.
 - **Failure:** a failed status update carries the usage consumed before the
   failure.
-- **Cancellation:** the `canceled` status update produced by a cancel request
-  carries no usage. The stored task keeps the last value it received, so tokens
-  spent by the canceled execution are not reported.
+- **Cancellation:** the `canceled` status update carries the usage counted up
+  to the cancel, including the calls the interrupted execution completed. A2A
+  makes that update the task's final event and discards the interrupted
+  execution's own, so the runtime reads the running execution's usage when it
+  handles the cancel request. A task with no running execution, such as one
+  waiting for input, repeats its persisted total. A call cut off before its
+  final response was never reported by the provider and is not counted.
 
 ## Out of scope for v1
 

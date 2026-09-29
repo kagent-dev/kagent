@@ -53,6 +53,7 @@ type KAgentExecutor struct {
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
 	flush                   func(context.Context) error
+	runningUsage            runningUsage
 }
 
 type structuredOutput struct {
@@ -268,6 +269,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		usage := &turnUsage{}
 		usage.seedFromTask(reqCtx.StoredTask)
 		ctx = withTurnUsage(ctx, usage)
+		defer e.runningUsage.track(reqCtx.TaskID, usage)()
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
 		// through the request attribute span processor.
@@ -453,7 +455,15 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 // Cancel delegates cancellation to the upstream executor.
 func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
+		usage := e.runningUsage.of(reqCtx.TaskID)
+		if usage == nil {
+			usage = &turnUsage{}
+			usage.seedFromTask(reqCtx.StoredTask)
+		}
 		for event, err := range e.builtin.Cancel(ctx, reqCtx) {
+			if status, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && status.Status.State == a2atype.TaskStateCanceled {
+				usage.stampEvent(status)
+			}
 			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if !yield(event, err) {
