@@ -65,7 +65,7 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 					}
 					matcher = &compiled
 				}
-				allowed = matcher.MatchesAnyName(target.Namespace)
+				allowed = matcher.matchesAnyName(target.Namespace)
 			}
 			if allowed {
 				results[i].AllowedVerbs = append(results[i].AllowedVerbs, verb)

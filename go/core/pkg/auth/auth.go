@@ -90,7 +90,6 @@ const (
 
 // Authz
 type Authorizer interface {
-	// Check returns nil only when the principal may perform the operation.
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
 }
 
