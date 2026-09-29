@@ -38,6 +38,20 @@ tests:
           path: data.KAGENT_SESSION_SHARE_MAX_TTL
           value: 72h
 
+  - it: defaults the stalled turn timeout to one hour
+    asserts:
+      - equal:
+          path: data.KAGENT_STALLED_TURN_TIMEOUT
+          value: 1h
+
+  - it: allows the stalled turn sweep to be disabled
+    set:
+      controller.stalledTurnTimeout: "0"
+    asserts:
+      - equal:
+          path: data.KAGENT_STALLED_TURN_TIMEOUT
+          value: "0"
+
   - it: defaults to insecure controller authentication
     asserts:
       - isSubset:

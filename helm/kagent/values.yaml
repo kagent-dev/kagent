@@ -388,6 +388,9 @@ controller:
   # Longest lifetime a session share may request; shares created without one receive it.
   # 0 leaves shares valid until revoked or the session is deleted.
   sessionShareMaxTTL: "0"
+  # A turn whose runtime recorded no event for this long is failed so the session
+  # takes its next message. 0 disables the sweep.
+  stalledTurnTimeout: "1h"
 
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.

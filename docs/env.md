@@ -35,6 +35,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_CLOUD_REGION` | String | `(none)` | Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | String | `(none)` | When set to 'true', use Vertex AI for Gemini models. |
 | `KAGENT_A2A_MAX_CONTENT_LENGTH` | String | `10485760` | Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default. |
+| `KAGENT_AGENT_TEMPLATE` | String | `(none)` | Name of the AgentTemplate the runtime executes. With KAGENT_NAMESPACE it is the identity the runtime sends on every model call, as the request headers x-kagent-agent and x-kagent-agent-namespace. Injected into agent runtimes via the controller. |
 | `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
 | `KAGENT_BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
 | `KAGENT_CONFIG_DIR` | String | `/config` | Go ADK configuration directory; --filepath takes precedence. |
@@ -161,6 +162,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second. |
 | `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
+| `KAGENT_STALLED_TURN_TIMEOUT` | Duration | `1h0m0s` | Fail a submitted or working turn whose runtime recorded no event for this long, so the session takes its next message. The sweep runs on the session expiration poll interval. Zero disables it. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
 | `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
 | `KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE` | String | `(none)` | PEM bundle containing both the client certificate and private key for Substrate API mTLS. Reloaded for each TLS handshake. |

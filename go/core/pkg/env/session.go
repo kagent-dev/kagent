@@ -9,3 +9,4 @@ var SessionExpirationPollInterval = RegisterDurationVar("KAGENT_SESSION_EXPIRATI
 var SessionShareMaxTTL = RegisterDurationVar("KAGENT_SESSION_SHARE_MAX_TTL", 0, "Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded.", ComponentController)
 
 var SessionQuiescencePollInterval = RegisterDurationVar("KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL", time.Minute, "Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second.", ComponentController)
+var SessionStalledTurnTimeout = RegisterDurationVar("KAGENT_STALLED_TURN_TIMEOUT", time.Hour, "Fail a submitted or working turn whose runtime recorded no event for this long, so the session takes its next message. The sweep runs on the session expiration poll interval. Zero disables it.", ComponentController)

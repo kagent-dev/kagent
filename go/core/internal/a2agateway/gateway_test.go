@@ -1079,3 +1079,31 @@ func TestGatewayKeepsRetryableRefusalWhenRuntimeIsNotKnownLost(t *testing.T) {
 		})
 	}
 }
+
+// After the stalled turn sweep ended a silent turn, the next message is taken
+// when the runtime was alive and refused with the recorded loss, without a
+// dial, when the sweep found the runtime lost.
+func TestGatewaySendAfterStalledTurnSweep(t *testing.T) {
+	t.Run("runtime alive", func(t *testing.T) {
+		store := &gatewayTestStore{session: gatewayTestSession()}
+		runtime := &gatewayTestRuntime{}
+		gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+		_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+		require.NoError(t, err)
+		require.Equal(t, 1, store.reserveCalls)
+		require.Equal(t, 1, runtime.sendCalls)
+	})
+	t.Run("runtime lost", func(t *testing.T) {
+		session := gatewayTestSession()
+		session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED
+		session.Failure = &apiv1alpha1.Failure{Reason: apia2a.FailureReasonRuntimeLost, Message: apia2a.RuntimeLostMessagePrefix + "Actor team-a/session-8bd650a8 crashed; start a new conversation"}
+		store := &gatewayTestStore{session: session}
+		runtime := &gatewayTestRuntime{}
+		gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+		_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+		require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+		require.EqualError(t, err, session.Failure.Message)
+		require.Zero(t, store.reserveCalls)
+		require.Zero(t, runtime.sendCalls)
+	})
+}
