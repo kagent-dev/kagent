@@ -97,7 +97,7 @@ func (g *Gateway) sendMessage(ctx context.Context, agent types.NamespacedName, r
 				}
 			}
 		}
-		return nil, err
+		return nil, g.refusedSend(ctx, session, err)
 	}
 	if task, ok := result.(*a2atype.Task); ok && isQuiescent(task.Status.State) {
 		if err := closeRuntime(); err != nil {
@@ -164,14 +164,14 @@ func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.Namespac
 		events := func(next func(a2atype.Event, error) bool) {
 			for event, err := range client.SendStreamingMessage(ctx, req) {
 				if err != nil {
-					next(nil, g.finishSend(ctx, agent, req.Message, dispatchID, err))
+					next(nil, g.refusedSend(ctx, session, g.finishSend(ctx, agent, req.Message, dispatchID, err)))
 					return
 				}
 				if !next(event, nil) {
 					return
 				}
 			}
-			next(nil, g.finishSend(ctx, agent, req.Message, dispatchID, a2atype.ErrInternalError))
+			next(nil, g.refusedSend(ctx, session, g.finishSend(ctx, agent, req.Message, dispatchID, a2atype.ErrInternalError)))
 		}
 		g.observe(ctx, agent, session, req.Message.TaskID, req.Message, historyLength, client, events)(yield)
 	}
@@ -189,6 +189,28 @@ func (g *Gateway) finishSend(ctx context.Context, agent types.NamespacedName, me
 		return sessionsvc.ErrSendNotAccepted
 	}
 	return sendErr
+}
+
+// refusedSend turns an input the runtime provably did not take into the loss
+// it is due to, when the session's runtime is gone. A crashed or missing
+// Actor makes the runtime refuse every send the same way, after Substrate's
+// parking budget; a retry would only wait it out again. The session records
+// the loss once, and this and every later send is refused with its message,
+// without a dial. A runtime whose state cannot be read keeps the retryable
+// refusal: not knowing is not the same as lost.
+func (g *Gateway) refusedSend(ctx context.Context, session *apiv1alpha1.Session, sendErr error) error {
+	if !errors.Is(sendErr, sessionsvc.ErrSendNotAccepted) || ctx.Err() != nil {
+		return sendErr
+	}
+	failure, err := g.interactions.FailLostRuntime(ctx, session)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "check session runtime after a refused send", "session_id", session.GetId(), "error", err)
+		return sendErr
+	}
+	if failure == nil {
+		return sendErr
+	}
+	return a2atype.NewError(a2atype.ErrUnsupportedOperation, failure.GetMessage())
 }
 
 // observe owns only this observer's actor connection. Disconnecting cannot

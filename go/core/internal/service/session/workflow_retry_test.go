@@ -75,9 +75,9 @@ func (a *retryTestActors) SuspendActor(ctx context.Context, space, name string) 
 	return actor, err
 }
 
-func (a *retryTestActors) DeleteActor(ctx context.Context, space, name string) error {
+func (a *retryTestActors) DeleteActor(ctx context.Context, space, name string, anyState bool) error {
 	a.mutations.Add(1)
-	if err := a.lifecycleTestActors.DeleteActor(ctx, space, name); err != nil {
+	if err := a.lifecycleTestActors.DeleteActor(ctx, space, name, anyState); err != nil {
 		return err
 	}
 	return a.mutationErr

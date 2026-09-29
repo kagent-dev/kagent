@@ -20,6 +20,7 @@ type transitionActors struct {
 	calls     []string
 	policyErr error
 	resumeUID string
+	anyState  []bool
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -59,8 +60,9 @@ func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateap
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) DeleteActor(context.Context, string, string) error {
+func (a *transitionActors) DeleteActor(_ context.Context, _, _ string, anyState bool) error {
 	a.calls = append(a.calls, "delete")
+	a.anyState = append(a.anyState, anyState)
 	a.actor = nil
 	return nil
 }
@@ -165,10 +167,27 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 	require.Equal(t, []string{"suspend", "delete"}, actors.calls)
+	require.Equal(t, []bool{false}, actors.anyState)
 
 	actors.calls = nil
 	transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 	require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+}
+
+// A PAUSED Actor's checkpoint is node-local; suspending it first would upload
+// from a node that may be gone, so deletion takes it as it is.
+func TestActorDeleteTakesAPausedActorAsItIs(t *testing.T) {
+	actors := &transitionActors{}
+	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+	require.NoError(t, err)
+	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
+	actors.calls = nil
+	binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+	require.NoError(t, err)
+	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
+	require.Equal(t, []string{"delete"}, actors.calls)
+	require.Equal(t, []bool{true}, actors.anyState)
 }

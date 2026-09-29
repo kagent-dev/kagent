@@ -63,9 +63,9 @@ type expirationActors struct {
 	deletions          int
 }
 
-func (e *expirationActors) DeleteActor(ctx context.Context, space, name string) error {
+func (e *expirationActors) DeleteActor(ctx context.Context, space, name string, anyState bool) error {
 	e.deletions++
-	if err := e.retryTestActors.DeleteActor(ctx, space, name); err != nil {
+	if err := e.retryTestActors.DeleteActor(ctx, space, name, anyState); err != nil {
 		return err
 	}
 	if e.loseDeleteResponse {

@@ -18,7 +18,7 @@ type LifecycleClient interface {
 	EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
-	DeleteActor(context.Context, string, string) error
+	DeleteActor(context.Context, string, string, bool) error
 }
 
 var _ LifecycleClient = (*Client)(nil)
@@ -163,8 +163,16 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		}
 	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		if actor != nil {
+			// Substrate deletes a SUSPENDED or CRASHED Actor as it is and any
+			// other state only when asked to. A live Actor is suspended first.
+			// A PAUSED Actor is deleted as it is: its checkpoint is a node-local
+			// copy that suspending would upload from the node it was taken on,
+			// and when that node is gone the upload never completes.
+			anyState := false
 			switch actor.GetStatus().GetState() {
 			case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
+			case ateapipb.ActorState_ACTOR_STATE_PAUSED:
+				anyState = true
 			default:
 				actor, err = actors.SuspendActor(ctx, binding.Atespace, binding.Name)
 				if err == nil {
@@ -172,7 +180,7 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 				}
 			}
 			if err == nil {
-				err = actors.DeleteActor(ctx, binding.Atespace, binding.Name)
+				err = actors.DeleteActor(ctx, binding.Atespace, binding.Name, anyState)
 				if status.Code(err) == codes.NotFound {
 					err = nil
 				}

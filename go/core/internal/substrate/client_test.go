@@ -310,3 +310,13 @@ func TestAdvancePageTokenAllowsTheLastPageAndARealMove(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, next)
 }
+
+func TestDeleteActorPassesAnyState(t *testing.T) {
+	for _, anyState := range []bool{false, true} {
+		fake := &deleteActorTemplateFake{}
+		client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+		require.NoError(t, client.DeleteActor(t.Context(), "team-a", "session-1", anyState))
+		require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "session-1"}, fake.actor.GetActor())
+		require.Equal(t, anyState, fake.actor.GetAnyState())
+	}
+}

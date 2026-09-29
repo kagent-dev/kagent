@@ -176,6 +176,12 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 	return &PreparedSend{Session: session, DispatchID: id}, nil
 }
 
+// FailLostRuntime records the loss of a resolved session's runtime, when it is
+// lost, and returns the failure later sends are refused with.
+func (s *InteractionService) FailLostRuntime(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Failure, error) {
+	return s.sessions.FailLostRuntime(ctx, session)
+}
+
 // PrepareCancelTask authorizes cancellation and returns the actor target and
 // committed task. A terminal task needs no actor call.
 func (s *InteractionService) PrepareCancelTask(ctx context.Context, agent types.NamespacedName, req *a2atype.CancelTaskRequest) (*apiv1alpha1.Session, *a2atype.Task, error) {
@@ -411,6 +417,9 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
 	}
 	req.Message.ContextID = session.ContextId
+	if session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED && session.GetFailure().GetReason() == apia2a.FailureReasonRuntimeLost {
+		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, session.GetFailure().GetMessage())
+	}
 	if session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "Session cannot accept work during a lifecycle operation")
 	}

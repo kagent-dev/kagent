@@ -222,3 +222,55 @@ func toSessionOperation(row sessionRow) (*SessionOperation, error) {
 	}
 	return &SessionOperation{RuntimeOperation: runtimeOperationFor(row.runtimeInstanceRow, session), SourceCheckpointID: row.SourceCheckpointID}, nil
 }
+
+// FailSession moves a READY session with no lifecycle operation to FAILED with
+// the failure, outside any operation and without a claim. A session that
+// already records a failure with the same reason is returned as it is; any
+// other state returns ErrConflict. Runtime writes and lifecycle admission read
+// the state under the same row lock, so a failed session refuses new work but
+// stays readable and deletable.
+func (c *Client) FailSession(ctx context.Context, sessionID string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
+	if failure.GetReason() == "" || failure.GetMessage() == "" {
+		return nil, fmt.Errorf("session failure requires a reason and a message: %w", ErrFailedPrecondition)
+	}
+	var result *apiv1alpha1.Session
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, sessionID)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		session, err := toSession(row)
+		if err != nil {
+			return err
+		}
+		switch {
+		case session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED:
+			return ErrNotFound
+		case session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED && session.GetFailure().GetReason() == failure.GetReason():
+			result = session
+			return nil
+		case session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE:
+			return fmt.Errorf("session %s is %s with operation %s: %w", sessionID, session.State, session.Operation, ErrConflict)
+		}
+		row.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED.String()
+		session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED
+		session.Failure = &apiv1alpha1.Failure{Reason: failure.GetReason(), Message: failure.GetMessage()}
+		session.UpdatedAt = timestamppb.Now()
+		row.Data, err = marshalSession(session)
+		if err != nil {
+			return err
+		}
+		if err := saveRuntimeLifecycle(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent); err != nil {
+			return err
+		}
+		if err := execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, row.Data); err != nil {
+			return err
+		}
+		result = session
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fail Session %s: %w", sessionID, err)
+	}
+	return result, nil
+}

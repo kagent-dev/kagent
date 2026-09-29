@@ -240,3 +240,44 @@ func TestLifecycleObservationUsesCurrentFields(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, claimed, "completion must not become executable when its claim is cleared")
 }
+
+func TestFailSessionRecordsRuntimeLoss(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	require.NoError(t, err)
+	failure := &apiv1alpha1.Failure{Reason: "RuntimeLost", Message: "runtime lost: Actor team-a/session-1 crashed; start a new conversation"}
+	_, err = client.FailSession(t.Context(), session.Id, failure)
+	require.ErrorIs(t, err, ErrConflict, "a session still being created is not READY")
+	_, err = client.FailSession(t.Context(), uuid.NewString(), failure)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = client.FailSession(t.Context(), session.Id, &apiv1alpha1.Failure{Reason: "RuntimeLost"})
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	_, err = markSessionReady(t.Context(), client, session.Id, "runtime.example")
+	require.NoError(t, err)
+
+	failed, err := client.FailSession(t.Context(), session.Id, failure)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, failed.State)
+	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, failed.Operation)
+	require.Equal(t, failure.Reason, failed.GetFailure().GetReason())
+	require.Equal(t, failure.Message, failed.GetFailure().GetMessage())
+	stored, err := client.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, stored.State)
+	require.Equal(t, failure.Message, stored.GetFailure().GetMessage())
+
+	again, err := client.FailSession(t.Context(), session.Id, &apiv1alpha1.Failure{Reason: "RuntimeLost", Message: "runtime lost: later"})
+	require.NoError(t, err)
+	require.Equal(t, failure.Message, again.GetFailure().GetMessage(), "the first recorded loss stands")
+	_, err = client.FailSession(t.Context(), session.Id, &apiv1alpha1.Failure{Reason: "Other", Message: "other"})
+	require.ErrorIs(t, err, ErrConflict)
+
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	require.ErrorIs(t, err, ErrConflict)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	require.ErrorIs(t, err, ErrConflict)
+	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.NoError(t, err, "a failed session stays deletable")
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, deletion.Instance.State)
+}

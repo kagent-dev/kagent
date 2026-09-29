@@ -12,6 +12,8 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type workflowStore interface {
@@ -113,6 +115,31 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Sessio
 		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
 		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
 	}, nil
+}
+
+// RuntimeLost reports whether the session's runtime can no longer take a turn:
+// Substrate reports its Actor CRASHED, or the Actor is gone. Substrate crashes
+// an Actor it cannot bring back and a crashed Actor never resumes, so every
+// later message would fail the way the last one did. The cause names the Actor
+// and what became of it. An answer Substrate cannot give is returned as the
+// error it is: not knowing is not the same as lost.
+func (w *ActorWorkflow) RuntimeLost(ctx context.Context, session *apiv1alpha1.Session) (string, bool, error) {
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return "", false, fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if status.Code(err) == codes.NotFound {
+		return fmt.Sprintf("Actor %s/%s not found", atespace, name), true, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED {
+		return fmt.Sprintf("Actor %s/%s crashed", atespace, name), true, nil
+	}
+	return "", false, nil
 }
 
 // Create provisions the persisted session once, using its pinned checkpoint for

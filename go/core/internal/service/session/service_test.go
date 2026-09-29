@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
 )
 
 type serviceTestSession struct{ userID string }
@@ -52,6 +54,17 @@ type serviceTestStore struct {
 	getResult    *apiv1alpha1.Session
 	shareUserID  string
 	shareErr     error
+	failedID     string
+	failure      *apiv1alpha1.Failure
+	failErr      error
+}
+
+func (s *serviceTestStore) FailSession(_ context.Context, id string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
+	s.failedID, s.failure = id, failure
+	if s.failErr != nil {
+		return nil, s.failErr
+	}
+	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, Failure: failure}, nil
 }
 
 func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1alpha1.Session, requestID string) (*apiv1alpha1.Session, bool, error) {
@@ -116,7 +129,16 @@ func (*serviceTestStore) DeleteSessionShare(context.Context, string, string) err
 	return nil
 }
 
-type serviceTestWorkflow struct{ err error }
+type serviceTestWorkflow struct {
+	err       error
+	lost      bool
+	lostCause string
+	lostErr   error
+}
+
+func (w serviceTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error) {
+	return w.lostCause, w.lost, w.lostErr
+}
 
 func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, w.err
@@ -716,4 +738,37 @@ func TestServiceListAuthorizesBeforePagination(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFailLostRuntime(t *testing.T) {
+	session := &apiv1alpha1.Session{Id: "session-1", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}
+	t.Run("not lost", func(t *testing.T) {
+		store := &serviceTestStore{}
+		failure, err := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}).FailLostRuntime(t.Context(), session)
+		require.NoError(t, err)
+		require.Nil(t, failure)
+		require.Empty(t, store.failedID)
+	})
+	t.Run("lost", func(t *testing.T) {
+		store := &serviceTestStore{}
+		workflow := serviceTestWorkflow{lost: true, lostCause: "Actor team-a/session-session-1 crashed"}
+		failure, err := NewService(store, serviceTestAuthorizer{}, workflow).FailLostRuntime(t.Context(), session)
+		require.NoError(t, err)
+		require.Equal(t, session.Id, store.failedID)
+		require.Equal(t, apia2a.FailureReasonRuntimeLost, failure.GetReason())
+		require.Equal(t, "runtime lost: Actor team-a/session-session-1 crashed; start a new conversation", failure.GetMessage())
+	})
+	t.Run("unknown", func(t *testing.T) {
+		store := &serviceTestStore{}
+		workflow := serviceTestWorkflow{lostErr: errors.New("ate-api is rolling")}
+		_, err := NewService(store, serviceTestAuthorizer{}, workflow).FailLostRuntime(t.Context(), session)
+		require.ErrorContains(t, err, "ate-api is rolling")
+		require.Empty(t, store.failedID, "an unknown runtime state fails nothing")
+	})
+	t.Run("moved on", func(t *testing.T) {
+		store := &serviceTestStore{failErr: database.ErrConflict}
+		workflow := serviceTestWorkflow{lost: true, lostCause: "Actor team-a/session-session-1 not found"}
+		_, err := NewService(store, serviceTestAuthorizer{}, workflow).FailLostRuntime(t.Context(), session)
+		require.ErrorIs(t, err, database.ErrConflict)
+	})
 }

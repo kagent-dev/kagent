@@ -552,6 +552,10 @@ func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) err
 	return nil
 }
 
+func (*fakeSessionStore) FailSession(context.Context, string, *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
+	return nil, database.ErrNotFound
+}
+
 type fakeSessionWorkflow struct{}
 
 func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
@@ -568,6 +572,10 @@ func (*fakeSessionWorkflow) Resume(_ context.Context, session *apiv1alpha1.Sessi
 
 func (*fakeSessionWorkflow) Delete(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, nil
+}
+
+func (*fakeSessionWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error) {
+	return "", false, nil
 }
 
 func testSessionService() *sessionsvc.Service {

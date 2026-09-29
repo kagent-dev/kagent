@@ -174,6 +174,7 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*datab
 type lifecycleTestActors struct {
 	mu          sync.Mutex
 	actors      map[string]*ateapipb.Actor
+	getErr      error
 	policyErr   error
 	policy      *ateapipb.EgressPolicy
 	policyActor string
@@ -185,6 +186,9 @@ func actorKey(atespace, name string) string { return atespace + "/" + name }
 func (a *lifecycleTestActors) GetActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.getErr != nil {
+		return nil, a.getErr
+	}
 	actor := a.actors[actorKey(atespace, name)]
 	if actor == nil {
 		return nil, status.Error(codes.NotFound, "missing")
@@ -245,7 +249,7 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {
+func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string, _ bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.actors, actorKey(atespace, name))
@@ -428,4 +432,45 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	_, err = service.Resume(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
+}
+
+func TestRuntimeLost(t *testing.T) {
+	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
+	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
+	name := substrate.ActorName(session.Id)
+	for _, test := range []struct {
+		name      string
+		state     ateapipb.ActorState
+		missing   bool
+		getErr    error
+		wantCause string
+		wantLost  bool
+		wantErr   string
+	}{
+		{name: "missing", missing: true, wantCause: "Actor team-a/" + name + " not found", wantLost: true},
+		{name: "crashed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCause: "Actor team-a/" + name + " crashed", wantLost: true},
+		{name: "paused", state: ateapipb.ActorState_ACTOR_STATE_PAUSED},
+		{name: "running", state: ateapipb.ActorState_ACTOR_STATE_RUNNING},
+		{name: "suspended", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+		{name: "unknown", getErr: status.Error(codes.Unavailable, "ate-api is rolling"), wantErr: "ate-api is rolling"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, getErr: test.getErr}
+			if !test.missing {
+				actors.actors[actorKey("team-a", name)] = &ateapipb.Actor{
+					Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: name, Uid: "actor-uid"},
+					Status:   &ateapipb.ActorStatus{State: test.state},
+				}
+			}
+			cause, lost, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).RuntimeLost(t.Context(), session)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				require.False(t, lost, "not knowing is not lost")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.wantLost, lost)
+			require.Equal(t, test.wantCause, cause)
+		})
+	}
 }

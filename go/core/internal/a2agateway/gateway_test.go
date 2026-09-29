@@ -70,6 +70,23 @@ type gatewayTestStore struct {
 	unscoped         bool
 	settledRead      func() error
 	created          map[string]*apiv1alpha1.Session
+	// lost is what the workflow's RuntimeLost answers, with lostCause; lostErr
+	// makes it fail instead. failed is the failure FailSession recorded.
+	lost      bool
+	lostCause string
+	lostErr   error
+	lostCalls int
+	failed    *apiv1alpha1.Failure
+}
+
+func (s *gatewayTestStore) FailSession(_ context.Context, id string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
+	if s.session == nil || id != s.session.Id {
+		return nil, database.ErrNotFound
+	}
+	s.failed = failure
+	s.session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED
+	s.session.Failure = failure
+	return s.session, nil
 }
 
 func (s *gatewayTestStore) RegisterSessionPushNotification(_ context.Context, sessionID, messageID, taskID string, config *a2atype.PushConfig) error {
@@ -987,4 +1004,78 @@ func TestGatewayUnusedStreamDoesNotReserveDispatch(t *testing.T) {
 	_ = gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
 	require.Zero(t, store.reserveCalls)
 	require.Nil(t, dialer.session)
+}
+
+// refusingRuntime refuses every send with its error, the way Substrate's
+// ingress answers for an Actor it cannot bring back.
+type refusingRuntime struct {
+	gatewayTestRuntime
+	err error
+}
+
+func (r *refusingRuntime) SendMessage(context.Context, a2aclient.ServiceParams, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	r.sendCalls++
+	return nil, r.err
+}
+
+func (r *refusingRuntime) SendStreamingMessage(context.Context, a2aclient.ServiceParams, *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	r.sendCalls++
+	return func(yield func(a2atype.Event, error) bool) { yield(nil, r.err) }
+}
+
+// A send the runtime provably did not take, on a session whose Actor Substrate
+// reports crashed or gone, ends with the loss instead of a retry: the session
+// records it, and the next send is refused with the same message without a dial.
+func TestGatewayFailsSessionWhenRuntimeIsLost(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unary", true: "streaming"}[streaming], func(t *testing.T) {
+			store := &gatewayTestStore{session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound, lost: true, lostCause: "Actor team-a/session-8bd650a8 crashed"}
+			runtime := &refusingRuntime{err: a2atype.NewError(a2atype.ErrInternalError, "actor team-a/session-8bd650a8 unavailable: actor crashed")}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			want := apia2a.RuntimeLostMessagePrefix + "Actor team-a/session-8bd650a8 crashed; start a new conversation"
+			var err error
+			if streaming {
+				for _, err = range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+					if err != nil {
+						break
+					}
+				}
+			} else {
+				_, err = gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			}
+			require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+			require.EqualError(t, err, want)
+			require.Equal(t, 1, store.lostCalls)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, store.session.State)
+			require.Equal(t, apia2a.FailureReasonRuntimeLost, store.failed.GetReason())
+			require.Equal(t, want, store.failed.GetMessage())
+
+			_, err = gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+			require.EqualError(t, err, want)
+			require.Equal(t, 1, runtime.sendCalls, "a failed session is refused without a dial")
+			require.Equal(t, 1, store.reserveCalls, "a failed session reserves no dispatch")
+		})
+	}
+}
+
+// A runtime whose state cannot be read, or that is intact, keeps the retryable
+// refusal: the session is not failed on a guess.
+func TestGatewayKeepsRetryableRefusalWhenRuntimeIsNotKnownLost(t *testing.T) {
+	for name, store := range map[string]*gatewayTestStore{
+		"unknown": {session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound, lostErr: errors.New("ate-api is rolling")},
+		"intact":  {session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runtime := &refusingRuntime{err: a2atype.NewError(a2atype.ErrInternalError, "actor request timed out")}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			var protocolError *a2atype.Error
+			require.ErrorAs(t, err, &protocolError)
+			require.Equal(t, "KAGENT_SEND_NOT_ACCEPTED", protocolError.ErrorInfo().Value["metadata"].(map[string]string)["reason"])
+			require.Equal(t, 1, store.lostCalls)
+			require.Nil(t, store.failed)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, store.session.State)
+		})
+	}
 }

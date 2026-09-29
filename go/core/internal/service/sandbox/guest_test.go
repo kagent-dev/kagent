@@ -101,7 +101,7 @@ func (a *testActors) SuspendActor(context.Context, string, string) (*ateapipb.Ac
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) DeleteActor(context.Context, string, string) error {
+func (a *testActors) DeleteActor(context.Context, string, string, bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "delete")

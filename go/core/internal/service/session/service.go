@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -33,6 +34,7 @@ type store interface {
 	CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error)
 	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error)
 	DeleteSessionShare(context.Context, string, string) error
+	FailSession(context.Context, string, *apiv1alpha1.Failure) (*apiv1alpha1.Session, error)
 }
 
 type sessionWorkflow interface {
@@ -40,6 +42,7 @@ type sessionWorkflow interface {
 	Suspend(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	Resume(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error)
 }
 
 type ListRequest struct {
@@ -84,6 +87,31 @@ func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflo
 		option(service)
 	}
 	return service
+}
+
+// FailLostRuntime records that the session's runtime is gone, when it is: the
+// session leaves READY for FAILED with reason RuntimeLost and a message that
+// tells the person to start a new conversation, so later sends are refused
+// without dialing a runtime that cannot answer. The transcript is untouched;
+// the session stays readable and deletable. It returns nil when the runtime is
+// not known to be lost, and the recorded failure otherwise, including one an
+// earlier call recorded.
+func (s *Service) FailLostRuntime(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Failure, error) {
+	cause, lost, err := s.workflow.RuntimeLost(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	if !lost {
+		return nil, nil
+	}
+	failed, err := s.store.FailSession(ctx, session.GetId(), &apiv1alpha1.Failure{
+		Reason:  apia2a.FailureReasonRuntimeLost,
+		Message: apia2a.RuntimeLostMessagePrefix + cause + "; start a new conversation",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return failed.GetFailure(), nil
 }
 
 // Create reserves and converges a new conversation. name is optional; an empty

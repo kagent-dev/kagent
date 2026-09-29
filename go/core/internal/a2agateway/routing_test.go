@@ -43,14 +43,22 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "revision-1"}}, nil
 }
 
-type gatewayTestWorkflow struct{ *sessionsvc.ActorWorkflow }
+type gatewayTestWorkflow struct {
+	*sessionsvc.ActorWorkflow
+	store *gatewayTestStore
+}
 
 func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, nil
 }
 
+func (w gatewayTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error) {
+	w.store.lostCalls++
+	return w.store.lostCause, w.store.lost, w.store.lostErr
+}
+
 func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessionsvc.Service {
-	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{})
+	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{store: store})
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
