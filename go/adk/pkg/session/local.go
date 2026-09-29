@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -80,12 +82,22 @@ func NewLocalSessionService(dbURL string) (*LocalSessionService, error) {
 	if err != nil {
 		return nil, err
 	}
-	svc, err := database.NewSessionService(sqlite.Open(path))
+	pool, err := sql.Open(sqlite.DriverName, path)
 	if err != nil {
 		return nil, fmt.Errorf("open local session DB %q: %w", path, err)
 	}
+	// VM snapshots preserve this service in memory, but restore gives /data
+	// new backing files. Retaining idle SQLite connections would preserve their
+	// old file identities and make subsequent writes fail with SQLITE_READONLY_DBMOVED.
+	// Close connections when returned to the pool so quiescent snapshots contain
+	// no open database handles, including after migration and between turns.
+	pool.SetMaxIdleConns(0)
+	svc, err := database.NewSessionService(sqlite.Dialector{Conn: pool})
+	if err != nil {
+		return nil, fmt.Errorf("open local session DB %q: %w", path, errors.Join(err, pool.Close()))
+	}
 	if err := database.AutoMigrate(svc); err != nil {
-		return nil, fmt.Errorf("migrate local session DB %q: %w", path, err)
+		return nil, fmt.Errorf("migrate local session DB %q: %w", path, errors.Join(err, pool.Close()))
 	}
 	return &LocalSessionService{Service: svc}, nil
 }

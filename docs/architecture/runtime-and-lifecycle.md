@@ -184,3 +184,10 @@ Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
+
+The Go ADK opens and migrates its SQLite session store before readiness, but
+retains no idle database connections. Full and golden restores preserve guest
+memory while rematerializing `/data`, so a connection opened before the snapshot
+can retain a stale file identity and reject writes with `SQLITE_READONLY_DBMOVED`.
+Closing connections when returned to the pool keeps quiescent snapshots free of
+database handles; each later operation opens the current backing file.
