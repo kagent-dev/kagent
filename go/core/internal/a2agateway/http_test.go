@@ -50,7 +50,7 @@ type httpTestShares struct {
 	digest     []byte
 }
 
-func (s *httpTestShares) GetSessionShareByTokenHash(_ context.Context, digest []byte) (*apiv1alpha1.SessionShare, string, error) {
+func (s *httpTestShares) GetSessionShareByTokenHash(_ context.Context, digest []byte, _ time.Time) (*apiv1alpha1.SessionShare, string, error) {
 	s.digest = digest
 	return &apiv1alpha1.SessionShare{SessionId: s.sessionID, Permission: s.permission}, "owner", s.err
 }

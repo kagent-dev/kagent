@@ -856,7 +856,7 @@ func TestSessionShareCreationRequiresOwner(t *testing.T) {
 	}
 	_, err = client.CreateSessionShare(ctx, share, []byte("token"), "bob")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("token"))
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("token"), time.Now())
 	require.ErrorIs(t, err, ErrNotFound)
 
 	created, err := client.CreateSessionShare(ctx, share, []byte("token"), "alice")
@@ -887,14 +887,19 @@ func TestSessionShareExpiry(t *testing.T) {
 
 	live, err := client.CreateSessionShare(ctx, newShare(time.Now().Add(time.Hour)), []byte("live"), "alice")
 	require.NoError(t, err)
-	resolved, owner, err := client.GetSessionShareByTokenHash(ctx, []byte("live"))
+	resolved, owner, err := client.GetSessionShareByTokenHash(ctx, []byte("live"), time.Now())
 	require.NoError(t, err)
 	require.Equal(t, "alice", owner)
 	require.True(t, proto.Equal(live, resolved), "the expiry survives the round trip")
+	liveUntil := live.GetExpiresAt().AsTime()
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("live"), liveUntil.Add(-time.Microsecond))
+	require.NoError(t, err, "the caller's clock decides expiry, not the database's")
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("live"), liveUntil)
+	require.ErrorIs(t, err, ErrNotFound, "a share stops granting at its expires_at")
 
 	expired, err := client.CreateSessionShare(ctx, newShare(time.Now().Add(-time.Second)), []byte("expired"), "alice")
 	require.NoError(t, err)
-	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("expired"))
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("expired"), time.Now())
 	require.ErrorIs(t, err, ErrNotFound, "an expired share's token grants nothing")
 
 	listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
@@ -933,7 +938,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	require.Empty(t, sessions)
 	_, err = client.UpdateSessionName(ctx, session.Id, "alice", "resurrect")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("token"))
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("token"), time.Now())
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = client.CreateSessionShare(ctx, share, []byte("new token"), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
@@ -987,7 +992,7 @@ func TestShareCreationRacesSessionDeletion(t *testing.T) {
 		if shareErr != nil {
 			require.ErrorIs(t, shareErr, ErrNotFound)
 		}
-		_, _, err = client.GetSessionShareByTokenHash(ctx, token)
+		_, _, err = client.GetSessionShareByTokenHash(ctx, token, time.Now())
 		require.ErrorIs(t, err, ErrNotFound)
 		// A revoked share must actually be removed, releasing its unique token hash.
 		other, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())

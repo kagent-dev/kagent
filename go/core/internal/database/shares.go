@@ -66,16 +66,17 @@ func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.Sess
 }
 
 // GetSessionShareByTokenHash resolves a token digest to its share and the session
-// owner's ID, or ErrNotFound, which an expired share is too. Callers apply the share's
-// permission when granting access.
-func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.SessionShare, string, error) {
+// owner's ID, or ErrNotFound, which a share expired at now is too. now comes from the
+// clock that set the share's expires_at, never the database's. Callers apply the
+// share's permission when granting access.
+func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byte, now time.Time) (*apiv1alpha1.SessionShare, string, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT s.id, s.session_id, s.permission, s.data, s.expires_at, i.user_id AS owner_user_id
 		FROM session_share s
 		JOIN session_record i ON i.id = s.session_id
 		WHERE s.token_hash = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
-		  AND (s.expires_at IS NULL OR s.expires_at > now())
-	`, pgx.RowToStructByName[sessionShareRow], tokenHash)
+		  AND (s.expires_at IS NULL OR s.expires_at > $2)
+	`, pgx.RowToStructByName[sessionShareRow], tokenHash, now)
 	if err != nil {
 		return nil, "", fmt.Errorf("get Session share by token: %w", notFoundOr(err))
 	}

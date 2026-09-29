@@ -3,6 +3,7 @@ package database
 import (
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
@@ -312,7 +313,7 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 		share, err := client.CreateSessionShare(ctx, value, digest[:], "alice")
 		require.NoError(t, err)
 		require.Equal(t, value.ProtoReflect().GetUnknown(), share.ProtoReflect().GetUnknown())
-		resolved, ownerUserID, err := client.GetSessionShareByTokenHash(ctx, digest[:])
+		resolved, ownerUserID, err := client.GetSessionShareByTokenHash(ctx, digest[:], time.Now())
 		require.NoError(t, err)
 		require.True(t, proto.Equal(share, resolved))
 		require.Equal(t, "alice", ownerUserID)
@@ -325,7 +326,7 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 		require.Empty(t, listed)
 		require.ErrorIs(t, client.DeleteSessionShare(ctx, share.Id, "mallory"), ErrNotFound)
 		require.NoError(t, client.DeleteSessionShare(ctx, share.Id, "alice"))
-		_, _, err = client.GetSessionShareByTokenHash(ctx, digest[:])
+		_, _, err = client.GetSessionShareByTokenHash(ctx, digest[:], time.Now())
 		require.ErrorIs(t, err, ErrNotFound)
 	}
 }

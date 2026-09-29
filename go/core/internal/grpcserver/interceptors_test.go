@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
@@ -57,7 +58,7 @@ type testShareStore struct {
 	ownerUserID     string
 }
 
-func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte) (*apiv1alpha1.SessionShare, string, error) {
+func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte, time.Time) (*apiv1alpha1.SessionShare, string, error) {
 	if s.sessionShare == nil && s.sessionShareErr == nil {
 		return nil, "", database.ErrNotFound
 	}

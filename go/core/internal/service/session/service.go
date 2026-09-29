@@ -320,7 +320,7 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, permission 
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
 	if ttl < 0 {
-		return nil, "", serviceerrors.NewInvalidArgument("share ttl must be positive", nil)
+		return nil, "", serviceerrors.NewInvalidArgument("share ttl must not be negative", nil)
 	}
 	if s.shareMaxTTL > 0 {
 		if ttl > s.shareMaxTTL {
