@@ -44,6 +44,16 @@ func TestOnToolErrorCallback_FlagsAFailedCall(t *testing.T) {
 	require.Equal(t, map[string]any{"error": message, "isError": true}, response)
 }
 
+func TestOnToolErrorCallback_FlagsARejectedCall(t *testing.T) {
+	callback := makeOnToolErrorCallback(slog.New(slog.DiscardHandler))
+	err := fmt.Errorf("error tool %q %w", "call_tool", tool.ErrConfirmationRejected)
+
+	response, cbErr := callback(newToolErrorContext(), namedTool{name: "call_tool"}, nil, err)
+
+	require.NoError(t, cbErr)
+	require.Equal(t, map[string]any{"error": err.Error(), "isError": true}, response, "a rejected call did not run")
+}
+
 func TestOnToolErrorCallback_LeavesAConfirmationRequestToTheFlow(t *testing.T) {
 	callback := makeOnToolErrorCallback(slog.New(slog.DiscardHandler))
 	err := fmt.Errorf("error tool %q %w", "call_tool", tool.ErrConfirmationRequired)
@@ -52,11 +62,4 @@ func TestOnToolErrorCallback_LeavesAConfirmationRequestToTheFlow(t *testing.T) {
 
 	require.NoError(t, cbErr)
 	require.Nil(t, response, "a confirmation request is a pause, not a failure: adk-go builds the plain response")
-}
-
-func TestToolErrorResponse(t *testing.T) {
-	rejected := fmt.Errorf("error tool %q %w", "call_tool", tool.ErrConfirmationRejected)
-	require.Equal(t, map[string]any{"error": rejected.Error(), "isError": true}, toolErrorResponse(rejected),
-		"a rejected call did not run, so it is a failed call")
-	require.Nil(t, toolErrorResponse(nil))
 }
