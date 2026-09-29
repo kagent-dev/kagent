@@ -64,40 +64,14 @@ ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
-# Every package pinned, dependencies included, so a rebuild of the same commit ships the same image. List them with `apk info -v` after an unpinned install.
+# Only the packages named here are pinned. Their libraries float, so fixes land on rebuild.
 # No openssl CLI: nothing here runs it. curl stays for exec-based probes on IPv6 clusters.
 RUN echo "Installing on $BUILDPLATFORM" \
     && apk add --no-cache \
         bash=5.3-r13 \
         ca-certificates=20260909-r1 \
         curl=8.22.0-r3 \
-        cyrus-sasl-heimdal-libs=2.1.28-r57 \
-        gdbm=1.26-r6 \
-        heimdal-libs=7.8.0-r52 \
-        keyutils-libs=1.6.3-r40 \
-        krb5-conf=1.0-r9 \
-        krb5-libs=1.22.2-r4 \
-        libcom_err=1.47.4-r2 \
-        libcurl-openssl4=8.22.0-r3 \
-        libidn2=2.3.8-r9 \
-        libldap=2.6.10-r5 \
-        libnghttp2-14=1.70.0-r4 \
-        libpcre2-8-0=10.48-r0 \
-        libpsl=0.23.3-r1 \
-        libunistring=1.4.2-r3 \
-        libverto=0.3.2-r8 \
-        ncurses=6.6.20260919-r0 \
-        ncurses-terminfo-base=6.6.20260919-r0 \
-        nghttp3=1.18.0-r1 \
         nginx-mainline=1.31.6-r2 \
-        nginx-mainline-config=1.31.6-r2 \
-        nginx-mainline-fastcgi-params=1.31.6-r2 \
-        nginx-mainline-mime-types=1.31.6-r2 \
-        nginx-mainline-scgi-params=1.31.6-r2 \
-        nginx-mainline-uwsgi-params=1.31.6-r2 \
-        ngtcp2=1.25.0-r3 \
-        readline=8.3-r3 \
-        sqlite-libs=3.53.4-r2 \
     && update-ca-certificates
 
 # `kagent` owns both the static root and the writable runtime dirs. /tmp/kagent
