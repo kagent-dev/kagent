@@ -22,5 +22,9 @@ cd "$substrate_dir"
 
 # v0.3.0-alpha1 uses `go tool -n` to locate Kind, returning a nonexistent path
 # on a cold cache. Reuse the installed binary until the upstream wrapper is fixed.
-ln -sf "$(command -v kind)" hack/kind.sh
+# Invoke it by name so version-manager shims still see the correct command name.
+cat > hack/kind.sh <<'EOF'
+#!/usr/bin/env bash
+exec kind "$@"
+EOF
 hack/install-microvm-deps.sh --install
