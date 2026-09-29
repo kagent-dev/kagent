@@ -17,7 +17,7 @@ import (
 )
 
 type workflowStore interface {
-	ClaimSessionQuiescence(context.Context, time.Duration) (*database.SessionQuiescence, error)
+	ClaimSessionQuiescence(context.Context, time.Duration, []string) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
@@ -33,6 +33,7 @@ type workflowStore interface {
 type actorClient interface {
 	substrate.LifecycleClient
 	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
+	ListAllWorkers(context.Context) ([]*ateapipb.Worker, error)
 }
 
 // ActorWorkflow runs the imperative Substrate operations behind Session
@@ -44,6 +45,7 @@ type ActorWorkflow struct {
 	recoveryInterval time.Duration
 	quiescenceWake   chan struct{}
 	pausedRuntimeTTL time.Duration
+	deferred         deferrals
 }
 
 type WorkflowOption func(*ActorWorkflow)
@@ -129,6 +131,42 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Sessio
 		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
 		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
 	}, nil
+}
+
+// PauseNodeLost reports whether the session's Actor is paused on a checkpoint
+// that only nodes without a worker still hold. Suspending such an Actor uploads
+// the checkpoint through its node, which cannot complete, and Substrate leaves
+// the Actor SUSPENDING; the pause is the node-loss handling's to crash, not a
+// caller's to touch. A pause whose checkpoint has a durable copy, or that
+// records no node, can be suspended from anywhere.
+func (w *ActorWorkflow) PauseNodeLost(ctx context.Context, session *apiv1alpha1.Session) (bool, error) {
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return false, fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if err != nil {
+		return false, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+		return false, nil
+	}
+	local := actor.GetStatus().GetLocalSnapshot()
+	node := local.GetNodeName()
+	if local.GetDurableCopy().GetSnapshotUri() != "" || node == "" {
+		return false, nil
+	}
+	workers, err := w.actors.ListAllWorkers(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list workers: %w", err)
+	}
+	for _, worker := range workers {
+		if worker.GetNodeName() == node && worker.GetStatus().GetState() != ateapipb.WorkerState_WORKER_STATE_DRAINING {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // RuntimeLost reports whether the session's runtime can no longer take a turn:

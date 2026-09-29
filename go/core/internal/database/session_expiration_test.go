@@ -67,7 +67,7 @@ func TestSessionExpirationRechecksActivity(t *testing.T) {
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.ErrorIs(t, err, ErrConflict, "unpublished runtime cleanup blocks expiration")
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	work, err := client.ClaimSessionQuiescence(ctx, 0)
+	work, err := client.ClaimSessionQuiescence(ctx, 0, nil)
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a claimed suspension blocks expiration")

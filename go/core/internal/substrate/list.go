@@ -114,3 +114,14 @@ func (c *Client) ListActorTemplates(ctx context.Context, atespace string) ([]*at
 		return c.ListActorTemplatesPage(ctx, atespace, pageToken)
 	})
 }
+
+// ListAllWorkers reads every worker of the pool. The check whether a paused
+// Actor's checkpoint node still runs a worker wants the whole set, not a page.
+func (c *Client) ListAllWorkers(ctx context.Context) ([]*ateapipb.Worker, error) {
+	if c == nil {
+		return nil, nil
+	}
+	return drainPages(ctx, func(ctx context.Context, pageToken string) ([]*ateapipb.Worker, string, error) {
+		return c.ListWorkersPage(ctx, 500, pageToken)
+	})
+}

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -41,7 +42,7 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
 			for ctx.Err() == nil {
-				work, err := w.store.ClaimSessionQuiescence(ctx, w.pausedRuntimeTTL)
+				work, err := w.store.ClaimSessionQuiescence(ctx, w.pausedRuntimeTTL, w.deferred.active(time.Now()))
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
 					// burst can enlist all workers, even if this actor is slow.
@@ -79,6 +80,23 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 	runtimeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	var snapshot *database.SessionTaskSnapshot
 	var err error
+	if work.Suspend {
+		// Nothing has been issued yet, so a suspend that cannot happen now
+		// releases the claim, reopening admission for the reply, and the
+		// session is left out of the next claims for one TTL.
+		lost, err := w.PauseNodeLost(runtimeCtx, work.Session)
+		if err != nil || lost {
+			cancel()
+			if err != nil {
+				logging.FromContext(ctx).WarnContext(ctx, "expired pause left in place", "session_id", work.Session.Id, "version", work.Version, "error", err)
+			} else {
+				logging.FromContext(ctx).InfoContext(ctx, "expired pause left to node-loss handling", "session_id", work.Session.Id, "version", work.Version)
+			}
+			w.deferred.add(work.Session.Id, time.Now().Add(w.pausedRuntimeTTL))
+			w.finishIdleWork(ctx, work, nil)
+			return
+		}
+	}
 	if work.State.Terminal() || work.Suspend {
 		snapshot, err = w.Quiesce(runtimeCtx, work.Session)
 	} else {
@@ -91,8 +109,14 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 		logging.FromContext(ctx).ErrorContext(ctx, "runtime boundary outcome unknown", "session_id", work.Session.Id, "version", work.Version, "error", err)
 		return
 	}
-	// Keep a known snapshot until its reference is stored. Retry database failures
-	// without repeating runtime work; give shutdown one bounded completion attempt.
+	w.finishIdleWork(ctx, work, snapshot)
+}
+
+// finishIdleWork records the claim's outcome. Keep a known snapshot until its
+// reference is stored. Retry database failures without repeating runtime work;
+// give shutdown one bounded completion attempt.
+func (w *ActorWorkflow) finishIdleWork(ctx context.Context, work *database.SessionQuiescence, snapshot *database.SessionTaskSnapshot) {
+	var err error
 	for delay := 100 * time.Millisecond; ; delay = min(2*delay, 5*time.Second) {
 		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		err = w.store.FinishSessionQuiescence(finishCtx, work, snapshot)
@@ -110,4 +134,37 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 		case <-time.After(delay):
 		}
 	}
+}
+
+// deferrals holds sessions the idle worker leaves out of the pause TTL's claims
+// until a time, so a pause that cannot be suspended is not claimed and released
+// every second by every worker.
+type deferrals struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+}
+
+func (d *deferrals) add(sessionID string, until time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.until == nil {
+		d.until = map[string]time.Time{}
+	}
+	d.until[sessionID] = until
+}
+
+// active returns the sessions still deferred at now and forgets the others.
+func (d *deferrals) active(now time.Time) []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var ids []string
+	for id, until := range d.until {
+		if now.Before(until) {
+			ids = append(ids, id)
+		} else {
+			delete(d.until, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }

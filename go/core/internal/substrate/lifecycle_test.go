@@ -16,11 +16,12 @@ import (
 // Unexpected calls use the embedded nil interface and fail the test.
 type transitionActors struct {
 	LifecycleClient
-	actor     *ateapipb.Actor
-	calls     []string
-	policyErr error
-	resumeUID string
-	anyState  []bool
+	actor      *ateapipb.Actor
+	calls      []string
+	policyErr  error
+	resumeUID  string
+	anyState   []bool
+	suspendErr error
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -56,6 +57,9 @@ func (a *transitionActors) ResumeActor(context.Context, string, string) (*ateapi
 
 func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "suspend")
+	if a.suspendErr != nil {
+		return nil, a.suspendErr
+	}
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 	return proto.CloneOf(a.actor), nil
 }
@@ -190,4 +194,32 @@ func TestActorDeleteTakesAPausedActorAsItIs(t *testing.T) {
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 	require.Equal(t, []string{"delete"}, actors.calls)
 	require.Equal(t, []bool{true}, actors.anyState)
+}
+
+// A live Actor whose pre-delete suspend fails is deleted as it is: a suspend
+// that cannot upload its checkpoint must not keep the session from deletion.
+// A suspend that finds no Actor leaves nothing to delete.
+func TestActorDeleteTakesAnUnsuspendableActorAsItIs(t *testing.T) {
+	for name, test := range map[string]struct {
+		suspendErr error
+		anyState   []bool
+	}{
+		"upload failed": {suspendErr: status.Error(codes.Internal, "UploadPausedCheckpoint: while getting atelet conn for node"), anyState: []bool{true}},
+		"actor is gone": {suspendErr: status.Error(codes.NotFound, "missing"), anyState: []bool{false}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			actors := &transitionActors{suspendErr: test.suspendErr}
+			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+			require.NoError(t, err)
+			actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+			actors.calls = nil
+			binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+			require.NoError(t, err)
+			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
+			require.Equal(t, []string{"suspend", "delete"}, actors.calls)
+			require.Equal(t, test.anyState, actors.anyState)
+			require.Nil(t, actors.actor)
+		})
+	}
 }

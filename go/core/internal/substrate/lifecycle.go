@@ -167,16 +167,22 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 			// other state only when asked to. A live Actor is suspended first.
 			// A PAUSED Actor is deleted as it is: its checkpoint is a node-local
 			// copy that suspending would upload from the node it was taken on,
-			// and when that node is gone the upload never completes.
+			// and when that node is gone the upload never completes. A live
+			// Actor whose suspend fails is deleted as it is for the same reason:
+			// a suspend left half-way on a lost node would otherwise keep the
+			// Actor from ever being deleted.
 			anyState := false
 			switch actor.GetStatus().GetState() {
 			case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
 			case ateapipb.ActorState_ACTOR_STATE_PAUSED:
 				anyState = true
 			default:
-				actor, err = actors.SuspendActor(ctx, binding.Atespace, binding.Name)
-				if err == nil {
-					err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
+				suspended, suspendErr := actors.SuspendActor(ctx, binding.Atespace, binding.Name)
+				switch {
+				case suspendErr != nil && status.Code(suspendErr) != codes.NotFound:
+					anyState = true
+				case suspendErr == nil:
+					err = transition.checkResult(suspended, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
 				}
 			}
 			if err == nil {
