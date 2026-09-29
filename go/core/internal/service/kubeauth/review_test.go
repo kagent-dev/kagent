@@ -3,6 +3,7 @@ package kubeauth_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
@@ -189,3 +190,50 @@ func TestCheckAccessRequiresSession(t *testing.T) {
 	)
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated), "error = %v", err)
 }
+
+type cancelingAuthorizer struct {
+	testAuthorizer
+	cancel context.CancelFunc
+}
+
+func (a *cancelingAuthorizer) Check(ctx context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.cancel()
+	return a.testAuthorizer.Check(ctx, principal, verb, resource)
+}
+
+func (a *cancelingAuthorizer) Scope(ctx context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
+	a.cancel()
+	return a.testAuthorizer.Scope(ctx, principal, verb, resourceType)
+}
+
+func TestCheckAccessCancellation(t *testing.T) {
+	for _, name := range []string{"", "assistant"} {
+		for _, count := range []int{1, 2} {
+			t.Run(fmt.Sprintf("name=%s/targets=%d", name, count), func(t *testing.T) {
+				ctx, cancel := context.WithCancel(auth.AuthSessionTo(t.Context(), testSession{}))
+				defer cancel()
+				authorizer := &cancelingAuthorizer{
+					testAuthorizer: testAuthorizer{scopes: map[auth.Verb]apiauthorization.AuthorizationScope{
+						auth.VerbCreate: {Kind: apiauthorization.ScopeAll},
+					}},
+					cancel: cancel,
+				}
+				targets := make([]kubeauth.ReviewTarget, count)
+				for i := range targets {
+					targets[i] = kubeauth.ReviewTarget{Namespace: "team-a", Name: name}
+				}
+				reviewer := kubeauth.NewAccessReviewer(authorizer)
+				results, err := reviewer.Review(ctx, auth.ResourceAgentTemplate, []auth.Verb{auth.VerbCreate}, targets)
+				require.ErrorIs(t, err, context.Canceled)
+				assert.Nil(t, results)
+				assert.Equal(t, 1, len(authorizer.checkCalls)+len(authorizer.scopeCalls))
+
+				_, err = reviewer.Review(ctx, auth.ResourceAgentTemplate, []auth.Verb{auth.VerbCreate}, targets)
+				require.ErrorIs(t, err, context.Canceled)
+				assert.Equal(t, 1, len(authorizer.checkCalls)+len(authorizer.scopeCalls))
+			})
+		}
+	}
+}
+
+var _ auth.CollectionAuthorizer = (*cancelingAuthorizer)(nil)

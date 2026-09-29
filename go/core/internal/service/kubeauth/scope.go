@@ -71,22 +71,24 @@ func (m Matcher) Matches(object metav1.Object) bool {
 		return true
 	}
 	for _, clause := range m.scope.AnyOf {
-		matches := true
-		for _, predicate := range clause.All {
-			value := object.GetNamespace()
-			if predicate.Attribute == apiauthorization.AttributeName {
-				value = object.GetName()
-			}
-			matches = value != "" && slices.Contains(predicate.Values, value)
-			if !matches {
-				break
-			}
-		}
-		if matches {
+		if matchesClause(clause, object.GetNamespace(), object.GetName()) {
 			return true
 		}
 	}
 	return false
+}
+
+func matchesClause(clause apiauthorization.ScopeClause, namespace, name string) bool {
+	for _, predicate := range clause.All {
+		value := namespace
+		if predicate.Attribute == apiauthorization.AttributeName {
+			value = name
+		}
+		if value == "" || !slices.Contains(predicate.Values, value) {
+			return false
+		}
+	}
+	return true
 }
 
 // matchesAnyName reports whether the scope contains any valid Kubernetes
@@ -95,20 +97,26 @@ func (m Matcher) matchesAnyName(namespace string) bool {
 	if m.scope.Kind == apiauthorization.ScopeAll {
 		return true
 	}
+clauses:
 	for _, clause := range m.scope.AnyOf {
-		names := []string{"x"}
+		var names []string
 		for _, predicate := range clause.All {
-			if predicate.Attribute == apiauthorization.AttributeName {
-				names = predicate.Values
-				break
+			if predicate.Attribute == apiauthorization.AttributeNamespace && !slices.Contains(predicate.Values, namespace) {
+				continue clauses
 			}
+			if predicate.Attribute == apiauthorization.AttributeName && names == nil {
+				names = predicate.Values
+			}
+		}
+		if names == nil {
+			return true
 		}
 		for _, name := range names {
 			if len(utilvalidation.IsDNS1123Subdomain(name)) != 0 {
 				continue
 			}
-			object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
-			if m.Matches(object) {
+			// Check only this clause to avoid rescanning the full scope for each candidate name.
+			if matchesClause(clause, namespace, name) {
 				return true
 			}
 		}
