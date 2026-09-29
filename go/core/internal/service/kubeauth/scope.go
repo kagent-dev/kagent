@@ -89,12 +89,9 @@ func (m Matcher) Matches(object metav1.Object) bool {
 	return false
 }
 
-// MatchesAnyName reports whether the scope contains any valid Kubernetes
+// matchesAnyName reports whether the scope contains any valid Kubernetes
 // resource name in namespace.
-func (m Matcher) MatchesAnyName(namespace string) bool {
-	if len(utilvalidation.IsDNS1123Label(namespace)) != 0 {
-		return false
-	}
+func (m Matcher) matchesAnyName(namespace string) bool {
 	if m.scope.Kind == apiauthorization.ScopeAll {
 		return true
 	}

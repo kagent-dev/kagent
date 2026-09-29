@@ -1,10 +1,9 @@
-package kubeauth_test
+package kubeauth
 
 import (
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,7 +43,7 @@ func TestMatcher(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			matcher, err := kubeauth.CompileScope(test.scope)
+			matcher, err := CompileScope(test.scope)
 			if err != nil {
 				t.Fatalf("CompileScope() error = %v", err)
 			}
@@ -53,7 +52,7 @@ func TestMatcher(t *testing.T) {
 			}
 		})
 	}
-	if (kubeauth.Matcher{}).Matches(object) {
+	if (Matcher{}).Matches(object) {
 		t.Fatal("zero Matcher matches object")
 	}
 }
@@ -66,7 +65,7 @@ func TestMatcherOwnsCompiledScope(t *testing.T) {
 		Values:    values,
 	}}
 	clauses := []apiauthorization.ScopeClause{{All: predicates}}
-	matcher, err := kubeauth.CompileScope(apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: clauses})
+	matcher, err := CompileScope(apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: clauses})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,14 +90,12 @@ func TestMatcherOwnsCompiledScope(t *testing.T) {
 
 func TestMatcherMatchesAnyName(t *testing.T) {
 	tests := []struct {
-		name      string
-		namespace string
-		scope     apiauthorization.AuthorizationScope
-		want      bool
+		name  string
+		scope apiauthorization.AuthorizationScope
+		want  bool
 	}{
 		{name: "all", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, want: true},
 		{name: "none", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}},
-		{name: "invalid namespace", namespace: "NOT A NAMESPACE", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}},
 		{
 			name:  "namespace",
 			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}}}}}},
@@ -131,16 +128,12 @@ func TestMatcherMatchesAnyName(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			namespace := test.namespace
-			if namespace == "" {
-				namespace = "team-a"
-			}
-			matcher, err := kubeauth.CompileScope(test.scope)
+			matcher, err := CompileScope(test.scope)
 			if err != nil {
 				t.Fatalf("CompileScope() error = %v", err)
 			}
-			if got := matcher.MatchesAnyName(namespace); got != test.want {
-				t.Fatalf("MatchesAnyName() = %v, want %v", got, test.want)
+			if got := matcher.matchesAnyName("team-a"); got != test.want {
+				t.Fatalf("matchesAnyName() = %v, want %v", got, test.want)
 			}
 		})
 	}
@@ -165,7 +158,7 @@ func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := kubeauth.CompileScope(test.scope); err == nil {
+			if _, err := CompileScope(test.scope); err == nil {
 				t.Error("CompileScope() error = nil")
 			}
 		})
