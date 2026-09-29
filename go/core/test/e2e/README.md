@@ -121,6 +121,12 @@ four-actor cap. Parallel harness subtests share the same `-parallel` budget as
 other scenarios; they do not multiply it. Go still isolates controller restart
 tests from parallel scenarios.
 
+CI runs separate gVisor and Cloud Hypervisor jobs in parallel on Blacksmith.
+The Cloud Hypervisor job first checks that `/dev/kvm` can create a VM, then
+mounts it into Kind and installs Substrate's pinned microVM assets and
+`SandboxConfig`. A runner without nested KVM fails that job before image builds.
+Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
+
 To compare four versus eight on the same revision and runner, manually dispatch
 the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
 step duration and failures over repeated runs; doubling concurrency does not

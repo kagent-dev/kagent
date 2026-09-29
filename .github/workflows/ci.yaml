@@ -50,9 +50,15 @@ jobs:
           echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
           echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
   test-e2e:
+    name: ${{ matrix.sandbox_class == 'gvisor' && 'test-e2e' || 'test-e2e-cloud-hypervisor' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.3.0-alpha1
+      E2E_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -60,6 +66,26 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Check nested KVM support
+        if: matrix.sandbox_class == 'microvm'
+        run: |
+          systemd-detect-virt || true
+          sudo python3 - <<'PY'
+          import fcntl
+          import os
+          import sys
+
+          try:
+              with open("/dev/kvm", "r+b", buffering=0) as kvm:
+                  version = fcntl.ioctl(kvm, 0xAE00, 0)  # KVM_GET_API_VERSION
+                  if version != 12:
+                      sys.exit(f"::error::Unsupported KVM API version: {version}")
+                  vm = fcntl.ioctl(kvm, 0xAE01, 0)  # KVM_CREATE_VM
+                  os.close(vm)
+          except OSError as error:
+              sys.exit(f"::error::Cloud Hypervisor requires nested KVM on this runner: {error}")
+          print("KVM_CREATE_VM succeeded; continuing with Cloud Hypervisor E2E")
+          PY
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Set up Go
@@ -103,7 +129,20 @@ jobs:
 
       - name: Create Kind cluster
         run: |
+          if [ "$E2E_SANDBOX_CLASS" = microvm ]; then
+            export KIND_CONFIG_FILE="$RUNNER_TEMP/kind-microvm.yaml"
+            cp scripts/kind/kind-config.yaml "$KIND_CONFIG_FILE"
+            # The shared Kind config has one control-plane node.
+            cat >> "$KIND_CONFIG_FILE" <<'YAML'
+              extraMounts:
+                - hostPath: /dev/kvm
+                  containerPath: /dev/kvm
+          YAML
+          fi
           make create-kind-cluster
+          if [ "$E2E_SANDBOX_CLASS" = microvm ]; then
+            docker exec kagent-control-plane chmod 666 /dev/kvm
+          fi
 
       - name: Install Agent Substrate
         run: |
@@ -125,6 +164,32 @@ jobs:
           kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
           helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values --wait --timeout 5m
 
+      - name: Checkout Substrate runtime setup
+        if: matrix.sandbox_class == 'microvm'
+        uses: actions/checkout@v6
+        with:
+          repository: kagent-dev/substrate
+          ref: bf51a996f0148bec37b49248e46eee7b5b9b6dc1 # v0.3.0-alpha1
+          path: .substrate-e2e
+          persist-credentials: false
+
+      - name: Cache Cloud Hypervisor assets
+        if: matrix.sandbox_class == 'microvm'
+        uses: actions/cache@v6
+        with:
+          path: .substrate-e2e/bin/microvm-assets/amd64
+          key: microvm-assets-amd64-${{ hashFiles('.substrate-e2e/hack/microvm-assets/assemble.sh') }}
+
+      - name: Install Cloud Hypervisor runtime
+        if: matrix.sandbox_class == 'microvm'
+        working-directory: .substrate-e2e
+        env:
+          ATE_INSTALL_KIND: "true"
+          KUBECTL_CONTEXT: kind-kagent
+          KIND_CLUSTER_NAME: kagent
+          ARCH: amd64
+        run: hack/install-microvm-deps.sh --install
+
       - name: Install Kagent
         id: install-kagent
         env:
@@ -140,7 +205,8 @@ jobs:
             --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
-            --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
+            --set-string substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
+            --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
             --set otel.traces.enabled=true
             --set-string otel.exporter.otlp.endpoint=http://172.17.0.1:14317
         run: |
@@ -218,7 +284,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-logs
+          name: e2e-logs-${{ matrix.sandbox_class }}
           path: ${{ runner.temp }}/e2e-logs
           retention-days: 7
 

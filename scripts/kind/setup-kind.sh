@@ -29,7 +29,7 @@ else
   # When using podman, set the KIND_EXPERIMENTAL_PROVIDER
   export KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_RUNTIME}"
   kind create cluster --name "${KIND_CLUSTER_NAME}" \
-    --config scripts/kind/kind-config.yaml \
+    --config "${KIND_CONFIG_FILE:-scripts/kind/kind-config.yaml}" \
     --image="kindest/node:v${KIND_IMAGE_VERSION}" \
     --wait 60s
 fi
