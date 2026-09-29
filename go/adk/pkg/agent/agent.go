@@ -519,16 +519,7 @@ func makeAfterToolCallback(logger *slog.Logger) llmagent.AfterToolCallback {
 	}
 }
 
-// Keys of the function response of a tool call that failed: adk-go's own
-// {"error": text} shape, and the flag kagent's clients read on every runtime.
-const (
-	toolResponseErrorKey   = "error"
-	toolResponseIsErrorKey = "isError"
-)
-
-// rejectedToolMessage is what the model is told about a call a person rejected.
-// The Python runtime says the same (kagent/adk/_approval.py), so a rejection
-// reads alike whichever runtime the agent runs on.
+// rejectedToolMessage matches the Python runtime (kagent/adk/_approval.py).
 const rejectedToolMessage = "Tool call was rejected by user."
 
 // makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors
@@ -541,44 +532,20 @@ func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 			"session_id", ctx.SessionID(),
 			"invocation_id", ctx.InvocationID(),
 		)
-		return toolErrorResponse(ctx.ToolConfirmation(), err), nil
+		// A confirmation request is a pause, not a failure; clients match its plain text.
+		if errors.Is(err, tool.ErrConfirmationRequired) {
+			return nil, nil
+		}
+		message := err.Error()
+		if errors.Is(err, tool.ErrConfirmationRejected) {
+			message = rejectionMessage(ctx.ToolConfirmation())
+		}
+		return map[string]any{"error": message, "isError": true}, nil
 	}
 }
 
-// toolErrorResponse is the function response for a tool call that failed: the
-// {"error": text} adk-go builds on its own, plus isError, the flag the harness
-// runtimes set beside a failed result (harness/runtime/a2a) and clients read to
-// show a step as failed. adk-go's MCP toolset collapses a CallToolResult with
-// IsError into a Go error before it reaches the flow, so this callback is the
-// one place that still knows the call failed. A nil map hands the error back to
-// adk-go's default handling.
-func toolErrorResponse(confirmation *toolconfirmation.ToolConfirmation, err error) map[string]any {
-	switch {
-	case err == nil || errors.Is(err, tool.ErrConfirmationRequired):
-		// A confirmation request travels as an error too, but it is a pause,
-		// not a failure: it keeps the plain shape, which clients tell apart by
-		// its text.
-		return nil
-	case errors.Is(err, tool.ErrConfirmationRejected):
-		// The call did not run because a person said no. adk-go reports that as
-		// a bare sentinel naming the tool; the model hears the person instead.
-		return toolFailure(rejectionMessage(confirmation))
-	default:
-		return toolFailure(err.Error())
-	}
-}
-
-// toolFailure is the function response of a call that produced no result, under
-// the message the model reads.
-func toolFailure(message string) map[string]any {
-	return map[string]any{toolResponseErrorKey: message, toolResponseIsErrorKey: true}
-}
-
-// rejectionMessage names the reason a person gave for rejecting a call when the
-// confirmation carries one, so the model can answer the question behind it
-// rather than only learning that it was refused. A confirmation that stands for
-// a child agent's decisions carries that state instead, and falls back to the
-// bare sentence.
+// rejectionMessage adds the reason the person gave, if any. A confirmation
+// that stands for a child agent's decisions carries no reason of its own.
 func rejectionMessage(confirmation *toolconfirmation.ToolConfirmation) string {
 	var payload map[string]any
 	if confirmation != nil {
