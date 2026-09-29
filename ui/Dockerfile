@@ -65,6 +65,7 @@ ENV LC_ALL=C.UTF-8
 ARG BUILDPLATFORM
 
 # Every package pinned, dependencies included, so a rebuild of the same commit ships the same image. List them with `apk info -v` after an unpinned install.
+# No openssl CLI: nothing here runs it. curl stays for exec-based probes on IPv6 clusters.
 RUN echo "Installing on $BUILDPLATFORM" \
     && apk add --no-cache \
         bash=5.3-r13 \
@@ -95,7 +96,6 @@ RUN echo "Installing on $BUILDPLATFORM" \
         nginx-mainline-scgi-params=1.31.6-r2 \
         nginx-mainline-uwsgi-params=1.31.6-r2 \
         ngtcp2=1.25.0-r3 \
-        openssl=3.6.4-r8 \
         readline=8.3-r3 \
         sqlite-libs=3.53.4-r2 \
     && update-ca-certificates
