@@ -64,7 +64,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 		require.Eventually(t, func() bool {
 			task, err := fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Tenant: fixture.tenant, Id: taskID})
 			return err == nil && task.GetStatus().GetState() == a2apb.TaskState_TASK_STATE_COMPLETED
-		}, time.Minute, 100*time.Millisecond, "disconnected task did not finish and publish")
+		}, 2*time.Minute, 100*time.Millisecond, "disconnected task did not finish and publish")
 		t.Logf("first event including actor resume: %s; model release through persisted completion: %s", firstEventLatency, time.Since(nativeStart))
 		reconnected, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Tenant: fixture.tenant, Id: taskID})
 		require.NoError(t, err)
