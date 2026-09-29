@@ -417,6 +417,10 @@ controller:
   # 168h is seven days; 0 disables expiration. Audit history and checkpoints remain.
   sessionIdleTTL: "168h"
 
+  # Longest lifetime a session share may request; shares created without one receive it.
+  # 0 leaves shares valid until revoked or the session is deleted.
+  sessionShareMaxTTL: "0"
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:

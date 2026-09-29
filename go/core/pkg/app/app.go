@@ -316,7 +316,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(expiration); err != nil {
 		return fmt.Errorf("register session expiration worker: %w", err)
 	}
-	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow)
+	shareMaxTTL := kagentenv.SessionShareMaxTTL.Get()
+	if shareMaxTTL < 0 {
+		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
+	}
+	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		kagentenv.SubstrateAtenetRouterURL.Get(),

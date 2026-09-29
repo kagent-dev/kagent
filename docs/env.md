@@ -131,6 +131,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
 | `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
 | `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
+| `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
 | `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |

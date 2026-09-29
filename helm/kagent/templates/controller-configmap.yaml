@@ -12,6 +12,7 @@ data:
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   KAGENT_SESSION_IDLE_TTL: {{ .Values.controller.sessionIdleTTL | quote }}
+  KAGENT_SESSION_SHARE_MAX_TTL: {{ .Values.controller.sessionShareMaxTTL | quote }}
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}

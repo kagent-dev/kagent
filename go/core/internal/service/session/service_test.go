@@ -304,6 +304,48 @@ func TestServiceCreateShareSetsExpiryFromTTL(t *testing.T) {
 	}
 }
 
+func TestServiceCreateShareAppliesMaxTTL(t *testing.T) {
+	sessionID := "11111111-1111-4111-8111-111111111111"
+	permission := apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY
+	for _, test := range []struct {
+		name string
+		ttl  time.Duration
+		want time.Duration
+	}{
+		{name: "unset ttl takes the maximum", want: 24 * time.Hour},
+		{name: "shorter ttl is kept", ttl: time.Hour, want: time.Hour},
+		{name: "ttl equal to the maximum is kept", ttl: 24 * time.Hour, want: 24 * time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithShareMaxTTL(24*time.Hour))
+			before := time.Now()
+
+			share, _, err := service.CreateShare(serviceTestContext("alice"), sessionID, permission, test.ttl)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expires := share.GetExpiresAt().AsTime()
+			if expires.Before(before.Add(test.want)) || expires.After(time.Now().Add(test.want)) {
+				t.Fatalf("share expires at %v, want %v after its creation", expires, test.want)
+			}
+		})
+	}
+}
+
+func TestServiceCreateShareRejectsTTLAboveMax(t *testing.T) {
+	store := &serviceTestStore{}
+	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithShareMaxTTL(24*time.Hour))
+
+	_, _, err := service.CreateShare(serviceTestContext("alice"), "11111111-1111-4111-8111-111111111111",
+		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, 25*time.Hour)
+	if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
+		t.Fatalf("CreateShare error = %v, want InvalidArgument", err)
+	}
+	if store.share != nil {
+		t.Fatal("a refused share reached the store")
+	}
+}
+
 func TestServiceCreateShareRejectsNegativeTTL(t *testing.T) {
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
