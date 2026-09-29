@@ -69,7 +69,7 @@ func TestInterruptSessionTaskFailsTheTurnAndReopensTheSession(t *testing.T) {
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	// The interruption is no idle boundary: nothing to pause or suspend.
-	_, err = client.ClaimSessionQuiescence(t.Context())
+	_, err = client.ClaimSessionQuiescence(t.Context(), 0)
 	require.ErrorIs(t, err, ErrNotFound)
 	stalled, err := client.ListStalledSessionTasks(t.Context(), time.Now().Add(time.Hour), 100)
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestInterruptSessionTaskSettlesTheRuntimesOwnBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, settled.Status.State)
 	require.Equal(t, a2a.NewTextPart("done"), settled.Status.Message.Parts[0])
-	work, err := client.ClaimSessionQuiescence(t.Context())
+	work, err := client.ClaimSessionQuiescence(t.Context(), 0)
 	require.NoError(t, err, "the runtime's boundary keeps its idle work")
 	require.Equal(t, boundary, work.Version)
 }

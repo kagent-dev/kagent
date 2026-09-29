@@ -392,6 +392,11 @@ controller:
   # takes its next message. 0 disables the sweep.
   stalledTurnTimeout: "1h"
 
+  # A runtime paused for input is suspended to a durable snapshot once its pause
+  # is older than this, so a reply after a node loss still finds its state.
+  # 0 keeps every pause in place until the reply.
+  pausedRuntimeTTL: "2m"
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:

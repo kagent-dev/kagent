@@ -31,6 +31,9 @@ func (w *ActorWorkflow) wakeQuiescence() {
 // Start pauses or suspends idle sessions independently of task publication.
 // Startup and periodic recovery scans discover work missed by local signals.
 // Workers drain claims with bounded concurrency; task reads never wait for them.
+// A pause older than the paused runtime TTL is claimed again for a suspend, so a
+// reply that outlives the pause's node restores the runtime from its external
+// snapshot instead.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
 	for range 4 {
@@ -38,7 +41,7 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
 			for ctx.Err() == nil {
-				work, err := w.store.ClaimSessionQuiescence(ctx)
+				work, err := w.store.ClaimSessionQuiescence(ctx, w.pausedRuntimeTTL)
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
 					// burst can enlist all workers, even if this actor is slow.
@@ -76,7 +79,7 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 	runtimeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	var snapshot *database.SessionTaskSnapshot
 	var err error
-	if work.State.Terminal() {
+	if work.State.Terminal() || work.Suspend {
 		snapshot, err = w.Quiesce(runtimeCtx, work.Session)
 	} else {
 		err = w.Pause(runtimeCtx, work.Session)

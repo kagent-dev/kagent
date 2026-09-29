@@ -52,6 +52,20 @@ tests:
           path: data.KAGENT_STALLED_TURN_TIMEOUT
           value: "0"
 
+  - it: defaults the paused runtime TTL to two minutes
+    asserts:
+      - equal:
+          path: data.KAGENT_PAUSED_RUNTIME_TTL
+          value: 2m
+
+  - it: allows pauses to stay in place until the reply
+    set:
+      controller.pausedRuntimeTTL: "0"
+    asserts:
+      - equal:
+          path: data.KAGENT_PAUSED_RUNTIME_TTL
+          value: "0"
+
   - it: defaults to insecure controller authentication
     asserts:
       - isSubset:

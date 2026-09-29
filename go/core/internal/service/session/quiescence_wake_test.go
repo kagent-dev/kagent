@@ -288,7 +288,7 @@ func TestQuiescenceCancellationRetainsClaim(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("shutdown did not cancel runtime work")
 	}
-	_, err = store.ClaimSessionQuiescence(t.Context())
+	_, err = store.ClaimSessionQuiescence(t.Context(), 0)
 	require.ErrorIs(t, err, database.ErrNotFound)
 	pending, err := store.HasPendingSessionQuiescence(t.Context())
 	require.NoError(t, err)

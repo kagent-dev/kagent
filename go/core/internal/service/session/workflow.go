@@ -17,7 +17,7 @@ import (
 )
 
 type workflowStore interface {
-	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
+	ClaimSessionQuiescence(context.Context, time.Duration) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
@@ -43,12 +43,26 @@ type ActorWorkflow struct {
 	actors           actorClient
 	recoveryInterval time.Duration
 	quiescenceWake   chan struct{}
+	pausedRuntimeTTL time.Duration
+}
+
+type WorkflowOption func(*ActorWorkflow)
+
+// WithPausedRuntimeTTL bounds how long a runtime paused for input stays on its
+// node before the idle worker suspends it durably. Zero keeps every pause in
+// place until the reply.
+func WithPausedRuntimeTTL(ttl time.Duration) WorkflowOption {
+	return func(w *ActorWorkflow) { w.pausedRuntimeTTL = ttl }
 }
 
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
-func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
+func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, options ...WorkflowOption) *ActorWorkflow {
+	workflow := &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
+	for _, option := range options {
+		option(workflow)
+	}
+	return workflow
 }
 
 // Pause checkpoints the runtime on its current worker without changing the

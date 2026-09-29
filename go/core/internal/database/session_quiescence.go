@@ -2,11 +2,14 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
@@ -18,6 +21,15 @@ type SessionQuiescence struct {
 	State      a2a.TaskState
 	Version    int64
 	ExecutorID uuid.UUID
+	// Suspend asks for a durable suspend of a waiting task's runtime whose
+	// pause is older than the claim's TTL, in place of a second pause.
+	Suspend bool
+}
+
+type quiescenceCandidate struct {
+	SessionID string
+	TaskID    string
+	Sequence  int64
 }
 
 // HasPendingSessionQuiescence includes ready sessions temporarily blocked by
@@ -39,14 +51,15 @@ func (c *Client) HasPendingSessionQuiescence(ctx context.Context) (bool, error) 
 // version. A new turn supersedes unclaimed idle work; a claim blocks task writes,
 // checkpoints, and explicit lifecycle operations until it finishes. Missing work
 // returns ErrNotFound. Uncertain issued work is never reassigned after a timeout.
-func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence, error) {
+//
+// With a positive pauseTTL, a waiting task whose pause finished longer ago than
+// the TTL and whose runtime has no recorded snapshot is claimed again, for a
+// suspend: the pause checkpoint lives on one node, and a reply that takes longer
+// than the TTL may outlive that node. A reply re-arms nothing: it clears the
+// boundary's idle marker and the task leaves the waiting state.
+func (c *Client) ClaimSessionQuiescence(ctx context.Context, pauseTTL time.Duration) (*SessionQuiescence, error) {
 	var result *SessionQuiescence
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		type candidate struct {
-			SessionID string
-			TaskID    string
-			Sequence  int64
-		}
 		row, err := queryOne(ctx, tx, `
 			SELECT i.id::text AS session_id, e.task_id, e.sequence
 			FROM session_task_event e JOIN session_record i ON i.history_id = e.history_id
@@ -57,7 +70,12 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 			  AND (i.dispatch_expires_at IS NULL OR i.dispatch_expires_at <= clock_timestamp())
 			  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = i.id AND state = 'CREATING')
 			ORDER BY e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
-		`, pgx.RowToStructByName[candidate])
+		`, pgx.RowToStructByName[quiescenceCandidate])
+		suspend := false
+		if errors.Is(err, pgx.ErrNoRows) && pauseTTL > 0 {
+			row, err = expiredPauseCandidate(ctx, tx, pauseTTL)
+			suspend = true
+		}
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -80,16 +98,30 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 		if err != nil {
 			return err
 		}
-		result = &SessionQuiescence{Session: value, TaskID: row.TaskID, State: task.Status.State, Version: row.Sequence, ExecutorID: uuid.New()}
+		result = &SessionQuiescence{Session: value, TaskID: row.TaskID, State: task.Status.State, Version: row.Sequence, ExecutorID: uuid.New(), Suspend: suspend}
 		// Recheck after locking: the candidate query's snapshot may predate a
 		// new turn that committed just before we acquired the session lock.
-		tag, err := tx.Exec(ctx, `
-			UPDATE session_task_event SET quiescence_executor_id = $2
-			WHERE sequence = $1 AND published AND quiescence_pending
-			  AND quiescence_executor_id IS NULL
-			  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
-			  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $3 AND state = 'CREATING')
-		`, result.Version, result.ExecutorID, session.ID)
+		var tag pgconn.CommandTag
+		if suspend {
+			tag, err = tx.Exec(ctx, `
+				UPDATE session_task_event SET quiescence_pending = TRUE, quiescence_executor_id = $2
+				WHERE sequence = $1 AND published AND quiescence_pending = FALSE
+				  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
+				  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $3 AND state = 'CREATING')
+				  AND NOT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $4 AND (quiescence_pending OR NOT published))
+				  AND NOT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $4 AND task_id = $5 AND sequence > $1)
+				  AND EXISTS (SELECT 1 FROM session_task WHERE history_id = $4 AND id = $5 AND snapshot_uri IS NULL
+				      AND state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED'))
+			`, result.Version, result.ExecutorID, session.ID, session.HistoryID, row.TaskID)
+		} else {
+			tag, err = tx.Exec(ctx, `
+				UPDATE session_task_event SET quiescence_executor_id = $2
+				WHERE sequence = $1 AND published AND quiescence_pending
+				  AND quiescence_executor_id IS NULL
+				  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
+				  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $3 AND state = 'CREATING')
+			`, result.Version, result.ExecutorID, session.ID)
+		}
 		if err != nil {
 			return err
 		}
@@ -99,6 +131,29 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 		return nil
 	})
 	return result, err
+}
+
+// expiredPauseCandidate finds the oldest waiting task whose pause finished
+// longer ago than ttl and whose runtime has no recorded snapshot. The boundary
+// is the task's latest event: a reply appends to the task and leaves the
+// waiting state, and a superseded boundary is never a waiting task's latest.
+func expiredPauseCandidate(ctx context.Context, tx pgx.Tx, ttl time.Duration) (quiescenceCandidate, error) {
+	return queryOne(ctx, tx, `
+		SELECT i.id::text AS session_id, e.task_id, e.sequence
+		FROM session_task_event e
+		JOIN session_task t ON t.history_id = e.history_id AND t.id = e.task_id
+		JOIN session_record i ON i.history_id = e.history_id
+		WHERE e.published AND e.quiescence_pending = FALSE
+		  AND e.created_at <= clock_timestamp() - $1::interval
+		  AND t.state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
+		  AND t.snapshot_uri IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = e.history_id AND task_id = e.task_id AND sequence > e.sequence)
+		  AND i.state = 'RUNTIME_STATE_READY'
+		  AND i.operation = 'RUNTIME_OPERATION_NONE'
+		  AND (i.dispatch_expires_at IS NULL OR i.dispatch_expires_at <= clock_timestamp())
+		  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = i.id AND state = 'CREATING')
+		ORDER BY e.created_at, e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
+	`, pgx.RowToStructByName[quiescenceCandidate], ttl)
 }
 
 // FinishSessionQuiescence records a claimed pause/suspend outcome and releases

@@ -17,6 +17,7 @@ data:
   KAGENT_SESSION_IDLE_TTL: {{ .Values.controller.sessionIdleTTL | quote }}
   KAGENT_SESSION_SHARE_MAX_TTL: {{ .Values.controller.sessionShareMaxTTL | quote }}
   KAGENT_STALLED_TURN_TIMEOUT: {{ .Values.controller.stalledTurnTimeout | quote }}
+  KAGENT_PAUSED_RUNTIME_TTL: {{ .Values.controller.pausedRuntimeTTL | quote }}
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}

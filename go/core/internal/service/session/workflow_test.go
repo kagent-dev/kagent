@@ -159,11 +159,12 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.Session) 
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, true))
 	session, _, err := client.CreateSession(t.Context(), &apiv1alpha1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
 	require.NoError(t, err)
-	return &lifecycleTestStore{Client: client, revision: revision}, session
+	return &lifecycleTestStore{Client: client, pool: pool, revision: revision}, session
 }
 
 type lifecycleTestStore struct {
 	*database.Client
+	pool     *pgxpool.Pool
 	revision *database.RuntimeRevision
 }
 
@@ -286,7 +287,7 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	version, err := store.UpdateSessionTask(t.Context(), source.Id, initialVersion, hash[:], task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, store.SettleSessionTask(t.Context(), source.Id, string(task.ID), version))
-	boundary, err := store.ClaimSessionQuiescence(t.Context())
+	boundary, err := store.ClaimSessionQuiescence(t.Context(), 0)
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), boundary,
 		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
