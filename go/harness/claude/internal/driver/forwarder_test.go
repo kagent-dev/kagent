@@ -194,3 +194,20 @@ func TestCallerCredentialReadsTheA2ACall(t *testing.T) {
 		t.Fatalf("CallerCredential() = %q", got)
 	}
 }
+
+func TestCredentialForwarderKeepsThePathAbsoluteForAPathlessUpstream(t *testing.T) {
+	upstream, requests := newRecordingUpstream(t)
+	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{"tools": {URL: upstream.URL}}, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = forwarder.Close() })
+	forwarder.Bind("Bearer person-token")
+	if response := callForwarder(t, forwarder, forwarder.URL("tools")+"/session", true); response.StatusCode != http.StatusOK {
+		t.Fatalf("forwarded call status = %d", response.StatusCode)
+	}
+	seen := requests()
+	if len(seen) != 1 || seen[0].Path != "/session" {
+		t.Fatalf("upstream requests = %#v, want one request at /session", seen)
+	}
+}

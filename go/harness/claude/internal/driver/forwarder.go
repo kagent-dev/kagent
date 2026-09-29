@@ -205,6 +205,13 @@ func joinPath(target *url.URL, suffix string) (path, rawPath string) {
 		return target.Path, target.RawPath
 	}
 	joined := target.JoinPath(suffix)
+	// JoinPath keeps a pathless URL relative, which is not a valid request line.
+	if !strings.HasPrefix(joined.Path, "/") {
+		joined.Path = "/" + joined.Path
+		if joined.RawPath != "" {
+			joined.RawPath = "/" + joined.RawPath
+		}
+	}
 	return joined.Path, joined.RawPath
 }
 
