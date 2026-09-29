@@ -1,0 +1,190 @@
+suite: test harnesses
+templates:
+  - harnesses.yaml
+set:
+  controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  runtimeImages.claudeHarness.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  harness.snapshotLocation: s3://snapshots/kagent
+tests:
+  - it: should render no further Harness by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render a claude Harness on the chart's Claude image at its digest
+    set:
+      namespaceOverride: kagent
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+          env:
+            - name: KAGENT_PROPAGATE_TOKEN
+              value: "true"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Harness
+      - isAPIVersion:
+          of: api.kagent.dev/v1alpha3
+      - equal:
+          path: metadata.name
+          value: claude
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: spec.claude
+          value: {}
+      - notExists:
+          path: spec.kagent
+      - equal:
+          path: spec.workload.image
+          value: ghcr.io/kagent-dev/kagent/claude-harness@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: s3://snapshots/claude
+      - equal:
+          path: spec.env[0].name
+          value: KAGENT_PROPAGATE_TOKEN
+
+  - it: should render one Harness per entry, a toolchain image and a second Go ADK Harness included
+    set:
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+        - name: claude-go
+          image: example.com/harness-go@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+          workerPoolRef: large
+          snapshotLocation: s3://snapshots/claude-go
+          env:
+            - name: GOFLAGS
+              value: -mod=readonly
+        - name: adk-large
+          runtime: kagent
+          snapshotLocation: s3://snapshots/adk-large
+          compaction:
+            tokenThreshold: 600000
+            eventRetentionSize: 4
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: metadata.name
+          value: claude-go
+        documentIndex: 1
+      - equal:
+          path: spec.workload.image
+          value: example.com/harness-go@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+        documentIndex: 1
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: large
+        documentIndex: 1
+      - equal:
+          path: spec.env[0].name
+          value: GOFLAGS
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: adk-large
+        documentIndex: 2
+      - equal:
+          path: spec.kagent.compaction.tokenThreshold
+          value: 600000
+        documentIndex: 2
+      - equal:
+          path: spec.workload.image
+          value: ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        documentIndex: 2
+      - notExists:
+          path: spec.claude
+        documentIndex: 2
+
+  - it: should fail on a name the chart's own Harness already uses
+    set:
+      harness.create: true
+      harnesses:
+        - name: kagent
+          snapshotLocation: s3://snapshots/x
+    asserts:
+      - failedTemplate:
+          errorPattern: a Harness named "kagent" is already rendered
+
+  - it: should fail on two entries with one name
+    set:
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/a
+        - name: claude
+          snapshotLocation: s3://snapshots/b
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[1\]: a Harness named "claude" is already rendered'
+
+  - it: should fail on an unknown runtime
+    set:
+      harnesses:
+        - name: x
+          runtime: codex
+          snapshotLocation: s3://snapshots/x
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\].runtime "codex": claude or kagent'
+
+  - it: should fail on a tag instead of a digest
+    set:
+      harnesses:
+        - name: claude
+          image: example.com/claude-harness:latest
+          snapshotLocation: s3://snapshots/claude
+    asserts:
+      - failedTemplate:
+          errorPattern: a tag is not accepted
+
+  - it: should fail without a digest for the chart's Claude image
+    set:
+      runtimeImages.claudeHarness.digest: ""
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\] \(claude\) needs its runtime image.s digest: set runtimeImages.claudeHarness.digest'
+
+  - it: should fail without a snapshot location
+    set:
+      harnesses:
+        - name: claude
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\].snapshotLocation is required'
+
+  - it: should fail on compaction for a claude entry
+    set:
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+          compaction:
+            tokenThreshold: 600000
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\].compaction: the claude runtime has no compaction setting'
+
+  - it: should render the entries beside the chart's own Harness
+    set:
+      harness.create: true
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+        - name: claude-go
+          snapshotLocation: s3://snapshots/claude-go
+    asserts:
+      - hasDocuments:
+          count: 2

@@ -62,3 +62,27 @@ tests:
       - equal:
           path: metadata.namespace
           value: NAMESPACE
+
+  - it: should list each harnesses[] image once beside the chart's images
+    set:
+      controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      runtimeImages.claudeHarness.digest: "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+        - name: claude-go
+          image: example.com/harness-go@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          snapshotLocation: s3://snapshots/claude-go
+        - name: adk-large
+          runtime: kagent
+          snapshotLocation: s3://snapshots/adk-large
+    asserts:
+      - equal:
+          path: data["substrate-values.yaml"]
+          value: |
+            atelet:
+              imageCache:
+                pinnedImages:
+                - ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                - ghcr.io/kagent-dev/kagent/claude-harness@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+                - example.com/harness-go@sha256:1111111111111111111111111111111111111111111111111111111111111111

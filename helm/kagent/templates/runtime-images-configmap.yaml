@@ -6,10 +6,10 @@ image. The ConfigMap sits in the release namespace — not the chart's
 namespaceOverride — so a Substrate release installed next to this one reads it
 as values (a Flux HelmRelease's valuesFrom) without crossing namespaces. Listed:
 the image the chart's Harness runs (harness.image, else the chart's own Go ADK
-image at controller.agentImage.digest) and the images under runtimeImages; an
-image whose digest is empty is left out, so a chart rendered from git lists
-nothing and a published chart lists its build. The ConfigMap carries the label
-helm-controller watches (reconcile.fluxcd.io/watch: Enabled, its default
+image at controller.agentImage.digest), the images under runtimeImages and the
+image of each harnesses[] entry, each once; an image whose digest is empty is
+left out, so a chart rendered from git lists nothing and a published chart
+lists its build. The ConfigMap carries the label helm-controller watches (reconcile.fluxcd.io/watch: Enabled, its default
 --watch-configs-label-selector): a HelmRelease reading it through valuesFrom
 is upgraded as soon as an image reference changes, instead of on its next
 interval. Any other reader ignores the label.
@@ -21,6 +21,12 @@ interval. Any other reader ignores the label.
 {{- with include "kagent.runtimeImage" (dict "root" . "image" .Values.runtimeImages.claudeHarness) }}
 {{- $images = append $images . }}
 {{- end }}
+{{- range .Values.harnesses }}
+{{- with include "kagent.harnesses.image" (dict "root" $ "entry" .) }}
+{{- $images = append $images . }}
+{{- end }}
+{{- end }}
+{{- $images = uniq $images }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

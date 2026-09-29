@@ -504,6 +504,32 @@ harness:
   # At least one strategy when set; empty leaves the history uncompacted.
   compaction: {}
 
+# -- Further Harnesses beside the chart's own (harness.*), one entry each: a
+# coding Harness on the chart's claude-harness image, a toolchain Harness on an
+# image built from it, or another Go ADK Harness. Empty by default. Each entry
+# takes the keys of harness.* (name, image, workerPoolRef, snapshotLocation,
+# env, compaction for a kagent runtime) plus `runtime`: `claude` (the
+# default; image empty selects the chart's Claude image,
+# runtimeImages.claudeHarness at its digest) or `kagent` (image empty selects
+# the chart's Go ADK image). The digest rules of harness.* apply per entry. An
+# Agent names the Harness it runs on (spec.harnessRef.name), so every name must
+# differ from the chart's own Harness and from the other entries; the render
+# fails on a repeat. compaction on a claude entry fails the render. Each
+# entry's image is listed in the `<fullname>-images` ConfigMap.
+#
+# On the Claude harness, KAGENT_PROPAGATE_TOKEN forwards the turn caller's
+# credential on MCP calls. Keep each entry's snapshotLocation apart from the
+# others': a snapshot is the actor's whole memory and filesystem.
+#
+# Example:
+#   harnesses:
+#     - name: claude
+#       snapshotLocation: s3://snapshots/claude
+#       env:
+#         - name: KAGENT_PROPAGATE_TOKEN
+#           value: "true"
+harnesses: []
+
 # -- Runtime images the chart publishes besides the Go ADK image
 # (controller.agentImage). The chart lists its runtime images, digest-pinned, in
 # the ConfigMap `<fullname>-images` (in the release namespace) as a values

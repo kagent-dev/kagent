@@ -1,0 +1,73 @@
+{{- /*
+Further Harnesses beside the chart's own (harness.yaml), one per entry of
+`harnesses`: a coding Harness on the chart's claude-harness image, a
+toolchain Harness on an image built from it, or another Go ADK Harness. Each
+entry has the policy shape of harness.*: a WorkerPool, a snapshot location,
+an environment. An Agent names the Harness it runs
+on by spec.harnessRef.name, so the names of the entries and of the chart's own
+Harness must be distinct, and the render fails on a repeat.
+*/}}
+{{- $root := . }}
+{{- $names := dict }}
+{{- if .Values.harness.create }}
+{{- $_ := set $names .Values.harness.name true }}
+{{- end }}
+{{- range $index, $entry := .Values.harnesses }}
+{{- $key := printf "harnesses[%d]" $index }}
+{{- $name := required (printf "%s.name is required" $key) $entry.name }}
+{{- if hasKey $names $name }}
+{{- fail (printf "%s: a Harness named %q is already rendered by this chart" $key $name) }}
+{{- end }}
+{{- $_ := set $names $name true }}
+{{- $runtime := $entry.runtime | default "claude" }}
+{{- if not (has $runtime (list "claude" "kagent")) }}
+{{- fail (printf "%s.runtime %q: claude or kagent" $key $runtime) }}
+{{- end }}
+{{- if and (eq $runtime "claude") $entry.compaction }}
+{{- fail (printf "%s.compaction: the claude runtime has no compaction setting (Harness.spec.kagent.compaction is the Go ADK's)" $key) }}
+{{- end }}
+{{- $image := include "kagent.harnesses.image" (dict "root" $root "entry" $entry) }}
+{{- if not $image }}
+{{- fail (printf "%s (%s) needs its runtime image's digest: set %s (sha256:<64 hex digits>; a published chart carries it) or %s.image (<repository>@sha256:<64 hex digits>)" $key $name (ternary "runtimeImages.claudeHarness.digest" "controller.agentImage.digest" (eq $runtime "claude")) $key) }}
+{{- end }}
+{{- if not (regexMatch "^[^[:space:]@]+@sha256:[a-f0-9]{64}$" $image) }}
+{{- fail (printf "%s image %q: a Harness pins its runtime image by digest (<repository>@sha256:<64 hex digits>); a tag is not accepted" $key $image) }}
+{{- end }}
+{{- if not $entry.snapshotLocation }}
+{{- fail (printf "%s.snapshotLocation is required (the Substrate snapshot store of the actors run under the Harness %q, e.g. s3://<bucket>/<prefix>)" $key $name) }}
+{{- end }}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ include "kagent.namespace" $root }}
+  labels:
+    {{- include "kagent.labels" $root | nindent 4 }}
+  annotations:
+    # The runtime of every agent admitted under it: kept across an uninstall of the chart.
+    helm.sh/resource-policy: keep
+spec:
+  {{- if eq $runtime "claude" }}
+  claude: {}
+  {{- else }}
+  {{- with $entry.compaction }}
+  kagent:
+    compaction:
+      {{- toYaml . | nindent 6 }}
+  {{- else }}
+  kagent: {}
+  {{- end }}
+  {{- end }}
+  workload:
+    image: {{ $image | quote }}
+  {{- with $entry.env }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  substrate:
+    workerPoolRef:
+      name: {{ $entry.workerPoolRef | default $root.Values.substrateWorkerPool.name | quote }}
+    snapshotPolicy:
+      location: {{ $entry.snapshotLocation | quote }}
+{{- end }}

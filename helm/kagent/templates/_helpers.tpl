@@ -470,3 +470,18 @@ Go ADK runtime image (controller.agentImage) at its digest; empty when neither i
 {{- define "kagent.harness.image" -}}
 {{- .Values.harness.image | default (include "kagent.runtimeImage" (dict "root" . "image" .Values.controller.agentImage)) -}}
 {{- end -}}
+
+{{/*
+The runtime image of a harnesses[] entry: its image, else the chart's image of
+its runtime (claude, the default: runtimeImages.claudeHarness; kagent:
+controller.agentImage) at its digest. Empty when neither is set or the runtime
+is unknown. Usage: include "kagent.harnesses.image" (dict "root" $ "entry" $entry)
+*/}}
+{{- define "kagent.harnesses.image" -}}
+{{- $runtime := .entry.runtime | default "claude" -}}
+{{- $chartImages := dict "claude" .root.Values.runtimeImages.claudeHarness "kagent" .root.Values.controller.agentImage -}}
+{{- $default := "" -}}
+{{- with get $chartImages $runtime }}{{- $default = include "kagent.runtimeImage" (dict "root" $.root "image" .) }}{{- end -}}
+{{- .entry.image | default $default -}}
+{{- end -}}
+
