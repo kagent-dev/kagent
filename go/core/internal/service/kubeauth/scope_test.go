@@ -1,6 +1,7 @@
 package kubeauth
 
 import (
+	"fmt"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
@@ -102,6 +103,25 @@ func TestMatcherMatchesAnyName(t *testing.T) {
 			want:  true,
 		},
 		{
+			name: "later clause permits namespace",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{
+				{All: []apiauthorization.ScopePredicate{
+					{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a"}},
+					{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}},
+				}},
+				{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}}}},
+			}},
+			want: true,
+		},
+		{
+			name: "all namespace predicates must match",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a"}},
+				{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}},
+			}}}},
+		},
+		{
 			name:  "different namespace",
 			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}}}}}},
 		},
@@ -160,6 +180,29 @@ func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := CompileScope(test.scope); err == nil {
 				t.Error("CompileScope() error = nil")
+			}
+		})
+	}
+}
+
+func BenchmarkMatchesAnyNameDenied(b *testing.B) {
+	for _, count := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			scope := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
+			for i := range count {
+				scope.AnyOf = append(scope.AnyOf, apiauthorization.ScopeClause{All: []apiauthorization.ScopePredicate{
+					{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{fmt.Sprintf("team-%d", i)}},
+				}})
+			}
+			matcher, err := CompileScope(scope)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if matcher.matchesAnyName("outside") {
+					b.Fatal("unexpected access")
+				}
 			}
 		})
 	}

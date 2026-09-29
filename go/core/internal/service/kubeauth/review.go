@@ -48,6 +48,10 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 		}
 		var matcher *Matcher
 		for i, target := range targets {
+			// Local scope matching does not observe cancellation, so stop between targets.
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			var allowed bool
 			if target.Name != "" {
 				allowed = r.authorizer.Check(ctx, principal, verb, auth.Resource{
@@ -73,5 +77,8 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return results, nil
 }
