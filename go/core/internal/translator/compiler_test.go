@@ -972,3 +972,17 @@ func inlineAgent(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) *v
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: harness.Namespace},
 		Spec: v1alpha3.AgentSpec{Template: &template.Spec, Harness: &harness.Spec}}
 }
+
+func TestResolveModelConfigMistral(t *testing.T) {
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mistral", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{Model: "mistral-large-latest", Provider: v1alpha3.ModelProviderMistral,
+			APIKeySecret: "mistral-auth", APIKeySecretKey: "MISTRAL_API_KEY"},
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "mistral-auth", Namespace: "test"}, Data: map[string][]byte{"MISTRAL_API_KEY": []byte("key")}}
+	resolved := mockCollections(t, model, secret).ResolvedModelConfigs.List()[0]
+	require.True(t, resolved.Usable(), "%+v", resolved.Failure())
+
+	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
+	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
+}

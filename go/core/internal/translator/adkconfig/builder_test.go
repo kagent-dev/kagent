@@ -116,6 +116,36 @@ func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {
 	}
 }
 
+func TestMistralEgressDestination(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		mistral *v1alpha3.MistralConfig
+		want    string
+	}{
+		{name: "default endpoint", want: "api.mistral.ai"},
+		{name: "base URL override", mistral: &v1alpha3.MistralConfig{BaseURL: new("https://mistral.example.com/v1")}, want: "mistral.example.com"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "mistral", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderMistral, Model: "mistral-large-latest", Mistral: test.mistral,
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&v2translator.HarnessInput{
+					Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root: &v2translator.AgentInput{
+						Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+						ResolvedModelConfig: resolvedModel(t, collections, "mistral"),
+					}})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, result.Egress)
+		})
+	}
+}
+
 // TestOllamaEgressDestination covers the one provider whose endpoint is not
 // reachable through the serialized model: it lives on the ModelConfig's own
 // Ollama field, so the generic walk over the model never sees it. Without an
