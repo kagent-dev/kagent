@@ -268,7 +268,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
 	if !errors.As(err, &validation) {
@@ -283,7 +283,7 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
@@ -299,7 +299,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "department=engineering"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {

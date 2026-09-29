@@ -109,14 +109,10 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 		}
 		requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "APIKeySecretKeyNotFound", config.Spec.APIKeySecretKey)
 	}
-	if tls := config.Spec.TLS; tls != nil && tls.CACertSecretRef != "" {
-		requireSecret(tls.CACertSecretRef, "TLSSecretNotFound", "TLSSecretKeyNotFound", tls.CACertSecretKey)
-	}
 
 	switch config.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		usingTokenExchange := config.Spec.OpenAI != nil && config.Spec.OpenAI.TokenExchange != nil
-		if !config.Spec.APIKeyPassthrough && (usingTokenExchange || config.Spec.APIKeySecret != "") {
+		if !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "" {
 			requireAPIKey()
 		}
 	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry:

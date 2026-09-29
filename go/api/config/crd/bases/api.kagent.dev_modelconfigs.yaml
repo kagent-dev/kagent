@@ -466,31 +466,6 @@ spec:
                   timeout:
                     description: Timeout
                     type: integer
-                  tokenExchange:
-                    description: |-
-                      TokenExchange configures dynamic bearer token acquisition via credential exchange.
-                      Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
-                    properties:
-                      gdchServiceAccount:
-                        description: GDCHServiceAccountConfig holds GDCH-specific
-                          token exchange parameters.
-                        properties:
-                          audience:
-                            description: Audience is the token exchange audience URL
-                              (the GDC inference gateway base URL)
-                            type: string
-                        required:
-                        - audience
-                        type: object
-                      type:
-                        description: TokenExchangeType identifies the token exchange
-                          mechanism
-                        enum:
-                        - GDCHServiceAccount
-                        type: string
-                    required:
-                    - type
-                    type: object
                   topP:
                     description: Top-p sampling parameter
                     type: string
@@ -536,30 +511,6 @@ spec:
                   Enables agents to connect to internal LiteLLM gateways or other providers
                   that use self-signed certificates or custom certificate authorities.
                 properties:
-                  caCertSecretKey:
-                    description: |-
-                      CACertSecretKey is the key within the Secret that contains the
-                      CA certificate data (PEM-encoded). Required when CACertSecretRef
-                      is set — admission rejects ref-without-key regardless of
-                      DisableVerify (see the TLSConfig-level XValidation rules).
-                    type: string
-                  caCertSecretRef:
-                    description: |-
-                      CACertSecretRef is a reference to a Kubernetes Secret containing
-                      CA certificate(s) in PEM format. The Secret must be in the same
-                      namespace as the resource referencing it (ModelConfig,
-                      RemoteMCPServer, or any future consumer of TLSConfig).
-                      When set, the certificate will be used to verify the upstream's
-                      SSL certificate.
-                    type: string
-                  disableSystemCAs:
-                    default: false
-                    description: |-
-                      DisableSystemCAs disables the use of system CA certificates.
-                      When false (default), system CA certificates are used for verification (safe behavior).
-                      When true, only the custom CA from CACertSecretRef is trusted.
-                      This allows strict security policies where only corporate CAs should be trusted.
-                    type: boolean
                   disableVerify:
                     default: false
                     description: |-
@@ -570,20 +521,6 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
-                x-kubernetes-validations:
-                - message: caCertSecretKey requires caCertSecretRef
-                  rule: '!(has(self.caCertSecretKey) && size(self.caCertSecretKey)
-                    > 0 && (!has(self.caCertSecretRef) || size(self.caCertSecretRef)
-                    == 0))'
-                - message: caCertSecretRef requires caCertSecretKey
-                  rule: '!(has(self.caCertSecretRef) && size(self.caCertSecretRef)
-                    > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey)
-                    == 0))'
-                - message: disableSystemCAs requires caCertSecretRef or disableVerify
-                    (trust-nothing config rejects every upstream)
-                  rule: '!(has(self.disableSystemCAs) && self.disableSystemCAs &&
-                    (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef)
-                    || size(self.caCertSecretRef) == 0))'
             required:
             - model
             type: object
@@ -625,16 +562,6 @@ spec:
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
                 == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
                 == ''AnthropicVertexAI''))'
-            - message: openAI.tokenExchange requires apiKeySecret (the service account
-                secret)
-              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret)
-                || size(self.apiKeySecret) == 0))'
-            - message: openAI.tokenExchange and apiKeyPassthrough are mutually exclusive
-              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough)
-                && self.apiKeyPassthrough)'
-            - message: openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount
-              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type
-                == ''GDCHServiceAccount'' && !has(self.openAI.tokenExchange.gdchServiceAccount))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

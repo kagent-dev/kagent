@@ -63,9 +63,6 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
 	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot use gateway header injection")
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "CUSTOM", CredentialRef: credentialEnv("CUSTOM", "auth", "token").ValueFrom.SecretKeyRef}}
-	_, _, err = CompileCredentials(input, nil, nil)
-	require.ErrorContains(t, err, "arbitrary credentialRef")
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {

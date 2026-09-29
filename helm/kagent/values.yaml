@@ -724,9 +724,6 @@ providers:
     # This same block can be used under any provider.
     # tls:
     #   disableVerify: false
-    #   caCertSecretRef: ""
-    #   caCertSecretKey: ""
-    #   disableSystemCAs: false
   ollama:
     provider: Ollama
     # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in

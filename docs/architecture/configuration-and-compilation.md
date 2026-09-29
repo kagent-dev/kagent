@@ -4,12 +4,11 @@
 
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-environment and credential references, WorkerPool configuration, snapshot
-location.
+literal environment values, WorkerPool configuration, and snapshot location.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
-description and prompt, MCP tool bindings, skills, plugins, and Shared or
-Dedicated subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
+description and prompt, MCP tool bindings, skills, plugins, and Shared
+subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
 Agent compilation rejects managed harness combinations without one.
 
 `Agent` pairs one template and one Harness. Each side independently selects either
@@ -18,10 +17,8 @@ an inline spec (`template`, `harness`) or a local reference (`templateRef`,
 values, not overrides. References, including those inside inline specs, resolve in
 the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
 with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
-Each subagent selects exactly one of `templateRef` (Shared) or `agentRef`
-(Dedicated); there is no separate `isolation` field. An `agentRef` selects an
-Agent with its own Harness and conversation. Dedicated execution remains
-unsupported and is rejected during compilation.
+Each subagent requires `templateRef` and shares the parent's runtime and Harness.
+Dedicated `agentRef` bindings are deferred and are not part of the served API.
 
 All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public

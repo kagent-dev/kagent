@@ -626,7 +626,7 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Env:    []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &otherCollector}},
+			Env:    []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: otherCollector}},
 			Kagent: &v1alpha3.KagentHarness{},
 
 			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
@@ -790,20 +790,12 @@ func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
 	}{
 		{
 			name:      "missing reference",
-			wantError: "requires exactly one of templateRef or agentRef",
+			wantError: "requires templateRef.name",
 		},
 		{
-			name: "both references",
-			binding: v1alpha3.SubAgentToolBinding{
-				TemplateRef: &corev1.LocalObjectReference{Name: "context"},
-				AgentRef:    &corev1.LocalObjectReference{Name: "reviewer"},
-			},
-			wantError: "requires exactly one of templateRef or agentRef",
-		},
-		{
-			name:      "dedicated execution unsupported",
-			binding:   v1alpha3.SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{Name: "reviewer"}},
-			wantError: `Dedicated subagent "review" (agentRef) is not supported yet`,
+			name:      "empty reference",
+			binding:   v1alpha3.SubAgentToolBinding{TemplateRef: &corev1.LocalObjectReference{}},
+			wantError: "requires templateRef.name",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

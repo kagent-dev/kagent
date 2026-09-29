@@ -218,14 +218,15 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		config := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default", UID: types.UID("cfg-uid")},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:    "gpt-4",
-				Provider: v1alpha3.ModelProviderOpenAI,
-				TLS:      &v1alpha3.TLSConfig{CACertSecretRef: "ca-v1", CACertSecretKey: "ca.crt"},
+				Model:           "gpt-4",
+				Provider:        v1alpha3.ModelProviderOpenAI,
+				APIKeySecret:    "auth-v1",
+				APIKeySecretKey: "token",
 			},
 		}
 		oldSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ca-v1",
+				Name:      "auth-v1",
 				Namespace: "default",
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: v1alpha3.GroupVersion.Identifier(),
@@ -235,29 +236,30 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 				}},
 			},
 			Type: corev1.SecretTypeOpaque,
-			Data: map[string][]byte{"ca.crt": []byte("OLD")},
+			Data: map[string][]byte{"token": []byte("OLD")},
 		}
 		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{}, config, oldSecret)
 
 		updated, err := service.Update(ctx, model.UpdateRequest{
 			Ref: types.NamespacedName{Namespace: "default", Name: "cfg"},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:    "gpt-4.1",
-				Provider: v1alpha3.ModelProviderOpenAI,
-				TLS:      &v1alpha3.TLSConfig{CACertSecretRef: "ca-v2", CACertSecretKey: "ca.crt"},
+				Model:           "gpt-4.1",
+				Provider:        v1alpha3.ModelProviderOpenAI,
+				APIKeySecret:    "auth-v2",
+				APIKeySecretKey: "token",
 			},
-			Secrets: []secretmaterial.Material{{Name: "ca-v2", Key: "ca.crt", Value: "NEW"}},
+			Secrets: []secretmaterial.Material{{Name: "auth-v2", Key: "token", Value: "NEW"}},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "gpt-4.1", updated.Spec.Model)
 
 		newSecret := &corev1.Secret{}
-		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "ca-v2"}, newSecret)
+		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "auth-v2"}, newSecret)
 		require.NoError(t, err)
-		assert.Equal(t, "NEW", string(newSecret.Data["ca.crt"]))
+		assert.Equal(t, "NEW", string(newSecret.Data["token"]))
 
 		deleted := &corev1.Secret{}
-		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "ca-v1"}, deleted)
+		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "auth-v1"}, deleted)
 		assert.Error(t, err)
 	})
 
