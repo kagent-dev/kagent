@@ -64,6 +64,7 @@ func BuiltinSourcesInSchema(vectorEnabled bool, schema, vectorSchema string) []S
 		TrackingTable: coreTrackingTable,
 		FS:            FS,
 		Dir:           "core",
+		PreCheck:      checkLegacyBaseline,
 	}}
 	if vectorEnabled {
 		sources[0].VectorSchema = vectorSchema
@@ -97,17 +98,8 @@ func RunUpAsRole(ctx context.Context, url, role string, sources []Source) error 
 	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
 		return err
 	}
-
-	for _, src := range sources {
-		if src.PreCheck == nil {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("cancel before %s precheck: %w", src.Name, err)
-		}
-		if err := src.PreCheck(url); err != nil {
-			return fmt.Errorf("%s precheck: %w", src.Name, err)
-		}
+	if err := runPrechecks(ctx, url, sources); err != nil {
+		return err
 	}
 
 	for _, src := range sources {
@@ -142,12 +134,8 @@ func VerifyMigratedAsRole(ctx context.Context, url, role string, sources []Sourc
 	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
 		return err
 	}
-	for _, src := range sources {
-		if src.PreCheck != nil {
-			if err := src.PreCheck(url); err != nil {
-				return fmt.Errorf("%s precheck: %w", src.Name, err)
-			}
-		}
+	if err := runPrechecks(ctx, url, sources); err != nil {
+		return err
 	}
 
 	db, err := openDB(url, role)
@@ -495,6 +483,43 @@ func checkResolvedSchemaCollisions(ctx context.Context, url, role string, source
 			return fmt.Errorf("sources %s and %s resolve to one tracking table", other, src.Name)
 		}
 		seen[key] = src.Name
+	}
+	return nil
+}
+
+func runPrechecks(ctx context.Context, url string, sources []Source) error {
+	for _, src := range sources {
+		if src.PreCheck == nil {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("cancel before %s precheck: %w", src.Name, err)
+		}
+		if err := src.PreCheck(url); err != nil {
+			return fmt.Errorf("%s precheck: %w", src.Name, err)
+		}
+	}
+	return nil
+}
+
+// ErrLegacyBaseline is the refusal to run on a database created by the 1.x
+// line. Every 1.x release recorded its baseline as core version 1, the same
+// version this tree's baseline carries, so Goose alone would take such a
+// database for current and the controller would start on the wrong tables.
+var ErrLegacyBaseline = errors.New(`the database holds the kagent 1.x schema (agent_instance tables); this line does not migrate it: point the controller at a fresh database and keep the old one for retention (see FORK.md, "Cut-over from the 1.x line")`)
+
+func checkLegacyBaseline(url string) error {
+	db, err := openDB(url, "")
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+	exists, err := tableExists(context.Background(), db, quoteIdentifier("agent_instance"))
+	if err != nil {
+		return fmt.Errorf("check for the 1.x schema: %w", err)
+	}
+	if exists {
+		return ErrLegacyBaseline
 	}
 	return nil
 }
