@@ -103,6 +103,13 @@ func (s *sandboxTestActors) CreateActorTemplate(_ context.Context, template *ate
 	return proto.CloneOf(template), nil
 }
 
+func (s *sandboxTestActors) DeleteActorTemplate(_ context.Context, atespace, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.templates, atespace+"/"+name)
+	return nil
+}
+
 func sandboxGoldenStatus() *ateapipb.ActorTemplateStatus {
 	return &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 }

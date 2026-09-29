@@ -3,6 +3,7 @@ package controller
 import (
 	"sync"
 	"testing"
+	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -31,6 +32,7 @@ func equalityTestReconciliation() AgentReconciliation {
 			Metadata: &ateapipb.ResourceMetadata{Atespace: "test", Name: "runtime", Uid: "runtime-uid"},
 			Status:   &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "preparing"}},
 		},
+		GoldenBootRetry:    &GoldenBootRetry{Attempt: 1, Message: "GoldenActorCrashed: golden actor crashed before its snapshot was taken"},
 		PreparationFailure: &ReconciliationFailure{Condition: "Ready", Reason: "RuntimePreparationFailed", Message: "retry", Retryable: true},
 	}
 }
@@ -69,6 +71,8 @@ func TestAgentReconciliationEquality(t *testing.T) {
 		{name: "failure", change: func(r *AgentReconciliation) { r.PreparationFailure.Message = "changed" }},
 		{name: "retryability", change: func(r *AgentReconciliation) { r.PreparationFailure.Retryable = false }},
 		{name: "failure cleared", change: func(r *AgentReconciliation) { r.PreparationFailure = nil }},
+		{name: "golden boot retry", change: func(r *AgentReconciliation) { r.GoldenBootRetry.Attempt = 2 }},
+		{name: "golden boot retry cleared", change: func(r *AgentReconciliation) { r.GoldenBootRetry = nil }},
 		{name: "compilation failure", change: func(r *AgentReconciliation) {
 			r.CompilationFailure = &ReconciliationFailure{Reason: "ActorTemplateInvalid"}
 		}},
@@ -90,6 +94,7 @@ func equalityTestObservation() AgentRuntimeObservation {
 	return AgentRuntimeObservation{
 		Namespace: "test", AgentName: "agent",
 		RevisionID: state.Target.RevisionID, Template: state.ObservedActorTemplate, Failure: state.PreparationFailure,
+		GoldenBootRetries: 1, RetryGoldenBootAt: time.Unix(1_700_000_000, 0),
 	}
 }
 
@@ -112,6 +117,10 @@ func TestAgentRuntimeObservationEquality(t *testing.T) {
 		{name: "failure", change: func(o *AgentRuntimeObservation) { o.Failure.Message = "changed" }},
 		{name: "retryability", change: func(o *AgentRuntimeObservation) { o.Failure.Retryable = false }},
 		{name: "failure cleared", change: func(o *AgentRuntimeObservation) { o.Failure = nil }},
+		{name: "golden boot retries", change: func(o *AgentRuntimeObservation) { o.GoldenBootRetries = 2 }},
+		{name: "retry deadline", change: func(o *AgentRuntimeObservation) { o.RetryGoldenBootAt = o.RetryGoldenBootAt.Add(time.Second) }},
+		{name: "retry deadline cleared", change: func(o *AgentRuntimeObservation) { o.RetryGoldenBootAt = time.Time{} }},
+		{name: "retry deadline in another location", change: func(o *AgentRuntimeObservation) { o.RetryGoldenBootAt = o.RetryGoldenBootAt.UTC() }, equal: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			left, right := equalityTestObservation(), equalityTestObservation()

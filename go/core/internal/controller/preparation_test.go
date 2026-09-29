@@ -13,6 +13,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -380,6 +381,12 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
+func (p *preparationTestBackend) DeleteActorTemplate(ctx context.Context, atespace, name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.templates.DeleteActorTemplate(ctx, atespace, name)
+}
+
 func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -500,6 +507,270 @@ func TestPreparationTerminalFailures(t *testing.T) {
 			})
 		})
 	}
+}
+
+const unattributedGoldenCrash = "GoldenActorCrashed: golden actor crashed before its snapshot was taken"
+
+func crashedGoldenBoot(message string) *ateapipb.ActorTemplateStatus {
+	return &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: message}}
+}
+
+func readyGoldenBoot() *ateapipb.ActorTemplateStatus {
+	return &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
+		GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
+	}}
+}
+
+// goldenBootTest runs the reconciler over the fakes inside a synctest bubble,
+// so the poller's ticks and the retry deadlines share one clock.
+type goldenBootTest struct {
+	t            *testing.T
+	collections  Collections
+	harnesses    krt.StaticCollection[*kagentv1alpha3.Harness]
+	backend      *preparationTestBackend
+	templates    *fakeActorTemplates
+	store        *fakeRuntimeRevisionStore
+	reconciler   *Reconciler
+	initial      AgentReconciliation
+	statusClient kagentclient.ApiV1alpha3Interface
+}
+
+func startGoldenBootTest(t *testing.T) *goldenBootTest {
+	t.Helper()
+	collections, harnesses := newPreparationTestCollections(t, "microvm")
+	initial := collections.Reconciliations.List()[0]
+	g := &goldenBootTest{
+		t: t, collections: collections, harnesses: harnesses, initial: initial,
+		templates: &fakeActorTemplates{}, store: &fakeRuntimeRevisionStore{},
+		statusClient: kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(),
+	}
+	g.backend = &preparationTestBackend{templates: g.templates, store: g.store}
+	g.reconciler = newReconciler(collections, g.backend, g.backend, g.statusClient)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(func() {
+		cancel()
+		synctest.Wait()
+	})
+	go g.reconciler.Run(ctx.Done())
+	synctest.Wait()
+	g.backend.inspect(func() {
+		require.Equal(t, 1, g.templates.created)
+		require.Equal(t, "actor-uid", g.store.revision.ActorTemplateUID)
+		require.False(t, g.store.markedSuccessful)
+	})
+	return g
+}
+
+// setGoldenBoot replaces the observed template's status the way Substrate's
+// template reconciler writes it, and lets the next poller tick observe it.
+func (g *goldenBootTest) setGoldenBoot(status *ateapipb.ActorTemplateStatus) {
+	g.t.Helper()
+	g.backend.inspect(func() {
+		require.NotNil(g.t, g.templates.template)
+		g.templates.template = proto.CloneOf(g.templates.template)
+		g.templates.template.Status = status
+	})
+	time.Sleep(time.Second)
+	synctest.Wait()
+}
+
+func (g *goldenBootTest) observation() AgentRuntimeObservation {
+	g.t.Helper()
+	observed := g.collections.AgentRuntimeObservations.GetKey(g.initial.ResourceName())
+	require.NotNil(g.t, observed, "the Agent must stay observed")
+	return *observed
+}
+
+func (g *goldenBootTest) readyCondition() metav1.Condition {
+	g.t.Helper()
+	published, err := g.statusClient.Agents(g.initial.Agent.Namespace).Get(g.t.Context(), g.initial.Agent.Name, metav1.GetOptions{})
+	require.NoError(g.t, err)
+	ready := apimeta.FindStatusCondition(published.Status.Conditions, kagentv1alpha3.AgentConditionReady)
+	require.NotNil(g.t, ready)
+	return *ready
+}
+
+func TestGoldenBootCrashIsStartedOver(t *testing.T) {
+	for name, message := range map[string]string{
+		"worker replaced under the golden actor": unattributedGoldenCrash,
+		"registry refused the image pull": "GoldenActorCrashed: actor ate-golden/assistant crashed: CallAteletRestore failed: " +
+			"while creating \"agent\" OCI bundle: FAILED_GET_EXTERNAL_OBJECT: 503 Service Unavailable",
+	} {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				g := startGoldenBootTest(t)
+				g.setGoldenBoot(crashedGoldenBoot(message))
+				observed := g.observation()
+				require.Equal(t, 0, observed.GoldenBootRetries)
+				require.Equal(t, time.Now().Add(goldenBootRetryBaseDelay), observed.RetryGoldenBootAt, "the first sight of a crash schedules its retry")
+				g.backend.inspect(func() { require.Empty(t, g.templates.deleted, "a crash is not started over before its backoff") })
+				ready := g.readyCondition()
+				require.Equal(t, metav1.ConditionFalse, ready.Status)
+				require.Equal(t, "ActorTemplateRetrying", ready.Reason)
+				require.Equal(t, "golden boot 1 of 6 failed ("+message+"); starting it over", ready.Message)
+
+				time.Sleep(goldenBootRetryBaseDelay - time.Second)
+				synctest.Wait()
+				g.backend.inspect(func() { require.Empty(t, g.templates.deleted) })
+				require.Equal(t, observed.RetryGoldenBootAt, g.observation().RetryGoldenBootAt, "the deadline holds across observations")
+
+				time.Sleep(time.Second)
+				synctest.Wait()
+				g.backend.inspect(func() {
+					require.Equal(t, []string{"actor-uid"}, g.templates.deleted, "the crashed template and its golden actor are removed")
+					require.Equal(t, 2, g.templates.created, "the desired template is created again")
+					require.Equal(t, "actor-uid-2", g.templates.template.GetMetadata().GetUid())
+					require.Nil(t, g.templates.template.GetStatus(), "the new boot starts clean")
+					require.Equal(t, "actor-uid-2", g.store.revision.ActorTemplateUID, "the revision follows the new template so GC can tell them apart")
+					require.False(t, g.store.markedSuccessful)
+				})
+				observed = g.observation()
+				require.Equal(t, 1, observed.GoldenBootRetries)
+				require.True(t, observed.RetryGoldenBootAt.IsZero())
+				require.Equal(t, "ActorTemplatePending", g.readyCondition().Reason)
+
+				g.setGoldenBoot(readyGoldenBoot())
+				g.backend.inspect(func() { require.True(t, g.store.markedSuccessful) })
+				require.Equal(t, 1, g.observation().GoldenBootRetries, "the count stays with the revision")
+				ready = g.readyCondition()
+				require.Equal(t, metav1.ConditionTrue, ready.Status)
+				require.Equal(t, "Ready", ready.Reason)
+			})
+		})
+	}
+}
+
+func TestGoldenBootRetryBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		g := startGoldenBootTest(t)
+		var delays []time.Duration
+		for retry := range maxGoldenBootRetries {
+			g.setGoldenBoot(crashedGoldenBoot(unattributedGoldenCrash))
+			observed := g.observation()
+			require.Equal(t, retry, observed.GoldenBootRetries)
+			delays = append(delays, time.Until(observed.RetryGoldenBootAt))
+			require.Equal(t, "ActorTemplateRetrying", g.readyCondition().Reason)
+			time.Sleep(time.Until(observed.RetryGoldenBootAt))
+			synctest.Wait()
+			g.backend.inspect(func() {
+				require.Len(t, g.templates.deleted, retry+1)
+				require.Equal(t, retry+2, g.templates.created)
+			})
+		}
+		require.Equal(t, []time.Duration{20 * time.Second, 40 * time.Second, 80 * time.Second, 2 * time.Minute, 2 * time.Minute}, delays, "the backoff doubles up to its cap")
+
+		g.setGoldenBoot(crashedGoldenBoot(unattributedGoldenCrash))
+		observed := g.observation()
+		require.Equal(t, maxGoldenBootRetries, observed.GoldenBootRetries)
+		require.True(t, observed.RetryGoldenBootAt.IsZero())
+		state := g.collections.Reconciliations.GetKey(g.initial.ResourceName())
+		require.Nil(t, state.GoldenBootRetry)
+		require.Equal(t, "ActorTemplateFailed", state.PreparationFailure.Reason)
+		require.Equal(t, "golden boot 6 of 6 failed ("+unattributedGoldenCrash+"); no retries left", state.PreparationFailure.Message)
+		require.False(t, state.PreparationFailure.Retryable)
+		ready := g.readyCondition()
+		require.Equal(t, metav1.ConditionFalse, ready.Status)
+		require.Equal(t, "ActorTemplateFailed", ready.Reason)
+		var reconciles int
+		g.backend.inspect(func() { reconciles = g.store.pairCalls })
+		time.Sleep(time.Hour)
+		synctest.Wait()
+		g.backend.inspect(func() {
+			require.Len(t, g.templates.deleted, maxGoldenBootRetries, "the budget is spent: the last crash stands")
+			require.Equal(t, reconciles, g.store.pairCalls, "neither the queue nor the poller retries a spent budget")
+		})
+	})
+}
+
+// An invalid template and an actor someone else paused or deleted are final at
+// once: no retry repairs them.
+func TestGoldenBootFailuresWithoutACrashStayFinal(t *testing.T) {
+	for _, message := range []string{
+		"GoldenActorInvalid: rpc error: code = InvalidArgument desc = containers[0].image: unsupported reference",
+		"GoldenActorUnexpectedState: golden actor in state ACTOR_STATE_PAUSED",
+	} {
+		synctest.Test(t, func(t *testing.T) {
+			g := startGoldenBootTest(t)
+			g.setGoldenBoot(crashedGoldenBoot(message))
+			time.Sleep(time.Hour)
+			synctest.Wait()
+			g.backend.inspect(func() {
+				require.Empty(t, g.templates.deleted, "a failure no retry can repair is not started over: %s", message)
+				require.Equal(t, 1, g.templates.created)
+			})
+			observed := g.observation()
+			require.Equal(t, 0, observed.GoldenBootRetries)
+			require.True(t, observed.RetryGoldenBootAt.IsZero())
+			state := g.collections.Reconciliations.GetKey(g.initial.ResourceName())
+			require.Nil(t, state.GoldenBootRetry)
+			require.Equal(t, "ActorTemplateFailed", state.PreparationFailure.Reason)
+			require.Equal(t, message, state.PreparationFailure.Message)
+			require.Equal(t, "ActorTemplateFailed", g.readyCondition().Reason)
+		})
+	}
+}
+
+// A crashed template replaced outside the reconciler's own restart (a restart
+// that failed after its delete, an operator's deletion) still counts against
+// the revision's budget; a new revision starts with a fresh one.
+func TestGoldenBootReplacedTemplateCountsAgainstTheRevision(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		g := startGoldenBootTest(t)
+		g.setGoldenBoot(crashedGoldenBoot(unattributedGoldenCrash))
+		g.backend.inspect(func() { g.templates.template = nil })
+		time.Sleep(time.Second)
+		synctest.Wait()
+		g.backend.inspect(func() {
+			require.Empty(t, g.templates.deleted)
+			require.Equal(t, 2, g.templates.created)
+		})
+		observed := g.observation()
+		require.Equal(t, 1, observed.GoldenBootRetries)
+		require.True(t, observed.RetryGoldenBootAt.IsZero())
+
+		g.backend.inspect(func() { g.templates.template = nil })
+		updated := g.harnesses.List()[0].DeepCopy()
+		updated.Spec.Workload.Args = []string{"changed"}
+		g.harnesses.UpdateObject(updated)
+		synctest.Wait()
+		fresh := g.observation()
+		require.NotEqual(t, observed.RevisionID, fresh.RevisionID)
+		require.Equal(t, 0, fresh.GoldenBootRetries, "a new revision brings a fresh budget")
+		g.backend.inspect(func() { require.Equal(t, 3, g.templates.created) })
+	})
+}
+
+// A restart Substrate refuses keeps the crashed template, its deadline and the
+// count observed, so the queue's backoff retries the restart itself.
+func TestGoldenBootRestartFailureIsRetried(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		g := startGoldenBootTest(t)
+		g.setGoldenBoot(crashedGoldenBoot(unattributedGoldenCrash))
+		deadline := g.observation().RetryGoldenBootAt
+		g.backend.inspect(func() { g.templates.deleteErr = status.Error(codes.Unavailable, "private-endpoint") })
+		time.Sleep(goldenBootRetryBaseDelay)
+		synctest.Wait()
+		observed := g.observation()
+		require.NotNil(t, observed.Template)
+		require.Equal(t, deadline, observed.RetryGoldenBootAt)
+		require.Equal(t, 0, observed.GoldenBootRetries)
+		state := g.collections.Reconciliations.GetKey(g.initial.ResourceName())
+		require.Equal(t, "RuntimePreparationFailed", state.PreparationFailure.Reason)
+		require.True(t, state.PreparationFailure.Retryable)
+		require.NotContains(t, state.PreparationFailure.Message, "private-endpoint")
+
+		g.backend.inspect(func() { g.templates.deleteErr = nil })
+		time.Sleep(time.Second)
+		synctest.Wait()
+		g.backend.inspect(func() {
+			require.Equal(t, []string{"actor-uid"}, g.templates.deleted)
+			require.Equal(t, 2, g.templates.created)
+		})
+		observed = g.observation()
+		require.Nil(t, observed.Failure)
+		require.Equal(t, 1, observed.GoldenBootRetries)
+		require.Equal(t, "ActorTemplatePending", g.readyCondition().Reason)
+	})
 }
 
 func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
