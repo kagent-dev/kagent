@@ -11,6 +11,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -76,7 +77,9 @@ func TestActorTemplateForRevision(t *testing.T) {
 		WorkerPoolName: "default", SnapshotLocation: "snapshots",
 		ConfigJSON: []byte(`{"instruction":"help"}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
 			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
-		Environment: []corev1.EnvVar{{Name: "API_KEY", Value: translator.CredentialPlaceholder}},
+		Environment:        []corev1.EnvVar{{Name: "API_KEY", Value: translator.CredentialPlaceholder}},
+		EgressDestinations: []string{"https://github.com:443", "https://api.anthropic.com:443"},
+		Credentials:        []egress.Credential{{Hostname: "api.anthropic.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/agents/anthropic/key"}},
 	}
 	revisionID, err := spec.Digest()
 	if err != nil {
@@ -124,6 +127,36 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
 		t.Fatal("config was not embedded as a non-secret literal")
 	}
+	wantPolicy, err := ActorEgressPolicy("agents", spec.EgressDestinations, spec.Credentials)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(&ateapipb.EgressPolicyTemplate{Rules: wantPolicy.GetRules()}, template.GetDefaultEgressPolicy()),
+		"template default egress policy = %v, want %v", template.GetDefaultEgressPolicy(), wantPolicy.GetRules())
+	var injected []*ateapipb.CredentialHeader
+	for _, rule := range template.GetDefaultEgressPolicy().GetRules() {
+		injected = append(injected, rule.GetHttps().GetEffects().GetReplaceHeaders()...)
+	}
+	require.Len(t, injected, 1)
+	require.Equal(t, "x-api-key", injected[0].GetHeader())
+}
+
+func TestActorTemplateForRevisionDeniesAllEgressWithoutDestinations(t *testing.T) {
+	spec := &translator.Revision{
+		Namespace: "agents", AgentName: "helper",
+		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		WorkerPoolName: "default", SnapshotLocation: "snapshots",
+		ConfigJSON: []byte(`{}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
+	}
+	revisionID, err := spec.Digest()
+	require.NoError(t, err)
+	template, err := ActorTemplateForRevision(spec, revisionID)
+	require.NoError(t, err)
+	require.NotNil(t, template.GetDefaultEgressPolicy(), "a revision without destinations must carry an empty (deny-all) policy")
+	require.Empty(t, template.GetDefaultEgressPolicy().GetRules())
+	invalid := *spec
+	invalid.EgressDestinations = []string{"github.com"}
+	_, err = ActorTemplateForRevision(&invalid, revisionID)
+	require.ErrorContains(t, err, "compile egress policy")
 }
 
 func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
@@ -171,6 +204,11 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right.Containers[0].Image = "agent:v2"
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")
+	}
+	right = proto.CloneOf(left)
+	right.DefaultEgressPolicy = &ateapipb.EgressPolicyTemplate{Rules: []*ateapipb.EgressRule{{Https: &ateapipb.HTTPSRule{Hostnames: []string{"github.com"}}}}}
+	if ActorTemplateSpecEqual(left, right) {
+		t.Fatal("different default egress policy was accepted")
 	}
 }
 
