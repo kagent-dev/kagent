@@ -44,6 +44,7 @@ from kagent.core.a2a import (
     A2A_USAGE_METADATA_KEY,
     HITL_EXTENSION_HEADER,
     HITL_EXTENSION_URI,
+    USAGE_EXTENSION_URI,
     attach_hitl_extension,
 )
 
@@ -190,7 +191,7 @@ class KAgentRemoteA2ATool(BaseTool):
         headers: dict[str, str] = {
             _SOURCE_HEADER: _SOURCE_SUBAGENT,
             _USER_ID_CONTEXT_KEY: (request_user_id.get() or tool_context.session.user_id),
-            HITL_EXTENSION_HEADER: HITL_EXTENSION_URI,
+            HITL_EXTENSION_HEADER: f"{HITL_EXTENSION_URI},{USAGE_EXTENSION_URI}",
         }
 
         # Derive conversation lineage so the remote agent can correlate this

@@ -4,6 +4,9 @@ import (
 	"context"
 	"iter"
 	"log/slog"
+	"maps"
+	"reflect"
+	"slices"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -92,23 +95,19 @@ func runUsageAgent(
 	return updates, terminal
 }
 
-func usageTotalFrom(t *testing.T, event *a2atype.TaskStatusUpdateEvent) map[string]any {
+func usageFrom(t *testing.T, event *a2atype.TaskStatusUpdateEvent) apia2a.Usage {
 	t.Helper()
-	total, ok := event.Metadata[usageTotalMetadataKey].(map[string]any)
+	usage, ok := apia2a.UsageFromMetadata(event.Metadata)
 	if !ok {
-		t.Fatalf("metadata[%s] = %#v, want map", usageTotalMetadataKey, event.Metadata[usageTotalMetadataKey])
+		t.Fatalf("metadata[%s] = %#v, want a usage payload", UsageExtensionURI, event.Metadata[UsageExtensionURI])
 	}
-	return total
+	return usage
 }
 
-func assertTokenCount(t *testing.T, total map[string]any, key string, want float64) {
+func assertTotals(t *testing.T, usage apia2a.Usage, input, output, total int64) {
 	t.Helper()
-	got, ok := total[key].(float64)
-	if !ok {
-		t.Fatalf("%s = %#v, want number", key, total[key])
-	}
-	if got != want {
-		t.Fatalf("%s = %v, want %v", key, got, want)
+	if usage.InputTokens != input || usage.OutputTokens != output || usage.TotalTokens != total {
+		t.Fatalf("totals = %+v, want input=%d output=%d total=%d", usage.TokenCounts, input, output, total)
 	}
 }
 
@@ -130,12 +129,11 @@ func TestTurnUsageAggregatesNonPartialEvents(t *testing.T) {
 		usageResponse("second", 20, 7, 27),
 	)
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 30)
-	assertTokenCount(t, total, "candidatesTokenCount", 12)
-	assertTokenCount(t, total, "totalTokenCount", 42)
-	if got := total["modelVersion"]; got != "gpt-4o-2024-11-20" {
-		t.Fatalf("modelVersion = %#v, want the emitting model", got)
+	usage := usageFrom(t, terminal)
+	assertTotals(t, usage, 30, 12, 42)
+	want := []apia2a.ModelUsage{{Model: "gpt-4o-2024-11-20", TokenCounts: usage.TokenCounts}}
+	if !slices.Equal(usage.Models, want) {
+		t.Fatalf("models = %+v, want %+v", usage.Models, want)
 	}
 }
 
@@ -146,10 +144,8 @@ func TestTurnUsageSkipsPartialAndEmptyEvents(t *testing.T) {
 
 	_, terminal := runUsageAgent(t, nil, partial, noUsage, usageResponse("final", 10, 5, 15))
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 10)
-	assertTokenCount(t, total, "candidatesTokenCount", 5)
-	assertTokenCount(t, total, "totalTokenCount", 15)
+	total := usageFrom(t, terminal)
+	assertTotals(t, total, 10, 5, 15)
 }
 
 // TestTurnUsageDerivesTotalWhenProviderReportsNone covers the Anthropic models,
@@ -157,10 +153,8 @@ func TestTurnUsageSkipsPartialAndEmptyEvents(t *testing.T) {
 func TestTurnUsageDerivesTotalWhenProviderReportsNone(t *testing.T) {
 	_, terminal := runUsageAgent(t, nil, usageResponse("no total", 10, 5, 0))
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 10)
-	assertTokenCount(t, total, "candidatesTokenCount", 5)
-	assertTokenCount(t, total, "totalTokenCount", 15)
+	total := usageFrom(t, terminal)
+	assertTotals(t, total, 10, 5, 15)
 }
 
 func TestTurnUsageOmittedWhenNoUsageReported(t *testing.T) {
@@ -168,32 +162,51 @@ func TestTurnUsageOmittedWhenNoUsageReported(t *testing.T) {
 		Content: genai.NewContentFromText("no usage", genai.RoleModel),
 	})
 
-	if _, ok := terminal.Metadata[usageTotalMetadataKey]; ok {
-		t.Fatalf("metadata[%s] present, want omitted when nothing was reported", usageTotalMetadataKey)
+	if _, ok := terminal.Metadata[UsageExtensionURI]; ok {
+		t.Fatalf("metadata[%s] present, want omitted when nothing was reported", UsageExtensionURI)
 	}
 }
 
-// TestTurnUsageShapeMatchesPerEventUsageMetadata pins the aggregate to the same
-// serialization as the per-event usage entry, so consumers can
-// share a single parser.
-func TestTurnUsageShapeMatchesPerEventUsageMetadata(t *testing.T) {
-	updates, terminal := runUsageAgent(t, nil, usageResponse("only", 10, 5, 15))
+// TestTurnUsagePayloadIsProviderNeutral pins the public wire shape: the
+// extension payload uses its own field names, not the genai usage type.
+func TestTurnUsagePayloadIsProviderNeutral(t *testing.T) {
+	response := usageResponse("only", 10, 5, 20)
+	response.UsageMetadata.ThoughtsTokenCount = 3
+	response.UsageMetadata.CachedContentTokenCount = 4
 
-	var perEvent map[string]any
-	for _, update := range updates {
-		if usage, ok := update.Artifact.Metadata[apia2a.UsageMetadataKey].(map[string]any); ok {
-			perEvent = usage
-		}
-	}
-	if perEvent == nil {
-		t.Fatalf("per-event usage metadata missing from %d artifact updates", len(updates))
-	}
+	_, terminal := runUsageAgent(t, nil, response)
 
-	total := usageTotalFrom(t, terminal)
-	for key, want := range perEvent {
-		if got := total[key]; got != want {
-			t.Fatalf("%s = %#v, want %#v (same shape as per-event usage)", key, got, want)
-		}
+	counts := map[string]any{
+		"inputTokens": float64(10), "outputTokens": float64(5), "reasoningTokens": float64(3),
+		"cachedInputTokens": float64(4), "totalTokens": float64(20),
+	}
+	model := map[string]any{"model": "gpt-4o-2024-11-20"}
+	maps.Copy(model, counts)
+	want := map[string]any{"models": []any{model}}
+	maps.Copy(want, counts)
+	if got := terminal.Metadata[UsageExtensionURI]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("payload = %#v, want %#v", got, want)
+	}
+}
+
+// TestTurnUsageAttributesCountsPerModel covers a task calling two models: each
+// model keeps its own counts instead of the last model naming the whole total.
+func TestTurnUsageAttributesCountsPerModel(t *testing.T) {
+	other := usageResponse("other model", 20, 7, 27)
+	other.ModelVersion = "claude-sonnet-4"
+	unnamed := usageResponse("unnamed model", 1, 1, 2)
+	unnamed.ModelVersion = ""
+
+	_, terminal := runUsageAgent(t, nil, usageResponse("first", 10, 5, 15), other, unnamed)
+
+	usage := usageFrom(t, terminal)
+	assertTotals(t, usage, 31, 13, 44)
+	want := []apia2a.ModelUsage{
+		{Model: "claude-sonnet-4", TokenCounts: apia2a.TokenCounts{InputTokens: 20, OutputTokens: 7, TotalTokens: 27}},
+		{Model: "gpt-4o-2024-11-20", TokenCounts: apia2a.TokenCounts{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}},
+	}
+	if !slices.Equal(usage.Models, want) {
+		t.Fatalf("models = %+v, want %+v", usage.Models, want)
 	}
 }
 
@@ -202,24 +215,28 @@ func TestTurnUsageSeedFromTaskAccumulatesAcrossExecutions(t *testing.T) {
 		ID:        "task-1",
 		ContextID: "context-1",
 		Metadata: map[string]any{
-			usageTotalMetadataKey: map[string]any{
-				// float64 as it would be after a JSON round-trip through a task store.
-				"promptTokenCount":     float64(100),
-				"candidatesTokenCount": float64(50),
-				"totalTokenCount":      float64(150),
-				"modelVersion":         "gpt-4o-2024-08-06",
+			// float64 as it would be after a JSON round-trip through a task store.
+			UsageExtensionURI: map[string]any{
+				"inputTokens": float64(100), "outputTokens": float64(50), "totalTokens": float64(150),
+				"models": []any{map[string]any{
+					"model": "gpt-4o-2024-11-20", "inputTokens": float64(60), "outputTokens": float64(30), "totalTokens": float64(90),
+				}, map[string]any{
+					"model": "gpt-4o-2024-08-06", "inputTokens": float64(40), "outputTokens": float64(20), "totalTokens": float64(60),
+				}},
 			},
 		},
 	}
 
 	_, terminal := runUsageAgent(t, storedTask, usageResponse("resumed", 10, 5, 15))
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 110)
-	assertTokenCount(t, total, "candidatesTokenCount", 55)
-	assertTokenCount(t, total, "totalTokenCount", 165)
-	if got := total["modelVersion"]; got != "gpt-4o-2024-11-20" {
-		t.Fatalf("modelVersion = %#v, want the model of the latest execution", got)
+	usage := usageFrom(t, terminal)
+	assertTotals(t, usage, 110, 55, 165)
+	want := []apia2a.ModelUsage{
+		{Model: "gpt-4o-2024-08-06", TokenCounts: apia2a.TokenCounts{InputTokens: 40, OutputTokens: 20, TotalTokens: 60}},
+		{Model: "gpt-4o-2024-11-20", TokenCounts: apia2a.TokenCounts{InputTokens: 70, OutputTokens: 35, TotalTokens: 105}},
+	}
+	if !slices.Equal(usage.Models, want) {
+		t.Fatalf("models = %+v, want %+v", usage.Models, want)
 	}
 }
 
@@ -228,8 +245,8 @@ func TestTurnUsageSeedFromTaskIgnoresMissingOrMalformed(t *testing.T) {
 		"nil task":          nil,
 		"no metadata":       {ID: "task-1"},
 		"unrelated keys":    {ID: "task-1", Metadata: map[string]any{"other": 1}},
-		"total not a map":   {ID: "task-1", Metadata: map[string]any{usageTotalMetadataKey: "nope"}},
-		"counts not number": {ID: "task-1", Metadata: map[string]any{usageTotalMetadataKey: map[string]any{"promptTokenCount": "many"}}},
+		"usage not a map":   {ID: "task-1", Metadata: map[string]any{UsageExtensionURI: "nope"}},
+		"counts not number": {ID: "task-1", Metadata: map[string]any{UsageExtensionURI: map[string]any{"inputTokens": "many"}}},
 	}
 
 	for name, task := range tests {
@@ -313,9 +330,8 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 	if pause == nil {
 		t.Fatal("no input-required status update emitted")
 	}
-	paused := usageTotalFrom(t, pause)
-	assertTokenCount(t, paused, "promptTokenCount", 10)
-	assertTokenCount(t, paused, "totalTokenCount", 15)
+	paused := usageFrom(t, pause)
+	assertTotals(t, paused, 10, 5, 15)
 
 	// a2a-go merges terminal status update metadata into the stored task.
 	stored := &a2atype.Task{ID: taskID, ContextID: contextID, Status: pause.Status, Metadata: pause.Metadata}
@@ -341,10 +357,8 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 		t.Fatal("no terminal status update emitted on resume")
 	}
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 30)
-	assertTokenCount(t, total, "candidatesTokenCount", 12)
-	assertTokenCount(t, total, "totalTokenCount", 42)
+	total := usageFrom(t, terminal)
+	assertTotals(t, total, 30, 12, 42)
 }
 
 func TestTurnUsageIsPerExecution(t *testing.T) {
@@ -368,10 +382,8 @@ func TestTurnUsageDerivesTotalPerCall(t *testing.T) {
 		usageResponse("without total", 20, 7, 0),
 	)
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 30)
-	assertTokenCount(t, total, "candidatesTokenCount", 12)
-	assertTokenCount(t, total, "totalTokenCount", 42)
+	total := usageFrom(t, terminal)
+	assertTotals(t, total, 30, 12, 42)
 }
 
 // TestTurnUsageDerivedTotalGrowsAcrossExecutions covers a resumed task whose
@@ -382,18 +394,39 @@ func TestTurnUsageDerivedTotalGrowsAcrossExecutions(t *testing.T) {
 		ID:        "task-1",
 		ContextID: "context-1",
 		Metadata: map[string]any{
-			usageTotalMetadataKey: map[string]any{
-				"promptTokenCount":     float64(100),
-				"candidatesTokenCount": float64(20),
-				"totalTokenCount":      float64(120),
+			UsageExtensionURI: map[string]any{
+				"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120),
 			},
 		},
 	}
 
 	_, terminal := runUsageAgent(t, storedTask, usageResponse("no total", 200, 30, 0))
 
-	total := usageTotalFrom(t, terminal)
-	assertTokenCount(t, total, "promptTokenCount", 300)
-	assertTokenCount(t, total, "candidatesTokenCount", 50)
-	assertTokenCount(t, total, "totalTokenCount", 350)
+	total := usageFrom(t, terminal)
+	assertTotals(t, total, 300, 50, 350)
+}
+
+func TestUsageActivationInterceptor(t *testing.T) {
+	tests := map[string]struct {
+		requested []string
+		want      bool
+	}{
+		"requested":     {requested: []string{HITLExtensionURI, UsageExtensionURI}, want: true},
+		"not requested": {requested: []string{HITLExtensionURI}, want: false},
+		"other version": {requested: []string{"https://kagent.dev/extensions/usage/v2"}, want: false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+				a2atype.SvcParamExtensions: tt.requested,
+			}))
+			if _, _, err := UsageActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+				t.Fatalf("Before() error = %v", err)
+			}
+			extensions, ok := a2asrv.ExtensionsFrom(ctx)
+			if got := ok && extensions.Active(&usageAgentExtension); got != tt.want {
+				t.Fatalf("active = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

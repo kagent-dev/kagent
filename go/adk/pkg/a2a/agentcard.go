@@ -1,6 +1,8 @@
 package a2a
 
 import (
+	"slices"
+
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -24,6 +26,7 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 	}
 
 	EnsureHITLExtension(card)
+	EnsureUsageExtension(card)
 
 	// Default to JSONRPC when no interface is explicitly configured.
 	if len(card.SupportedInterfaces) == 0 {
@@ -37,17 +40,20 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 // can discover it and negotiate. Kagent's harness always supports it, and the
 // declaration does not depend on whether an ADK agent was supplied.
 func EnsureHITLExtension(card *a2atype.AgentCard) {
-	if card == nil || hasHITLExtension(card.Capabilities.Extensions) {
-		return
-	}
-	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.HITLExtension())
+	ensureExtension(card, apia2a.HITLExtension())
 }
 
-func hasHITLExtension(extensions []a2atype.AgentExtension) bool {
-	for _, extension := range extensions {
-		if extension.URI == HITLExtensionURI {
-			return true
-		}
+// EnsureUsageExtension declares the optional usage extension on the card. The
+// executor emits usage for every agent, so the declaration is unconditional too.
+func EnsureUsageExtension(card *a2atype.AgentCard) {
+	ensureExtension(card, apia2a.UsageExtension())
+}
+
+func ensureExtension(card *a2atype.AgentCard, extension a2atype.AgentExtension) {
+	if card == nil || slices.ContainsFunc(card.Capabilities.Extensions, func(declared a2atype.AgentExtension) bool {
+		return declared.URI == extension.URI
+	}) {
+		return
 	}
-	return false
+	card.Capabilities.Extensions = append(card.Capabilities.Extensions, extension)
 }

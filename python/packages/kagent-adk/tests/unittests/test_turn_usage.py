@@ -22,16 +22,16 @@ from google.adk.agents.base_agent import BaseAgent
 from google.adk.events import Event
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict
+from kagent.core.a2a import USAGE_EXTENSION_URI
 
 from kagent.adk._agent_executor import A2aAgentExecutor, _ExecutionState
 from kagent.adk._turn_usage import (
     TURN_USAGE_PLUGIN_NAME,
-    USAGE_TOTAL_KEY,
     TurnUsage,
     TurnUsagePlugin,
     attach_turn_usage,
 )
-from kagent.adk.converters.event_converter import serialize_metadata_value
 
 
 def usage_event(
@@ -57,37 +57,49 @@ def usage_event(
     return event
 
 
-def stamped_total(usage: TurnUsage) -> dict:
+def counts(input_tokens: int, output_tokens: int, total: int, reasoning: int = 0, cached: int = 0) -> dict:
+    return {
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "reasoningTokens": reasoning,
+        "cachedInputTokens": cached,
+        "totalTokens": total,
+    }
+
+
+def stamped_usage(usage: TurnUsage) -> dict:
     metadata: dict = {}
     usage.stamp(metadata)
-    assert USAGE_TOTAL_KEY in metadata, "usage total must be stamped"
-    return metadata[USAGE_TOTAL_KEY]
+    assert USAGE_EXTENSION_URI in metadata, "usage must be stamped"
+    return metadata[USAGE_EXTENSION_URI]
 
 
-def task_with_total(total) -> Task:
+def task_with_usage(payload) -> Task:
     task = Task(
         id="task-1",
         context_id="ctx-1",
         status=TaskStatus(state=TaskState.TASK_STATE_INPUT_REQUIRED),
     )
-    task.metadata.update({USAGE_TOTAL_KEY: total})
+    task.metadata.update({USAGE_EXTENSION_URI: payload})
     return task
 
 
-def test_aggregates_non_partial_events():
+def test_aggregates_non_partial_events_per_model():
     usage = TurnUsage()
     assert usage.empty()
 
-    usage.add(usage_event(100, 20, 120, "model-a", partial=False))
-    usage.add(usage_event(200, 30, 230, "model-b", partial=False))
+    usage.add(usage_event(100, 20, 120, "model-b", partial=False))
+    usage.add(usage_event(200, 30, 230, "model-a", partial=False))
+    usage.add(usage_event(1, 1, 2, None, partial=False))
 
     assert not usage.empty()
-    assert stamped_total(usage) == {
-        "promptTokenCount": 300,
-        "candidatesTokenCount": 50,
-        "totalTokenCount": 350,
-        "modelVersion": "model-b",
-    }
+    assert stamped_usage(usage) == {
+        **counts(301, 51, 352),
+        "models": [
+            {"model": "model-a", **counts(200, 30, 230)},
+            {"model": "model-b", **counts(100, 20, 120)},
+        ],
+    }, "each model keeps its own counts; calls naming no model count in the totals only"
 
 
 def test_skips_partial_and_empty_events():
@@ -100,14 +112,10 @@ def test_skips_partial_and_empty_events():
     assert usage.empty()
     metadata: dict = {}
     usage.stamp(metadata)
-    assert USAGE_TOTAL_KEY not in metadata, "empty usage must not stamp the key"
+    assert USAGE_EXTENSION_URI not in metadata, "empty usage must not stamp the key"
 
     usage.add(usage_event(10, 5, 15, None, partial=False))
-    assert stamped_total(usage) == {
-        "promptTokenCount": 10,
-        "candidatesTokenCount": 5,
-        "totalTokenCount": 15,
-    }, "modelVersion must be omitted when no event carried one"
+    assert stamped_usage(usage) == counts(10, 5, 15), "models must be omitted when no event named one"
 
 
 def test_counts_each_adk_event_once():
@@ -118,59 +126,63 @@ def test_counts_each_adk_event_once():
     usage.add(event)
     usage.add(event)
 
-    assert stamped_total(usage) == {
-        "promptTokenCount": 10,
-        "candidatesTokenCount": 5,
-        "totalTokenCount": 15,
-    }
+    assert stamped_usage(usage) == counts(10, 5, 15)
 
 
-def test_shape_matches_per_event_usage_metadata():
-    event = usage_event(10, 5, 15, None, partial=False)
-
+def test_payload_is_provider_neutral():
     usage = TurnUsage()
-    usage.add(event)
-
-    assert stamped_total(usage) == serialize_metadata_value(event.usage_metadata), (
-        "usage total must serialize identically to per-event usage metadata"
+    usage.add(
+        Event(
+            author="agent",
+            partial=False,
+            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=10,
+                candidates_token_count=5,
+                thoughts_token_count=3,
+                cached_content_token_count=4,
+                total_token_count=20,
+            ),
+        )
     )
+
+    assert stamped_usage(usage) == counts(10, 5, 20, reasoning=3, cached=4)
 
 
 def test_seed_from_task_accumulates_across_executions():
     usage = TurnUsage()
     usage.seed_from_task(
-        task_with_total(
+        task_with_usage(
             {
-                "promptTokenCount": 100,
-                "candidatesTokenCount": 20,
-                "totalTokenCount": 120,
-                "modelVersion": "model-a",
+                **counts(100, 20, 120),
+                "models": [{"model": "model-a", **counts(100, 20, 120)}],
             }
         )
     )
-    usage.add(usage_event(200, 30, 230, None, partial=False))
+    usage.add(usage_event(200, 30, 230, "model-b", partial=False))
 
-    assert stamped_total(usage) == {
-        "promptTokenCount": 300,
-        "candidatesTokenCount": 50,
-        "totalTokenCount": 350,
-        "modelVersion": "model-a",
+    assert stamped_usage(usage) == {
+        **counts(300, 50, 350),
+        "models": [
+            {"model": "model-a", **counts(100, 20, 120)},
+            {"model": "model-b", **counts(200, 30, 230)},
+        ],
     }
 
 
 def test_seed_from_task_handles_float_counts():
     usage = TurnUsage()
-    usage.seed_from_task(task_with_total({"promptTokenCount": 100.0, "totalTokenCount": 120.0}))
+    usage.seed_from_task(task_with_usage({"inputTokens": 100.0, "totalTokens": 120.0}))
 
-    assert usage.prompt_tokens == 100
-    assert usage.total_tokens == 120
+    assert usage.total.inputTokens == 100
+    assert usage.total.totalTokens == 120
 
 
 def test_seed_from_task_ignores_missing_or_malformed():
     usage = TurnUsage()
     usage.seed_from_task(None)
     usage.seed_from_task(Task(id="t", context_id="c", status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED)))
-    usage.seed_from_task(task_with_total("not-a-dict"))
+    usage.seed_from_task(task_with_usage("not-a-dict"))
+    usage.seed_from_task(task_with_usage({"inputTokens": "many", "models": "nope"}))
     assert usage.empty()
 
 
@@ -188,11 +200,7 @@ def test_derives_total_when_provider_reports_none():
         )
     )
 
-    assert stamped_total(usage) == {
-        "promptTokenCount": 100,
-        "candidatesTokenCount": 20,
-        "totalTokenCount": 120,
-    }
+    assert stamped_usage(usage) == counts(100, 20, 120)
 
 
 def test_derives_total_per_call():
@@ -210,25 +218,13 @@ def test_derives_total_per_call():
         )
     )
 
-    assert stamped_total(usage) == {
-        "promptTokenCount": 30,
-        "candidatesTokenCount": 12,
-        "totalTokenCount": 42,
-    }
+    assert stamped_usage(usage) == counts(30, 12, 42)
 
 
 def test_derived_total_grows_across_executions():
     """A resumed task whose persisted total was itself derived."""
     usage = TurnUsage()
-    usage.seed_from_task(
-        task_with_total(
-            {
-                "promptTokenCount": 100,
-                "candidatesTokenCount": 20,
-                "totalTokenCount": 120,
-            }
-        )
-    )
+    usage.seed_from_task(task_with_usage(counts(100, 20, 120)))
     usage.add(
         Event(
             author="agent",
@@ -240,11 +236,7 @@ def test_derived_total_grows_across_executions():
         )
     )
 
-    assert stamped_total(usage) == {
-        "promptTokenCount": 300,
-        "candidatesTokenCount": 50,
-        "totalTokenCount": 350,
-    }
+    assert stamped_usage(usage) == counts(300, 50, 350)
 
 
 @pytest.mark.asyncio
@@ -274,12 +266,7 @@ async def test_plugin_counts_events_that_produce_no_a2a_event():
     assert convert_event_to_a2a_message(stripped) is None, "the stripped event must not convert to an A2A event"
 
     assert await plugin.on_event_callback(invocation_context=None, event=paused) is None
-    assert stamped_total(usage) == {
-        "promptTokenCount": 10,
-        "candidatesTokenCount": 5,
-        "totalTokenCount": 15,
-        "modelVersion": "model-a",
-    }
+    assert stamped_usage(usage) == {**counts(10, 5, 15), "models": [{"model": "model-a", **counts(10, 5, 15)}]}
 
 
 def test_attach_turn_usage_repoints_an_already_registered_plugin():
@@ -307,9 +294,7 @@ async def test_executor_stamps_total_on_terminal_status_update():
     )
     executor = A2aAgentExecutor(runner=lambda: None)
     state = _ExecutionState(request_context=request_context)
-    state.usage.seed_from_task(
-        task_with_total({"promptTokenCount": 100, "candidatesTokenCount": 20, "totalTokenCount": 120})
-    )
+    state.usage.seed_from_task(task_with_usage(counts(100, 20, 120)))
     executor_context = ExecutorContext(app_name="app", user_id="user-1", session_id="context-1", runner=None)
 
     adk_event = usage_event(10, 5, 15, "model-a", partial=False, event_id="event-1")
@@ -328,12 +313,9 @@ async def test_executor_stamps_total_on_terminal_status_update():
     )
     await executor._after_agent(state, executor_context, terminal)
 
-    total = dict(terminal.metadata[USAGE_TOTAL_KEY].items())
-    assert total == {
-        "promptTokenCount": 110,
-        "candidatesTokenCount": 25,
-        "totalTokenCount": 135,
-        "modelVersion": "model-a",
+    assert MessageToDict(terminal.metadata)[USAGE_EXTENSION_URI] == {
+        **counts(110, 25, 135),
+        "models": [{"model": "model-a", **counts(10, 5, 15)}],
     }
 
 
@@ -350,7 +332,7 @@ async def test_failed_status_event_carries_the_total():
     )
     executor = A2aAgentExecutor(runner=lambda: None)
     usage = TurnUsage()
-    usage.seed_from_task(task_with_total({"promptTokenCount": 100, "candidatesTokenCount": 20, "totalTokenCount": 120}))
+    usage.seed_from_task(task_with_usage(counts(100, 20, 120)))
 
     published: list[TaskStatusUpdateEvent] = []
 
@@ -362,8 +344,4 @@ async def test_failed_status_event_carries_the_total():
 
     assert len(published) == 1
     assert published[0].status.state == TaskState.TASK_STATE_FAILED
-    assert dict(published[0].metadata[USAGE_TOTAL_KEY].items()) == {
-        "promptTokenCount": 100,
-        "candidatesTokenCount": 20,
-        "totalTokenCount": 120,
-    }
+    assert MessageToDict(published[0].metadata)[USAGE_EXTENSION_URI] == counts(100, 20, 120)

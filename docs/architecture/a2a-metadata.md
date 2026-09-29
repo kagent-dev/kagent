@@ -38,7 +38,6 @@ interpret runtime-specific metadata.
 | `kagent.dev/a2a/task-created-at`      | task                | Durable task creation time used by task projections                                                  |
 | `kagent.dev/a2a/part-type`            | data part           | Semantic data kind, including function calls and function results                                    |
 | `kagent.dev/a2a/usage`                | task event          | Model usage reported by runtimes that support it                                                     |
-| `kagent.dev/a2a/usage-total`          | task status update  | Task-lifetime usage aggregate; each terminal status update carries the latest total                  |
 | `kagent.dev/a2a/output-schema-sha256` | result part         | Binds a structured result to the compiled output schema                                              |
 
 Timeline positions are written at the boundary producing an item: the gateway
@@ -47,8 +46,9 @@ The gateway remains responsible for applying the resulting durable order.
 
 ## Other metadata
 
-Versioned A2A extensions, such as the human-in-the-loop extension, keep their
-negotiated URI as the metadata key. Private gateway-to-runtime continuation
+Versioned A2A extensions, such as the [human-in-the-loop](human-in-the-loop.md)
+and [token usage](usage-extension.md) extensions, keep their URI as the metadata
+key. Private gateway-to-runtime continuation
 state uses an internal URI and is consumed before the message can enter public
 history.
 

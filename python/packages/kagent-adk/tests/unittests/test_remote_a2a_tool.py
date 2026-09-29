@@ -210,7 +210,9 @@ class TestCallContextHeaderPropagation:
         headers = tool._build_call_context(ctx.as_tool_context()).service_parameters or {}
         assert headers.get("authorization") == "Bearer test-jwt"
         assert headers.get("x-user-id") == "user1"
-        assert headers.get(HITL_EXTENSION_HEADER) == "https://kagent.dev/extensions/hitl/v1"
+        assert headers.get(HITL_EXTENSION_HEADER) == (
+            "https://kagent.dev/extensions/hitl/v1,https://kagent.dev/extensions/usage/v1"
+        )
 
     async def test_no_extra_headers_without_header_provider(self):
         tool = _make_tool()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, fields
 from typing import Any, Optional
 
 from a2a.types import Task
@@ -7,22 +8,67 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.runners import Runner
-from google.genai import types as genai_types
-from kagent.core.a2a import A2A_USAGE_TOTAL_METADATA_KEY
-
-from .converters.event_converter import serialize_metadata_value
-
-# Every terminal status update of a task carries the running task-lifetime
-# total, so consumers take the latest value rather than summing across
-# executions.
-USAGE_TOTAL_KEY = A2A_USAGE_TOTAL_METADATA_KEY
+from google.protobuf.json_format import MessageToDict
+from kagent.core.a2a import USAGE_EXTENSION_URI
 
 TURN_USAGE_PLUGIN_NAME = "kagent_turn_usage"
 
 
+@dataclass
+class TokenCounts:
+    """Provider-neutral token tally, serialized with the extension field names.
+
+    cachedInputTokens is a subset of inputTokens and outputTokens excludes
+    reasoningTokens. totalTokens is the provider-reported total when there is
+    one, so it can exceed the sum of the other counts.
+    """
+
+    inputTokens: int = 0
+    outputTokens: int = 0
+    reasoningTokens: int = 0
+    cachedInputTokens: int = 0
+    totalTokens: int = 0
+
+    def add(self, other: TokenCounts) -> None:
+        for name in _COUNT_FIELDS:
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+
+    def is_zero(self) -> bool:
+        return all(getattr(self, name) == 0 for name in _COUNT_FIELDS)
+
+    def to_dict(self) -> dict[str, int]:
+        return {name: getattr(self, name) for name in _COUNT_FIELDS}
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> TokenCounts:
+        if not isinstance(raw, dict):
+            return cls()
+        return cls(**{name: _token_count(raw.get(name)) for name in _COUNT_FIELDS})
+
+
+_COUNT_FIELDS = tuple(field.name for field in fields(TokenCounts))
+
+
+def call_token_counts(event: Event) -> TokenCounts:
+    """Map one LLM call to provider-neutral counts. A call that reports no total
+    contributes a derived one, so a task mixing providers that report a total
+    with providers that do not keeps a total consistent with its parts."""
+    usage = event.usage_metadata
+    counts = TokenCounts(
+        inputTokens=usage.prompt_token_count or 0,
+        outputTokens=usage.candidates_token_count or 0,
+        reasoningTokens=usage.thoughts_token_count or 0,
+        cachedInputTokens=usage.cached_content_token_count or 0,
+        totalTokens=usage.total_token_count or 0,
+    )
+    if not counts.totalTokens:
+        counts.totalTokens = counts.inputTokens + counts.outputTokens + counts.reasoningTokens
+    return counts
+
+
 class TurnUsage:
-    """Accumulates token usage across the ADK events of one execution so the
-    aggregated total can be emitted on terminal status updates.
+    """Accumulates token usage across the ADK events of a task so the total can
+    be emitted on terminal status updates.
 
     Partial (streaming chunk) events are skipped: each LLM call reports its
     usage on the final non-partial event, so summing partials would
@@ -31,83 +77,52 @@ class TurnUsage:
     """
 
     def __init__(self) -> None:
-        self.prompt_tokens = 0
-        self.completion_tokens = 0
-        self.thoughts_tokens = 0
-        self.cached_content_tokens = 0
-        self.total_tokens = 0
-        self.model_version: Optional[str] = None
+        self.total = TokenCounts()
+        self.models: dict[str, TokenCounts] = {}
         self._counted_event_ids: set[str] = set()
 
     def add(self, event: Optional[Event]) -> None:
-        """Sum one LLM call into the accumulator. A call that reports no total
-        contributes a derived one, so a task mixing providers that report a
-        total with providers that do not keeps a total consistent with its
-        parts."""
-        if event is None or event.partial:
-            return
-        usage = event.usage_metadata
-        if usage is None:
+        if event is None or event.partial or event.usage_metadata is None:
             return
         if event.id:
             if event.id in self._counted_event_ids:
                 return
             self._counted_event_ids.add(event.id)
-        prompt = usage.prompt_token_count or 0
-        completion = usage.candidates_token_count or 0
-        thoughts = usage.thoughts_token_count or 0
-        self.prompt_tokens += prompt
-        self.completion_tokens += completion
-        self.thoughts_tokens += thoughts
-        self.cached_content_tokens += usage.cached_content_token_count or 0
-        self.total_tokens += usage.total_token_count or (prompt + completion + thoughts)
+        counts = call_token_counts(event)
+        self.total.add(counts)
         if event.model_version:
-            self.model_version = event.model_version
+            self._add_model(event.model_version, counts)
+
+    def _add_model(self, model: str, counts: TokenCounts) -> None:
+        self.models.setdefault(model, TokenCounts()).add(counts)
 
     def seed_from_task(self, task: Optional[Task]) -> None:
-        """Prime the accumulator with the total already persisted on a resumed
+        """Prime the accumulator with the usage already persisted on a resumed
         task, so tasks spanning multiple executions (HITL input-required
         cycles, follow-up messages) report a task-lifetime total instead of the
         last segment only."""
-        if task is None or not task.metadata or USAGE_TOTAL_KEY not in task.metadata:
+        if task is None or not task.HasField("metadata"):
             return
-        prior = task.metadata[USAGE_TOTAL_KEY]
-        if not hasattr(prior, "items"):
+        prior = MessageToDict(task.metadata).get(USAGE_EXTENSION_URI)
+        if not isinstance(prior, dict):
             return
-        prior = dict(prior.items())
-        self.prompt_tokens += _token_count(prior.get("promptTokenCount"))
-        self.completion_tokens += _token_count(prior.get("candidatesTokenCount"))
-        self.thoughts_tokens += _token_count(prior.get("thoughtsTokenCount"))
-        self.cached_content_tokens += _token_count(prior.get("cachedContentTokenCount"))
-        self.total_tokens += _token_count(prior.get("totalTokenCount"))
-        model_version = prior.get("modelVersion")
-        if isinstance(model_version, str) and model_version:
-            self.model_version = model_version
+        self.total.add(TokenCounts.from_dict(prior))
+        models = prior.get("models")
+        for model in models if isinstance(models, list) else []:
+            if isinstance(model, dict) and isinstance(model.get("model"), str) and model["model"]:
+                self._add_model(model["model"], TokenCounts.from_dict(model))
 
     def empty(self) -> bool:
-        return self.prompt_tokens == 0 and self.completion_tokens == 0 and self.total_tokens == 0
+        return self.total.is_zero()
 
     def stamp(self, metadata: dict[str, Any]) -> None:
-        """Attach the aggregate to metadata under USAGE_TOTAL_KEY. The value
-        is serialized exactly like the per-event usage metadata (same
-        genai type, same serializer) plus modelVersion, so consumers can share
-        one parser."""
+        """Attach the task usage to metadata under the extension URI."""
         if self.empty():
             return
-        total = serialize_metadata_value(
-            genai_types.GenerateContentResponseUsageMetadata(
-                prompt_token_count=self.prompt_tokens or None,
-                candidates_token_count=self.completion_tokens or None,
-                thoughts_token_count=self.thoughts_tokens or None,
-                cached_content_token_count=self.cached_content_tokens or None,
-                total_token_count=self.total_tokens or None,
-            )
-        )
-        if not isinstance(total, dict):
-            return
-        if self.model_version:
-            total["modelVersion"] = self.model_version
-        metadata[USAGE_TOTAL_KEY] = total
+        payload: dict[str, Any] = self.total.to_dict()
+        if self.models:
+            payload["models"] = [{"model": model, **self.models[model].to_dict()} for model in sorted(self.models)]
+        metadata[USAGE_EXTENSION_URI] = payload
 
 
 def _token_count(value: Any) -> int:

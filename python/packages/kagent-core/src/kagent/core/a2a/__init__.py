@@ -6,7 +6,6 @@ from ._consts import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_PART_TYPE_METADATA_KEY,
     A2A_USAGE_METADATA_KEY,
-    A2A_USAGE_TOTAL_METADATA_KEY,
 )
 from ._context import get_request_user_id, set_request_user_id
 from ._hitl import (
@@ -39,6 +38,7 @@ from ._hitl import (
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
 from ._time import now_timestamp
+from ._usage import USAGE_EXTENSION_URI, attach_usage_agent_extension
 
 __all__ = [
     "get_a2a_max_content_length",
@@ -50,7 +50,6 @@ __all__ = [
     "now_timestamp",
     "A2A_PART_TYPE_METADATA_KEY",
     "A2A_USAGE_METADATA_KEY",
-    "A2A_USAGE_TOTAL_METADATA_KEY",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE",
     "A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT",
@@ -81,4 +80,6 @@ __all__ = [
     "require_ask_user_response",
     "attach_hitl_extension",
     "attach_hitl_agent_extension",
+    "USAGE_EXTENSION_URI",
+    "attach_usage_agent_extension",
 ]

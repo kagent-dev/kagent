@@ -2,9 +2,11 @@ package kagent
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -56,5 +58,25 @@ func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
 	// The name is normalised for ADK, which rejects hyphens.
 	if card.Name != "pizza_agent" {
 		t.Fatalf("card name = %q, want the ADK-safe form", card.Name)
+	}
+}
+
+// TestAgentCardDeclaresUsage keeps the usage extension on the kagent card only:
+// the Codex and Claude harnesses share the managed card but do not emit usage.
+func TestAgentCardDeclaresUsage(t *testing.T) {
+	template := &v2translator.TemplateConfiguration{
+		Name: "pizza-agent", Namespace: "team-a", Source: &metav1.ObjectMeta{Name: "pizza-agent", Namespace: "team-a"},
+	}
+	declares := func(card *a2atype.AgentCard) bool {
+		return slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
+			return extension.URI == apia2a.UsageExtensionURI && !extension.Required
+		})
+	}
+
+	if !declares(agentCard("pizza-agent", template)) {
+		t.Fatal("kagent card does not declare the optional usage extension")
+	}
+	if declares(v2translator.ManagedAgentCard("pizza-agent", template)) {
+		t.Fatal("the shared managed card declares usage, which the Codex and Claude harnesses do not emit")
 	}
 }

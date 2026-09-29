@@ -2,36 +2,48 @@ package a2a
 
 import (
 	"context"
-	"math"
+	"slices"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
 	adksession "google.golang.org/adk/v2/session"
-	"google.golang.org/genai"
 )
 
-// usageTotalMetadataKey is the A2A metadata key carrying the aggregated
-// token usage of a task. The value has the same shape as the per-event
-// usage entry, plus modelVersion. Every terminal status update of a task
-// carries the running task-lifetime total, so consumers take the latest value
-// rather than summing across executions.
-const usageTotalMetadataKey = apia2a.UsageTotalMetadataKey
+// UsageExtensionURI is the versioned A2A extension carrying task token usage.
+const UsageExtensionURI = apia2a.UsageExtensionURI
 
 const turnUsagePluginName = "kagent_turn_usage"
 
-// turnUsage accumulates token usage across the ADK events of one execution so
-// the aggregated total can be emitted on the terminal status update. Partial
-// (streaming chunk) events are skipped: each LLM call reports its usage on the
-// final non-partial event, so summing partials would double-count.
+var usageAgentExtension = apia2a.UsageExtension()
+
+// UsageActivationInterceptor activates the usage extension when the client
+// requested it, so the transports echo it. Emission does not depend on it.
+func UsageActivationInterceptor() a2asrv.CallInterceptor {
+	return &usageActivationInterceptor{}
+}
+
+type usageActivationInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+}
+
+func (*usageActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
+	if callCtx != nil && callCtx.Extensions().Requested(&usageAgentExtension) {
+		callCtx.Extensions().Activate(&usageAgentExtension)
+	}
+	return ctx, nil, nil
+}
+
+// turnUsage accumulates token usage across the ADK events of a task so the
+// total can be emitted on the terminal status update. Partial (streaming chunk)
+// events are skipped: each LLM call reports its usage on the final non-partial
+// event, so summing partials would double-count.
 type turnUsage struct {
-	promptTokens        int64
-	completionTokens    int64
-	thoughtsTokens      int64
-	cachedContentTokens int64
-	totalTokens         int64
-	modelVersion        string
+	total  apia2a.TokenCounts
+	models map[string]apia2a.TokenCounts
 }
 
 type turnUsageContextKey struct{}
@@ -63,104 +75,87 @@ func newTurnUsagePlugin() (*plugin.Plugin, error) {
 	})
 }
 
-// add sums one LLM call into the accumulator. A call that reports no total
-// contributes a derived one, so a task mixing providers that report a total
-// with providers that do not keeps a total consistent with its parts.
+// callTokenCounts maps one LLM call to provider-neutral counts. A call that
+// reports no total contributes a derived one, so a task mixing providers that
+// report a total with providers that do not keeps a total consistent with its
+// parts.
+func callTokenCounts(event *adksession.Event) apia2a.TokenCounts {
+	usage := event.UsageMetadata
+	counts := apia2a.TokenCounts{
+		InputTokens:       int64(usage.PromptTokenCount),
+		OutputTokens:      int64(usage.CandidatesTokenCount),
+		ReasoningTokens:   int64(usage.ThoughtsTokenCount),
+		CachedInputTokens: int64(usage.CachedContentTokenCount),
+		TotalTokens:       int64(usage.TotalTokenCount),
+	}
+	if counts.TotalTokens == 0 {
+		counts.TotalTokens = counts.InputTokens + counts.OutputTokens + counts.ReasoningTokens
+	}
+	return counts
+}
+
 func (u *turnUsage) add(event *adksession.Event) {
 	if u == nil || event == nil || event.Partial || event.UsageMetadata == nil {
 		return
 	}
-	prompt := int64(event.UsageMetadata.PromptTokenCount)
-	completion := int64(event.UsageMetadata.CandidatesTokenCount)
-	thoughts := int64(event.UsageMetadata.ThoughtsTokenCount)
-	total := int64(event.UsageMetadata.TotalTokenCount)
-	if total == 0 {
-		total = prompt + completion + thoughts
-	}
-	u.promptTokens += prompt
-	u.completionTokens += completion
-	u.thoughtsTokens += thoughts
-	u.cachedContentTokens += int64(event.UsageMetadata.CachedContentTokenCount)
-	u.totalTokens += total
+	counts := callTokenCounts(event)
+	u.total = u.total.Add(counts)
 	if event.ModelVersion != "" {
-		u.modelVersion = event.ModelVersion
+		u.addModel(event.ModelVersion, counts)
 	}
 }
 
-// seedFromTask primes the accumulator with the total already persisted on a
+func (u *turnUsage) addModel(model string, counts apia2a.TokenCounts) {
+	if u.models == nil {
+		u.models = map[string]apia2a.TokenCounts{}
+	}
+	u.models[model] = u.models[model].Add(counts)
+}
+
+// seedFromTask primes the accumulator with the usage already persisted on a
 // resumed task, so tasks spanning multiple executions (HITL input-required
 // cycles, follow-up messages) report a task-lifetime total instead of the last
 // segment only.
 func (u *turnUsage) seedFromTask(task *a2atype.Task) {
-	if u == nil || task == nil || task.Metadata == nil {
+	if u == nil || task == nil {
 		return
 	}
-	prior, ok := task.Metadata[usageTotalMetadataKey].(map[string]any)
+	prior, ok := apia2a.UsageFromMetadata(task.Metadata)
 	if !ok {
 		return
 	}
-	u.promptTokens += metadataTokenCount(prior["promptTokenCount"])
-	u.completionTokens += metadataTokenCount(prior["candidatesTokenCount"])
-	u.thoughtsTokens += metadataTokenCount(prior["thoughtsTokenCount"])
-	u.cachedContentTokens += metadataTokenCount(prior["cachedContentTokenCount"])
-	u.totalTokens += metadataTokenCount(prior["totalTokenCount"])
-	if modelVersion, ok := prior["modelVersion"].(string); ok && modelVersion != "" {
-		u.modelVersion = modelVersion
-	}
-}
-
-// metadataTokenCount reads a numeric token count from stored task metadata.
-// Counts are float64 after a JSON round-trip but keep an integer type with
-// in-memory task stores.
-func metadataTokenCount(value any) int64 {
-	switch n := value.(type) {
-	case float64:
-		return int64(n)
-	case int64:
-		return n
-	case int32:
-		return int64(n)
-	case int:
-		return int64(n)
-	default:
-		return 0
+	u.total = u.total.Add(prior.TokenCounts)
+	for _, model := range prior.Models {
+		if model.Model != "" {
+			u.addModel(model.Model, model.TokenCounts)
+		}
 	}
 }
 
 func (u *turnUsage) empty() bool {
-	return u.promptTokens == 0 && u.completionTokens == 0 && u.totalTokens == 0
+	return u.total.IsZero()
 }
 
-// stampEvent attaches the aggregate to a terminal status update under
-// usageTotalMetadataKey. The value is serialized exactly like the per-event
-// usage entry (same genai type, same JSON mapping) plus modelVersion, so
-// consumers can share one parser.
+// snapshot returns the accumulated usage with models in a stable order.
+func (u *turnUsage) snapshot() apia2a.Usage {
+	usage := apia2a.Usage{TokenCounts: u.total}
+	for model, counts := range u.models {
+		usage.Models = append(usage.Models, apia2a.ModelUsage{Model: model, TokenCounts: counts})
+	}
+	slices.SortFunc(usage.Models, func(a, b apia2a.ModelUsage) int {
+		return strings.Compare(a.Model, b.Model)
+	})
+	return usage
+}
+
+// stampEvent attaches the task usage to a terminal status update.
 func (u *turnUsage) stampEvent(event *a2atype.TaskStatusUpdateEvent) {
 	if u == nil || event == nil || u.empty() {
 		return
 	}
-	total, err := toJSONMap(&genai.GenerateContentResponseUsageMetadata{
-		PromptTokenCount:        clampInt32(u.promptTokens),
-		CandidatesTokenCount:    clampInt32(u.completionTokens),
-		ThoughtsTokenCount:      clampInt32(u.thoughtsTokens),
-		CachedContentTokenCount: clampInt32(u.cachedContentTokens),
-		TotalTokenCount:         clampInt32(u.totalTokens),
-	})
-	if err != nil || total == nil {
-		return
-	}
-	if u.modelVersion != "" {
-		total["modelVersion"] = u.modelVersion
-	}
 	if event.Metadata == nil {
 		event.Metadata = map[string]any{}
 	}
-	event.Metadata[usageTotalMetadataKey] = total
-}
-
-func clampInt32(v int64) int32 {
-	if v > math.MaxInt32 {
-		return math.MaxInt32
-	}
-	return int32(v)
+	// Encoding a struct of integers cannot fail.
+	_ = apia2a.AttachUsage(event.Metadata, u.snapshot())
 }
