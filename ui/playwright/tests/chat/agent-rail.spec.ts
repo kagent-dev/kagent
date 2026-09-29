@@ -3,6 +3,7 @@ import { test, expect } from "../../fixtures/test";
 import {
   agentChat,
   agentDetail,
+  agentNewChat,
   agentPage,
   agents,
   instances,
@@ -10,6 +11,7 @@ import {
   loadPage,
   withScenario,
 } from "../../helpers/app";
+import { expectTurnFinished } from "../../helpers/chat";
 import { dialog, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
@@ -305,6 +307,55 @@ test("chat agent rail: conversations are named", async ({ page }) => {
     await expect(row).toContainText("…");
     // And emphatically not the id, which is what an unnamed conversation falls back to
     // when there is nothing said in it to derive from.
+    await expect(row).not.toContainText("Untitled");
+  });
+});
+
+/**
+ * A conversation started here keeps its title once you leave it.
+ *
+ * The new-chat page creates the conversation and refreshes the list before the first
+ * message is sent, so the rail read the new row's title from an empty history — and
+ * never again, because nothing about the set of conversations changed afterwards. The
+ * open row hid it, being titled from the page's own transcript; leaving the chat left
+ * `Untitled · <id>` behind until a reload.
+ *
+ * The Agent Details hop is the one the fixtures can fail: its rail lists the same set
+ * of conversations the new-chat page cached a read for. The sibling hop keeps the
+ * same rail mounted, and passes here only because the fixture list changes shape
+ * after the turn; against a cluster it relies on the chat page re-reading the titles
+ * when the turn goes idle.
+ */
+test("chat agent rail: a new conversation keeps its title once you leave it", async ({
+  page,
+}) => {
+  const said = "This is twin B.";
+  await loadPage(page, agentNewChat(agents.k8s));
+  await expect(page.getByTestId("new-chat-empty")).toBeVisible({ timeout: 30_000 });
+
+  const created = await test.step("1. the first message starts a conversation", async () => {
+    await page.getByTestId("chat-input").fill(said);
+    await page.getByTestId("chat-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
+    const id = new URL(page.url()).pathname.split("/")[2];
+    await expectTurnFinished(page, { finishedBefore: 0 });
+    return id;
+  });
+
+  const row = page.getByTestId(`chat-session-${created}`);
+
+  await test.step("2. opening another conversation leaves this one titled", async () => {
+    await page.getByTestId(`chat-session-${SIBLING_OF_READY}`).click();
+    await expect(page).toHaveURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
+    await expect(row).toContainText(said);
+    await expect(row).not.toContainText("Untitled");
+  });
+
+  await test.step("3. and so does the agent's details page", async () => {
+    // Clicked, not visited: a reload re-reads every title and would hide the defect.
+    await page.getByTestId("agent-nav-agent-conversations").click();
+    await expect(page.getByTestId("chat-panel")).toHaveCount(0);
+    await expect(row).toContainText(said);
     await expect(row).not.toContainText("Untitled");
   });
 });

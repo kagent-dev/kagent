@@ -24,6 +24,7 @@ import {
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
+import { useInvalidateConversationTitles } from "@/api/hooks/useInvalidateConversationTitles";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { Checkpoint } from "@/api";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
@@ -539,12 +540,23 @@ export function AgentChatPage() {
    * claiming an operation, so without this the indicator would keep the previous
    * reading until the reader did something else. Fired on the *transition* out of
    * busy rather than on every render, so an idle page still makes no requests.
+   *
+   * The derived titles are re-read at the same point. This conversation was listed
+   * before its first message was sent, so the rail's title read found nothing to name
+   * it by; without this, the row reads `Untitled` as soon as the reader leaves it. The
+   * titles are the rail's own read, not this page's, so re-reading them re-renders the
+   * rail alone and cannot reach the send.
    */
+  const invalidateTitles = useInvalidateConversationTitles();
+  const isUnnamed = instance.data?.name.trim() === "";
   const wasBusy = useRef(isBusy);
   useEffect(() => {
-    if (wasBusy.current && !isBusy) void refreshInstance.current();
+    if (wasBusy.current && !isBusy) {
+      void refreshInstance.current();
+      if (isUnnamed) void invalidateTitles();
+    }
     wasBusy.current = isBusy;
-  }, [isBusy]);
+  }, [isBusy, isUnnamed, invalidateTitles]);
 
   return (
     <div data-testid="agent-surface">
