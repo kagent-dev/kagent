@@ -1,13 +1,13 @@
 {{- if .Values.harness.create }}
 {{- /*
-The chart's own Harness (kagent.dev/v1alpha3): how an agent runs on the API v2 —
-a digest-pinned runtime image, an environment and a Substrate policy (a
-WorkerPool, a snapshot location); an AgentTemplate becomes Ready only when a
-Harness admits it (allowedAgentTemplates.selector). The runtime is the chart's
-Go ADK image (controller.agentImage) at the digest the chart was published
-with; harness.image overrides it. The CRD pins the image by digest — a moving
-tag would silently change every agent under the Harness — so a tag fails here,
-at render time, instead of at admission.
+The chart's own Harness (api.kagent.dev/v1alpha3): how an agent runs on the API
+v2, a digest-pinned runtime image, an environment and a Substrate policy (a
+WorkerPool, a snapshot location). An Agent names the Harness it runs on by
+spec.harnessRef.name. The runtime is the chart's Go ADK image
+(controller.agentImage) at the digest the chart was published with;
+harness.image overrides it. The CRD pins the image by digest (a moving tag
+would silently change every agent on the Harness), so a tag fails here, at
+render time, instead of at admission.
 */}}
 {{- $image := include "kagent.harness.image" . }}
 {{- if not $image }}
@@ -19,7 +19,7 @@ at render time, instead of at admission.
 {{- if not .Values.harness.snapshotLocation }}
 {{- fail "harness.snapshotLocation is required when harness.create=true (the Substrate snapshot store of the actors run under the Harness, e.g. s3://<bucket>/<prefix>)" }}
 {{- end }}
-apiVersion: kagent.dev/v1alpha3
+apiVersion: api.kagent.dev/v1alpha3
 kind: Harness
 metadata:
   name: {{ .Values.harness.name | quote }}
@@ -27,12 +27,12 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
   annotations:
-    # The runtime of every agent admitted under it: kept across an uninstall of the chart.
+    # The runtime of every agent that references it: kept across an uninstall of the chart.
     helm.sh/resource-policy: keep
 spec:
   {{- /* Exactly one of kagent|codex|claude|byo; the Go ADK runtime adapter.
-  Compaction is the Harness's (Harness.spec.kagent.compaction): every admitted
-  AgentTemplate runs with it. */}}
+  Compaction is the Harness's (Harness.spec.kagent.compaction): every agent
+  on the Harness runs with it. */}}
   {{- with .Values.harness.compaction }}
   kagent:
     compaction:
@@ -51,7 +51,4 @@ spec:
       name: {{ .Values.harness.workerPoolRef | default .Values.substrateWorkerPool.name | quote }}
     snapshotPolicy:
       location: {{ .Values.harness.snapshotLocation | quote }}
-  {{- /* matchLabels entries whose value is the empty string are dropped (kagent.harness.allowedAgentTemplates). */}}
-  allowedAgentTemplates:
-    {{- include "kagent.harness.allowedAgentTemplates" . | nindent 4 }}
 {{- end }}

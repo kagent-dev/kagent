@@ -202,7 +202,7 @@ controller:
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
     # -- Index digest of the image published at that tag, `sha256:<64 hex digits>`.
-    # A Harness (kagent.dev/v1alpha3) pins its runtime image by digest only, so
+    # A Harness (api.kagent.dev/v1alpha3) pins its runtime image by digest only, so
     # the chart's own Harness (`harness` below) needs it; empty in git, a
     # published chart carries the digest of its build.
     digest: ""
@@ -476,11 +476,11 @@ substrateWorkerPool:
   # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
   template: {}
 
-# -- Optional Harness (kagent.dev/v1alpha3) for the chart's own runtime image, the
+# -- Optional Harness (api.kagent.dev/v1alpha3) for the chart's own runtime image, the
 # Go ADK image at controller.agentImage. On the API v2 an agent runs on a Harness:
 # a digest-pinned runtime image, an environment and a Substrate policy (a
-# WorkerPool, a snapshot location); an AgentTemplate becomes Ready only when a
-# Harness admits it. Off by default — a consumer rendering its own Harness
+# WorkerPool, a snapshot location); an Agent names the Harness it runs on by
+# spec.harnessRef.name. Off by default — a consumer rendering its own Harness
 # objects keeps doing so.
 harness:
   create: false
@@ -497,21 +497,12 @@ harness:
   snapshotLocation: ""
   # -- Environment of the runtime (Harness.spec.env: name with value or credentialRef).
   env: []
-  # -- Context compaction of every agent the Harness admits
+  # -- Context compaction of every agent on the Harness
   # (Harness.spec.kagent.compaction): tail retention (`tokenThreshold` with
   # `eventRetentionSize`), the sliding window (`compactionInterval` with
   # `overlapSize`), and a `summarizer` (`modelConfigRef.name`, `promptTemplate`).
   # At least one strategy when set; empty leaves the history uncompacted.
   compaction: {}
-  # -- The AgentTemplates the Harness admits (Harness.spec.allowedAgentTemplates).
-  # A matchLabels entry whose value is the empty string is dropped from the
-  # rendered selector: values layered over these merge maps and cannot remove
-  # the default key otherwise (a null does not survive a JSON merge patch of a
-  # Flux HelmRelease). A selector with no requirement left fails the render.
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/harness: kagent
 
 # -- Runtime images the chart publishes besides the Go ADK image
 # (controller.agentImage). The chart lists its runtime images, digest-pinned, in

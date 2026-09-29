@@ -470,29 +470,3 @@ Go ADK runtime image (controller.agentImage) at its digest; empty when neither i
 {{- define "kagent.harness.image" -}}
 {{- .Values.harness.image | default (include "kagent.runtimeImage" (dict "root" . "image" .Values.controller.agentImage)) -}}
 {{- end -}}
-
-{{/*
-The Harness's admission selector (harness.allowedAgentTemplates) with every
-matchLabels entry whose value is the empty string removed. A consumer that
-layers its values over the chart's cannot remove a default key from the map:
-Helm merges maps on coalesce, and the null that would delete the key does not
-survive every values path (a JSON merge patch of a Flux HelmRelease drops a
-null instead of storing it, so the chart's default comes back). The empty
-string does survive, and it is never a valid selector value, so it means "not
-this key". A selector left with no requirement would admit every AgentTemplate
-in the namespace (an empty label selector selects everything), so the render
-fails instead.
-Emits YAML. Usage: include "kagent.harness.allowedAgentTemplates" .
-*/}}
-{{- define "kagent.harness.allowedAgentTemplates" -}}
-{{- $allowed := deepCopy (.Values.harness.allowedAgentTemplates | default dict) -}}
-{{- with $allowed.selector -}}
-{{- $labels := dict -}}
-{{- range $k, $v := .matchLabels }}{{- if ne (toString $v) "" }}{{- $_ := set $labels $k $v }}{{- end }}{{- end -}}
-{{- if $labels }}{{- $_ := set . "matchLabels" $labels }}{{- else }}{{- $_ := unset . "matchLabels" }}{{- end -}}
-{{- if and (not .matchLabels) (not .matchExpressions) -}}
-{{- fail "harness.allowedAgentTemplates.selector selects nothing: every matchLabels value is empty and there are no matchExpressions — an empty selector would admit every AgentTemplate in the namespace; keep at least one label (an empty value removes a key)" -}}
-{{- end -}}
-{{- end -}}
-{{- toYaml $allowed -}}
-{{- end -}}

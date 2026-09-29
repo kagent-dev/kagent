@@ -22,7 +22,7 @@ tests:
       - isKind:
           of: Harness
       - isAPIVersion:
-          of: kagent.dev/v1alpha3
+          of: api.kagent.dev/v1alpha3
       - equal:
           path: metadata.name
           value: kagent
@@ -44,11 +44,10 @@ tests:
       - equal:
           path: spec.substrate.snapshotPolicy.location
           value: s3://snapshots/kagent
-      - equal:
-          path: spec.allowedAgentTemplates.selector.matchLabels["kagent.dev/harness"]
-          value: kagent
       - notExists:
           path: spec.env
+      - notExists:
+          path: spec.allowedAgentTemplates
 
   - it: should render the compaction of the Harness under the kagent adapter
     set:
@@ -90,7 +89,7 @@ tests:
           path: spec.workload.image
           value: localhost:5001/kagent-dev/kagent/golang-adk@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 
-  - it: should forward the worker pool, the snapshot location, the env and the selector
+  - it: should forward the worker pool, the snapshot location and the env
     set:
       harness.create: true
       harness.name: go-adk
@@ -98,10 +97,6 @@ tests:
       harness.env:
         - name: KAGENT_PROPAGATE_TOKEN
           value: "true"
-      harness.allowedAgentTemplates:
-        selector:
-          matchLabels:
-            example.com/harness: go-adk
     asserts:
       - equal:
           path: metadata.name
@@ -112,60 +107,6 @@ tests:
       - equal:
           path: spec.env[0].name
           value: KAGENT_PROPAGATE_TOKEN
-      - equal:
-          path: spec.allowedAgentTemplates.selector.matchLabels["example.com/harness"]
-          value: go-adk
-
-  - it: should drop a selector label whose value is empty and keep the rest
-    set:
-      harness.create: true
-      harness.allowedAgentTemplates:
-        selector:
-          matchLabels:
-            kagent.dev/harness: ""
-            example.com/harness: kagent
-          matchExpressions:
-            - key: example.com/tier
-              operator: In
-              values: [gold]
-    asserts:
-      - notExists:
-          path: spec.allowedAgentTemplates.selector.matchLabels["kagent.dev/harness"]
-      - equal:
-          path: spec.allowedAgentTemplates.selector.matchLabels
-          value:
-            example.com/harness: kagent
-      - equal:
-          path: spec.allowedAgentTemplates.selector.matchExpressions[0].key
-          value: example.com/tier
-
-  - it: should keep the selector on matchExpressions alone when every label value is empty
-    set:
-      harness.create: true
-      harness.allowedAgentTemplates:
-        selector:
-          matchLabels:
-            kagent.dev/harness: ""
-          matchExpressions:
-            - key: example.com/harness
-              operator: Exists
-    asserts:
-      - notExists:
-          path: spec.allowedAgentTemplates.selector.matchLabels
-      - equal:
-          path: spec.allowedAgentTemplates.selector.matchExpressions[0].operator
-          value: Exists
-
-  - it: should fail when the selector is left with nothing to select by
-    set:
-      harness.create: true
-      harness.allowedAgentTemplates:
-        selector:
-          matchLabels:
-            kagent.dev/harness: ""
-    asserts:
-      - failedTemplate:
-          errorPattern: "selects nothing"
 
   - it: should fail on a tag instead of a digest
     set:
