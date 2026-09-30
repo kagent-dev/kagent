@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { getChatClient } from "@/api/chat";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
@@ -36,14 +37,15 @@ const TITLE_BUDGET = 30;
  *
  * A conversation can be listed before anything has been said in it: the new-chat page
  * creates it and refreshes the list, and only the chat page it navigates to sends the
- * first message. So a read that found no title is not final. Every mount whose set
- * has a row still untitled re-reads on arrival, and the chat page re-reads when a turn
- * goes idle, through `useInvalidateConversationTitles`, for the rail it does not
- * remount. A title found once is final, so a re-read costs a request only per row
- * still untitled.
+ * first message. So a read that found no title is not final. The open conversation's
+ * title, which the page derives from its own transcript, is remembered as that
+ * conversation's, so leaving it — mid-reply or not — does not lose it. Past that,
+ * every mount whose set has a row still untitled re-reads on arrival. A title found
+ * once is final, so a re-read costs a request only per row still untitled.
  */
 export function useConversationTitles(
   instances: readonly AgentInstance[] | undefined,
+  open?: { id: string; title?: string },
 ): Record<string, string> {
   /*
    * Keyed by the ids themselves, so the read repeats when the set changes and not
@@ -58,6 +60,30 @@ export function useConversationTitles(
     : null;
 
   const derived = derivedTitles(useSWRConfig().cache);
+
+  /*
+   * The open conversation's title, from the transcript on screen.
+   *
+   * Taken back if the transcript takes it back: a first message the server refuses
+   * outright is removed from it, and a title naming a message nothing kept would last
+   * only until the next reload. Only a title remembered here is taken back, and only
+   * while its conversation is still the open one — one derived from a read is final.
+   */
+  const openId = open?.id;
+  const openTitle = open?.title;
+  const remembered = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (remembered.current !== openId) remembered.current = undefined;
+    if (!openId) return;
+    if (openTitle) {
+      if (derived.has(openId)) return;
+      derived.set(openId, openTitle);
+      remembered.current = openId;
+    } else if (remembered.current === openId) {
+      derived.delete(openId);
+      remembered.current = undefined;
+    }
+  }, [derived, openId, openTitle]);
 
   const { data } = useSWR(
     key,

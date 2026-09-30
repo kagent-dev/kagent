@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SWRConfig } from "swr";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,7 +6,6 @@ import type { AgentInstance } from "@/api";
 import { resetChatClient, setChatClientFactory } from "../chat";
 import type { ChatClient, ChatMessage } from "../chat/types";
 import { useConversationTitles } from "./useConversationTitles";
-import { useInvalidateConversationTitles } from "./useInvalidateConversationTitles";
 
 /**
  * A conversation listed before its first message, the way the new-chat page lists it.
@@ -56,38 +55,78 @@ function sharedCache() {
   };
 }
 
+/** The conversation on screen, as the rail passes it: its title only once one exists. */
+type Open = { id: string; title?: string };
+
 afterEach(() => resetChatClient());
 
 describe("useConversationTitles", () => {
-  it("titles a conversation once its first message exists and the titles are re-read", async () => {
+  it("reads a conversation's title once, not again when the list grows", async () => {
     const histories = new Map([["named", [said("An older question")]]]);
     const reads: string[] = [];
     setChatClientFactory(() => client(histories, reads));
-    const listed = [conversation("named"), conversation("fresh")];
 
-    const { result } = renderHook(
-      () => ({
-        titles: useConversationTitles(listed),
-        invalidate: useInvalidateConversationTitles(),
-      }),
-      { wrapper: sharedCache() },
+    const { result, rerender } = renderHook(
+      ({ listed }) => useConversationTitles(listed),
+      {
+        wrapper: sharedCache(),
+        initialProps: { listed: [conversation("named"), conversation("fresh")] },
+      },
     );
+    await waitFor(() => expect(result.current).toEqual({ named: "An older question" }));
 
-    await waitFor(() => expect(result.current.titles).toEqual({ named: "An older question" }));
-
-    // The first turn of the new conversation lands, and the chat page goes idle.
-    histories.set("fresh", [said("This is twin B.")]);
+    // A new set of ids is a new read, but only of the rows that have no title yet.
     reads.length = 0;
-    await act(() => result.current.invalidate());
+    rerender({ listed: [conversation("named"), conversation("fresh"), conversation("third")] });
+    await waitFor(() => expect(reads.sort()).toEqual(["fresh", "third"]));
+    expect(result.current).toEqual({ named: "An older question" });
+  });
 
-    await waitFor(() =>
-      expect(result.current.titles).toEqual({
-        named: "An older question",
-        fresh: "This is twin B.",
-      }),
+  /*
+   * The open conversation is titled from the page's own transcript, which has the
+   * reader's message the moment it is sent. The rail's read of it was made before that,
+   * so leaving the conversation — to another one, mid-reply or not — used to leave the
+   * row with nothing to be called by.
+   */
+  it("keeps the open conversation's title once another is opened", async () => {
+    const histories = new Map<string, ChatMessage[]>();
+    const reads: string[] = [];
+    setChatClientFactory(() => client(histories, reads));
+    const wrapper = sharedCache();
+    const listed = [conversation("fresh"), conversation("other")];
+
+    const { result, rerender } = renderHook<Record<string, string>, { open: Open }>(
+      ({ open }) => useConversationTitles(listed, open),
+      { wrapper, initialProps: { open: { id: "fresh", title: "This is twin B." } } },
     );
-    // A title already derived is final, so only the untitled row was read again.
-    expect(reads).toEqual(["fresh"]);
+    await waitFor(() => expect(reads.sort()).toEqual(["fresh", "other"]));
+
+    rerender({ open: { id: "other" } });
+    expect(result.current).toEqual({ fresh: "This is twin B." });
+
+    // And on the next page, whose rail is a new mount reading the same cache.
+    const detailsPage = renderHook(() => useConversationTitles(listed), { wrapper });
+    expect(detailsPage.result.current).toEqual({ fresh: "This is twin B." });
+  });
+
+  it("takes the title back when the transcript takes back a refused first message", async () => {
+    const histories = new Map<string, ChatMessage[]>();
+    const reads: string[] = [];
+    setChatClientFactory(() => client(histories, reads));
+    const listed = [conversation("fresh"), conversation("other")];
+
+    const { result, rerender } = renderHook<Record<string, string>, { open: Open }>(
+      ({ open }) => useConversationTitles(listed, open),
+      {
+        wrapper: sharedCache(),
+        initialProps: { open: { id: "fresh", title: "This is twin B." } },
+      },
+    );
+    await waitFor(() => expect(reads.sort()).toEqual(["fresh", "other"]));
+
+    rerender({ open: { id: "fresh" } });
+    rerender({ open: { id: "other" } });
+    expect(result.current).toEqual({});
   });
 
   /*

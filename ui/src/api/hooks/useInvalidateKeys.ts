@@ -4,7 +4,7 @@ import { useSWRConfig } from "swr";
 /**
  * Re-reads every SWR key whose operation one of `names` claims, wherever it is mounted.
  *
- * The shared half of the eight `useInvalidate…` hooks beside it, which differ only in
+ * The shared half of the seven `useInvalidate…` hooks beside it, which differ only in
  * which operations they name. A sweep rather than one `refresh()`, because a resource is
  * read under several keys — a list, a scoped list, a get — and a writer would otherwise
  * have to reconstruct each from state it has not read.

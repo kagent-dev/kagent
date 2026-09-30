@@ -320,11 +320,12 @@ test("chat agent rail: conversations are named", async ({ page }) => {
  * open row hid it, being titled from the page's own transcript; leaving the chat left
  * `Untitled · <id>` behind until a reload.
  *
- * The Agent Details hop is the one the fixtures can fail: its rail lists the same set
- * of conversations the new-chat page cached a read for. The sibling hop keeps the
- * same rail mounted, and passes here only because the fixture list changes shape
- * after the turn; against a cluster it relies on the chat page re-reading the titles
- * when the turn goes idle.
+ * The Agent Details hop is the one the fixtures can fail on their own: its rail lists
+ * the same set of conversations the new-chat page cached a read for. The sibling hop
+ * passes here even without the fix, because the fixture list changes shape around the
+ * turn and that is a new read. Against a cluster nothing need change it, so that hop —
+ * mid-reply or not — is covered where no new read can happen, in
+ * `useConversationTitles.test.tsx`.
  */
 test("chat agent rail: a new conversation keeps its title once you leave it", async ({
   page,
