@@ -23,9 +23,7 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -118,6 +116,13 @@ func TestScheduledRunTimeout(t *testing.T) {
 
 // Keep this test sequential: restarting the controller disrupts other clients.
 func TestScheduledRunControllerRestart(t *testing.T) {
+	var releases []func()
+	restarted := false
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
 		modelURL, started, release, calls := startScheduledRecoveryModel(t)
@@ -130,36 +135,49 @@ func TestScheduledRunControllerRestart(t *testing.T) {
 		}
 		execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
 		require.NotEmpty(t, execution.GetTaskId())
-		kube := interactionKubeClient(t)
-		pods := &corev1.PodList{}
-		require.NoError(t, kube.List(f.ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
-		require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
-		old := pods.Items[0]
-		require.NoError(t, kube.Delete(f.ctx, &old))
-		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
-			current := &corev1.PodList{}
-			if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
-				return false, err
-			}
-			for _, pod := range current.Items {
-				if pod.UID == old.UID {
-					continue
-				}
-				for _, condition := range pod.Status.Conditions {
-					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-						return true, nil
-					}
-				}
-			}
-			return false, nil
-		}), "wait for replacement controller")
-		release()
+		releases = append(releases, release)
+		// Parallel subtests resume only after the parent returns. Keep setup
+		// before this barrier so every execution is running at the shared restart.
+		t.Parallel()
+		require.True(t, restarted, "shared controller restart did not complete")
 		recovered := f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
 		require.Equal(t, execution.GetSessionId(), recovered.GetSessionId())
 		require.Equal(t, execution.GetTaskId(), recovered.GetTaskId())
 		require.EqualValues(t, 1, calls.Load(), "restart must not resend the original prompt")
 		f.assertCompletedTask(t, recovered)
 	})
+	// A subtest filter may select no harnesses. Failed setup must also leave the
+	// controller alone; the deferred releases still unblock prepared executions.
+	if len(releases) == 0 || t.Failed() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	kube := interactionKubeClient(t)
+	pods := &corev1.PodList{}
+	require.NoError(t, kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
+	require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
+	old := pods.Items[0]
+	require.NoError(t, kube.Delete(ctx, &old))
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
+		current := &corev1.PodList{}
+		if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
+			return false, err
+		}
+		for _, pod := range current.Items {
+			if pod.UID == old.UID {
+				continue
+			}
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "wait for replacement controller")
+	newControllerConn(t, interactionTarget(t))
+	restarted = true
 }
 
 type scheduledFixture struct {
@@ -174,9 +192,7 @@ type scheduledFixture struct {
 func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL string, paused bool, timeout time.Duration) *scheduledFixture {
 	t.Helper()
 	template := createInteractionTemplate(t, harness, modelURL)
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 5*time.Minute)
 	t.Cleanup(cancel)
 	f := &scheduledFixture{ctx: ctx, schedules: apiv1alpha1.NewScheduledRunServiceClient(conn), sessions: apiv1alpha1.NewSessionServiceClient(conn), system: apiv1alpha1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}

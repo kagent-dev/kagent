@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ollama/ollama/api"
 	"google.golang.org/genai"
 )
 
@@ -258,6 +259,59 @@ func names(t *testing.T, tools []*genai.Tool) []string {
 	}
 	var out []string
 	for name := range converted[0].Function.Parameters.Properties.All() {
+		out = append(out, name)
+	}
+	return out
+}
+
+// TestConvertGenaiContentsToOllamaToolCallArgOrderIsStable guards prompt prefix
+// caching for the conversation history. api.ToolCallFunctionArguments preserves
+// insertion order, so if the conversion ranges over the Go map of
+// FunctionCall.Args directly, every request re-serializes past tool calls with
+// a different argument order and the prompt diverges from the cached prefix at
+// the first such call.
+func TestConvertGenaiContentsToOllamaToolCallArgOrderIsStable(t *testing.T) {
+	contents := []*genai.Content{
+		{Role: "user", Parts: []*genai.Part{{Text: "list the nodes"}}},
+		{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{
+			Name: "k8s_get_resources",
+			Args: map[string]any{
+				"resource_type":  "node",
+				"all_namespaces": true,
+				"output":         "wide",
+				"namespace":      "default",
+				"resource_name":  "",
+			},
+		}}}},
+		{Role: "user", Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
+			Name:     "k8s_get_resources",
+			Response: map[string]any{"result": "node-1 Ready"},
+		}}}},
+	}
+
+	want := argNames(t, contents)
+	for i := range 100 {
+		if got := argNames(t, contents); !reflect.DeepEqual(got, want) {
+			t.Fatalf("tool call argument order changed between calls:\n first: %v\n call %d: %v", want, i, got)
+		}
+	}
+
+	if !slices.IsSorted(want) {
+		t.Errorf("tool call argument order is not deterministic across processes: %v", want)
+	}
+}
+
+// argNames returns the argument names of the first tool call in the converted
+// messages, in the order they would be serialized.
+func argNames(t *testing.T, contents []*genai.Content) []string {
+	t.Helper()
+	msgs, _ := convertGenaiContentsToOllamaMessages(contents, nil)
+	i := slices.IndexFunc(msgs, func(m api.Message) bool { return len(m.ToolCalls) > 0 })
+	if i < 0 {
+		t.Fatal("no tool call in converted messages")
+	}
+	var out []string
+	for name := range msgs[i].ToolCalls[0].Function.Arguments.All() {
 		out = append(out, name)
 	}
 	return out

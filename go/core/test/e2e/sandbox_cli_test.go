@@ -17,6 +17,7 @@ import (
 )
 
 func TestSandboxCLI(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	// Wait for preparation using the suite's existing template fixture.
 	prepared := f.create(t, 5*time.Minute)

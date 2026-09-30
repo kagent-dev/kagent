@@ -7,7 +7,7 @@ import os
 from functools import cached_property
 from typing import Optional
 
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from google.adk.models.anthropic_llm import AnthropicLlm
 
 from ._azure import (
@@ -38,13 +38,12 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
             # The SDK client captures auth at construction, so rebuild it only when the token changes.
             self.__dict__.pop("_anthropic_client", None)
 
-    def _create_http_client(self):
-        """Create HTTP client with custom SSL context using Anthropic SDK defaults.
-
-        Returns:
-            httpx.AsyncClient with SSL configuration, or None if no TLS config
-        """
-        return self._httpx_async_client_if_tls()
+    def _create_http_client(self) -> DefaultAsyncHttpxClient | None:
+        """Create the SDK's HTTP client with custom TLS settings when configured."""
+        tls_kwargs = self._tls_httpx_kwargs()
+        if not tls_kwargs:
+            return None
+        return DefaultAsyncHttpxClient(**tls_kwargs)
 
     @cached_property
     def _anthropic_client(self) -> AsyncAnthropic:
@@ -57,7 +56,6 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
         if self.extra_headers:
             kwargs["default_headers"] = self.extra_headers
 
-        # Use the httpx.AsyncClient with SSL configuration if present
         http_client = self._create_http_client()
         if http_client is not None:
             kwargs["http_client"] = http_client

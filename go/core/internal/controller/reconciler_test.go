@@ -42,8 +42,8 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := AgentReconciliation{
-		Agent:    template,
-		Revision: revision, RevisionID: revisionID, DesiredActorTemplate: desiredActor,
+		Agent:  template,
+		Target: &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: desiredActor},
 	}
 	reconciliations := krt.NewStaticCollection(nil, []AgentReconciliation{state}, opts.WithName("Reconciliations")...)
 	status := kagentv1alpha3.AgentStatus{ObservedGeneration: 1, Conditions: []metav1.Condition{{Type: kagentv1alpha3.AgentConditionReady, Status: metav1.ConditionFalse}}}
@@ -110,15 +110,17 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
 	reconciler = &Reconciler{collections: reconciler.collections, templates: templates, store: store, status: statusClient}
-	state.DesiredActorTemplate = proto.CloneOf(state.DesiredActorTemplate)
-	state.DesiredActorTemplate.Metadata.Name = "assistant-next-revision"
-	state.Revision = &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
-	state.RevisionID, err = state.Revision.Digest()
+	nextTarget := *state.Target
+	state.Target = &nextTarget
+	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
+	state.Target.ActorTemplate.Metadata.Name = "assistant-next-revision"
+	state.Target.Revision = v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
+	state.Target.RevisionID, err = state.Target.Revision.Digest()
 	require.NoError(t, err)
 	templates.template = nil
 	reconciliations.UpdateObject(state)
 	require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))
-	require.Equal(t, state.RevisionID, reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName()).RevisionID, "a new revision must replace the previous observation without waiting for GC")
+	require.Equal(t, state.Target.RevisionID, reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName()).RevisionID, "a new revision must replace the previous observation without waiting for GC")
 	require.Len(t, reconciler.collections.AgentRuntimeObservations.List(), 1)
 
 	reconciliations.DeleteObject(state.ResourceName())
@@ -175,14 +177,14 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
 			state := AgentReconciliation{
-				Agent:    &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
-				Revision: revision, RevisionID: id, DesiredActorTemplate: desired,
+				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
+				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
 			}
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
 			// Compile failures preserve the current UID's last successful runtime.
-			state.Revision = nil
+			state.Target = nil
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
@@ -317,9 +319,11 @@ type fakeRuntimeRevisionStore struct {
 	retired          string
 	revisionErr      error
 	pairErr          error
+	pairCalls        int
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
+	s.pairCalls++
 	s.pair = &pair
 	return s.pairErr
 }
@@ -434,13 +438,14 @@ func TestReconciliationQueueRetriesWithBackoff(t *testing.T) {
 		require.EqualValues(t, 2, attempts.Load())
 		time.Sleep(3 * time.Minute)
 		synctest.Wait()
-		require.EqualValues(t, 10, attempts.Load(), "persistent failures must exhaust a finite budget")
+		require.Greater(t, attempts.Load(), int32(10), "persistent failures must outlive the old retry budget")
+		before := attempts.Load()
 		time.Sleep(time.Minute)
 		synctest.Wait()
-		require.EqualValues(t, 10, attempts.Load())
+		require.Equal(t, before+2, attempts.Load(), "backoff must stay capped at thirty seconds")
 		queue.Add("team-a/assistant/kagent")
 		synctest.Wait()
-		require.EqualValues(t, 11, attempts.Load(), "new graph events must still enqueue work")
+		require.Equal(t, before+3, attempts.Load(), "new graph events must still enqueue work")
 		cancel()
 		require.NoError(t, queue.WaitForClose(time.Second))
 	})

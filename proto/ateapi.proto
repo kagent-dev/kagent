@@ -16,7 +16,6 @@ syntax = "proto3";
 
 package ateapi;
 
-import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/agent-substrate/substrate/pkg/proto/ateapipb";
@@ -408,51 +407,76 @@ message EgressPolicy {
   // +k8s:customValidation # name must be "default"
   ResourceMetadata metadata = 1;
 
-  // Rules are evaluated in order. The first matching rule authorizes the
-  // request, only that rule's effects are applied, and evaluation stops even if
-  // later rules would also match. A request is denied when no rule matches.
+  // Rules are an unordered set of allows. Traffic is denied when no rule
+  // matches.
+  //
+  // For a given destination name and port, exactly one rule decides,
+  // whatever its protocol. When more than one rule matches, the winner is
+  // chosen by these criteria, in order, moving to the next one on a tie:
+  //
+  //   * A matching hostname without a wildcard.
+  //   * A matching port number rather than all ports.
+  //
+  // Two rules with the same pattern on the same port, or both on all ports,
+  // are rejected at admission.
+  //
+  // These criteria apply within a protocol and across protocols that decide
+  // on the same input, such as an https and a tls_passthrough rule that match
+  // the same pattern. Only the winning rule's effects are applied.
   //
   // +k8s:optional
   // +k8s:maxItems=256
-  // +k8s:listType=atomic # rule order matters
+  // +k8s:listType=atomic
+  // +k8s:customValidation # no two rules tie on a name and port
   repeated EgressRule rules = 2;
 }
 
-// EgressRule authorizes a request using exactly one destination matcher.
+// EgressRule allows traffic for a given protocol and destination (host name
+// or IP, and port). The protocol fixes what the gateway matches on and when:
+// a request, or a TLS connection at its ClientHello. Traffic that matches no
+// rule is refused. All protocols here run over TCP; UDP is blocked. Protocols
+// where the server sends first after connect are not supported.
+//
+// Users should expect additional protocols to be supported in the future.
 message EgressRule {
-  // Matches when the request hostname matches any configured pattern. Effects
-  // are applied once when the rule matches.
+  // Cleartext HTTP to the named hosts: HTTP/1.1, and h2c as used by gRPC.
+  // TLS to these names is not allowed by this rule.
   //
   // +k8s:optional
   // +k8s:unionMember
-  HostnameRule hostnames = 1;
+  HTTPRule http = 1;
 
-  // Matches when the original destination IP belongs to any configured prefix.
+  // HTTPS to the named hosts, intercepted (man-in-the-middle) so the gateway
+  // can authorize and modify each request. HTTP/1.1 and HTTP/2 inside the
+  // TLS connection; HTTP/3 is not supported.
   //
   // +k8s:optional
   // +k8s:unionMember
-  CIDRRule cidrs = 2;
+  HTTPSRule https = 2;
 
-  // Matches every destination.
+  // TLS to the named servers, forwarded without decryption.
   //
   // +k8s:optional
   // +k8s:unionMember
-  google.protobuf.Empty all = 3;
+  TLSPassthroughRule tls_passthrough = 3;
 }
 
-// HostnameRule matches requests by destination hostname.
-message HostnameRule {
-  // DNS names, or DNS names with a wildcard "*" in the leftmost label. The
-  // rule matches when any pattern matches.
+// HTTPRule allows cleartext HTTP and is evaluated per request on the request
+// authority (Host or :authority) and port. The gateway resolves the name and
+// dials it.
+message HTTPRule {
+  // Hostname patterns: a DNS name, or a DNS name with "*" as its leftmost
+  // label. The rule matches when any pattern matches.
   //
   // The DNS name must conform to RFC 1034 and RFC 1123. It must be lowercase
   // and must not have a trailing dot.
   //
   // A wildcard replaces the complete leftmost label. "*.example.com" matches
   // exactly one non-empty label, such as "api.example.com". It does not match
-  // "example.com" or "nested.api.example.com". No other wildcard syntax is
-  // accepted. A pattern without a wildcard matches only the complete normalized
-  // name.
+  // "example.com" or "nested.api.example.com". "*" alone matches every name.
+  // No other wildcard syntax is accepted. A pattern without a wildcard matches
+  // only the complete normalized name. Patterns may overlap: the rule ranks
+  // by the most specific pattern that matches the destination.
   //
   // Internationalized names must use their IDNA A-label (punycode) form; no
   // Unicode conversion is performed. URLs, IP addresses, names with ports,
@@ -463,35 +487,109 @@ message HostnameRule {
   // +k8s:maxItems=256
   // +k8s:listType=set
   // +k8s:customValidation # format
-  repeated string patterns = 1;
+  repeated string hostnames = 1;
 
-  // Effects do not authorize traffic. They are applied only when this is the
-  // first matching rule.
+  // Ports of the destination the Actor connected to. A port in a request's
+  // authority is neither matched nor dialed. Defaults to port 80.
   //
   // +k8s:optional
-  EgressRuleEffects effects = 2;
+  Ports ports = 2;
+
+  // Effects do not authorize traffic. They are applied only when this is the
+  // deciding rule.
+  //
+  // +k8s:optional
+  HttpRuleEffects effects = 3;
 }
 
-// CIDRRule matches requests by original destination IP address.
-message CIDRRule {
-  // Canonical IPv4 or IPv6 CIDR prefixes. IPv4 uses dotted-decimal notation,
-  // such as "192.0.2.0/24". IPv6 uses lowercase compressed notation, such as
-  // "2001:db8::/32". Bits after the prefix length must be zero. The rule
-  // matches when the original destination IP belongs to any prefix.
+// HTTPSRule allows HTTPS that the gateway intercepts (MITM). Every Actor behind such
+// a rule must trust the gateway CA. Without it, TLS to these names fails in the
+// Actor.
+//
+// A TLS connection whose SNI and port match is terminated with a leaf
+// certificate for that name issued by the gateway CA. Each request inside it
+// is then decided on its authority, and the gateway re-originates TLS to that
+// authority; the SNI only selects the leaf.
+//
+// Interception is for HTTP. A connection that sends no SNI does not match,
+// and a non-HTTP protocol inside an intercepted connection fails.
+message HTTPSRule {
+  // Server names matched against the SNI, in the pattern syntax of
+  // HTTPRule.hostnames.
   //
   // +k8s:required
   // +k8s:maxItems=256
   // +k8s:listType=set
   // +k8s:customValidation # format
-  repeated string cidrs = 1;
+  repeated string hostnames = 1;
+
+  // Ports of the destination the Actor connected to. Defaults to port 443.
+  //
+  // +k8s:optional
+  Ports ports = 2;
+
+  // Effects do not authorize traffic. They are applied only when this is the
+  // deciding rule.
+  //
+  // +k8s:optional
+  HttpRuleEffects effects = 3;
 }
 
-// EgressRuleEffects contains effects applied by a matching hostname rule.
+// TLSPassthroughRule allows TLS that the gateway forwards without decryption.
+// It is evaluated once per connection at the ClientHello, on the SNI and
+// port, for any protocol carried over TLS. A connection that sends no SNI
+// does not match. Protocols that upgrade to TLS after a cleartext exchange
+// (STARTTLS) do not match. Because the gateway reads nothing after the
+// ClientHello, a passthrough rule has no effects, and a policy change reaches
+// an open connection only when it ends.
+message TLSPassthroughRule {
+  // Server names matched against the SNI, in the pattern syntax of
+  // HTTPRule.hostnames.
+  //
+  // +k8s:required
+  // +k8s:maxItems=256
+  // +k8s:listType=set
+  // +k8s:customValidation # format
+  repeated string hostnames = 1;
+
+  // Ports of the destination the Actor connected to.
+  //
+  // +k8s:required
+  Ports ports = 2;
+}
+
+// Ports selects the destination ports a rule matches. Every port, or a set
+// of port numbers. all and numbers can not be set together.
+message Ports {
+  // Every port.
+  //
+  // +k8s:optional
+  // +k8s:unionMember
+  AllPorts all = 1;
+
+  // Port numbers, without repeats.
+  //
+  // +k8s:optional
+  // +k8s:unionMember
+  // +k8s:maxItems=16
+  // +k8s:listType=set
+  // +k8s:eachVal=+k8s:minimum=1
+  // +k8s:eachVal=+k8s:maximum=65535
+  repeated int32 numbers = 2;
+}
+
+// AllPorts selects every port. It has no fields.
+message AllPorts {}
+
+// HttpRuleEffects contains effects applied by a matching HTTP or HTTPS rule.
 //
 // +k8s:customValidation # for "at least one" and duplicate headers
-message EgressRuleEffects {
-  // Injects values retrieved from credential providers into request headers.
-  // Header names must be unique case-insensitively.
+message HttpRuleEffects {
+  // Replaces placeholder request headers with values retrieved from credential
+  // providers. A header is replaced only when the request from the Actor
+  // carries it; requests without the header are forwarded unchanged, so a
+  // credential reaches only the requests that ask for it. Header names must
+  // be unique case-insensitively.
   //
   // +k8s:optional
   // +k8s:maxItems=16
@@ -499,13 +597,17 @@ message EgressRuleEffects {
   // +k8s:listMapKey=header
   // +k8s:customUnique # case-insensitive
   // +k8s:customValidation # for duplicate headers
-  repeated CredentialHeaderInjection inject_static_headers = 1;
+  repeated CredentialHeader replace_headers = 1;
 }
 
-// CredentialHeaderInjection injects credential-provider material into an HTTP
-// request header.
-message CredentialHeaderInjection {
-  // The case-insensitive HTTP request header to inject.
+// CredentialHeader replaces the value of an HTTP request header with
+// credential-provider material. The Actor sends the header with a placeholder
+// value, such as "Authorization: <something>"; the gateway discards that
+// value and forwards the header with the credential instead. The placeholder
+// itself is not inspected, so any value works. A request without the header
+// is not modified.
+message CredentialHeader {
+  // The case-insensitive HTTP request header to replace when present.
   //
   // +k8s:required
   // +k8s:customValidation # format

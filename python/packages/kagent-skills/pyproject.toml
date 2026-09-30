@@ -14,11 +14,11 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.15.22",
+    "ruff>=0.16.9",
 ]
 
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel>=0.47.0"]
+requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.hatch.build.targets.wheel]

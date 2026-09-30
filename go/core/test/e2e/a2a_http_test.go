@@ -23,6 +23,7 @@ import (
 func TestSessionHTTPInteraction(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		client, ctx := discoverHTTPAgent(t, fixture)
 		request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?"))}
@@ -65,6 +66,7 @@ func TestSessionHTTPInteraction(t *testing.T) {
 func TestSessionHTTPResubscribeAndCancel(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		modelURL, started := startBlockingInteractionMock(t)
 		fixture := newInteractionFixture(t, harness, target, modelURL)
