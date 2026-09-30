@@ -145,9 +145,6 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
 	}
-	if template.Spec.Limits != nil && harnessType(harness) != HarnessTypeClaude {
-		return nil, NewValidationError("AgentTemplate limits are enforced by the claude Harness runtime only")
-	}
 	tree, err := c.resolveTree(ctx, harness, template)
 	if err != nil {
 		return nil, err

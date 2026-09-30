@@ -209,27 +209,6 @@ type AgentTemplateSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Plugins []PluginBundle `json:"plugins,omitempty"`
-	// Limits bounds every turn on a Harness runtime that enforces them (Claude
-	// Code: --max-budget-usd and --max-turns). A turn that reaches a limit ends
-	// completed, with the reason and the usage on the task, and a follow-up
-	// continues the conversation. Other runtimes reject a template with limits.
-	// +optional
-	Limits *AgentTemplateLimits `json:"limits,omitempty"`
-}
-
-// AgentTemplateLimits bounds one turn. At least one bound is set.
-// +kubebuilder:validation:XValidation:rule="has(self.budgetUSD) || has(self.maxTurns)",message="at least one of budgetUSD or maxTurns must be set"
-type AgentTemplateLimits struct {
-	// BudgetUSD is the most one turn may spend, in US dollars, as a decimal
-	// string such as "2.50".
-	// +kubebuilder:validation:Pattern=`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,4})?$`
-	// +optional
-	BudgetUSD string `json:"budgetUSD,omitempty"`
-	// MaxTurns is the most model round-trips one turn may take.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=10000
-	// +optional
-	MaxTurns int32 `json:"maxTurns,omitempty"`
 }
 
 // +genclient

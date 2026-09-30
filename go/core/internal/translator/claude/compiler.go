@@ -111,7 +111,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		config.SkillResources = &skillResources
 	}
 	config.MCPServers = mcp.servers
-	if limits := input.Root.Template.Spec.Limits; limits != nil {
+	if limits := input.Harness.Spec.Claude.Limits; limits != nil {
 		config.MaxBudgetUSD = limits.BudgetUSD
 		config.MaxTurns = int(limits.MaxTurns)
 	}

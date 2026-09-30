@@ -105,7 +105,29 @@ type KagentHarnessMemory struct {
 type CodexHarness struct{}
 
 // ClaudeHarness selects the Claude runtime adapter.
-type ClaudeHarness struct{}
+type ClaudeHarness struct {
+	// Limits bounds every turn of every agent that runs on the Harness
+	// (Claude Code's --max-budget-usd and --max-turns). A turn that reaches a
+	// limit ends completed, with the reason and the usage on the task, and a
+	// follow-up continues the conversation.
+	// +optional
+	Limits *ClaudeHarnessLimits `json:"limits,omitempty"`
+}
+
+// ClaudeHarnessLimits bounds one turn. At least one bound is set.
+// +kubebuilder:validation:XValidation:rule="has(self.budgetUSD) || has(self.maxTurns)",message="at least one of budgetUSD or maxTurns must be set"
+type ClaudeHarnessLimits struct {
+	// BudgetUSD is the most one turn may spend, in US dollars, as a decimal
+	// string such as "2.50".
+	// +kubebuilder:validation:Pattern=`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,4})?$`
+	// +optional
+	BudgetUSD string `json:"budgetUSD,omitempty"`
+	// MaxTurns is the most model round-trips one turn may take.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10000
+	// +optional
+	MaxTurns int32 `json:"maxTurns,omitempty"`
+}
 
 // BYOHarness selects an image that implements kagent's private A2A contract.
 type BYOHarness struct{}

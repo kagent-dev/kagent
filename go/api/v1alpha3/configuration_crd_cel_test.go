@@ -96,6 +96,20 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "spec.workload.image",
 		},
 		{
+			name:   "Harness accepts Claude turn limits",
+			object: validHarness(namespace, "harness-claude-limits", HarnessSpec{Claude: &ClaudeHarness{Limits: &ClaudeHarnessLimits{BudgetUSD: "2.50", MaxTurns: 40}}}),
+		},
+		{
+			name:       "Harness Claude limits require a bound",
+			object:     validHarness(namespace, "harness-claude-unbounded", HarnessSpec{Claude: &ClaudeHarness{Limits: &ClaudeHarnessLimits{}}}),
+			wantReject: "at least one of budgetUSD or maxTurns must be set",
+		},
+		{
+			name:       "Harness Claude limits reject a budget that is not a decimal",
+			object:     validHarness(namespace, "harness-claude-negative-budget", HarnessSpec{Claude: &ClaudeHarness{Limits: &ClaudeHarnessLimits{BudgetUSD: "-1"}}}),
+			wantReject: "spec.claude.limits.budgetUSD",
+		},
+		{
 			name: "Harness env requires a value source",
 			object: validHarness(namespace, "harness-empty-env", HarnessSpec{
 				Kagent: &KagentHarness{},
@@ -190,29 +204,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Spec:       AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{}},
 			},
 			wantReject: "name must not be empty",
-		},
-		{
-			name: "AgentTemplate accepts turn limits",
-			object: &AgentTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "limited-template", Namespace: namespace},
-				Spec:       AgentTemplateSpec{Limits: &AgentTemplateLimits{BudgetUSD: "2.50", MaxTurns: 40}},
-			},
-		},
-		{
-			name: "AgentTemplate limits require a bound",
-			object: &AgentTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "unbounded-limits", Namespace: namespace},
-				Spec:       AgentTemplateSpec{Limits: &AgentTemplateLimits{}},
-			},
-			wantReject: "at least one of budgetUSD or maxTurns must be set",
-		},
-		{
-			name: "AgentTemplate limits reject a budget that is not a decimal",
-			object: &AgentTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "negative-budget", Namespace: namespace},
-				Spec:       AgentTemplateSpec{Limits: &AgentTemplateLimits{BudgetUSD: "-1"}},
-			},
-			wantReject: "spec.limits.budgetUSD",
 		},
 		{
 			name: "AgentTemplate rejects unsupported MCP server kind",

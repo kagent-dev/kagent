@@ -751,7 +751,7 @@ func TestCompileTurnLimits(t *testing.T) {
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	input.Root.Template.Spec.Limits = &v1alpha3.AgentTemplateLimits{BudgetUSD: "2.50", MaxTurns: 40}
+	input.Harness.Spec.Claude.Limits = &v1alpha3.ClaudeHarnessLimits{BudgetUSD: "2.50", MaxTurns: 40}
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -763,7 +763,7 @@ func TestCompileTurnLimits(t *testing.T) {
 	if config.MaxBudgetUSD != "2.50" || config.MaxTurns != 40 {
 		t.Fatalf("compiled limits = %q, %d", config.MaxBudgetUSD, config.MaxTurns)
 	}
-	input.Root.Template.Spec.Limits = &v1alpha3.AgentTemplateLimits{BudgetUSD: "0"}
+	input.Harness.Spec.Claude.Limits = &v1alpha3.ClaudeHarnessLimits{BudgetUSD: "0"}
 	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil {
 		t.Fatal("a zero budget compiled")
 	}
