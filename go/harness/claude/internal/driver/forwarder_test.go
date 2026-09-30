@@ -26,7 +26,7 @@ func newRecordingUpstream(t *testing.T) (*httptest.Server, func() []recordedRequ
 		mu.Lock()
 		seen = append(seen, recordedRequest{
 			Path: request.URL.Path, Query: request.URL.RawQuery, Host: request.Host,
-			Authorization: request.Header.Get("Authorization"), Toolset: request.Header.Get("X-Muster-Toolset"),
+			Authorization: request.Header.Get("Authorization"), Toolset: request.Header.Get("X-Toolset"),
 		})
 		mu.Unlock()
 		_, _ = io.WriteString(response, "ok")
@@ -61,22 +61,22 @@ func callForwarder(t *testing.T, forwarder *CredentialForwarder, url string, aut
 func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 	upstream, requests := newRecordingUpstream(t)
 	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
-		"muster": {URL: upstream.URL + "/mcp?tenant=lab", Headers: map[string]string{
-			"X-Muster-Toolset": "preset:read-only", "Authorization": "Bearer static-service",
+		"tools": {URL: upstream.URL + "/mcp?tenant=test", Headers: map[string]string{
+			"X-Toolset": "preset:read-only", "Authorization": "Bearer static-service",
 		}},
 	}, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = forwarder.Close() })
-	if names := forwarder.Names(); len(names) != 1 || names[0] != "muster" {
+	if names := forwarder.Names(); len(names) != 1 || names[0] != "tools" {
 		t.Fatalf("Names() = %v", names)
 	}
-	if !strings.HasPrefix(forwarder.URL("muster"), "http://127.0.0.1:") {
-		t.Fatalf("URL() = %q, want a loopback address", forwarder.URL("muster"))
+	if !strings.HasPrefix(forwarder.URL("tools"), "http://127.0.0.1:") {
+		t.Fatalf("URL() = %q, want a loopback address", forwarder.URL("tools"))
 	}
 
-	if response := callForwarder(t, forwarder, forwarder.URL("muster"), false); response.StatusCode != http.StatusUnauthorized {
+	if response := callForwarder(t, forwarder, forwarder.URL("tools"), false); response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated loopback call status = %d, want 401", response.StatusCode)
 	}
 	if seen := requests(); len(seen) != 0 {
@@ -84,11 +84,11 @@ func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 	}
 
 	forwarder.Bind("Bearer person-token")
-	if response := callForwarder(t, forwarder, forwarder.URL("muster"), true); response.StatusCode != http.StatusOK {
+	if response := callForwarder(t, forwarder, forwarder.URL("tools"), true); response.StatusCode != http.StatusOK {
 		t.Fatalf("forwarded call status = %d", response.StatusCode)
 	}
 	forwarder.Clear()
-	if response := callForwarder(t, forwarder, forwarder.URL("muster")+"/session?id=7", true); response.StatusCode != http.StatusOK {
+	if response := callForwarder(t, forwarder, forwarder.URL("tools")+"/session?id=7", true); response.StatusCode != http.StatusOK {
 		t.Fatalf("forwarded call status = %d", response.StatusCode)
 	}
 
@@ -97,8 +97,8 @@ func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 		t.Fatalf("upstream requests = %#v, want 2", seen)
 	}
 	want := []recordedRequest{
-		{Path: "/mcp", Query: "tenant=lab", Authorization: "Bearer person-token", Toolset: "preset:read-only", Host: strings.TrimPrefix(upstream.URL, "http://")},
-		{Path: "/mcp/session", Query: "tenant=lab&id=7", Authorization: "Bearer static-service", Toolset: "preset:read-only", Host: strings.TrimPrefix(upstream.URL, "http://")},
+		{Path: "/mcp", Query: "tenant=test", Authorization: "Bearer person-token", Toolset: "preset:read-only", Host: strings.TrimPrefix(upstream.URL, "http://")},
+		{Path: "/mcp/session", Query: "tenant=test&id=7", Authorization: "Bearer static-service", Toolset: "preset:read-only", Host: strings.TrimPrefix(upstream.URL, "http://")},
 	}
 	for i := range want {
 		if seen[i] != want[i] {

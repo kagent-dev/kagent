@@ -246,7 +246,7 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
 	cfg.MCPServers = map[string]config.MCPServer{
-		"muster":    {Type: "http", URL: "https://muster.example.com/mcp", Headers: map[string]string{"X-Muster-Toolset": "preset:read-only"}, RequireApproval: true},
+		"tools":     {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}, RequireApproval: true},
 		"knowledge": {Type: "http", URL: "https://mcp.example.com/read", Headers: map[string]string{"Authorization": "Bearer ${KAGENT_CLAUDE_MCP_CREDENTIAL_ABC}"}},
 	}
 	raw, err := json.Marshal(cfg)
@@ -275,7 +275,7 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	if err := json.Unmarshal(contents, &written); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"muster", "knowledge", "kagent_hitl"} {
+	for _, name := range []string{"tools", "knowledge", "kagent_hitl"} {
 		server, ok := written.Servers[name]
 		if !ok {
 			t.Fatalf("mcp.json lacks %q: %s", name, contents)
@@ -287,7 +287,7 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 			t.Errorf("%s headers = %v, want only the loopback token", name, server.Headers)
 		}
 	}
-	for _, leaked := range []string{"muster.example.com", "mcp.example.com", "X-Muster-Toolset", "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC"} {
+	for _, leaked := range []string{"tools.example.com", "mcp.example.com", "X-Toolset", "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC"} {
 		if strings.Contains(string(contents), leaked) {
 			t.Errorf("mcp.json carries upstream detail %q: %s", leaked, contents)
 		}
