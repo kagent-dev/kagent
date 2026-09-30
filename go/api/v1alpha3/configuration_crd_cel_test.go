@@ -192,6 +192,29 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "name must not be empty",
 		},
 		{
+			name: "AgentTemplate accepts turn limits",
+			object: &AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "limited-template", Namespace: namespace},
+				Spec:       AgentTemplateSpec{Limits: &AgentTemplateLimits{BudgetUSD: "2.50", MaxTurns: 40}},
+			},
+		},
+		{
+			name: "AgentTemplate limits require a bound",
+			object: &AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "unbounded-limits", Namespace: namespace},
+				Spec:       AgentTemplateSpec{Limits: &AgentTemplateLimits{}},
+			},
+			wantReject: "at least one of budgetUSD or maxTurns must be set",
+		},
+		{
+			name: "AgentTemplate limits reject a budget that is not a decimal",
+			object: &AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "negative-budget", Namespace: namespace},
+				Spec:       AgentTemplateSpec{Limits: &AgentTemplateLimits{BudgetUSD: "-1"}},
+			},
+			wantReject: "spec.limits.budgetUSD",
+		},
+		{
 			name: "AgentTemplate rejects unsupported MCP server kind",
 			object: validAgentTemplate(namespace, "unsupported-mcp-kind", []ToolBinding{{
 				MCP: &MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "Service", Name: "tools"}},
