@@ -11,6 +11,14 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
+Substrate v0.3.0-alpha3 requires protocol-specific egress policies. Kagent allows
+each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
+replaces credential headers in that destination's deciding rule. Conflicting
+protocols on the same host and port are rejected before Actor creation. Literal
+IP allowlists are unsupported by this Substrate release; model, MCP, and telemetry endpoints
+must use DNS names. Host-based test services use Kubernetes Services and
+EndpointSlices to provide those names.
+
 Create (including forks), explicit Suspend, Resume, and Delete keep their current
 operation UUID and executor claim on the session row. Fork creation loads its
 pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the Agent

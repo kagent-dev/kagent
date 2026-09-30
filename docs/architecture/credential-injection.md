@@ -1,13 +1,13 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.3.0-alpha1**. The compiler turns ModelConfig API
+Kagent requires Substrate **v0.3.0-alpha3**. The compiler turns ModelConfig API
 keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
 bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
-overwrites the outgoing HTTP header. SDKs receive an inert placeholder where
-they require an API key; real credentials never enter compiled environments,
+replaces the outgoing HTTP header when the request carries a placeholder. SDKs
+receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
 
-Bindings are persisted with the prepared revision and installed before an
+Bindings are persisted with the prepared revision and installed before a
 session becomes ready, including retries and checkpoint forks. Secret names,
 keys, destinations, and headers affect revision identity. Secret values and
 Secret UIDs do not. Rotation is handled by the gateway; its credential cache can
@@ -57,12 +57,13 @@ overrides of these variables are rejected.
 | Bedrock bearer token | `authorization: Bearer <token>` |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
-Provider endpoint overrides determine the injection destination. Substrate
-matches exact DNS hostnames, without path, port, or scheme scoping. Different
-credentials for the same hostname and header are rejected, including conflicts
-between models, memory embeddings, and MCP servers. Use distinct DNS names for
-origins requiring different credentials. IP-address destinations cannot carry
-credential injection rules.
+Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
+match its scheme, DNS name, and port; credential bindings remain scoped to the
+hostname and header. Different credentials for the same hostname and header
+are rejected, including conflicts between models, memory embeddings, and MCP
+servers. Use distinct DNS names for
+origins requiring different credentials. IP-address destinations are unsupported
+by alpha3 egress policies.
 
 AWS IAM signing keys, Google service-account keys, OAuth client credentials, and
 arbitrary Harness `credentialRef` environment values require mechanisms beyond

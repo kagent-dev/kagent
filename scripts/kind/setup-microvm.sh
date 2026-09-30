@@ -20,4 +20,11 @@ git clone --depth 1 --branch "v${SUBSTRATE_VERSION}" --single-branch \
   https://github.com/kagent-dev/substrate.git "$substrate_dir"
 cd "$substrate_dir"
 
+# The released tool helper uses `go tool -n`, which can return a removed
+# temporary binary on a cold cache. Use the Kind already installed on PATH.
+# Invoke it by name so version-manager shims resolve the correct command.
+cat > hack/kind.sh <<'EOF'
+#!/usr/bin/env bash
+exec kind "$@"
+EOF
 hack/install-microvm-deps.sh --install

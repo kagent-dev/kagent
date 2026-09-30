@@ -175,7 +175,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", config)
 	}
-	for _, host := range []string{"ghcr.io", "registry-1.docker.io", "github.com", "objects.example.com"} {
+	for _, host := range []string{"https://ghcr.io:443", "https://registry-1.docker.io:443", "https://github.com:443", "https://objects.example.com:443"} {
 		if !slices.Contains(spec.EgressDestinations, host) {
 			t.Fatalf("egress destinations %v do not contain %q", spec.EgressDestinations, host)
 		}
@@ -610,7 +610,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	nextDigest, err := next.Digest()
 	require.NoError(t, err)
 	require.Equal(t, firstDigest, nextDigest, "gateway credential rotation must not change runtime revision")
-	if !slices.Equal(spec.EgressDestinations, []string{"api.openai.com", "kagent-controller.kagent", "mcp.example.com", "second-mcp.example.com"}) {
+	if !slices.Equal(spec.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443", "https://second-mcp.example.com:443"}) {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
 	}
 }
@@ -665,7 +665,7 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	if _, overridden := found["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"]; overridden {
 		t.Errorf("Harness trace endpoint survived; egress only allows the controller's collector")
 	}
-	for _, hostname := range []string{"collector", "logs"} {
+	for _, hostname := range []string{"http://collector:4317", "http://logs:4318"} {
 		if !slices.Contains(spec.EgressDestinations, hostname) {
 			t.Errorf("%s missing from egress destinations: %v", hostname, spec.EgressDestinations)
 		}
@@ -726,8 +726,8 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			require.Equal(t, "research carefully", config.SubAgents[0].Instruction)
 			require.Equal(t, []string{"lookup"}, config.SubAgents[0].HttpTools[0].Tools)
 			require.Equal(t, "review", config.SubAgents[0].AgentPlugins.Skills[0].Name)
-			require.Contains(t, revision.EgressDestinations, "search.example.com")
-			require.Contains(t, revision.EgressDestinations, "ghcr.io")
+			require.Contains(t, revision.EgressDestinations, "https://search.example.com:443")
+			require.Contains(t, revision.EgressDestinations, "https://ghcr.io:443")
 			require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
 
 			require.Equal(t, "coordinate", config.Instruction)
