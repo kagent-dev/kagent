@@ -33,6 +33,24 @@ In addition there is a top-level kagent package which contains the main entry po
 
 ### Runtime entrypoint
 
+The Python ADK image uses Debian Bookworm with a standalone Python interpreter
+installed by uv. uv installs production dependencies from `uv.lock` during the
+build. The final image includes uv, the interpreter, and the application
+environment, without development dependencies, pip, or its `ensurepip` bootstrap
+bundle.
+
+For additional packages, create a separate environment in the writable `/config`
+directory using the image's Python interpreter:
+
+```bash
+uv venv /config/tools
+uv pip install --python /config/tools/bin/python <package>
+```
+
+uv caches downloads in `/config/.cache/uv`. Interpreter downloads are disabled;
+the image supplies Python. The application environment at `/.kagent/.venv` stays
+owned by root, while the image runs as user `65532`.
+
 The Python ADK image defaults to `kagent-adk run`, which expects a named
 agent directory. To load controller-generated configuration with a `kagent`
 Harness instead, select `kagent-adk static` as shown in this Harness excerpt:

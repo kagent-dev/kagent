@@ -115,6 +115,15 @@ reflection and size caches are not state changes and must not be inspected by
 KRT's reflection-based comparison. Other fields retain their existing equality
 semantics.
 
+The compilation graph publishes a target only when the revision, its digest,
+and the desired ActorTemplate have all been built successfully. Compilation
+diagnostics remain separate from runtime preparation failures. When compilation
+fails, `desiredRevision` is empty in status and the persisted desired edge is
+cleared; an unresolved request is never represented as a runtime digest. The
+last successful revision remains available, while abandoned preparations can
+be collected and cannot become the latest successful revision through a delayed
+completion.
+
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
@@ -137,23 +146,33 @@ RuntimeClass.
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. The worker-pool
 selector is unchanged. WorkerPool updates are tracked through KRT and recompute
-the desired revision. Empty and explicit `gvisor` preserve the previous digest
-byte-for-byte; `microvm` participates in the digest, so its prepared runtime
+the desired revision. Empty and explicit `gvisor` hash the explicit `gvisor`
+class; both sandbox classes participate in the digest, so a prepared MicroVM runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
 original digest. Existing Sessions remain pinned to their revisions.
-
-Unresolved inputs still replace the persisted desired pointer with the requested
-identity shown in status, without creating a runtime revision. This releases
-abandoned preparations for garbage collection while preserving the current
-Agent's last-successful runtime.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
 silently pending. Status includes a safe error code; a failed precondition also
 names the expected SandboxConfig and class. Raw backend error messages are not
-copied into Kubernetes status. Preparation keeps retrying and clears the failure
-after the prerequisite or service recovers; terminal compilation, immutable
-template conflict, and golden-snapshot failures are not retried by that poll.
+copied into Kubernetes status. The reconciliation queue owns failure retries,
+with exponential backoff from one second to thirty seconds and no operational
+attempt budget. It clears the failure after the prerequisite or service recovers.
+Periodic polling only checks observed templates whose golden snapshots are still
+pending. Observation and status updates do not bypass backoff; changed desired
+revisions, unresolved inputs, and Agent deletion are reconciled immediately.
+Compilation errors, immutable template conflicts, and golden-snapshot failures
+stop preparation until the desired inputs change.
+
+ActorTemplate construction checks the size of each emitted environment value
+against Substrate's 32,768-character limit, including the serialized config and
+Agent Card. The check counts Unicode code points after JSON encoding, including
+its escaping. Oversized values produce `Compatible=False` with reason
+`ActorTemplateInvalid` before any Substrate call. A subsequent `InvalidArgument`
+from `CreateActorTemplate` is recorded as a terminal `ActorTemplateRejected`
+preparation failure. Its backend message is not copied into status because it
+can include rejected configuration values. Changing the desired revision allows
+preparation to run again.
 
 This selection does not by itself guarantee full MicroVM lifecycle or
 cross-node restore compatibility; those also depend on Substrate, runtime

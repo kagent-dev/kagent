@@ -25,6 +25,18 @@ its default naming; the test requires that registration and leaves it intact.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
+
+`TestSessionIdleExpiration` runs its harness cases in parallel so they share the
+idle period and expiration sweep. Its parent stays sequential to isolate the
+controller rollouts from the rest of the suite. It temporarily sets
+`KAGENT_SESSION_IDLE_TTL=30s` and `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=5s` on the
+controller Deployment and restores its environment afterward, rolling the
+controller both times and waiting for a
+fresh API connection after each rollout. Use a disposable test cluster and a
+stable API endpoint for this case. It verifies completed-turn
+expiration, Actor removal, NotFound, and a fresh conversation from the same
+caller/request ID. PostgreSQL-backed service tests cover active/waiting turns,
+dispatch and quiescence races, retry recovery, and retained checkpoint history.
 Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
@@ -51,6 +63,7 @@ Add portable tests using this pattern:
 func TestAgentTemplateBehavior(t *testing.T) {
     t.Parallel()
     forEachHarness(t, func(t *testing.T, harness testHarness) {
+        t.Parallel()
         fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
         // Exercise the public API and assert the behavior.
     })
@@ -78,11 +91,27 @@ go test ./core/test/e2e -run '^TestSessionInteraction$/^codex$' -v -count=1
 Run these commands from `go/` with `KUBECONFIG` pointing to the test Kind cluster
 and `KAGENT_E2E_API_URL` set. The existing CI E2E command runs the whole matrix
 without an additional flag. Both runners allow 30 minutes and finish the matrix
-after a failure so all harness results are visible. `-parallel` still bounds
-concurrent test scenarios. Most harness subtests run sequentially; the cron,
-scheduled timeout, and runtime revision lifecycle cases run their harnesses in
-parallel to overlap cron ticks, deadlines, and periodic garbage collection.
+after a failure so all harness results are visible. Independent harness subtests
+run in parallel, sharing the suite's `-parallel` budget. Each case owns its mocks,
+configuration, Sessions, and cleanup; installed Harnesses are read-only fixtures.
+The inline/referenced configuration matrix also runs its configuration cases in
+parallel. Steps that share a Session, such as the CLI output-format subtests,
+remain sequential within each harness.
+
+Independent sandbox scenarios, opaque BYO invocation, and completed-chat trace
+checks also run in parallel. Trace cases share the receiver but select spans by
+their own trace IDs; the receiver is cleared once before starting those cases.
+
 Controller restart cases stay sequential with respect to the rest of the suite.
+The scheduled-run restart test starts all selected harness executions before one
+shared controller restart, then releases their model responses and checks recovery
+in parallel. Each harness retains its own Session, task, and prompt-count assertions.
+
+Each gRPC fixture calls `grpc.health.v1.Health/Check` on its own connection before
+creating resources and requires a `SERVING` response. The read-only probe waits up
+to one minute for transport readiness, including retries of failed dials after
+controller rollouts. Subsequent calls keep their normal failure and retry behavior;
+fixture setup does not retry mutations or suppress errors returned by the server.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate
 v0.3.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),

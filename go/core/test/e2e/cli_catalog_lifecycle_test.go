@@ -19,6 +19,7 @@ import (
 func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		templateName := createInteractionTemplate(t, harness, startInteractionMock(t))
 		binary := kagentCLI(t)
@@ -96,6 +97,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		binary := kagentCLI(t)

@@ -134,18 +134,23 @@ func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1alpha1.Session
 	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 }
 
-// run keeps lifecycle preparation separate from the durable issue boundary.
-// Multiple callers may prepare using read-only calls; exactly one can authorize
-// runtime mutations for a bounded attempt. Errors retain the operation and its
-// resource pins so a client retry can continue it. Session admission still
-// serializes lifecycle against runtime writes, idle work, and checkpoints.
-func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1alpha1.RuntimeOperation) (_ *apiv1alpha1.Session, err error) {
+func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1alpha1.RuntimeOperation) (*apiv1alpha1.Session, error) {
 	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancelAttempt()
 	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
 	if err != nil {
 		return nil, err
 	}
+	return w.execute(ctx, operation)
+}
+
+// execute keeps lifecycle preparation separate from the durable issue boundary.
+// Multiple callers may prepare using read-only calls; exactly one can authorize
+// runtime mutations for a bounded attempt. Errors retain the operation and its
+// resource pins so a client retry can continue it. Session admission still
+// serializes lifecycle against runtime writes, idle work, and checkpoints.
+func (w *ActorWorkflow) execute(ctx context.Context, operation *database.SessionOperation) (_ *apiv1alpha1.Session, err error) {
+	sessionID := operation.Instance.Id
 	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operationOutcome(operation)
 	}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { Alert, Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -70,28 +70,7 @@ export function HarnessesTab() {
   const referenced = (harness: Harness) => (agents.data?.agents ?? []).filter(agent =>
     agent.namespace === harness.namespace && agent.resource.spec.harnessRef?.name === harness.name);
 
-  const [deleting, setDeleting] = useState<string>();
-  const [failure, setFailure] = useState<string>();
   const invalidateTemplates = useInvalidateAgentTemplates();
-
-  async function remove(row: Harness) {
-    setDeleting(row.ref);
-    setFailure(undefined);
-    try {
-      await apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name);
-      // Swallowed for the reason the create pages give: the delete has already
-      // succeeded, and `refresh` rethrows into the catch below.
-      await harnesses.refresh().catch(() => {});
-      // And the templates, because an agent is a template paired with a harness — the
-      // confirmation above says every agent built on this one stops existing, and the
-      // agents list is derived from the template read rather than from this one.
-      await invalidateTemplates().catch(() => {});
-    } catch (cause: unknown) {
-      setFailure(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setDeleting(undefined);
-    }
-  }
 
   const columns: ColumnsType<Harness> = [
     {
@@ -147,9 +126,10 @@ export function HarnessesTab() {
         <DeleteResourceButton
           kind="harness"
           name={row.name}
-          disabled={deleting === row.ref}
-          onDelete={() => remove(row)}
-          onDeleted={() => undefined}
+          onDelete={() => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name)}
+          onDeleted={async () => {
+            await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
+          }}
           description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
         />
       ),
@@ -191,17 +171,6 @@ export function HarnessesTab() {
           </Space>
         }
       />
-
-      {failure ? (
-        <Alert
-          type="error"
-          showIcon
-          data-testid="harnesses-delete-error"
-          title="Could not delete that harness"
-          description={failure}
-        />
-      ) : null}
-
 
       {loadFailure ? (
         <Alert

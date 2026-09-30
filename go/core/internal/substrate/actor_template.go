@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 
@@ -23,6 +24,8 @@ const (
 	defaultContainerName = "kagent"
 	durableDataVolume    = "data"
 	durableDataMount     = "/data"
+	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
+	maxEnvironmentValueRunes = 32768
 )
 
 const egressTrustVolume = "egress-trust"
@@ -201,6 +204,9 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 		}
 		if _, exists := seen[value.Name]; exists {
 			continue
+		}
+		if size := utf8.RuneCountInString(value.Value); size > maxEnvironmentValueRunes {
+			return nil, fmt.Errorf("environment variable %q is %d characters; Substrate supports at most %d", value.Name, size, maxEnvironmentValueRunes)
 		}
 		seen[value.Name] = struct{}{}
 		result = append(result, &ateapipb.EnvVar{Name: value.Name, Value: value.Value})
