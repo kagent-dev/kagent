@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestSessionModelStreamingDisabled(t *testing.T) {
@@ -43,9 +44,11 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 			})
 			kube := interactionKubeClient(t)
 			model := createInteractionModel(t, kube, reachableModelURL(t, recorder.URL), map[string]string{"X-Kagent-E2E-Model": "non-streaming"})
+			before := model.DeepCopy()
 			model.Spec.Stream = new(false)
 			model.Spec.OpenAI.APIFormat = new(format)
-			require.NoError(t, kube.Update(t.Context(), model))
+			// Status reconciliation may have advanced resourceVersion since creation.
+			require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(before)))
 			harness := testHarness{name: "kagent", runtimeLabel: "kagent"}
 			template := &v1alpha3.AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
