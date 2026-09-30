@@ -29,7 +29,8 @@ import (
 )
 
 const (
-	sessionNameMaxLength = 20
+	sessionNameMaxLength     = 20
+	structuredOutputToolName = "set_model_response"
 )
 
 // KAgentExecutorConfig holds the configuration for KAgentExecutor.
@@ -112,14 +113,20 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 	}, nil
 }
 
-// structuredOutputPartConverter drops partial root output before upstream ADK
-// creates an A2A artifact. A structured response is not useful until it is a
-// complete JSON value, and publishing fragments could persist invalid JSON.
-// Events from tools and sub-agents retain the normal converter behavior.
+// structuredOutputPartConverter drops partial root output and ADK's internal
+// structured-output tool exchange before upstream ADK creates A2A artifacts.
+// The final answer is published only after schema validation. Events from
+// other tools and sub-agents retain the normal converter behavior.
 func structuredOutputPartConverter(output *structuredOutput, rootName string) adka2a.GenAIPartConverter {
 	return func(ctx context.Context, event *adksession.Event, part *genai.Part) (*a2atype.Part, error) {
-		if output != nil && event != nil && event.Author == rootName && event.Partial {
-			return nil, nil
+		if output != nil && event != nil && event.Author == rootName {
+			if event.Partial {
+				return nil, nil
+			}
+			if part != nil && (part.FunctionCall != nil && part.FunctionCall.Name == structuredOutputToolName ||
+				part.FunctionResponse != nil && part.FunctionResponse.Name == structuredOutputToolName) {
+				return nil, nil
+			}
 		}
 		return genAIPartConverter(ctx, event, part)
 	}
