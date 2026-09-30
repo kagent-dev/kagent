@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -301,10 +302,10 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
 	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
 	for _, tool := range cfg.HttpTools {
-		destinations = appendURLHost(destinations, tool.Params.Url)
+		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
 	for _, tool := range cfg.SseTools {
-		destinations = appendURLHost(destinations, tool.Params.Url)
+		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
 	modelJSON, _ := json.Marshal(model)
 	var values any
@@ -317,11 +318,11 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	}
 	switch modelConfig.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		destinations = append(destinations, "api.openai.com")
+		destinations = append(destinations, "https://api.openai.com:443")
 	case v1alpha3.ModelProviderAnthropic:
-		destinations = append(destinations, "api.anthropic.com")
+		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
-		destinations = append(destinations, "generativelanguage.googleapis.com")
+		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
 	case v1alpha3.ModelProviderOllama:
 		// Ollama's endpoint is the provider's own field and is not part of the
 		// serialized model, so the walk above never sees it. Unlike the three
@@ -329,7 +330,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		// operator's, so it has to be read from the spec.
 		if ollama := modelConfig.Spec.Ollama; ollama != nil {
 			if ollama.Host != "" {
-				destinations = appendURLHost(destinations, withDefaultScheme(ollama.Host))
+				destinations = appendURLOrigin(destinations, withDefaultScheme(ollama.Host))
 			}
 			// A cloud model with a key and no explicit host reaches
 			// api.ollama.com, so the agent needs that host allowed or the call
@@ -342,7 +343,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 			// needs to be reachable.
 			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
-				destinations = append(destinations, "api.ollama.com")
+				destinations = append(destinations, "https://api.ollama.com:443")
 			}
 		}
 	}
@@ -372,11 +373,11 @@ func withDefaultScheme(host string) string {
 }
 
 // appendURLValues walks serialized provider config because endpoint fields are
-// provider-specific but all URLs reduce to the same hostname allowlist.
+// provider-specific but all URLs reduce to HTTP(S) origins.
 func appendURLValues(destinations []string, value any) []string {
 	switch value := value.(type) {
 	case string:
-		return appendURLHost(destinations, value)
+		return appendURLOrigin(destinations, value)
 	case []any:
 		for _, item := range value {
 			destinations = appendURLValues(destinations, item)
@@ -389,10 +390,10 @@ func appendURLValues(destinations []string, value any) []string {
 	return destinations
 }
 
-func appendURLHost(destinations []string, raw string) []string {
+func appendURLOrigin(destinations []string, raw string) []string {
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, parsed.Hostname())
+		return append(destinations, egress.Origin(parsed))
 	}
 	return destinations
 }

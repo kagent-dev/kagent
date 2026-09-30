@@ -223,12 +223,12 @@ func (c TelemetryConfig) Enabled() bool {
 	return c.Traces.Enabled || c.Metrics.Enabled || c.Logs.Enabled
 }
 
-// Destinations are the egress hostnames of the enabled signals.
+// Destinations are the egress origins of the enabled signals.
 func (c TelemetryConfig) Destinations() []string {
 	var hosts []string
 	for _, signal := range []SignalConfig{c.Traces, c.Metrics, c.Logs} {
 		if signal.Enabled {
-			hosts = append(hosts, signal.Hostname)
+			hosts = appendURLOrigin(hosts, signal.Endpoint)
 		}
 	}
 	return hosts

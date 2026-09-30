@@ -86,7 +86,7 @@ func TestBuildCompaction(t *testing.T) {
 		require.Equal(t, "https://summarizer.example.com/v1", summarizer.BaseUrl)
 		require.Len(t, result.Models, 2)
 		require.Equal(t, "summarizer", result.Models[1].Config.Name)
-		require.Contains(t, result.Egress, "summarizer.example.com")
+		require.Contains(t, result.Egress, "https://summarizer.example.com:443")
 		var credentials []string
 		for _, variable := range result.Environment {
 			if variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil {
@@ -140,7 +140,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 						ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 					}})
 			require.NoError(t, err)
-			require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+			require.Equal(t, []string{"http://host.docker.internal:11434"}, result.Egress)
 		})
 	}
 
@@ -184,7 +184,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
-		require.Contains(t, result.Egress, "api.ollama.com")
+		require.Contains(t, result.Egress, "https://api.ollama.com:443")
 	})
 
 	// A local model must never pick up the cloud host, even with a key present:
@@ -207,7 +207,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
-		require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+		require.Equal(t, []string{"http://host.docker.internal:11434"}, result.Egress)
 	})
 }
 
@@ -283,7 +283,7 @@ func TestBuildMemory(t *testing.T) {
 			require.Equal(t, "https://embedding.example.com/v1", result.Config.Memory.Embedding.BaseUrl)
 			require.Len(t, result.Models, 2)
 			require.Equal(t, "embedding", result.Models[1].Config.Name)
-			require.Contains(t, result.Egress, "embedding.example.com")
+			require.Contains(t, result.Egress, "https://embedding.example.com:443")
 			require.Len(t, result.Environment, 2)
 			require.Equal(t, "embedding-auth", result.Environment[1].ValueFrom.SecretKeyRef.Name)
 		})
