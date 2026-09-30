@@ -652,6 +652,57 @@ func TestExecuteCommand(t *testing.T) {
 	}
 }
 
+func TestSanitizeEnv(t *testing.T) {
+	// Same cases as the Python test, so both runtimes stay in sync.
+	secret := []string{
+		"OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+		"GOOGLE_API_KEY", "SERPER_API_KEY", "LANGSMITH_API_KEY",
+		"GRAFANA_SERVICE_ACCOUNT_TOKEN", "DATABASE_PASSWORD", "MY_SECRET",
+		"AWS_SECRET_ACCESS_KEY", "SSH_PRIVATE_KEY", "GIT_CREDENTIAL",
+		"GIT_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS", "AWS_ACCESS_KEY_ID",
+		"AZURE_AD_TOKEN", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
+		"openai_api_key",
+	}
+	safe := []string{
+		"PATH=/usr/bin", "HOME=/home/user", "PYTHONPATH=/some/path",
+		"LANG=en_US.UTF-8", "TOKENIZERS_PARALLELISM=true",
+		"GOOGLE_CLOUD_PROJECT=my-project", "AWS_REGION=us-east-1",
+		"EMPTY=", "WITH_EQUALS=a=b",
+	}
+
+	environ := append([]string{}, safe...)
+	for _, name := range secret {
+		environ = append(environ, name+"=value")
+	}
+
+	got := sanitizeEnv(environ)
+	if strings.Join(got, "\n") != strings.Join(safe, "\n") {
+		t.Errorf("sanitizeEnv() = %q, want %q", got, safe)
+	}
+
+	// nil would make the command inherit everything, so it must not be nil.
+	if got := sanitizeEnv([]string{"OPENAI_API_KEY=value"}); got == nil {
+		t.Error("sanitizeEnv() returned nil for an all-secret environment")
+	}
+}
+
+func TestExecuteCommand_StripsSecretEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-leak")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws-leak")
+	t.Setenv("KAGENT_TEST_SAFE_VAR", "kept")
+
+	result, err := NewCommandExecutor().ExecuteCommand(context.Background(),
+		`echo "anthropic=${ANTHROPIC_API_KEY:-unset} aws=${AWS_SECRET_ACCESS_KEY:-unset} safe=${KAGENT_TEST_SAFE_VAR:-unset}"`,
+		t.TempDir())
+	if err != nil {
+		t.Fatalf("ExecuteCommand() error = %v", err)
+	}
+
+	if want := "anthropic=unset aws=unset safe=kept"; result != want {
+		t.Errorf("ExecuteCommand() = %q, want %q", result, want)
+	}
+}
+
 func TestExecuteCommand_Timeout(t *testing.T) {
 	// Skip this test if running in CI or if test timeout is too short
 	// This test requires at least 35 seconds to run properly

@@ -9,11 +9,47 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type CommandExecutor struct{}
+
+// secretEnvPattern matches env var names that usually hold secrets.
+// Same pattern as the Python runtime, so both hide the same vars.
+var secretEnvPattern = regexp.MustCompile(`(?i)(?:^|_)(API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|PRIVATE_KEY)(?:_|$)`)
+
+// secretEnvNames are the provider keys the controller puts in the pod.
+// The pattern already catches them; this list is a safety net.
+var secretEnvNames = map[string]struct{}{
+	env.OpenAIAPIKey.Name():                 {},
+	env.AnthropicAPIKey.Name():              {},
+	env.AzureOpenAIAPIKey.Name():            {},
+	env.AzureADToken.Name():                 {},
+	env.GoogleAPIKey.Name():                 {},
+	env.GoogleApplicationCredentials.Name(): {},
+	env.AWSAccessKeyID.Name():               {},
+	env.AWSSecretAccessKey.Name():           {},
+	env.AWSSessionToken.Name():              {},
+	env.AWSBearerTokenBedrock.Name():        {},
+}
+
+// sanitizeEnv drops secret vars from environ and keeps the rest.
+// It never returns nil, because a nil cmd.Env means "copy everything".
+func sanitizeEnv(environ []string) []string {
+	sanitized := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, secret := secretEnvNames[name]; secret || secretEnvPattern.MatchString(name) {
+			continue
+		}
+		sanitized = append(sanitized, entry)
+	}
+	return sanitized
+}
 
 // maxLineRunes is the longest line read_file and grep_file will emit before
 // truncating. Counted in runes, not bytes -- see truncateRunes.
@@ -260,7 +296,8 @@ func NewCommandExecutor() *CommandExecutor {
 	return &CommandExecutor{}
 }
 
-// ExecuteCommand executes a shell command.
+// ExecuteCommand executes a shell command without secret env vars.
+// The model writes the command, so it shouldn't be able to read API keys.
 func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
 	timeout := 30 * time.Second
 	if strings.Contains(command, "python") {
@@ -272,6 +309,7 @@ func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, wo
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
+	cmd.Env = sanitizeEnv(os.Environ())
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
