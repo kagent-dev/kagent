@@ -65,6 +65,22 @@ func TestGenaiContentsToResponsesInput(t *testing.T) {
 	})
 }
 
+func TestGenaiContentsToResponsesInputNoArgToolCall(t *testing.T) {
+	input, _ := genaiContentsToResponsesInput([]*genai.Content{{
+		Role: "model",
+		Parts: []*genai.Part{{
+			FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "list_skills"},
+		}},
+	}}, nil)
+
+	if len(input) == 0 || input[0].OfFunctionCall == nil {
+		t.Fatalf("input = %#v, want one function call", input)
+	}
+	if got := input[0].OfFunctionCall.Arguments; got != "{}" {
+		t.Fatalf("arguments = %q, want empty JSON object", got)
+	}
+}
+
 func TestGenaiToolsToResponsesTools(t *testing.T) {
 	out := genaiToolsToResponsesTools([]*genai.Tool{{
 		FunctionDeclarations: []*genai.FunctionDeclaration{{

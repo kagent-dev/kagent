@@ -709,14 +709,10 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				// Bedrock rejects with "ValidationException: Malformed input request"
 				// ("The value at messages.N.content.M.toolUse.input is empty").
 				// Coerce nil to an empty object so no-argument tool calls round-trip.
-				args := part.FunctionCall.Args
-				if args == nil {
-					args = map[string]any{}
-				}
 				toolUse := types.ToolUseBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionCall.ID, idMap, &idCounter)),
 					Name:      aws.String(callName),
-					Input:     document.NewLazyDocument(args),
+					Input:     document.NewLazyDocument(functionCallArgsOrEmpty(part.FunctionCall.Args)),
 				}
 				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolUse{
 					Value: toolUse,
