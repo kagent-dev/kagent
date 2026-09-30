@@ -588,8 +588,14 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			}
 			return
 		case nil:
+			// This Actor has no active, parked, or canceling task, so nothing can
+			// still be executing the requested one here: it was either never
+			// started in this process or was lost with a previous one. Report it
+			// canceled rather than yielding nothing, which leaves the A2A cancel
+			// waiting for an event forever. A task that already reached a
+			// terminal state cannot be overwritten by this update.
 			e.mu.Unlock()
-			return
+			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
 		default:
 			e.mu.Unlock()
 			yield(nil, fmt.Errorf("runtime actor has an invalid task state"))
