@@ -11,5 +11,5 @@ roleRef:
   name: {{ include "kagent.fullname" . }}-leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: {{ include "kagent.controller.serviceAccountName" . }}
+  name: {{ include "kagent.controller.serviceAccountName" . | quote }}
   namespace: {{ include "kagent.namespace" . }}
