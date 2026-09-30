@@ -61,7 +61,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 				ctx: ctx, client: a2apb.NewA2AServiceClient(conn), sessionID: id, contextID: id, tenant: ref.GetNamespace() + "/" + ref.GetName(),
 			}
 			_, _, task := fixture.send(t, "What is 2+2?")
-			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task response: %s", taskText(task))
 			require.True(t, strings.Contains(taskText(task), "The answer is 4."))
 			return string(task.ID)
 		}

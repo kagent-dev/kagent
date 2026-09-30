@@ -34,7 +34,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, harness.Spec.Workload.Command, revision.Command)
 	require.Equal(t, harness.Spec.Workload.Args, revision.Args)
-	require.Equal(t, []string{"kagent-controller.kagent"}, revision.EgressDestinations)
+	require.Equal(t, []string{"http://kagent-controller.kagent:8083"}, revision.EgressDestinations)
 	require.Equal(t, []corev1.EnvVar{
 		{Name: "MODE", Value: "production"},
 		{Name: "KAGENT_API_URL", Value: "http://kagent-controller.kagent:8083"},
