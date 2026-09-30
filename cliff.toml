@@ -1,0 +1,162 @@
+# DO NOT EDIT. Generated with:
+#
+#    devctl
+#
+#    https://github.com/giantswarm/devctl/blob/6bd76e24b11b67d6d99715b8f484f454e05abbd9/pkg/gen/input/workflows/internal/file/cliff.toml.template
+#
+# git-cliff config for the push-based auto-release flow.
+#
+# A single git-cliff invocation in .github/workflows/auto-release.yaml runs
+# `--unreleased --bump --context` to compute the next semver from conventional
+# commits AND emit the JSON context that the same workflow then re-renders
+# with `--from-context --strip all` for the release-notes body posted on the
+# GitHub Release. One commit walk, one set of GitHub API PR lookups, two
+# cheap outputs.
+
+[bump]
+# `feat:` always bumps minor (not patch). Matches conventional-commits spec.
+features_always_bump_minor = true
+# `feat!:`/`BREAKING CHANGE` always bumps major.
+breaking_always_bump_major = true
+# First release in a repo with no tags yet. git-cliff defaults this to
+# "0.1.0" (no prefix); we pin it to "v0.1.0" because the whole giantswarm
+# stack (architect's /^v.*/ tag filter, the auto-release workflow's
+# `--match='v*.*.*'` describe, gitsemver) expects the leading `v`. Once any
+# v*.*.* tag exists, git-cliff carries that prefix forward on every bump, so
+# this only governs the inception release.
+initial_tag = "v0.1.0"
+
+[git]
+conventional_commits = true
+# Drop non-conventional commits silently rather than counting them as
+# unclassified work -- the bump-decider should only act on intent-bearing
+# commits.
+filter_unconventional = true
+# Changelog presentation order. `topo_order = false` orders releases
+# chronologically (by tag date); `sort_commits = "oldest"` lists the commits
+# within each release oldest-first.
+topo_order = false
+sort_commits = "oldest"
+
+# Scope `--bump`'s baseline to the current branch. This is load-bearing for
+# two reasons:
+#
+#   1. Backports. The auto-release workflow also fires on `release-*`
+#      maintenance branches. Without this, git-cliff's `--bump` picks the
+#      GLOBALLY highest-semver tag in the repo regardless of reachability --
+#      so a fix on `release-2.x` would bump from v3.1.0 (latest on main) and
+#      tag v3.1.1 ON the 2.x line instead of the intended v2.8.1. With
+#      `use_branch_tags`, git-cliff only considers tags reachable from the
+#      checked-out branch, so the 2.x line correctly bumps from v2.8.0.
+#
+#   2. Stray tags on side branches. A tag created on an unmerged branch
+#      (e.g. someone tags v9.0.0 while testing a release on a `bump/*`
+#      branch) is the global semver max but is NOT reachable from main.
+#      Without this it silently becomes the baseline for every subsequent
+#      main release, and a `feat:` on a v1.2.8 line produces v9.1.0.
+#      Branch-scoped tags exclude it.
+use_branch_tags = true
+
+# Only vX.Y.Z is a release. git-cliff applies this before everything else, so
+# a tag that does not match is not a boundary for `--unreleased`, not a
+# baseline for `--bump` and not a release in the changelog. That is what keeps
+# a candidate cycle one range: the auto-release flow cuts vX.Y.Z-rc.N tags on
+# the branch head, and counting those as releases would cut every later
+# candidate, and the stable release promoted from the cycle, from a partial
+# delta -- a cycle a `feat` put on a minor falls back to a patch. The price is
+# that candidate notes are cumulative: rc.2 lists what rc.1 listed, plus what
+# is new.
+#
+# It also keeps a pre-release or preview tag off the version line wherever it
+# lives, which `use_branch_tags` alone only does on a SIDE branch: such a name
+# always carries a suffix, so it can never match. The workflow's
+# `git describe --match='v*.*.*' --exclude='*-*' --exclude='*+*'` baseline
+# selects the same tags, and the two have to stay in step.
+tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+# Strip the trailing " (#N)" that GitHub appends to squash-merge commit
+# messages. Our template renders the PR link explicitly via cliff's GitHub
+# integration (commit.remote.pr_number -- see [changelog].body), so the
+# auto-appended reference would duplicate it.
+#
+# `(?m)` enables multi-line mode so `$` matches end-of-line (the squash
+# `(#N)` lives at the end of the subject line, not the end of the full
+# commit text -- git-cliff's default regex mode is single-line). This
+# anchoring keeps `(#N)` references that appear inside commit bodies
+# untouched.
+#
+# A feat-rc/fix-rc subject is released as its plain type:
+# `features_always_bump_minor` keys off the type being exactly "feat", and an
+# un-normalised feat-rc would bump patch instead of minor.
+commit_preprocessors = [
+  { pattern = '(?m) \(#\d+\)$', replace = "" },
+  { pattern = '^(feat|fix)-rc', replace = "${1}" },
+]
+
+# Map commit types to changelog groups (Keep-a-Changelog convention):
+# feat -> Added, fix -> Fixed, all "internal change" types -> Changed,
+# security -> Security.
+#
+# `docs` and `style` are marked skip. git-cliff decides the bump from the
+# commits that are NOT skipped: a breaking change bumps the major, `feat` the
+# minor, every other type at least the patch. A skipped commit is left out of
+# the release notes and of the bump, so a docs-only or style-only push to main
+# computes the current version and the workflow tags nothing; the change
+# ships with the next release. `chore` and `ci` keep releasing: a
+# `chore(deps)` bump changes what ships, a `ci` change how it is built.
+commit_parsers = [
+  { message = "^feat",     group = "Added" },
+  { message = "^fix",      group = "Fixed" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^perf",     group = "Changed" },
+  { message = "^docs",     skip = true },
+  { message = "^chore",    group = "Changed" },
+  { message = "^test",     group = "Changed" },
+  { message = "^build",    group = "Changed" },
+  { message = "^ci",       group = "Changed" },
+  { message = "^security", group = "Security" },
+  { message = "^style",    skip = true },
+]
+
+# GitHub repo coordinates -- required for the API lookups that populate
+# `commit.remote.pr_number` and `commit.remote.username` in the template
+# below. The token is passed automatically via the workflow's GITHUB_TOKEN.
+[remote.github]
+owner = "giantswarm"
+repo = "kagent-upstream"
+
+# Template for the rendered release notes. Body is what gets posted to the
+# GitHub Release; header and footer are empty so the release page shows only
+# the section list.
+#
+# Each bullet ends with " in [#N](pr-url) by [@user](user-url)" when
+# git-cliff successfully resolves the PR for the commit via the GitHub API.
+# `commit.remote` is the post-2.x replacement for the per-platform fields
+# (commit.github / commit.gitlab / etc.) -- using it future-proofs the
+# template against git-cliff dropping the old names.
+# Backslashes at line ends escape the newline so the bullet stays on one
+# line in the rendered Markdown.
+[changelog]
+header = ""
+# `{%-` / `-%}` strip the surrounding newline so the rendered Markdown is
+# tight: one blank line before each "### " header, no leading blank, no
+# double-blank between header and bullets. Without the whitespace control
+# the output picks up two extra blank lines per loop iteration.
+body = """
+{% for group, commits in commits | group_by(attribute="group") -%}
+### {{ group }}
+
+{% for commit in commits -%}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message | split(pat="\n") | first | upper_first }}\
+{% if commit.remote.pr_number %} in [#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }}){% endif %}\
+{% if commit.remote.username %} by [@{{ commit.remote.username }}](https://github.com/{{ commit.remote.username }}){% endif %}
+{% endfor %}
+{% endfor -%}
+{% if previous.version %}
+**Full Changelog**: https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/compare/{{ previous.version }}...{{ version }}
+{% endif -%}
+"""
+trim = true
+footer = ""
