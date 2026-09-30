@@ -31,6 +31,32 @@ The `api.kagent.dev` group keeps these definitions separate from legacy
 and use `kubectl get agent`. If both agent APIs are installed, use a qualified
 resource name such as `kubectl get agents.api.kagent.dev` to select this API.
 
+### Model streaming
+
+For model endpoints that do not support streaming, set `spec.stream: false` on
+the root agent's `ModelConfig`:
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: non-streaming
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: example-model
+  stream: false
+  openAI:
+    baseUrl: https://models.example.com/v1
+```
+
+The kagent harness uses this setting for LLM calls, including OpenAI Chat
+Completions and Responses. Omitted or `true` keeps streaming enabled. The root
+runner's streaming mode also applies to its shared subagents. Changes prepare a
+new revision; create a new Session to use it. A2A task events remain streamable
+when model streaming is disabled. This setting does not configure
+the Codex or Claude harnesses.
+
 ### kagent workload overrides
 
 The kagent compiler preserves explicit `spec.workload.command` and

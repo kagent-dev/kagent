@@ -520,6 +520,12 @@ type ModelConfigSpec struct {
 	// +required
 	Model string `json:"model"`
 
+	// Stream controls LLM response streaming for the kagent harness. Set to false
+	// for model endpoints that do not support streaming. Defaults to true.
+	// +kubebuilder:default=true
+	// +optional
+	Stream *bool `json:"stream,omitempty"`
+
 	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
 	// For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
 	// (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.

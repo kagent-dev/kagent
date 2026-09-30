@@ -102,8 +102,11 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 	if modelRuntime.HasUnsupportedVolumes {
 		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
-	stream := true
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
+	stream := new(true)
+	if modelConfig != nil && modelConfig.Spec.Stream != nil {
+		stream = modelConfig.Spec.Stream
+	}
+	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
 	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err

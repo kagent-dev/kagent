@@ -505,6 +505,12 @@ spec:
                 required:
                 - baseUrl
                 type: object
+              stream:
+                default: true
+                description: |-
+                  Stream controls LLM response streaming for the kagent harness. Set to false
+                  for model endpoints that do not support streaming. Defaults to true.
+                type: boolean
               tls:
                 description: |-
                   TLS configuration for provider connections.

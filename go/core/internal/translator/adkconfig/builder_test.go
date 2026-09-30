@@ -2,6 +2,7 @@ package adkconfig
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -15,6 +16,39 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestBuildModelStreaming(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stream *bool
+		want   bool
+	}{
+		{name: "default", want: true},
+		{name: "enabled", stream: new(true), want: true},
+		{name: "disabled", stream: new(false), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := openAIModel("agent", "https://agent.example.com/v1")
+			model.Spec.Stream = tc.stream
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &v2translator.HarnessInput{
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &v2translator.AgentInput{
+					Template: &v2translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+				},
+			})
+			require.NoError(t, err)
+			// The runtime consumes serialized configuration. In particular, false
+			// must survive omitempty rather than reverting to the runtime default.
+			payload, err := json.Marshal(result.Config)
+			require.NoError(t, err)
+			var config adk.AgentConfig
+			require.NoError(t, json.Unmarshal(payload, &config))
+			require.NotNil(t, config.Stream)
+			require.Equal(t, tc.want, config.GetStream())
+		})
+	}
+}
+
 func TestBuildUsesDurableSessionStore(t *testing.T) {
 	result, err := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{}).Build(context.Background(),
 		&v2translator.HarnessInput{
@@ -24,6 +58,7 @@ func TestBuildUsesDurableSessionStore(t *testing.T) {
 			}}},
 		})
 	require.NoError(t, err)
+	require.True(t, result.Config.GetStream())
 	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDBURL)
 	require.Len(t, result.Config.SubAgents, 1)
 	require.Empty(t, result.Config.SubAgents[0].SessionDBURL)
