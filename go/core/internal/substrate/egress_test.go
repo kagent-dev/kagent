@@ -58,3 +58,15 @@ func (f *egressPolicyFake) GetActorEgressPolicy(_ context.Context, req *ateapipb
 	f.actor = req.Actor
 	return f.policy, f.getErr
 }
+
+func TestActorEgressPolicyAcceptsLeftmostLabelWildcards(t *testing.T) {
+	policy, err := ActorEgressPolicy("team-a", []string{"*.githubusercontent.com", "GitHub.com.", "192.0.2.1"}, nil)
+	require.NoError(t, err)
+	require.Len(t, policy.Rules, 2)
+	require.Equal(t, []string{"*.githubusercontent.com", "github.com"}, policy.Rules[0].GetHostnames().GetPatterns())
+	require.Equal(t, []string{"192.0.2.1/32"}, policy.Rules[1].GetCidrs().GetCidrs())
+	for _, invalid := range []string{"*", "*.", "*.*.example.com", "a.*.example.com", "*github.com", "-bad.example.com"} {
+		_, err := ActorEgressPolicy("team-a", []string{invalid}, nil)
+		require.Error(t, err, invalid)
+	}
+}

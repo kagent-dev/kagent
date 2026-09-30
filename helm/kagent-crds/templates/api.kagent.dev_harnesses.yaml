@@ -218,9 +218,22 @@ spec:
                       rule: self.modelConfigRef.name.size() > 0
                 type: object
               substrate:
-                description: RuntimeSubstratePolicy contains the Substrate policy
-                  shared by all runtime variants.
+                description: HarnessSubstratePolicy is the Substrate policy of every
+                  agent that runs on the Harness.
                 properties:
+                  egress:
+                    description: |-
+                      Egress lists hosts every agent that runs on the Harness may reach besides
+                      the destinations its revision compiles (the model, its MCP servers, its
+                      skill and plugin sources, telemetry): a hostname, or a leftmost-label
+                      wildcard such as "*.githubusercontent.com". Nothing allows every host.
+                    items:
+                      maxLength: 253
+                      pattern: ^(\*\.)?([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+                      type: string
+                    maxItems: 256
+                    type: array
+                    x-kubernetes-list-type: set
                   snapshotPolicy:
                     description: SnapshotPolicy configures runtime snapshot storage.
                     properties:

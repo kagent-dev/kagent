@@ -224,6 +224,13 @@ Harness runs. A summarizer `ModelConfig` other than the agent's own is resolved
 from the Harness namespace like the memory model and joins the revision's
 credentials, egress, and provenance.
 
+`spec.substrate.egress` on the Harness lists hosts that every agent it runs may
+reach besides the destinations its revision compiles: a hostname, or a
+leftmost-label wildcard such as `*.githubusercontent.com`. No entry allows every
+host. The compiler adds them after the runtime compiler has run, so every runtime
+treats them the same, and they are part of the revision identity. SandboxTemplates
+do not take this field.
+
 ## Explicit Agent examples
 
 For a single agent, inline both specs:

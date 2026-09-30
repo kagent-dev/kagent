@@ -96,6 +96,29 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "spec.workload.image",
 		},
 		{
+			name: "Harness accepts egress hostnames and leftmost-label wildcards",
+			object: validHarness(namespace, "harness-egress", HarnessSpec{
+				Kagent:    &KagentHarness{},
+				Substrate: HarnessSubstratePolicy{Egress: []string{"proxy.golang.org", "*.githubusercontent.com"}},
+			}),
+		},
+		{
+			name: "Harness egress rejects a bare wildcard",
+			object: validHarness(namespace, "harness-egress-any", HarnessSpec{
+				Kagent:    &KagentHarness{},
+				Substrate: HarnessSubstratePolicy{Egress: []string{"*"}},
+			}),
+			wantReject: "spec.substrate.egress[0]",
+		},
+		{
+			name: "Harness egress rejects an inner wildcard",
+			object: validHarness(namespace, "harness-egress-inner", HarnessSpec{
+				Kagent:    &KagentHarness{},
+				Substrate: HarnessSubstratePolicy{Egress: []string{"a.*.example.com"}},
+			}),
+			wantReject: "spec.substrate.egress[0]",
+		},
+		{
 			name: "Harness env requires a value source",
 			object: validHarness(namespace, "harness-empty-env", HarnessSpec{
 				Kagent: &KagentHarness{},

@@ -22,7 +22,10 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 			continue
 		}
 		hostname := strings.TrimSuffix(strings.ToLower(destination), ".")
-		if len(validation.IsDNS1123Subdomain(hostname)) != 0 {
+		// A leftmost-label wildcard names every host under a domain, which is
+		// what Substrate's hostname rule matches; the domain itself must be a name.
+		name, _ := strings.CutPrefix(hostname, "*.")
+		if len(validation.IsDNS1123Subdomain(name)) != 0 {
 			return nil, fmt.Errorf("invalid egress destination %q", destination)
 		}
 		hostnames = append(hostnames, hostname)

@@ -155,7 +155,23 @@ type HarnessSpec struct {
 	Env []RuntimeEnvVar `json:"env,omitempty"`
 
 	// +required
-	Substrate RuntimeSubstratePolicy `json:"substrate"`
+	Substrate HarnessSubstratePolicy `json:"substrate"`
+}
+
+// HarnessSubstratePolicy is the Substrate policy of every agent that runs on the Harness.
+type HarnessSubstratePolicy struct {
+	RuntimeSubstratePolicy `json:",inline"`
+
+	// Egress lists hosts every agent that runs on the Harness may reach besides
+	// the destinations its revision compiles (the model, its MCP servers, its
+	// skill and plugin sources, telemetry): a hostname, or a leftmost-label
+	// wildcard such as "*.githubusercontent.com". Nothing allows every host.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=256
+	// +kubebuilder:validation:items:MaxLength=253
+	// +kubebuilder:validation:items:Pattern=`^(\*\.)?([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
+	Egress []string `json:"egress,omitempty"`
 }
 
 // HarnessCapabilities records behavior proven for a pinned adapter and runtime.
