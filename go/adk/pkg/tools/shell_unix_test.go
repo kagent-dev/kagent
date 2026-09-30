@@ -62,6 +62,38 @@ func TestExecuteCommand_BackgroundProcessDoesNotBlock(t *testing.T) {
 	}
 }
 
+func TestExecuteCommand_BackgroundProcessKeepsWritingAfterReturn(t *testing.T) {
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	// A server started in the background logs to the inherited stdout and
+	// stderr long after the call returns. Those writes must keep succeeding:
+	// if the pipes were closed when the call returned, the next write would
+	// fail with EPIPE (bash is killed by SIGPIPE here and never writes the
+	// marker; a Python http.server drops the request it is logging).
+	script := "(sleep 3; echo out; echo err >&2; echo ok > marker) & echo $! > pid; echo started"
+	result, err := NewCommandExecutor().executeCommand(context.Background(), script, tmpDir, 30*time.Second)
+	readPid(t, filepath.Join(tmpDir, "pid"))
+	if err != nil {
+		t.Fatalf("Expected the command to succeed, got %v", err)
+	}
+	if result != "started" {
+		t.Errorf("Expected output %q, got %q", "started", result)
+	}
+
+	marker := filepath.Join(tmpDir, "marker")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Background job did not finish; it could not write to its inherited output")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // readPid reads a pid a test command wrote, and kills that process when the
 // test ends so nothing it started outlives the test.
 func readPid(t *testing.T, path string) int {

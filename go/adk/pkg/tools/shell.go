@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -257,9 +257,57 @@ func ListDirContent(path string) (string, error) {
 	return strings.TrimSuffix(result.String(), "\n"), nil
 }
 
-// commandWaitDelay bounds how long ExecuteCommand keeps reading output after
+// commandWaitDelay bounds how long ExecuteCommand keeps collecting output after
 // the shell has exited or been killed.
 const commandWaitDelay = 2 * time.Second
+
+// commandOutput reads one output stream of a command. The write end of the
+// pipe is inherited by every process the shell starts, including background
+// jobs that outlive it. The pipe is therefore drained until every writer has
+// closed it, rather than closed when the shell exits: a closed pipe would make
+// a background job fail with EPIPE on its next write.
+type commandOutput struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	discard bool
+	done    chan struct{}
+}
+
+func readCommandOutput(r *os.File) *commandOutput {
+	o := &commandOutput{done: make(chan struct{})}
+	go func() {
+		defer close(o.done)
+		defer r.Close()
+		chunk := make([]byte, 32*1024)
+		for {
+			n, err := r.Read(chunk)
+			if n > 0 {
+				o.mu.Lock()
+				if !o.discard {
+					o.buf.Write(chunk[:n])
+				}
+				o.mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return o
+}
+
+// collect waits until every writer has closed the pipe or stop is closed,
+// then returns what was read. Output written after that is discarded.
+func (o *commandOutput) collect(stop <-chan struct{}) string {
+	select {
+	case <-o.done:
+	case <-stop:
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.discard = true
+	return o.buf.String()
+}
 
 func NewCommandExecutor() *CommandExecutor {
 	return &CommandExecutor{}
@@ -329,27 +377,49 @@ func (e *CommandExecutor) executeCommand(ctx context.Context, command string, wo
 	cmd.Dir = workingDir
 	cmd.Env = commandEnv(os.Environ(), workingDir)
 	killProcessGroupOnCancel(cmd)
-	// Stop waiting for the output pipes this long after the shell exits or is
-	// killed. A background job the command started inherits them and would
-	// otherwise block the call for as long as it runs.
+	// If the shell does not exit after cancellation, stop waiting for it.
 	cmd.WaitDelay = commandWaitDelay
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Pass *os.File pipes so Wait returns as soon as the shell exits, without
+	// waiting on output held open by a background job the command started.
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		stdoutR.Close()
+		stdoutW.Close()
+		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 
-	err := cmd.Run()
+	err = cmd.Start()
+	// The child processes hold their own copies of the write ends.
+	stdoutW.Close()
+	stderrW.Close()
+	if err != nil {
+		stdoutR.Close()
+		stderrR.Close()
+		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+	stdout := readCommandOutput(stdoutR)
+	stderr := readCommandOutput(stderrR)
+
+	err = cmd.Wait()
 	if ctx.Err() == context.DeadlineExceeded {
+		stdout.collect(ctx.Done())
+		stderr.collect(ctx.Done())
 		return "", fmt.Errorf("command timed out after %v", timeout)
 	}
-	if errors.Is(err, exec.ErrWaitDelay) {
-		// The shell exited successfully; only a background job still held
-		// the output pipes, so report what the command printed.
-		err = nil
-	}
 
-	stdoutStr := stdout.String()
-	stderrStr := stderr.String()
+	// Output a background job keeps open ends the collection after
+	// commandWaitDelay; both streams share that deadline.
+	collectCtx, cancelCollect := context.WithTimeout(ctx, commandWaitDelay)
+	defer cancelCollect()
+	stdoutStr := stdout.collect(collectCtx.Done())
+	stderrStr := stderr.collect(collectCtx.Done())
 
 	if err != nil {
 		exitCode := -1
