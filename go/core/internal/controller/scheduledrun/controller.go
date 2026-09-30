@@ -140,9 +140,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 		if err != nil {
 			return err
 		}
-		// CancelTask can race with completion. Preserve that outcome, but our
-		// own cancellation is a timeout even if the runtime's clock is behind.
-		if stopped != nil && stopped.Status.State.Terminal() && stopped.Status.State != a2atype.TaskStateCanceled && stopped.Status.Timestamp != nil && !stopped.Status.Timestamp.After(execution.GetDeadline().AsTime()) {
+		if stopped != nil && stopped.Status.State.Terminal() && stopped.Status.Timestamp != nil && !stopped.Status.Timestamp.After(execution.GetDeadline().AsTime()) {
 			observeTask(execution, stopped)
 			return nil
 		}
