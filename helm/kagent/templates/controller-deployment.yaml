@@ -34,7 +34,7 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "kagent.fullname" . }}-controller
+      serviceAccountName: {{ include "kagent.controller.serviceAccountName" . }}
       {{- if or (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
       volumes:
       {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
