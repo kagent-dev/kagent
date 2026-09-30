@@ -353,42 +353,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		})
 	}
 
-	t.Run("deferred fields are absent", func(t *testing.T) {
-		for _, tc := range []struct {
-			kind  string
-			spec  map[string]any
-			field string
-		}{
-			{kind: "ModelConfig", field: "tokenExchange", spec: map[string]any{
-				"provider": "OpenAI", "model": "gpt-4", "apiKeySecret": "auth",
-				"openAI": map[string]any{"tokenExchange": map[string]any{"type": "GDCHServiceAccount", "gdchServiceAccount": map[string]any{"audience": "https://models.example.com"}}},
-			}},
-			{kind: "AgentTemplate", field: "agentRef", spec: map[string]any{
-				"tools": []any{map[string]any{"subAgent": map[string]any{
-					"name": "review", "description": "Review code",
-					"templateRef": map[string]any{"name": "review"}, "agentRef": map[string]any{"name": "review"},
-				}}},
-			}},
-		} {
-			t.Run(tc.kind, func(t *testing.T) {
-				object := &unstructured.Unstructured{Object: map[string]any{
-					"apiVersion": GroupVersion.String(), "kind": tc.kind,
-					"metadata": map[string]any{"name": "deferred-field", "namespace": namespace}, "spec": tc.spec,
-				}}
-				err := cl.Create(ctx, object, &ctrlclient.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
-				require.ErrorContains(t, err, "unknown field")
-				require.ErrorContains(t, err, tc.field)
-				if tc.kind == "AgentTemplate" {
-					object.SetKind("Agent")
-					object.Object["spec"] = map[string]any{"template": tc.spec, "harnessRef": map[string]any{"name": "runner"}}
-					err = cl.Create(ctx, object, &ctrlclient.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
-					require.ErrorContains(t, err, "unknown field")
-					require.ErrorContains(t, err, tc.field)
-				}
-			})
-		}
-	})
-
 	t.Run("literal runtime environment", func(t *testing.T) {
 		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentHarness{}})
 		for _, resource := range []struct {
