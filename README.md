@@ -61,17 +61,17 @@
 
 ## Getting Started
 
-- [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
-- [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
+- [Your first agent](https://kagent.dev/docs/kagent/1.x/get-started/your-first-agent/)
+- [Installation guide](https://kagent.dev/docs/kagent/1.x/setup/installation/)
 
 ## Technical Details
 
 ### Core Concepts
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent".
-- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other custom providers and models accessible via AI gateways. Providers are represented by the ModelConfig resource.
+- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/1.x/setup/model-providers/openai/), [Azure OpenAI](https://kagent.dev/docs/kagent/1.x/setup/model-providers/azure-openai/), [Anthropic](https://kagent.dev/docs/kagent/1.x/setup/model-providers/anthropic/), [Google Vertex AI](https://kagent.dev/docs/kagent/1.x/setup/model-providers/google-vertexai/), [Ollama](https://kagent.dev/docs/kagent/1.x/setup/model-providers/ollama/) and any other custom providers and models accessible via AI gateways. Providers are represented by the ModelConfig resource.
 - **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
-- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
+- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/1.x/observability/tracing/), which allows you to monitor what's happening with your agents and tools.
 
 ### Core Principles
 
