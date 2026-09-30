@@ -200,6 +200,7 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 		v1alpha3.ModelProviderGemini: {
 			// Gemini 3 family
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
+			{Name: "gemini-3.5-flash-lite", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
 			{Name: "gemini-3-pro", FunctionCalling: true},
 			{Name: "gemini-3-flash", FunctionCalling: true},
@@ -211,6 +212,7 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 		},
 		v1alpha3.ModelProviderGeminiVertexAI: {
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
+			{Name: "gemini-3.5-flash-lite", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
 			{Name: "gemini-3-pro", FunctionCalling: true},
 			{Name: "gemini-3-flash", FunctionCalling: true},
