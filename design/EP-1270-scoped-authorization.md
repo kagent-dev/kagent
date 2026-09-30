@@ -65,15 +65,11 @@ A decision that permits no resources returns an empty collection. An authorizati
 
 ## Advisory access review
 
-An access review with a resource name uses the same exact authorization check as
-the corresponding operation. GET requires a name. A target without a name is an
-existential question:
-whether the complete authorization scope contains at least one valid resource name
-in that namespace. It is not an exact check with an empty or wildcard name.
+Named reviews use the operation's exact authorization check. GET requires a name.
+Namespace-only reviews ask whether the complete scope permits any valid name in
+that namespace, not an empty or wildcard name. Incomplete scopes fail the review.
 
-An authorizer that cannot produce a complete scope fails the namespace-only
-review rather than returning partial results. Reviews are advisory; every resource
-operation authorizes its actual input again.
+Reviews are advisory. Every resource operation still authorizes its actual input.
 
 ## Client behavior
 
