@@ -343,10 +343,14 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	}
 	t.Run("Agent egress accepts HTTP(S) origins and leftmost-label wildcards", func(t *testing.T) {
 		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
-			Egress: []string{"https://proxy.golang.org", "http://mirror.internal:8080", "https://*.githubusercontent.com"}}
+			Egress: []string{"https://proxy.golang.org", "http://mirror.internal:8080", "https://git.internal:65535", "https://*.githubusercontent.com"}}
 		require.NoError(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress"}, Spec: spec}))
 	})
-	for i, origin := range []string{"proxy.golang.org", "ftp://proxy.golang.org", "https://*", "https://a.*.example.com", "https://192.0.2.1", "https://proxy.golang.org/path", "https://Proxy.Golang.org"} {
+	for i, origin := range []string{
+		"proxy.golang.org", "ftp://proxy.golang.org", "https://*", "https://*.com", "https://a.*.example.com", "https://192.0.2.1", "https://[2001:db8::1]",
+		"https://proxy.golang.org/path", "https://Proxy.Golang.org", "https://user@proxy.golang.org", "https://proxy.golang.org?x=1",
+		"https://proxy.golang.org#f", "https://proxy.golang.org:0", "https://proxy.golang.org:70000",
+	} {
 		t.Run("Agent egress rejects "+origin, func(t *testing.T) {
 			spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"}, Egress: []string{origin}}
 			require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("egress-invalid-%d", i)}, Spec: spec}), "spec.egress[0]")

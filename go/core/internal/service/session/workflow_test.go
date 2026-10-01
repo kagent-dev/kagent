@@ -367,7 +367,7 @@ func TestActorEgressPolicy(t *testing.T) {
 	require.NoError(t, err, "a leftmost-label wildcard is a Substrate hostname pattern")
 	require.Equal(t, []string{"*.example.com"}, policy.Rules[0].GetHttps().GetHostnames())
 	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value",
-		"https://*", "https://a.*.example.com", "https://*.*.example.com", "https://*example.com"} {
+		"https://*", "https://*.com", "https://a.*.example.com", "https://*.*.example.com", "https://*example.com"} {
 		t.Run(destination, func(t *testing.T) {
 			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)

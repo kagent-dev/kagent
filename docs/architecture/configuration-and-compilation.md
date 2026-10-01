@@ -23,7 +23,8 @@ Dedicated `agentRef` bindings are deferred and are not part of the served API.
 `Agent.spec.egress` lists HTTP(S) origins the Agent may reach besides the
 destinations its revision compiles, such as `https://proxy.golang.org`. A host
 may have `*` as its leftmost label (`https://*.githubusercontent.com` matches
-one label); nothing allows every host. The field is on the Agent, not the
+one label), with at least two labels under it, so nothing opens a top-level
+domain or every host. The field is on the Agent, not the
 template or the Harness: the hosts are a property of the workload in the place
 where it runs (an internal git host, a registry mirror), so a template stays
 portable and a Harness stays about the runtime. The compiler adds the origins,

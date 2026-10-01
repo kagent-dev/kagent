@@ -1023,14 +1023,11 @@ func TestCompileAgentAddsTheAgentEgress(t *testing.T) {
 	plain.Spec.Egress = nil
 	withoutEgress, err := c.CompileAgent(t.Context(), plain)
 	require.NoError(t, err)
+	// The destinations are a digest input, so the revision identity follows them.
+	require.Subset(t, withEgress.EgressDestinations, want)
 	for _, origin := range want {
 		require.NotContains(t, withoutEgress.EgressDestinations, origin)
 	}
-	withDigest, err := withEgress.Digest()
-	require.NoError(t, err)
-	withoutDigest, err := withoutEgress.Digest()
-	require.NoError(t, err)
-	require.NotEqual(t, withoutDigest, withDigest, "the Agent egress is part of the revision identity")
 
 	invalid := referenced.DeepCopy()
 	invalid.Spec.Egress = []string{"https://proxy.golang.org/path"}

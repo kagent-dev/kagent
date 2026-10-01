@@ -54,10 +54,14 @@ func ParseOrigin(value string) (string, error) {
 
 // ValidHostPattern reports whether a normalized host is a DNS name, or a DNS
 // name with "*" as its leftmost label, which is what Substrate's hostname
-// rules match. An IP address and "*" alone are not patterns.
+// rules match. An IP address and "*" alone are not patterns, and a wildcard
+// needs two labels under it: "*.com" would open a whole top-level domain.
 func ValidHostPattern(host string) bool {
-	name, _ := strings.CutPrefix(host, "*.")
+	name, wildcard := strings.CutPrefix(host, "*.")
 	if _, err := netip.ParseAddr(name); err == nil {
+		return false
+	}
+	if wildcard && !strings.Contains(name, ".") {
 		return false
 	}
 	return len(validation.IsDNS1123Subdomain(name)) == 0

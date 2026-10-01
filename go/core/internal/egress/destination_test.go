@@ -39,7 +39,7 @@ func TestParseOrigin(t *testing.T) {
 	}
 	for _, raw := range []string{
 		"proxy.golang.org", "ftp://proxy.golang.org", "https://", "https://*", "https://*.",
-		"https://a.*.example.com", "https://*.*.example.com", "https://*github.com", "https://-bad.example.com",
+		"https://a.*.example.com", "https://*.*.example.com", "https://*github.com", "https://*.com", "https://-bad.example.com",
 		"https://192.0.2.1", "https://[2001:db8::1]", "https://proxy.golang.org/", "https://proxy.golang.org/path",
 		"https://proxy.golang.org?x=1", "https://proxy.golang.org?", "https://proxy.golang.org#f",
 		"https://user@proxy.golang.org", "https://proxy.golang.org:0", "https://proxy.golang.org:70000",
