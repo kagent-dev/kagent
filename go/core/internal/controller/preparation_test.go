@@ -505,7 +505,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	updated := harnesses.List()[0].DeepCopy()
-	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: new(strings.Repeat("x", 32769))}}
+	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}
 	harnesses.UpdateObject(updated)
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).CompilationFailure != nil
