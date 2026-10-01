@@ -41,7 +41,9 @@ harness process; that forwarder adds the turn's credential (which wins over a st
 `Authorization` header) and the server's compiled headers, and drops the credential before
 the turn's outcome is returned, so a parked or suspended Actor holds none. The credential
 never enters Claude's environment or `mcp.json`. SSE servers are not fronted: their
-message endpoint is announced by the upstream host.
+message endpoint is announced by the upstream host. A request whose path holds a `.` or `..`
+segment, decoded or not, an encoded slash or backslash, or an encoded `%` is refused with 400
+before it is matched to a server, since the forwarded path is joined onto the server's URL.
 
 ## Telemetry
 
