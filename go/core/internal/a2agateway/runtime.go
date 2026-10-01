@@ -99,6 +99,14 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, principal); err != nil {
 			return ctx, nil, err
 		}
+		// The runtime keys its session on x-user-id and the context id. On a
+		// turn a share of this Session authorizes, the conversation is the
+		// owner's: under the visitor's id the runtime finds no session and
+		// starts an empty one in the same context. The visitor stays the
+		// person of the turn below and keeps their own Authorization.
+		if share, ok := auth.ShareContextFrom(ctx); ok && share.IsForSession(u.session.GetId()) {
+			httpRequest.Header.Set("X-User-Id", share.UserID)
+		}
 		// The person of the turn, for the runtime to name on its model calls
 		// (x-kagent-user): only an identity the authenticator resolved from the
 		// caller's validated token — a session carrying claims. A session
