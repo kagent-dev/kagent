@@ -205,7 +205,14 @@ func Run(ctx context.Context, opts Options) error {
 	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL, VectorEnabled: vectorEnabled})
+	db, err := database.Connect(ctx, &database.PostgresConfig{
+		URL:             dbURL,
+		VectorEnabled:   vectorEnabled,
+		MaxConns:        new(int32(kagentenv.PostgresDatabaseMaxConns.Get())),
+		MinConns:        new(int32(kagentenv.PostgresDatabaseMinConns.Get())),
+		MaxConnIdleTime: new(kagentenv.PostgresDatabaseMaxConnIdleTime.Get()),
+		MaxConnLifetime: new(kagentenv.PostgresDatabaseMaxConnLifetime.Get()),
+	})
 	if err != nil {
 		return err
 	}
