@@ -22,10 +22,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -40,18 +38,6 @@ func main() {
 	logger := slog.Default()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	switch env.DatabaseBootstrap.Get() {
-	case "", "false":
-	case "true":
-		if err := runDatabaseBootstrap(ctx); err != nil {
-			logger.ErrorContext(ctx, "database bootstrap failed", "error", err)
-			os.Exit(1)
-		}
-	default:
-		logger.ErrorContext(ctx, "invalid database bootstrap value")
-		os.Exit(1)
-	}
-
 	authenticator, err := controllerAuthenticator(env.AuthMode.Get(), env.AuthUserIDClaim.Get())
 	if err != nil {
 		logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
@@ -61,41 +47,6 @@ func main() {
 		logger.ErrorContext(ctx, "controller stopped", "error", err)
 		os.Exit(1)
 	}
-}
-
-func runDatabaseBootstrap(ctx context.Context) error {
-	adminUsername, err := readRequiredFile(env.PostgresAdminUsernameFile)
-	if err != nil {
-		return err
-	}
-	adminPassword, err := readRequiredFile(env.PostgresAdminPasswordFile)
-	if err != nil {
-		return err
-	}
-	return database.Bootstrap(ctx, database.BootstrapConfig{
-		EndpointSource: env.PostgresDatabaseURL.Get(),
-		AdminUsername:  adminUsername,
-		AdminPassword:  adminPassword,
-		Schema:         env.DatabaseSchema.Get(),
-		VectorEnabled:  env.DatabaseVectorEnabled.Get(),
-		VectorSchema:   env.DatabaseVectorSchema.Get(),
-	})
-}
-
-func readRequiredFile(variable env.StringVar) (string, error) {
-	envName := variable.Name()
-	path := variable.Get()
-	if path == "" {
-		return "", fmt.Errorf("%s must name a credential file", envName)
-	}
-	value, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read %s: %w", envName, err)
-	}
-	if value := strings.TrimSpace(string(value)); value != "" {
-		return value, nil
-	}
-	return "", fmt.Errorf("%s credential file is empty", envName)
 }
 
 func controllerAuthenticator(mode, userIDClaim string) (auth.AuthProvider, error) {

@@ -20,7 +20,8 @@ import (
 )
 
 type InstallCfg struct {
-	Profile string
+	Profile           string
+	SkipDatabaseSetup bool
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -74,6 +75,10 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		fmt.Fprintln(os.Stderr, err)
 		return nil
 	}
+	if err := checkKubectlAvailable(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return nil
+	}
 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
@@ -101,7 +106,7 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		helmConfig.inlineValues = profiles.MinimalProfileYaml
 	}
 
-	return install(ctx, &options, helmConfig, modelProvider)
+	return install(ctx, &options, helmConfig, modelProvider, cfg.SkipDatabaseSetup)
 }
 
 // helmConfig is the config for the kagent chart
@@ -112,6 +117,17 @@ type helmConfig struct {
 	values []string
 	// inlineValues are values which are passed in via stdin (e.g. embedded profile YAML)
 	inlineValues string
+}
+
+func crdChartValues(values []string) []string {
+	var result []string
+	for _, value := range values {
+		key, _, _ := strings.Cut(value, "=")
+		if key == "kmcp.enabled" || key == "substrate.enabled" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // setupHelmConfig sets up the helm config for the kagent chart
@@ -133,8 +149,11 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 	helmExtraArgs := env.KagentHelmExtraArgs.Get()
 
 	// split helmExtraArgs by "--set" to get additional values
-	extraValues := strings.Split(helmExtraArgs, "--set")
-	values = append(values, extraValues...)
+	for _, value := range strings.Split(helmExtraArgs, "--set") {
+		if value = strings.TrimSpace(value); value != "" {
+			values = append(values, value)
+		}
+	}
 
 	return helmConfig{
 		registry: helmRegistry,
@@ -144,7 +163,7 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 }
 
 // install installs kagent and kagent-crds using the helm config
-func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider) *connection.PortForward {
+func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool) *connection.PortForward {
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -152,7 +171,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 	s.Suffix = " Installing kagent-crds from " + helmConfig.registry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, nil, ""); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, crdChartValues(helmConfig.values), ""); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 
@@ -166,6 +185,15 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 			s.Start()
 		} else {
 			fmt.Fprintln(os.Stderr, "Error installing kagent-crds:", output)
+			return nil
+		}
+	}
+
+	if !skipDatabaseSetup {
+		s.Suffix = " Preparing bundled PostgreSQL"
+		if err := prepareBundledPostgres(ctx, cfg.Namespace); err != nil {
+			s.Stop()
+			fmt.Fprintln(os.Stderr, "Error preparing bundled PostgreSQL:", err)
 			return nil
 		}
 	}
@@ -311,6 +339,14 @@ func checkHelmAvailable() error {
 	return nil
 }
 
+func checkKubectlAvailable() error {
+	_, err := exec.LookPath("kubectl")
+	if err != nil {
+		return fmt.Errorf("kubectl not found in PATH. Please install kubectl first: https://kubernetes.io/docs/tasks/tools/")
+	}
+	return nil
+}
+
 // NewInstallCmd constructs the kagent install command.
 func NewInstallCmd() *cobra.Command {
 	cfg := &InstallCfg{}
@@ -328,6 +364,7 @@ func NewInstallCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal)")
+	cmd.Flags().BoolVar(&cfg.SkipDatabaseSetup, "skip-database-setup", false, "Skip bundled PostgreSQL deployment and initialization")
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})

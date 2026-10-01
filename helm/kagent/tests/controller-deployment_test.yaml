@@ -2,7 +2,6 @@ suite: test controller deployment
 templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
-  - postgresql-secret.yaml
 tests:
   - it: keeps chart defaults in the ConfigMap and pod identity and credentials in env
     template: controller-deployment.yaml
@@ -17,7 +16,7 @@ tests:
               name: RELEASE-NAME-controller
       - matchRegex:
           path: spec.template.spec.containers[0].env[*].name
-          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL|KAGENT_DATABASE_BOOTSTRAP|POSTGRES_ADMIN_USERNAME_FILE|POSTGRES_ADMIN_PASSWORD_FILE)$"
+          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL)$"
       - notExists:
           path: data.KAGENT_POSTGRES_DATABASE_URL
         template: controller-configmap.yaml
@@ -41,22 +40,6 @@ tests:
           value: 1
       - hasDocuments:
           count: 1
-
-  - it: should reject operator-managed Kagent Secrets during bootstrap
-    template: controller-deployment.yaml
-    set:
-      database.postgres.secretRef.name: custom-kagent
-    asserts:
-      - failedTemplate:
-          errorMessage: database.postgres.secretRef.name requires database.postgres.bundled.bootstrap=false
-
-  - it: should reject custom Kagent roles during bootstrap
-    template: controller-deployment.yaml
-    set:
-      database.postgres.role: tenant_owner
-    asserts:
-      - failedTemplate:
-          errorMessage: database.postgres.role must be kagent_owner while bundled bootstrap is enabled
 
   - it: should render the controller deployment with custom replica count
     template: controller-deployment.yaml
@@ -160,8 +143,6 @@ tests:
         postgres:
           secretRef:
             name: external-postgres
-          bundled:
-            enabled: false
       controller:
         substrate:
           enabled: true
@@ -611,43 +592,13 @@ tests:
   # Database Configuration Tests
   # =============================================================================
 
-  - it: should reject a nonboolean bootstrap value
+  - it: should require an application Secret
     template: controller-deployment.yaml
     set:
-      database.postgres.bundled.bootstrap: disabled
+      database.postgres.secretRef.name: ""
     asserts:
       - failedTemplate:
-          errorMessage: database.postgres.bundled.bootstrap must be true or false
-
-  - it: should reject the old bootstrap location
-    template: controller-deployment.yaml
-    set:
-      database.postgres.bootstrap: false
-    asserts:
-      - failedTemplate:
-          errorMessage: database.postgres.bootstrap moved to database.postgres.bundled.bootstrap
-
-  - it: should use existing users with bundled PostgreSQL when bootstrap is disabled
-    template: controller-deployment.yaml
-    set:
-      database.postgres.bundled.bootstrap: false
-      database.postgres.secretRef.name: existing-kagent
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_DATABASE_BOOTSTRAP
-            value: "false"
-      - notExists:
-          path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
-
-  - it: should require an application Secret when bundled bootstrap is disabled
-    template: controller-deployment.yaml
-    set:
-      database.postgres.bundled.bootstrap: false
-    asserts:
-      - failedTemplate:
-          errorMessage: database.postgres.secretRef.name is required when bootstrap is disabled
+          errorMessage: database.postgres.secretRef.name is required
 
   - it: should use the managed Kagent Secret by default
     template: controller-deployment.yaml
@@ -659,17 +610,8 @@ tests:
             value: "@file:/var/run/secrets/kagent/postgres/connection-string"
       - notExists:
           path: spec.template.spec.initContainers
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_DATABASE_BOOTSTRAP
-            value: "true"
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: postgres-admin
-            mountPath: /var/run/secrets/kagent/postgres-admin
-            readOnly: true
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
 
   - it: should use an external database Secret
     template: controller-deployment.yaml
@@ -678,8 +620,6 @@ tests:
         postgres:
           secretRef:
             name: external-postgres
-          bundled:
-            enabled: false
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -705,7 +645,6 @@ tests:
       substrate:
         enabled: true
         postgres:
-          bootstrap: false
           readWriteConnectionStringSecretRef:
             name: substrate-db
     asserts:
@@ -728,8 +667,6 @@ tests:
     set:
       database:
         postgres:
-          bundled:
-            enabled: false
           secretRef:
             name: external-postgres
             key: url
@@ -770,11 +707,6 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_DATABASE_BOOTSTRAP
-            value: "false"
       - notExists:
           path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
 
@@ -783,15 +715,12 @@ tests:
     set:
       database:
         postgres:
-          bundled:
-            enabled: false
           secretRef:
             name: kagent-db
             key: kagent-url
       substrate:
         enabled: true
         postgres:
-          bootstrap: false
           readWriteConnectionStringSecretRef:
             name: substrate-readwrite-db
             key: readwrite-url
@@ -851,7 +780,6 @@ tests:
   - it: should set a BYO PostgreSQL role
     template: controller-configmap.yaml
     set:
-      database.postgres.bundled.bootstrap: false
       database.postgres.secretRef.name: tenant-postgres
       database.postgres.role: tenant_owner
     asserts:

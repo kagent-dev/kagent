@@ -4,5 +4,5 @@ package migrations
 
 import "embed"
 
-//go:embed core vector identity
+//go:embed core vector
 var FS embed.FS

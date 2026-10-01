@@ -22,54 +22,32 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
-### Substrate PostgreSQL
+### PostgreSQL
 
-The default install uses one PostgreSQL instance and one `kagent` database.
-Kagent uses the `kagent` schema by default. Substrate uses the `substrate` schema.
-This identity layout requires a fresh database; upgrading an existing database to it is unsupported.
-When vectors are enabled, `database.postgres.vectorSchema` names the one schema
-that holds the shared pgvector extension (default `extensions`). All Kagent installs
-using the same database must select that schema. For an external database,
-install pgvector there before running migrations, or set `vectorSchema` to its
-existing location (such as `public`). Grant the application role
-`USAGE` on the extension schema. Set `POSTGRES_VECTOR_SCHEMA` to the same value
-when running the database CLI outside the chart.
-When separate from Kagent's table schema, the pgvector schema stays out of its
-normal SQL search path. Kagent qualifies its pgvector type, index operator
-class, and cosine operator references. A shared `extensions` schema may also
-contain other applications' objects. Grant Kagent
-`USAGE` on that schema; reserve `CREATE` for trusted administrators.
+The Helm chart does not deploy or initialize PostgreSQL. It expects a prepared
+database and connection Secrets. `kagent install` creates a development
+PostgreSQL instance, prepares the identities below, and then invokes Helm.
+To use `kagent install` with an already prepared database, pass
+`--skip-database-setup` and provide the Secret names through
+`KAGENT_HELM_EXTRA_ARGS` `--set` overrides.
 
-With `database.postgres.bundled.bootstrap=true`, each controller pod runs identity
-bootstrap on every start, before migrations. Repeated runs create only missing
-identities and do not reset existing passwords. If `database.postgres.vectorEnabled`
-changes from `false` to `true`, the next start installs the `vector` extension in
-`vectorSchema` and then applies pending vector migrations. The default bundled
-PostgreSQL image does not include pgvector; select an image with pgvector installed
-before enabling vectors. With bootstrap disabled or an external database, install
-the extension yourself before enabling vectors.
-
-The install creates separate users and group roles:
+Kagent and Substrate use separate schemas and identities in one database:
 
 | Product access | User | Group role |
 | --- | --- | --- |
 | Kagent | `kagent_user` | `kagent_owner` |
-| Substrate owner | `substrate_admin_user` | `substrate_owner` |
+| Substrate owner | `substrate_owner_user` | `substrate_owner` |
 | Substrate read/write | `substrate_readwrite_user` | `substrate_readwrite` |
 
-Enable Substrate to use this layout:
+Direct Helm installs must create those users, group roles, schemas, grants, and
+three connection Secrets before installing the chart. Enable Substrate with:
 
 ```yaml
 substrate:
   enabled: true
 ```
 
-The chart creates `postgres-admin` for the bundled database. Each control plane uses this Secret before it runs migrations.
-If you supply another administrator Secret, set both `database.postgres.bundled.adminSecretRef` and `substrate.postgres.adminSecretRef` to the same name and keys.
-
-The chart also creates three application Secrets. Its default administrator and application passwords are fixed, published values. This bundled bootstrap setup is for development and evaluation, not production. For production, provision unique users and permissions externally, provide connection Secrets, and disable bootstrap. For Substrate, Kagent passes the bundled PostgreSQL Service address and the `kagent` database name to connection-string templates owned by the Substrate chart. Those templates supply Substrate's fixed usernames and passwords.
-
-For an external database, create the users, roles, schemas, and grants yourself, then provide three application connection Secrets:
+Configure the pre-created Secrets and roles with:
 
 ```yaml
 database:
@@ -77,39 +55,22 @@ database:
     secretRef:
       name: kagent-postgres
       key: connectionString
-    bundled:
-      enabled: false
 substrate:
   enabled: true
   postgres:
-    enabled: false
     readWriteConnectionStringSecretRef:
       name: substrate-postgres-readwrite
       key: readWriteConnectionString
     ownerConnectionStringSecretRef:
       name: substrate-postgres-owner
       key: ownerConnectionString
-    bootstrap: false
+    readWriteRole: substrate_readwrite
+    ownerRole: substrate_owner
 ```
 
-Bundled bootstrap creates only the fixed users, using the same fixed development credentials compiled into each product and rendered into its connection Secrets. It also creates group roles, schemas, memberships, and grants. It does not change existing passwords. Bootstrap rejects a connection Secret whose credentials differ from those fixed defaults.
-
-To use externally created users with the bundled database, first create the replacement users and connection Secrets. Then set `database.postgres.bundled.bootstrap=false` and provide `database.postgres.secretRef.name` in the same upgrade. If Substrate is enabled, set `substrate.postgres.bootstrap=false` and provide its owner and read/write Secret references too. The bundled PostgreSQL pod still uses its administrator Secret; neither control plane resets the original users' passwords.
-
-For a BYO database, create these objects before installation. Keep migrations enabled.
-Set `database.postgres.role` to the Kagent owner role and, when Substrate is
-enabled, set `substrate.postgres.ownerRole` and `substrate.postgres.readWriteRole`
-to the roles you provisioned. Use distinct role names and table schemas for
-separate installs sharing one database. Give each install separate logins and
-grant each login membership only in its install's roles. Bundled bootstrap uses
-the fixed role names and requires the default values.
-
-The application uses the same identity SQL that operators can run: [Kagent identity SQL](../go/core/pkg/migrations/identity/bootstrap.sql) and `cmd/ateapi/internal/store/atepg/identity.sql` in the Substrate repository. These files sit beside the migration sources but run separately, as an administrator. Set the transaction-local parameters listed at the top of each file before running it.
-For manual provisioning with custom chart role names, set
-`kagent.bootstrap_owner_role`, `substrate.bootstrap_owner_role`, and
-`substrate.bootstrap_readwrite_role` as transaction-local settings before
-running the applicable SQL file. They default to the fixed development names;
-the bundled binary bootstrap passes those fixed names explicitly.
+When vectors are enabled, install pgvector before migrations and set
+`database.postgres.vectorSchema` to its schema. Grant the Kagent role `USAGE`
+on that schema.
 
 #### Credential rotation
 

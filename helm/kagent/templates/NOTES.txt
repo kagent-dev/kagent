@@ -60,18 +60,6 @@ DOCUMENTATION:
   These values are ignored. Please remove them from your values override.
 
 {{- end }}
-{{ if .Values.database.postgres.bundled.enabled -}}
-################################################################################
-# WARNING: BUNDLED DATABASE IN USE                                             #
-################################################################################
-  The bundled PostgreSQL instance is enabled. It is intended for development and
-  evaluation only, not suitable for production use. Data may be lost if the
-  pod is restarted or rescheduled.
-
-  To use an external database, set these values:
-    database.postgres.bundled.enabled=false
-    database.postgres.secretRef.name=<secret-name>
-{{- end }}
 {{- if .Values.database.postgres.skipMigrations }}
 ################################################################################
 # NOTE: STARTUP MIGRATIONS ARE DISABLED                                        #

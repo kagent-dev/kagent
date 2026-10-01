@@ -1,6 +1,4 @@
 {{- $databaseConnectionStringSecretRef := .Values.database.postgres.secretRef | default dict -}}
-{{- $bundled := .Values.database.postgres.bundled -}}
-{{- $bootstrapEnabled := and $bundled.enabled $bundled.bootstrap -}}
 {{- $databaseSecretVolumeName := "postgres-connection" -}}
 {{- $databaseSecretMountPath := "/var/run/secrets/kagent/postgres" -}}
 {{- $databaseSecretFileName := "connection-string" -}}
@@ -10,20 +8,8 @@
 {{- if hasKey .Values.database.postgres "url" -}}
 {{- fail "database.postgres.url has been removed; use database.postgres.secretRef.{name,key}" -}}
 {{- end -}}
-{{- if hasKey .Values.database.postgres "bootstrap" -}}
-{{- fail "database.postgres.bootstrap moved to database.postgres.bundled.bootstrap" -}}
-{{- end -}}
-{{- if not (kindIs "bool" $bundled.bootstrap) -}}
-{{- fail "database.postgres.bundled.bootstrap must be true or false" -}}
-{{- end -}}
-{{- if and $bootstrapEnabled (ne .Values.database.postgres.role "kagent_owner") -}}
-{{- fail "database.postgres.role must be kagent_owner while bundled bootstrap is enabled" -}}
-{{- end -}}
-{{- if and $bootstrapEnabled (get $databaseConnectionStringSecretRef "name") -}}
-{{- fail "database.postgres.secretRef.name requires database.postgres.bundled.bootstrap=false" -}}
-{{- end -}}
-{{- if and (not $bootstrapEnabled) (not (get $databaseConnectionStringSecretRef "name")) -}}
-{{- fail "database.postgres.secretRef.name is required when bootstrap is disabled" -}}
+{{- if not (get $databaseConnectionStringSecretRef "name") -}}
+{{- fail "database.postgres.secretRef.name is required" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -46,7 +32,6 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
-        checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
         {{- with .Values.controller.podAnnotations | default .Values.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -71,18 +56,6 @@ spec:
               items:
               - key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
                 path: {{ $databaseSecretFileName }}
-      {{- if $bootstrapEnabled }}
-      - name: postgres-admin
-        projected:
-          sources:
-          - secret:
-              name: {{ include "kagent.postgres.adminSecretName" . }}
-              items:
-              - key: {{ .Values.database.postgres.bundled.adminSecretRef.usernameKey }}
-                path: username
-              - key: {{ .Values.database.postgres.bundled.adminSecretRef.passwordKey }}
-                path: password
-      {{- end }}
       {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
       - name: substrate-servicedns
         projected:
@@ -146,14 +119,6 @@ spec:
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
             - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ printf "@file:%s/%s" $databaseSecretMountPath $databaseSecretFileName | quote }}
-            - name: KAGENT_DATABASE_BOOTSTRAP
-              value: {{ $bootstrapEnabled | quote }}
-            {{- if $bootstrapEnabled }}
-            - name: POSTGRES_ADMIN_USERNAME_FILE
-              value: /var/run/secrets/kagent/postgres-admin/username
-            - name: POSTGRES_ADMIN_PASSWORD_FILE
-              value: /var/run/secrets/kagent/postgres-admin/password
-            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -203,11 +168,6 @@ spec:
             - name: {{ $databaseSecretVolumeName }}
               mountPath: {{ $databaseSecretMountPath }}
               readOnly: true
-            {{- if $bootstrapEnabled }}
-            - name: postgres-admin
-              mountPath: /var/run/secrets/kagent/postgres-admin
-              readOnly: true
-            {{- end }}
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: substrate-servicedns
               mountPath: /run/substrate-servicedns

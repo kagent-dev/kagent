@@ -94,7 +94,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
 | `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_DEFAULT_MODEL_PROVIDER` | String | `openAI` | Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI). |
-| `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional arguments to pass to Helm commands. |
+| `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides, for example --set substrate.enabled=true. |
 | `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
 | `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
 | `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
@@ -110,7 +110,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
-| `KAGENT_DATABASE_BOOTSTRAP` | String | `(none)` | Bootstrap bundled PostgreSQL identities before migrations. Accepts true, false, or empty (disabled). |
 | `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
 | `KAGENT_GRPC_REFLECTION` | Boolean | `false` | Enable gRPC server reflection on the controller. |
@@ -160,8 +159,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_SDK_DISABLED` | String | `false` | Disable SDK telemetry and forwarding to managed runtimes when true (case-insensitive). Other values are treated as false. |
 | `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
 | `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `POSTGRES_ADMIN_PASSWORD_FILE` | String | `(none)` | File containing the PostgreSQL administrator password. Required when bundled identity bootstrap is enabled. |
-| `POSTGRES_ADMIN_USERNAME_FILE` | String | `(none)` | File containing the PostgreSQL administrator username. Required when bundled identity bootstrap is enabled. |
 
 ## database
 
@@ -171,12 +168,9 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `DB_MAX_CONN_IDLE_TIME` | Duration | `0s` | Maximum idle time for a PostgreSQL pool connection. Zero keeps the pgx default. |
 | `DB_MAX_CONN_LIFETIME` | Duration | `0s` | Maximum lifetime of a PostgreSQL pool connection. This bounds credential rotation time. |
 | `DB_MIN_CONNS` | Integer | `-1` | Minimum number of PostgreSQL pool connections. Negative keeps the pgx default. |
-| `KAGENT_DATABASE_BOOTSTRAP` | String | `(none)` | Bootstrap bundled PostgreSQL identities before migrations. Accepts true, false, or empty (disabled). |
 | `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL or @file:/absolute/path source, reread for each new connection. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
-| `POSTGRES_ADMIN_PASSWORD_FILE` | String | `(none)` | File containing the PostgreSQL administrator password. Required when bundled identity bootstrap is enabled. |
-| `POSTGRES_ADMIN_USERNAME_FILE` | String | `(none)` | File containing the PostgreSQL administrator username. Required when bundled identity bootstrap is enabled. |
 | `POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. Required for rotation to a different login user. |
 | `POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
 | `POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |

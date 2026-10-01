@@ -26,7 +26,7 @@ var (
 	KagentHelmExtraArgs = RegisterStringVar(
 		"KAGENT_HELM_EXTRA_ARGS",
 		"",
-		"Additional arguments to pass to Helm commands.",
+		"Additional Helm --set overrides, for example --set substrate.enabled=true.",
 		ComponentCLI,
 	)
 )
