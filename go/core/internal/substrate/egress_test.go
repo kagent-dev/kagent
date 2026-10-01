@@ -18,8 +18,8 @@ func TestEnsureActorEgressPolicyRetriesLostResponse(t *testing.T) {
 	policy := &ateapipb.EgressPolicy{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"},
 		Rules: []*ateapipb.EgressRule{
-			{Hostnames: &ateapipb.HostnameRule{Patterns: []string{"api.example.com"}}},
-			{Cidrs: &ateapipb.CIDRRule{Cidrs: []string{"192.0.2.1/32"}}},
+			{Http: &ateapipb.HTTPRule{Hostnames: []string{"api.example.com"}}},
+			{Https: &ateapipb.HTTPSRule{Hostnames: []string{"api.example.com"}}},
 		},
 	}
 	require.ErrorIs(t, client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", policy), context.DeadlineExceeded)
@@ -57,16 +57,4 @@ func (f *egressPolicyFake) CreateActorEgressPolicy(_ context.Context, req *ateap
 func (f *egressPolicyFake) GetActorEgressPolicy(_ context.Context, req *ateapipb.GetActorEgressPolicyRequest, _ ...grpc.CallOption) (*ateapipb.EgressPolicy, error) {
 	f.actor = req.Actor
 	return f.policy, f.getErr
-}
-
-func TestActorEgressPolicyAcceptsLeftmostLabelWildcards(t *testing.T) {
-	policy, err := ActorEgressPolicy("team-a", []string{"*.githubusercontent.com", "GitHub.com.", "192.0.2.1"}, nil)
-	require.NoError(t, err)
-	require.Len(t, policy.Rules, 2)
-	require.Equal(t, []string{"*.githubusercontent.com", "github.com"}, policy.Rules[0].GetHostnames().GetPatterns())
-	require.Equal(t, []string{"192.0.2.1/32"}, policy.Rules[1].GetCidrs().GetCidrs())
-	for _, invalid := range []string{"*", "*.", "*.*.example.com", "a.*.example.com", "*github.com", "-bad.example.com"} {
-		_, err := ActorEgressPolicy("team-a", []string{invalid}, nil)
-		require.Error(t, err, invalid)
-	}
 }

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"slices"
-	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
@@ -167,25 +165,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	}
 	result.AgentName = agentName
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
-	result.EgressDestinations = withHarnessEgress(result.EgressDestinations, harness.Spec.Substrate.Egress)
 	return result, nil
-}
-
-// withHarnessEgress adds the Harness's declared egress hosts to the
-// destinations a runtime compiled for itself. Every runtime gets the same
-// treatment, so no runtime compiler reads the Harness policy.
-func withHarnessEgress(compiled, declared []string) []string {
-	if len(declared) == 0 {
-		return compiled
-	}
-	destinations := slices.Clone(compiled)
-	for _, host := range declared {
-		host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
-		if host != "" && !slices.Contains(destinations, host) {
-			destinations = append(destinations, host)
-		}
-	}
-	return destinations
 }
 
 func harnessType(harness *HarnessConfiguration) HarnessType {
@@ -228,11 +208,8 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 				continue
 			}
 			binding := tool.SubAgent
-			if (binding.TemplateRef == nil) == (binding.AgentRef == nil) {
-				return nil, NewValidationError("subagent %q requires exactly one of templateRef or agentRef", binding.Name)
-			}
-			if binding.AgentRef != nil {
-				return nil, NewValidationError("Dedicated subagent %q (agentRef) is not supported yet", binding.Name)
+			if binding.TemplateRef == nil || binding.TemplateRef.Name == "" {
+				return nil, NewValidationError("subagent %q requires templateRef.name", binding.Name)
 			}
 			if _, ok := names[binding.Name]; ok {
 				return nil, NewValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)

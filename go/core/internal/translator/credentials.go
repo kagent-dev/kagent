@@ -20,11 +20,6 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
 func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
-	for _, variable := range input.Harness.Spec.Env {
-		if variable.CredentialRef != nil {
-			return nil, nil, NewValidationError("Harness environment %q: arbitrary credentialRef values cannot be injected into HTTP headers; configure credentials on ModelConfig or RemoteMCPServer", variable.Name)
-		}
-	}
 	var bindings []egress.Credential
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
@@ -70,9 +65,6 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		name, endpoint, header, prefix := modelCredentialTarget(resolved)
 		if name == "" {
-			continue
-		}
-		if model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil {
 			continue
 		}
 		key := model.Spec.APIKeySecretKey
@@ -148,6 +140,11 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		}
 	case v1alpha3.ModelProviderGemini:
 		name, endpoint, header = env.GoogleAPIKey.Name(), "https://generativelanguage.googleapis.com", "x-goog-api-key"
+	case v1alpha3.ModelProviderMistral:
+		name, endpoint, header, prefix = env.MistralAPIKey.Name(), "https://api.mistral.ai", "authorization", "Bearer "
+		if spec.Mistral != nil && spec.Mistral.BaseURL != nil && *spec.Mistral.BaseURL != "" {
+			endpoint = *spec.Mistral.BaseURL
+		}
 	case v1alpha3.ModelProviderBedrock:
 		name, header, prefix = env.AWSBearerTokenBedrock.Name(), "authorization", "Bearer "
 		if spec.Bedrock != nil {

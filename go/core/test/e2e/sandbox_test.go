@@ -289,7 +289,7 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 	key := types.NamespacedName{Namespace: f.template.Namespace, Name: f.template.Name}
 	require.NoError(t, kube.Get(f.ctx, key, template))
 	marker := "prepared-v2"
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: &marker}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: marker}}
 	require.NoError(t, kube.Update(f.ctx, template))
 	require.Eventually(t, func() bool {
 		require.NoError(t, kube.Get(f.ctx, key, template))

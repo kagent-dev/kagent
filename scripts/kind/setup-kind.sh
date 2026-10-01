@@ -10,6 +10,37 @@ KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.35.0}
 # fall back to podman if available, then docker.
 CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-$(command -v podman >/dev/null 2>&1 && echo podman || echo docker)}
 
+kind_config=scripts/kind/kind-config.yaml
+if [ "${KIND_SANDBOX_CLASS:-gvisor}" = microvm ]; then
+  # A virtualized host must expose nested KVM, not just the device node.
+  sudo python3 - <<'PY'
+import fcntl
+import os
+import sys
+
+try:
+    with open("/dev/kvm", "r+b", buffering=0) as kvm:
+        version = fcntl.ioctl(kvm, 0xAE00, 0)  # KVM_GET_API_VERSION
+        if version != 12:
+            sys.exit(f"Unsupported KVM API version: {version}")
+        vm = fcntl.ioctl(kvm, 0xAE01, 0)  # KVM_CREATE_VM
+        os.close(vm)
+except OSError as error:
+    sys.exit(f"Cloud Hypervisor requires working KVM (nested on VM hosts): {error}")
+print("KVM_CREATE_VM succeeded; continuing with Cloud Hypervisor")
+PY
+
+  kind_config=$(mktemp "${TMPDIR:-/var/tmp}/kagent-kind-microvm.XXXXXX.yaml")
+  trap 'rm -f "$kind_config"' EXIT
+  cp scripts/kind/kind-config.yaml "$kind_config"
+  # The shared Kind config has one control-plane node.
+  cat >> "$kind_config" <<'YAML'
+    extraMounts:
+      - hostPath: /dev/kvm
+        containerPath: /dev/kvm
+YAML
+fi
+
 # 1. Create registry container unless it already exists
 # Override REG_NAME / REG_PORT / REG_SCHEME to reuse an existing local registry
 # (e.g. an HTTPS registry on another port) instead of creating a fresh kind-registry.
@@ -29,7 +60,7 @@ else
   # When using podman, set the KIND_EXPERIMENTAL_PROVIDER
   export KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_RUNTIME}"
   kind create cluster --name "${KIND_CLUSTER_NAME}" \
-    --config scripts/kind/kind-config.yaml \
+    --config "$kind_config" \
     --image="kindest/node:v${KIND_IMAGE_VERSION}" \
     --wait 60s
 fi
@@ -48,6 +79,9 @@ fi
 reg_internal_port="${REG_INTERNAL_PORT:-5000}"
 REGISTRY_DIR="/etc/containerd/certs.d/localhost:${reg_port}"
 for node in $(kind get nodes --name "${KIND_CLUSTER_NAME}"); do
+  if [ "${KIND_SANDBOX_CLASS:-gvisor}" = microvm ]; then
+    "${CONTAINER_RUNTIME}" exec "${node}" chmod 666 /dev/kvm
+  fi
   "${CONTAINER_RUNTIME}" exec "${node}" mkdir -p "${REGISTRY_DIR}"
   cat <<EOF | "${CONTAINER_RUNTIME}" exec -i "${node}" cp /dev/stdin "${REGISTRY_DIR}/hosts.toml"
 [host."${reg_scheme}://${reg_name}:${reg_internal_port}"]

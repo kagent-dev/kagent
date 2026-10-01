@@ -114,12 +114,25 @@ controller rollouts. Subsequent calls keep their normal failure and retry behavi
 fixture setup does not retry mutations or suppress errors returned by the server.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate
-v0.3.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
+v0.3.0-alpha3 enables multiple actors per worker by default (`--max-actors=1000`),
 so test concurrency is no longer limited to the worker count. A scenario may need
 multiple actors for subagents or template preparation; four scenarios is not a
 four-actor cap. Parallel harness subtests share the same `-parallel` budget as
 other scenarios; they do not multiply it. Go still isolates controller restart
 tests from parallel scenarios.
+
+CI runs separate gVisor and Cloud Hypervisor jobs in parallel on Blacksmith.
+The Cloud Hypervisor job first checks that `/dev/kvm` can create a VM, then
+mounts it into Kind and installs Substrate's pinned microVM assets and
+`SandboxConfig`. A runner without nested KVM fails that job before image builds.
+Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
+
+The same setup is available locally:
+`KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
+into the Kind node. After installing Substrate, run
+`SUBSTRATE_VERSION=0.3.0-alpha3 bash scripts/kind/setup-microvm.sh`.
+It fetches the matching Substrate release to use its asset installer and caches
+the downloaded assets under `.cache/substrate/microvm-assets/`.
 
 To compare four versus eight on the same revision and runner, manually dispatch
 the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
@@ -127,7 +140,7 @@ step duration and failures over repeated runs; doubling concurrency does not
 guarantee a speedup on the four-vCPU runner. Locally, use
 `make -C go e2e E2E_PARALLEL=8` (the local default remains two).
 
-CI uploads an `e2e-logs` artifact with test output, the final controller's logs,
+CI uploads a log artifact per runtime with test output, the final controller's logs,
 and worker/Substrate logs streamed during the suite. Use it to investigate an
 earlier timeout: subsequent actor activity can displace the failure from the
 200-line tails printed at the end of the job.
@@ -165,6 +178,12 @@ KAGENT_E2E_API_URL=http://<controller-address>:8083 make -C go e2e
 host and translates its listener to the host address reachable from the
 cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `KAGENT_E2E_LOCAL_HOST` when the cluster uses a different host address.
+
+Substrate alpha3 policies require DNS names and explicit protocols and ports.
+The mocks use Kubernetes Service names. For tracing, configure the controller's
+OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
+`manifests/tracing.yaml.tmpl` with `KAGENT_E2E_LOCAL_HOST` set to the test host's
+reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.

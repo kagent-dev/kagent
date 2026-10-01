@@ -46,11 +46,7 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 			require.NotEqual(t, digest, changed)
 		})
 	}
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "TOKEN", CredentialRef: &corev1.SecretKeySelector{}}}
-	actor, _, _, err = SandboxActorTemplate(template, "", policy)
-	require.ErrorContains(t, err, "credential")
-	require.Nil(t, actor)
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: new("/untrusted")}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: "/untrusted"}}
 	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "reserved")
 	require.Nil(t, actor)

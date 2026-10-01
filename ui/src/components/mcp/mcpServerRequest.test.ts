@@ -27,29 +27,9 @@ describe("toCreateRequest — TLS mapping", () => {
     expect(req.secrets).toBeUndefined();
   });
 
-  it("HTTPS without a CA: prefixes https:// and sends an empty spec.tls (system trust)", () => {
-    const req = toCreateRequest(urlForm({ tlsEnabled: true, caCertPem: "" }));
+  it("HTTPS: prefixes https:// and uses system trust", () => {
+    const req = toCreateRequest(urlForm({ tlsEnabled: true }));
     expect(req.remoteMCPServer?.spec.url).toBe("https://mcp.example.com/sse");
-    expect(req.remoteMCPServer?.spec.tls).toEqual({});
-    expect(req.secrets).toBeUndefined();
-  });
-
-  it("HTTPS with a CA: references a materialised secret and ships its contents", () => {
-    const pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
-    const req = toCreateRequest(urlForm({ tlsEnabled: true, caCertPem: pem }));
-    expect(req.remoteMCPServer?.spec.tls).toEqual({
-      caCertSecretRef: "my-server-ca",
-      caCertSecretKey: "ca.crt",
-    });
-    expect(req.secrets).toEqual([
-      { name: "my-server-ca", key: "ca.crt", value: pem },
-    ]);
-  });
-
-  it("ignores a CA bundle left over when TLS is off", () => {
-    const req = toCreateRequest(
-      urlForm({ tlsEnabled: false, caCertPem: "-----BEGIN CERTIFICATE-----" }),
-    );
     expect(req.remoteMCPServer?.spec.tls).toBeUndefined();
     expect(req.secrets).toBeUndefined();
   });

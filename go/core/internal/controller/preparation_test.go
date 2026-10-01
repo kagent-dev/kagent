@@ -505,7 +505,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	updated := harnesses.List()[0].DeepCopy()
-	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: new(strings.Repeat("x", 32769))}}
+	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}
 	harnesses.UpdateObject(updated)
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).CompilationFailure != nil
@@ -537,9 +537,9 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
 	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
-	runtimeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{RuntimeSubstratePolicy: kagentv1alpha3.RuntimeSubstratePolicy{
+	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
-	}}
+	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
 	mock := krttest.NewMock(t, []any{
 		template,
