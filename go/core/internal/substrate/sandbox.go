@@ -56,17 +56,11 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	}
 	var environment []*ateapipb.EnvVar
 	for _, variable := range template.Spec.Env {
-		if variable.CredentialRef != nil {
-			return nil, "", nil, fmt.Errorf("sandbox environment %q cannot inject a credential", variable.Name)
-		}
 		_, trust := egressTrustEnvironment[variable.Name]
 		if trust || strings.HasPrefix(variable.Name, "KAGENT_") || strings.HasPrefix(variable.Name, "ATE_") {
 			return nil, "", nil, fmt.Errorf("sandbox environment %q is reserved", variable.Name)
 		}
-		if variable.Value == nil {
-			return nil, "", nil, fmt.Errorf("sandbox environment %q requires a literal value", variable.Name)
-		}
-		environment = append(environment, &ateapipb.EnvVar{Name: variable.Name, Value: *variable.Value})
+		environment = append(environment, &ateapipb.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"} {
 		environment = append(environment, &ateapipb.EnvVar{Name: name, Value: egressTrustMount + "/trust-bundle.pem"})

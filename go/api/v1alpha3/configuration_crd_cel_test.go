@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,7 +69,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
-	empty := ""
 	cases := []struct {
 		name       string
 		object     ctrlclient.Object
@@ -110,26 +110,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "spec.claude.limits.budgetUSD",
 		},
 		{
-			name: "Harness env requires a value source",
-			object: validHarness(namespace, "harness-empty-env", HarnessSpec{
-				Kagent: &KagentHarness{},
-				Env:    []RuntimeEnvVar{{Name: "EMPTY"}},
-			}),
-			wantReject: "exactly one of value or credentialRef must be specified",
-		},
-		{
-			name: "Harness env rejects two value sources",
-			object: validHarness(namespace, "harness-two-env-sources", HarnessSpec{
-				Kagent: &KagentHarness{},
-				Env: []RuntimeEnvVar{{
-					Name:          "MODEL_KEY",
-					Value:         &empty,
-					CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model"}, Key: "key"},
-				}},
-			}),
-			wantReject: "exactly one of value or credentialRef must be specified",
-		},
-		{
 			name: "Harness memory requires a model reference",
 			object: validHarness(namespace, "harness-empty-memory-model", HarnessSpec{
 				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{}},
@@ -148,7 +128,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "valid Harness",
 			object: validHarness(namespace, "valid-harness", HarnessSpec{
 				Claude: &ClaudeHarness{},
-				Env:    []RuntimeEnvVar{{Name: "EMPTY", Value: &empty}},
+				Env:    []RuntimeEnvVar{{Name: "EMPTY", Value: ""}},
 			}),
 		},
 		{
@@ -275,24 +255,12 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		},
 		{
 			name:   "SandboxTemplate allows empty literal environment values",
-			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Env = []RuntimeEnvVar{{Name: "EMPTY", Value: &empty}} }),
-		},
-		{
-			name:       "SandboxTemplate requires one environment source",
-			object:     sandboxTemplateForValidation(namespace, "sandbox-missing-env-source", func(spec *SandboxTemplateSpec) { spec.Env = []RuntimeEnvVar{{Name: "EMPTY"}} }),
-			wantReject: "exactly one of value or credentialRef",
-		},
-		{
-			name: "SandboxTemplate rejects two environment sources",
-			object: sandboxTemplateForValidation(namespace, "sandbox-two-env-sources", func(spec *SandboxTemplateSpec) {
-				spec.Env = []RuntimeEnvVar{{Name: "TOKEN", Value: &empty, CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "secret"}, Key: "token"}}}
-			}),
-			wantReject: "exactly one of value or credentialRef",
+			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Env = []RuntimeEnvVar{{Name: "EMPTY", Value: ""}} }),
 		},
 		{
 			name: "SandboxTemplate rejects duplicate environment names",
 			object: sandboxTemplateForValidation(namespace, "sandbox-duplicate-env", func(spec *SandboxTemplateSpec) {
-				spec.Env = []RuntimeEnvVar{{Name: "LANG", Value: &empty}, {Name: "LANG", Value: &empty}}
+				spec.Env = []RuntimeEnvVar{{Name: "LANG", Value: ""}, {Name: "LANG", Value: ""}}
 			}),
 			wantReject: "Duplicate value",
 		},
@@ -304,17 +272,8 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		wantReject string
 	}{
 		{name: "template-ref", binding: SubAgentToolBinding{TemplateRef: &corev1.LocalObjectReference{Name: "context"}}},
-		{name: "agent-ref", binding: SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{Name: "reviewer"}}},
-		{name: "neither-ref", wantReject: "exactly one of templateRef or agentRef must be specified"},
-		{
-			name: "both-refs",
-			binding: SubAgentToolBinding{
-				TemplateRef: &corev1.LocalObjectReference{Name: "context"}, AgentRef: &corev1.LocalObjectReference{Name: "reviewer"},
-			},
-			wantReject: "exactly one of templateRef or agentRef must be specified",
-		},
+		{name: "missing-template-ref", wantReject: "templateRef: Required value"},
 		{name: "empty-template-ref", binding: SubAgentToolBinding{TemplateRef: &corev1.LocalObjectReference{}}, wantReject: "templateRef.name must not be empty"},
-		{name: "empty-agent-ref", binding: SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{}}, wantReject: "agentRef.name must not be empty"},
 	} {
 		for _, inline := range []bool{false, true} {
 			name := fmt.Sprintf("subagent-%s-inline-%t", tc.name, inline)
@@ -407,6 +366,58 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantReject)
 		})
 	}
+
+	t.Run("literal runtime environment", func(t *testing.T) {
+		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentHarness{}})
+		for _, resource := range []struct {
+			kind   string
+			object ctrlclient.Object
+			path   []string
+		}{
+			{kind: "Harness", object: harness, path: []string{"spec", "env"}},
+			{kind: "SandboxTemplate", object: sandboxTemplateForValidation(namespace, "env-sandbox", nil), path: []string{"spec", "env"}},
+			{kind: "Agent", object: &Agent{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "env-agent"},
+				Spec: AgentSpec{
+					Harness: &harness.Spec, TemplateRef: &corev1.LocalObjectReference{Name: "behavior"},
+				},
+			}, path: []string{"spec", "harness", "env"}},
+		} {
+			for _, tc := range []struct {
+				name       string
+				entry      map[string]any
+				wantReject string
+			}{
+				{name: "literal", entry: map[string]any{"name": "LANG", "value": "C.UTF-8"}},
+				{name: "empty", entry: map[string]any{"name": "LANG", "value": ""}},
+				{name: "missing", entry: map[string]any{"name": "LANG"}, wantReject: "value: Required value"},
+				{name: "null", entry: map[string]any{"name": "LANG", "value": nil}, wantReject: "value: Required value"},
+				{name: "credential", entry: map[string]any{"name": "TOKEN", "credentialRef": map[string]any{"name": "auth", "key": "token"}}, wantReject: "unknown field"},
+				{name: "literal-and-credential", entry: map[string]any{"name": "TOKEN", "value": "", "credentialRef": map[string]any{"name": "auth", "key": "token"}}, wantReject: "unknown field"},
+			} {
+				t.Run(resource.kind+"/"+tc.name, func(t *testing.T) {
+					data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(resource.object)
+					require.NoError(t, err)
+					object := &unstructured.Unstructured{Object: data}
+					object.SetAPIVersion(GroupVersion.String())
+					object.SetKind(resource.kind)
+					object.SetName(object.GetName() + "-" + tc.name)
+					require.NoError(t, unstructured.SetNestedSlice(data, []any{tc.entry}, resource.path...))
+					err = cl.Create(ctx, object, &ctrlclient.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
+					if tc.wantReject != "" {
+						require.ErrorContains(t, err, tc.wantReject)
+						return
+					}
+					require.NoError(t, err)
+					require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), object))
+					entries, found, err := unstructured.NestedSlice(object.Object, resource.path...)
+					require.NoError(t, err)
+					require.True(t, found)
+					require.Equal(t, []any{tc.entry}, entries)
+				})
+			}
+		}
+	})
 }
 
 func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTemplateSpec)) *SandboxTemplate {

@@ -183,9 +183,6 @@ func (r *Reconciler) requestsForDependency(ctx context.Context, object client.Ob
 func referencesDependency(server *v1alpha3.RemoteMCPServer, object client.Object) bool {
 	switch object.(type) {
 	case *corev1.Secret:
-		if server.Spec.TLS != nil && server.Spec.TLS.CACertSecretRef == object.GetName() {
-			return true
-		}
 		for i := range server.Spec.HeadersFrom {
 			from := server.Spec.HeadersFrom[i].ValueFrom
 			if from != nil && from.Type == v1alpha3.SecretValueSource && from.Name == object.GetName() {
