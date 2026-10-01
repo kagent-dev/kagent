@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/stretchr/testify/require"
 )
 
 type recordedRequest struct {
 	Path, Query, Authorization, Toolset, Host string
+	Header                                    http.Header
 }
 
 func newRecordingUpstream(t *testing.T) (*httptest.Server, func() []recordedRequest) {
@@ -27,6 +29,7 @@ func newRecordingUpstream(t *testing.T) (*httptest.Server, func() []recordedRequ
 		seen = append(seen, recordedRequest{
 			Path: request.URL.Path, Query: request.URL.RawQuery, Host: request.Host,
 			Authorization: request.Header.Get("Authorization"), Toolset: request.Header.Get("X-Toolset"),
+			Header: request.Header.Clone(),
 		})
 		mu.Unlock()
 		_, _ = io.WriteString(response, "ok")
@@ -92,22 +95,15 @@ func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 		t.Fatalf("forwarded call status = %d", response.StatusCode)
 	}
 
+	host := strings.TrimPrefix(upstream.URL, "http://")
 	seen := requests()
-	if len(seen) != 2 {
-		t.Fatalf("upstream requests = %#v, want 2", seen)
+	for i := range seen {
+		seen[i].Header = nil
 	}
-	want := []recordedRequest{
-		{Path: "/mcp", Query: "tenant=test", Authorization: "Bearer person-token", Toolset: "preset:read-only", Host: strings.TrimPrefix(upstream.URL, "http://")},
-		{Path: "/mcp/session", Query: "tenant=test&id=7", Authorization: "Bearer static-service", Toolset: "preset:read-only", Host: strings.TrimPrefix(upstream.URL, "http://")},
-	}
-	for i := range want {
-		if seen[i] != want[i] {
-			t.Errorf("upstream request %d = %#v, want %#v", i, seen[i], want[i])
-		}
-		if strings.Contains(seen[i].Authorization, forwarder.token) {
-			t.Errorf("the loopback token left the process: %#v", seen[i])
-		}
-	}
+	require.Equal(t, []recordedRequest{
+		{Path: "/mcp", Query: "tenant=test", Authorization: "Bearer person-token", Toolset: "preset:read-only", Host: host},
+		{Path: "/mcp/session", Query: "tenant=test&id=7", Toolset: "preset:read-only", Host: host},
+	}, seen, "the static Authorization and the loopback token must never leave the process")
 }
 
 func TestCredentialForwarderRejectsUnknownServersAndInputs(t *testing.T) {
@@ -198,16 +194,50 @@ func TestCallerCredentialReadsTheA2ACall(t *testing.T) {
 func TestCredentialForwarderKeepsThePathAbsoluteForAPathlessUpstream(t *testing.T) {
 	upstream, requests := newRecordingUpstream(t)
 	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{"tools": {URL: upstream.URL}}, 1<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
 	forwarder.Bind("Bearer person-token")
-	if response := callForwarder(t, forwarder, forwarder.URL("tools")+"/session", true); response.StatusCode != http.StatusOK {
-		t.Fatalf("forwarded call status = %d", response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, callForwarder(t, forwarder, forwarder.URL("tools")+"/session", true).StatusCode)
 	seen := requests()
-	if len(seen) != 1 || seen[0].Path != "/session" {
-		t.Fatalf("upstream requests = %#v, want one request at /session", seen)
-	}
+	require.Len(t, seen, 1)
+	require.Equal(t, "/session", seen[0].Path)
+}
+
+func TestCredentialForwarderForwardsTransportHeadersOnly(t *testing.T) {
+	upstream, requests := newRecordingUpstream(t)
+	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
+		"tools": {URL: upstream.URL + "/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
+	}, 1<<20)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+	forwarder.Bind("Bearer person-token")
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, forwarder.URL("tools"), strings.NewReader(`{"jsonrpc":"2.0"}`))
+	require.NoError(t, err)
+	request.Header.Set("Authorization", forwarder.Headers()["Authorization"])
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Mcp-Session-Id", "session-1")
+	request.Header.Set("Mcp-Protocol-Version", "2025-06-18")
+	request.Header.Set("Traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+	request.Header.Set("X-Toolset", "*")
+	request.Header.Set("Cookie", "session=other")
+	request.Header.Set("X-Custom", "value")
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = response.Body.Close() })
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	seen := requests()
+	require.Len(t, seen, 1)
+	header := seen[0].Header
+	require.Equal(t, "Bearer person-token", header.Get("Authorization"))
+	require.Equal(t, "preset:read-only", header.Get("X-Toolset"), "the client must not choose the toolset")
+	require.Equal(t, "application/json", header.Get("Content-Type"))
+	require.Equal(t, "application/json, text/event-stream", header.Get("Accept"))
+	require.Equal(t, "session-1", header.Get("Mcp-Session-Id"))
+	require.Equal(t, "2025-06-18", header.Get("Mcp-Protocol-Version"))
+	require.NotEmpty(t, header.Get("Traceparent"))
+	require.Empty(t, header.Get("Cookie"))
+	require.Empty(t, header.Get("X-Custom"))
 }

@@ -87,6 +87,10 @@ func NewCredentialForwarder(servers map[string]UpstreamMCPServer, maxBodyBytes i
 		for header, value := range server.Headers {
 			headers[http.CanonicalHeaderKey(header)] = value
 		}
+		// The forwarder carries the caller's credential only: a static
+		// Authorization never leaves it, and a Secret-backed one is set by the
+		// egress gateway outside the sandbox.
+		delete(headers, "Authorization")
 		entry := &forwardTarget{url: target, headers: headers}
 		entry.proxy = &httputil.ReverseProxy{
 			Rewrite:       forwarder.rewrite(entry),
@@ -165,8 +169,8 @@ func (f *CredentialForwarder) authorizeAndLimit(next http.Handler) http.Handler 
 func (f *CredentialForwarder) serve(response http.ResponseWriter, request *http.Request) {
 	// The suffix is joined onto the upstream URL, which resolves dot segments:
 	// a request must not climb out of its server's path with the credential.
-	if !forwardablePath(request.URL) {
-		http.Error(response, "path holds a dot segment or an encoded slash", http.StatusBadRequest)
+	if !forwardablePath(request) {
+		http.Error(response, "path holds a dot segment, an encoded slash or a character the forwarder refuses", http.StatusBadRequest)
 		return
 	}
 	rest, ok := strings.CutPrefix(request.URL.Path, forwarderPathPrefix)
@@ -195,8 +199,9 @@ func (f *CredentialForwarder) rewrite(target *forwardTarget) func(*httputil.Prox
 		suffix, _ := proxied.In.Context().Value(pathSuffixKey{}).(string)
 		out.URL.Path, out.URL.RawPath = joinPath(target.url, suffix)
 		out.URL.RawQuery = joinQuery(target.url.RawQuery, proxied.In.URL.RawQuery)
-		// The loopback token authenticates Claude to this process only.
-		out.Header.Del("Authorization")
+		// The loopback token authenticates Claude to this process only, and
+		// Claude chooses no other header the caller's credential travels with.
+		out.Header = forwardedHeaders(proxied.In.Header)
 		for header, value := range target.headers {
 			out.Header.Set(header, value)
 		}
@@ -208,20 +213,47 @@ func (f *CredentialForwarder) rewrite(target *forwardTarget) func(*httputil.Prox
 
 // forwardablePath reports whether a request path has no "." or ".." segment,
 // decoded or not, no encoded slash, no backslash and no encoded percent sign,
-// which an upstream decoding once more would turn into one of the others.
-func forwardablePath(requestURL *url.URL) bool {
-	escaped := strings.ToLower(requestURL.EscapedPath())
-	for _, refused := range []string{"%2f", "%5c", "%25", "\\"} {
-		if strings.Contains(escaped, refused) {
-			return false
+// which an upstream decoding once more would turn into one of the others. The
+// raw request target is checked as well as the parsed path: url.URL drops a
+// RawPath it cannot reproduce, and EscapedPath then re-encodes the decoded path,
+// in which an encoded slash is already a separator. A ";", which some servers
+// strip with what follows it in a segment, and control bytes are refused too.
+func forwardablePath(request *http.Request) bool {
+	rawPath, _, _ := strings.Cut(request.RequestURI, "?")
+	for _, escaped := range []string{rawPath, request.URL.EscapedPath()} {
+		escaped = strings.ToLower(escaped)
+		for _, refused := range []string{"%2f", "%5c", "%25", "\\"} {
+			if strings.Contains(escaped, refused) {
+				return false
+			}
 		}
 	}
-	for segment := range strings.SplitSeq(requestURL.Path, "/") {
+	if strings.ContainsFunc(request.URL.Path, func(r rune) bool { return r == ';' || r < 0x20 || r == 0x7f }) {
+		return false
+	}
+	for segment := range strings.SplitSeq(request.URL.Path, "/") {
 		if segment == "." || segment == ".." {
 			return false
 		}
 	}
 	return true
+}
+
+// forwardedRequestHeaders are the headers of Claude's request that reach the
+// upstream: what the streamable HTTP transport and trace propagation need.
+var forwardedRequestHeaders = []string{
+	"Accept", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-Id",
+	"User-Agent", "Traceparent", "Tracestate", "Baggage",
+}
+
+func forwardedHeaders(in http.Header) http.Header {
+	out := make(http.Header, len(forwardedRequestHeaders))
+	for _, header := range forwardedRequestHeaders {
+		if values := in.Values(header); len(values) != 0 {
+			out[header] = slices.Clone(values)
+		}
+	}
+	return out
 }
 
 func joinPath(target *url.URL, suffix string) (path, rawPath string) {
