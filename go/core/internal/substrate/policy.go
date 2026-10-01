@@ -11,7 +11,6 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // ActorEgressPolicy compiles HTTP(S) origins into an actor's default allowlist.
@@ -33,7 +32,9 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		if _, err := netip.ParseAddr(host); err == nil {
 			return nil, fmt.Errorf("egress destination %q requires a DNS name: Substrate does not support IP allowlists", destination)
 		}
-		if len(validation.IsDNS1123Subdomain(host)) != 0 {
+		// A leftmost-label wildcard is a Substrate hostname pattern; the name
+		// under it must still be a DNS name.
+		if !egress.ValidHostPattern(host) {
 			return nil, fmt.Errorf("invalid egress destination %q", destination)
 		}
 		origin := egress.Origin(u)
