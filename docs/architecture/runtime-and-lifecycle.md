@@ -11,6 +11,14 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
+Substrate v0.3.0-alpha3 requires protocol-specific egress policies. Kagent allows
+each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
+replaces credential headers in that destination's deciding rule. Conflicting
+protocols on the same host and port are rejected before Actor creation. Literal
+IP allowlists are unsupported by this Substrate release; model, MCP, and telemetry endpoints
+must use DNS names. Host-based test services use Kubernetes Services and
+EndpointSlices to provide those names.
+
 Create (including forks), explicit Suspend, Resume, and Delete keep their current
 operation UUID and executor claim on the session row. Fork creation loads its
 pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the Agent
@@ -184,3 +192,10 @@ Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
+
+The Go ADK opens and migrates its SQLite session store before readiness, but
+retains no idle database connections. Full and golden restores preserve guest
+memory while rematerializing `/data`, so a connection opened before the snapshot
+can retain a stale file identity and reject writes with `SQLITE_READONLY_DBMOVED`.
+Closing connections when returned to the pool keeps quiescent snapshots free of
+database handles; each later operation opens the current backing file.

@@ -18,7 +18,9 @@ import (
 )
 
 func TestSessionPausedTaskCheckpointRejected(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		switch harness.name {
 		case codexE2EHarness, claudeE2EHarness:
 			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")

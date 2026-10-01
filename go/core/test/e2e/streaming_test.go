@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -13,14 +14,70 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func TestSessionModelStreamingDisabled(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	for _, format := range []v1alpha3.OpenAIAPIFormat{
+		v1alpha3.OpenAIAPIFormatChatCompletions,
+		v1alpha3.OpenAIAPIFormatResponses,
+	} {
+		t.Run(string(format), func(t *testing.T) {
+			t.Parallel()
+			recorder := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func(body []byte) error {
+				var request struct {
+					Stream bool `json:"stream"`
+				}
+				if err := json.Unmarshal(body, &request); err != nil {
+					return err
+				}
+				if request.Stream {
+					return errors.New("stream=true is not supported by this model")
+				}
+				return nil
+			})
+			kube := interactionKubeClient(t)
+			model := createInteractionModel(t, kube, reachableModelURL(t, recorder.URL), map[string]string{"X-Kagent-E2E-Model": "non-streaming"})
+			before := model.DeepCopy()
+			model.Spec.Stream = new(false)
+			model.Spec.OpenAI.APIFormat = new(format)
+			// Status reconciliation may have advanced resourceVersion since creation.
+			require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(before)))
+			harness := testHarness{name: "kagent", runtimeLabel: "kagent"}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
+				Spec: v1alpha3.AgentTemplateSpec{
+					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+				},
+			}
+			createAndWaitInteractionTemplate(t, harness, kube, template)
+			fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
+			_, _, task := fixture.send(t, "What is 2+2?")
+			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, taskText(task))
+			require.Contains(t, taskText(task), "The answer is 4.")
+
+			// A2A clients can still receive task events when model tokens are not streamed.
+			streamed := sendStreaming(t, fixture, "What is 3+3?")
+			require.Equal(t, a2atype.TaskStateCompleted, streamed.state, streamed.failureText)
+			require.Contains(t, streamed.text, "The answer is 6.")
+			require.Contains(t, taskText(getTask(t, fixture, streamed.taskID)), "The answer is 6.")
+			require.Len(t, recorder.Requests("X-Kagent-E2E-Model", "non-streaming"), 2)
+		})
+	}
+}
 
 // Completion must reach durable storage with no public stream left attached.
 // A reconnect reads the completed task after native work and cleanup finish.
 func TestSessionCompletesAfterDisconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		started, release := make(chan struct{}), make(chan struct{})
 		var startedOnce, releaseOnce sync.Once
 		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
@@ -76,6 +133,7 @@ func TestSessionCompletesAfterDisconnect(t *testing.T) {
 func TestSessionStreamingResumeAndPersistence(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 
 		streamed := sendStreaming(t, fixture, "What is 2+2?")

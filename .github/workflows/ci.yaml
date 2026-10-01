@@ -50,9 +50,14 @@ jobs:
           echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
           echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
   test-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.3.0-alpha1
+      SUBSTRATE_VERSION: 0.3.0-alpha3
+      KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -99,11 +104,11 @@ jobs:
         id: kind
         uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2
         with:
+          version: v0.33.0
           install_only: true
 
       - name: Create Kind cluster
-        run: |
-          make create-kind-cluster
+        run: make create-kind-cluster
 
       - name: Prepare Agent Substrate certificates
         run: |
@@ -119,6 +124,17 @@ jobs:
           actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n kagent -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
           kubectl create secret generic actor-id-ca-certs -n kagent --from-literal=ca.crt="${actor_id_ca_root}"
           kubectl create configmap ate-api-authentication -n kagent --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [kagent-api.kagent.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
+
+      - name: Cache Cloud Hypervisor assets
+        if: matrix.sandbox_class == 'microvm'
+        uses: actions/cache@v6
+        with:
+          path: .cache/substrate/microvm-assets/amd64
+          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
+
+      - name: Install Cloud Hypervisor runtime
+        if: matrix.sandbox_class == 'microvm'
+        run: bash scripts/kind/setup-microvm.sh
 
       - name: Install Kagent
         id: install-kagent
@@ -144,9 +160,10 @@ jobs:
             --set controller.substrate.atenetRouterURL=http://kagent-atenet-router.kagent.svc:80
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
-            --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
+            --set-string substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
+            --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
             --set otel.traces.enabled=true
-            --set otel.exporter.otlp.endpoint=http://172.17.0.1:14317
+            --set-string otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -199,9 +216,9 @@ jobs:
           echo "KAGENT_API_URL: $KAGENT_API_URL"
           make core/bin/kagent-local
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
-          envsubst < core/test/e2e/manifests/tracing.yaml.tmpl | kubectl apply -f -
           export KAGENT_E2E_API_URL="$KAGENT_API_URL"
           export KAGENT_E2E_LOCAL_HOST=172.17.0.1
+          envsubst < core/test/e2e/manifests/tracing.yaml.tmpl | kubectl apply -f -
           # TestMain keeps the receiver alive for every runtime's response flush.
           export KAGENT_E2E_OTLP_LISTEN_ADDRESS=:14317
           # Concurrent actors can push an earlier failure out of the final log tail.
@@ -223,7 +240,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-logs
+          name: e2e-logs-${{ matrix.sandbox_class }}
           path: ${{ runner.temp }}/e2e-logs
           retention-days: 7
 

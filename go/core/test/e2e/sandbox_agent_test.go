@@ -14,14 +14,13 @@ import (
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestSandboxAgentMCP(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	image := kagentenv.E2ERuntimeImage.Get()
 	require.NotEmpty(t, image, "KAGENT_E2E_RUNTIME_IMAGE must be set to a digest-pinned Go ADK image")
@@ -37,7 +36,7 @@ func TestSandboxAgentMCP(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-agent-", Namespace: f.template.Namespace},
 		Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: image}, Substrate: source.Spec.Substrate,
-			Env: []v1alpha3.RuntimeEnvVar{{Name: "KAGENT_PROPAGATE_TOKEN", Value: new("true")}}},
+			Env: []v1alpha3.RuntimeEnvVar{{Name: "KAGENT_PROPAGATE_TOKEN", Value: "true"}}},
 	}
 	require.NoError(t, kube.Create(f.ctx, harness))
 	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), harness)) })
@@ -69,9 +68,7 @@ func TestSandboxAgentMCP(t *testing.T) {
 		},
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	conn := newControllerConn(t, target)
 	instances := apiv1alpha1.NewSessionServiceClient(conn)
 	created, err := instances.CreateSession(f.ctx, &apiv1alpha1.CreateSessionRequest{
 		Agent: &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name}, RequestId: uuid.NewString(),

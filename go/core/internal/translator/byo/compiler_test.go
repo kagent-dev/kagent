@@ -18,7 +18,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 	harness := &v2translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
-		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: new("production")}},
+		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: "production"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
@@ -34,7 +34,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, harness.Spec.Workload.Command, revision.Command)
 	require.Equal(t, harness.Spec.Workload.Args, revision.Args)
-	require.Equal(t, []string{"kagent-controller.kagent"}, revision.EgressDestinations)
+	require.Equal(t, []string{"http://kagent-controller.kagent:8083"}, revision.EgressDestinations)
 	require.Equal(t, []corev1.EnvVar{
 		{Name: "MODE", Value: "production"},
 		{Name: "KAGENT_API_URL", Value: "http://kagent-controller.kagent:8083"},
@@ -55,8 +55,8 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Env: []v1alpha3.RuntimeEnvVar{
-			{Name: "OTEL_SERVICE_NAME", Value: new("my-langgraph")},
-			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: new("https://otlp.example.com")},
+			{Name: "OTEL_SERVICE_NAME", Value: "my-langgraph"},
+			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "https://otlp.example.com"},
 		},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},

@@ -17,7 +17,9 @@ import (
 )
 
 func TestModelCredentialDelivery(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		const token = "gateway-injection-e2e-token"
 		header, wantCredential := "Authorization", "Bearer "+token
 		if harness.name == claudeE2EHarness {

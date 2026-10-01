@@ -46,7 +46,7 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "kagent.fullname" . }}-controller
+      serviceAccountName: {{ include "kagent.controller.serviceAccountName" . | quote }}
       volumes:
       - name: {{ $databaseSecretVolumeName }}
         projected:

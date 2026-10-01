@@ -162,6 +162,11 @@ rbac:
 controller:
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
+    # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.
+    create: true
+    # -- Name of the controller ServiceAccount.
+    # @default -- `<fullname>-controller`
+    name: ""
     # -- Annotations to add to the controller ServiceAccount.
     # Useful for GCP Workload Identity, AWS IRSA, or Azure Workload Identity.
     # @default -- {} (no extra annotations)
@@ -674,9 +679,6 @@ providers:
     # This same block can be used under any provider.
     # tls:
     #   disableVerify: false
-    #   caCertSecretRef: ""
-    #   caCertSecretKey: ""
-    #   disableSystemCAs: false
   ollama:
     provider: Ollama
     # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
@@ -714,7 +716,7 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.5-flash-lite"
+    model: "gemini-3.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""

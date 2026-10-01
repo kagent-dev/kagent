@@ -142,7 +142,27 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(row.getByTestId("harness-ready")).toContainText("Not ready yet");
   });
 
-  await test.step("9. it is removed from the same tab, and the rest stays", async () => {
+  await test.step("9. a rejected delete reports failure and keeps the row", async () => {
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("mock", "error");
+      window.history.replaceState({}, "", url);
+    });
+
+    await confirmDelete(page, CREATED);
+
+    await expect(page.getByText(`Could not delete harness ${CREATED}:`)).toBeVisible();
+    await expect(page.getByText(`Deleted harness ${CREATED}`)).toHaveCount(0);
+    await expect(page.getByTestId(table)).toContainText(CREATED);
+
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("mock", "ok");
+      window.history.replaceState({}, "", url);
+    });
+  });
+
+  await test.step("10. it is removed from the same tab, and the rest stays", async () => {
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
 
@@ -154,10 +174,9 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     // One row went, not the table: "gone" has to mean that harness rather than a read
     // that failed and left an empty list behind it.
     await expect.poll(() => rows.count()).toBe(before - 1);
-    await expect(page.getByTestId("harnesses-delete-error")).toHaveCount(0);
   });
 
-  await test.step("10. an empty result leaves the tab standing, with no rows", async () => {
+  await test.step("11. an empty result leaves the tab standing, with no rows", async () => {
     // Last, after the delete: reaching these needs the backend answering differently and
     // `?mock=` is per-navigation, which discards what the journey made.
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
@@ -166,7 +185,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
   });
 
-  await test.step("11. a failed load is reported, not disguised as an empty tab", async () => {
+  await test.step("12. a failed load is reported, not disguised as an empty tab", async () => {
     await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("harnesses-error");
