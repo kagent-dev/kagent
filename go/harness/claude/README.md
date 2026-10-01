@@ -72,7 +72,9 @@ absent.
 ## Human-in-the-loop approval flow
 
 Claude runs in print mode with `permissions.ask` rules for MCP servers
-that require approval. Its native `--permission-prompt-tool` calls a private,
+that require approval, passed with `--settings`. User and project settings
+still load, so the compiled skills under `--add-dir` do too; their `allow`
+rules do not skip an `ask`. Its native `--permission-prompt-tool` calls a private,
 authenticated loopback MCP tool before executing a protected call.
 
 ```mermaid

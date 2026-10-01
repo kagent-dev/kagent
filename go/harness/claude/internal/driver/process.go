@@ -141,8 +141,9 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--dangerously-skip-permissions",
 	}
 	if d.config.ApprovalBroker != nil {
+		// No --setting-sources: skills under --add-dir belong to the project
+		// source, so closing the sources drops the compiled skills.
 		args = append(args,
-			"--setting-sources", "",
 			"--settings", d.config.SettingsPath,
 			"--permission-prompt-tool", d.config.PermissionPromptTool,
 		)
