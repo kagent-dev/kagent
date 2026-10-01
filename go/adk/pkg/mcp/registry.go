@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"time"
 
 	"log/slog"
@@ -314,7 +316,12 @@ type headerRoundTripper struct {
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
+	rt.setHeaders(req)
+	return rt.base.RoundTrip(req)
+}
 
+// setHeaders sets the headers of all four sources on req, in RoundTrip's order.
+func (rt *headerRoundTripper) setHeaders(req *http.Request) {
 	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
 	// A2A request independently of allowedHeaders. Carry the authenticated user
 	// alongside it so kagent callbacks preserve ownership in insecure and
@@ -348,34 +355,70 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	for key, value := range rt.headers {
 		req.Header.Set(key, value)
 	}
+}
 
-	return rt.base.RoundTrip(req)
+// awaitsCallerCredential reports whether the server takes its Authorization
+// from the caller of a turn (KAGENT_PROPAGATE_TOKEN, or Authorization among
+// the allowed headers) and ctx carries none, as at the runtime's boot, which
+// has no caller. Listing the server's tools then can only be refused.
+func awaitsCallerCredential(ctx context.Context, params mcpServerParams) bool {
+	if params.ServerType == "stdio" {
+		return false
+	}
+	if !params.PropagateToken && !slices.ContainsFunc(params.AllowedHeaders, func(name string) bool {
+		return strings.EqualFold(name, constants.AuthorizationHeader)
+	}) {
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, params.URL, nil)
+	if err != nil {
+		return false
+	}
+	(&headerRoundTripper{
+		headers:        params.Headers,
+		allowedHeaders: params.AllowedHeaders,
+		propagateToken: params.PropagateToken,
+		headerProvider: params.HeaderProvider,
+	}).setHeaders(req)
+	return req.Header.Get(constants.AuthorizationHeader) == ""
+}
+
+// configuredToolPredicate keeps the tools enabled in the configured filter, or
+// every tool when no filter is configured.
+func configuredToolPredicate(toolFilter map[string]bool) tool.Predicate {
+	if len(toolFilter) == 0 {
+		return nil
+	}
+	allowedTools := make([]string, 0, len(toolFilter))
+	for name, enabled := range toolFilter {
+		if enabled {
+			allowedTools = append(allowedTools, name)
+		}
+	}
+	return tool.StringPredicate(allowedTools)
 }
 
 // initializeToolSet fetches tools from an MCP server using Google ADK's
 // mcptoolset and wraps the result with any MCP App-capable tool names found
-// during classification.
+// during classification. A server that awaits the caller's credential is not
+// contacted: its tools are discovered lazily, at the first turn, with the
+// caller's token.
 func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (*mcpAppToolset, error) {
+	log := logging.FromContext(ctx)
 	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	toolPredicate, appToolNames, err := agentVisibleToolFilter(ctx, params, toolFilter)
-	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
+	var toolPredicate tool.Predicate
+	var appToolNames map[string]bool
+	if awaitsCallerCredential(ctx, params) {
+		log.DebugContext(ctx, "MCP server takes the caller's credential and there is no caller yet; tool discovery deferred to the first turn", "url", params.URL)
+		toolPredicate = configuredToolPredicate(toolFilter)
+	} else if toolPredicate, appToolNames, err = agentVisibleToolFilter(ctx, params, toolFilter); err != nil {
+		log.ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
 		appToolNames = nil
-		if len(toolFilter) > 0 {
-			allowedTools := make([]string, 0, len(toolFilter))
-			for name, enabled := range toolFilter {
-				if enabled {
-					allowedTools = append(allowedTools, name)
-				}
-			}
-			toolPredicate = tool.StringPredicate(allowedTools)
-		} else {
-			toolPredicate = nil
-		}
+		toolPredicate = configuredToolPredicate(toolFilter)
 	}
 
 	cfg := mcptoolset.Config{

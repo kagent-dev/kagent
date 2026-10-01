@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -270,6 +271,88 @@ func TestInitializeToolSetRecoversWhenServerStartsAfterInitialization(t *testing
 	}
 	if len(tools) != 1 || tools[0].Name() != "getWeather" {
 		t.Fatalf("toolset.Tools() = %#v, want getWeather", tools)
+	}
+}
+
+// bearerMCPServer serves one tool to requests that carry Authorization and
+// answers 401 to the others, like muster. It counts both.
+func bearerMCPServer(t *testing.T) (url string, authorized, unauthorized *atomic.Int32) {
+	t.Helper()
+	mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "bearer-test", Version: "1.0.0"}, nil)
+	mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "getWeather"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"weather": "sunny"}, nil
+	})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return mcpServer }, nil)
+	authorized, unauthorized = &atomic.Int32{}, &atomic.Int32{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			unauthorized.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		authorized.Add(1)
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() {
+		// The lazily connected toolset keeps its standalone SSE stream open.
+		srv.CloseClientConnections()
+		srv.Close()
+	})
+	return srv.URL, authorized, unauthorized
+}
+
+// TestInitializeToolSetDefersDiscoveryUntilTheCallerCredential covers the
+// runtime's boot (a golden boot has no person behind it): a server that takes
+// the caller's token is not contacted, and the first turn discovers its tools
+// with the caller's token.
+func TestInitializeToolSetDefersDiscoveryUntilTheCallerCredential(t *testing.T) {
+	for name, params := range map[string]mcpServerParams{
+		"propagated token":             {PropagateToken: true},
+		"Authorization allowed header": {AllowedHeaders: []string{"Authorization"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			url, authorized, unauthorized := bearerMCPServer(t)
+			params.URL, params.ServerType = url, "http"
+
+			toolset, err := initializeToolSet(t.Context(), params, nil)
+			if err != nil {
+				t.Fatalf("initializeToolSet() error = %v", err)
+			}
+			if n := authorized.Load() + unauthorized.Load(); n != 0 {
+				t.Fatalf("boot sent %d requests to the MCP server, want none", n)
+			}
+
+			turn := a2aCtx(map[string][]string{"Authorization": {"Bearer person-token"}})
+			tools, err := toolset.Tools(testReadonlyContext{Context: turn})
+			if err != nil {
+				t.Fatalf("toolset.Tools() error = %v", err)
+			}
+			if len(tools) != 1 || tools[0].Name() != "getWeather" {
+				t.Fatalf("toolset.Tools() = %#v, want getWeather", tools)
+			}
+			if unauthorized.Load() != 0 || authorized.Load() == 0 {
+				t.Fatalf("turn sent %d authorized and %d unauthorized requests, want only authorized ones", authorized.Load(), unauthorized.Load())
+			}
+		})
+	}
+}
+
+// TestInitializeToolSetClassifiesAtBootWithAStaticCredential keeps the eager
+// classification for a server whose credential the boot already has.
+func TestInitializeToolSetClassifiesAtBootWithAStaticCredential(t *testing.T) {
+	url, authorized, unauthorized := bearerMCPServer(t)
+
+	_, err := initializeToolSet(t.Context(), mcpServerParams{
+		URL:            url,
+		ServerType:     "http",
+		PropagateToken: true,
+		Headers:        map[string]string{"Authorization": "Bearer static-token"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("initializeToolSet() error = %v", err)
+	}
+	if authorized.Load() == 0 || unauthorized.Load() != 0 {
+		t.Fatalf("boot sent %d authorized and %d unauthorized requests, want the authorized classification", authorized.Load(), unauthorized.Load())
 	}
 }
 
