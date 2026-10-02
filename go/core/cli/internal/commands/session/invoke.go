@@ -429,7 +429,7 @@ func NewInvokeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
 	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
-	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register this callback after the new task is created; return the task immediately")
+	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register a callback before task dispatch; return the task immediately")
 	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
 	cmd.Flags().StringVar(&cfg.PushBearerTokenFile, "push-bearer-token-file", "", "Read an optional webhook Bearer credential from a file")
 	_ = cmd.MarkFlagRequired("session")
