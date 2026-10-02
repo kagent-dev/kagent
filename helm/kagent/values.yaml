@@ -104,12 +104,21 @@ nodeSelector: {}
 
 database:
   postgres:
-    # -- External PostgreSQL connection string.
-    # Is always used if set regardless of the `.bundled.enabled` field.
-    url: ""
-    # -- Path to a file containing the database URL. Takes precedence over url when set.
-    # Is always used if set regardless of the `.bundled.enabled` field.
-    urlFile: ""
+    # -- Source the PostgreSQL connection string from a pre-created Secret.
+    # The Secret is mounted and reread for each new physical connection. Configure
+    # pool.maxConnLifetime to bound how long old credentials remain in use.
+    # Embedded Substrate uses separate read/write and owner connection Secrets
+    # even when it shares the same database.
+    secretRef:
+      name: kagent-postgres
+      key: connectionString
+    # -- Role assumed on each Kagent connection. Set a distinct role for each install sharing a database.
+    role: kagent_owner
+    # -- Schema for Kagent tables.
+    schema: kagent
+    # -- Schema for the shared pgvector extension. Existing installations must match this value.
+    # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
+    vectorSchema: extensions
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
@@ -124,67 +133,8 @@ database:
       maxConns: null
       minConns: null
       maxConnIdleTime: ""
+      # -- Maximum physical connection lifetime. This bounds Secret credential turnover.
       maxConnLifetime: ""
-    # -- Bundled PostgreSQL instance — for development and evaluation only.
-    # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
-    bundled:
-      # -- Set to false to disable the bundled database and provide your own via url or urlFile.
-      enabled: true
-      image:
-        # -- Bundled PostgreSQL image registry
-        registry: docker.io
-        # -- Bundled PostgreSQL image repository (org/namespace)
-        repository: library
-        # -- Bundled PostgreSQL image name
-        name: postgres
-        # -- Bundled PostgreSQL image tag
-        tag: "18.6-alpine3.23"
-        # -- Bundled PostgreSQL image pull policy. Empty falls back to the
-        # top-level imagePullPolicy, then global.imagePullPolicy, then
-        # IfNotPresent. A declared default here would shadow both fallbacks.
-        pullPolicy: ""
-      # -- PersistentVolumeClaim size for demo PostgreSQL data
-      storage: 500Mi
-      # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
-      storageClassName: ""
-      # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
-      # This is intentional for a dev/eval setup. Switch to an external database for production.
-      # -- Resource requests/limits for the demo PostgreSQL container
-      resources:
-        requests:
-          cpu: 250m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
-      # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
-      tolerations: []
-
-      # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
-      nodeSelector: {}
-
-      # -- [Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) rules for the bundled PostgreSQL pod.
-      affinity: {}
-
-      # -- Pod-level security context for the bundled PostgreSQL deployment.
-      podSecurityContext:
-        fsGroup: 999
-        runAsUser: 999
-        runAsGroup: 999
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      # -- Container-level security context for the bundled PostgreSQL container.
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
-
-      # -- Additional labels for the bundled PostgreSQL pod template, merged over the
-      # global `podLabels` (per-key; component keys win). Selector labels can
-      # never be overridden.
-      podLabels: {}
 
 # ==============================================================================
 # RBAC CONFIGURATION
@@ -797,6 +747,28 @@ kmcp:
 
 substrate:
   enabled: false
+  postgres:
+    # Kagent and Substrate use separate schemas in the same database.
+    schema: substrate
+    # -- Read the Substrate read/write connection string from a Secret.
+    # kagent install creates this Secret before Helm starts Substrate.
+    readWriteConnectionStringSecretRef:
+      name: substrate-postgres-readwrite
+      key: readWriteConnectionString
+    # -- Read the owner connection string from a Secret.
+    ownerConnectionStringSecretRef:
+      name: substrate-postgres-owner
+      key: ownerConnectionString
+    # -- Roles assumed by Substrate.
+    readWriteRole: substrate_readwrite
+    ownerRole: substrate_owner
+    pool:
+      # -- Maximum physical connection lifetime for Substrate's pools.
+      # Bounds how long a rotated credential stays in use. Set it longer than the
+      # delay before the platform publishes an updated Secret, or connections
+      # retire before the new credential arrives. Empty keeps the pgx default,
+      # which retires connections after one hour.
+      maxConnLifetime: ""
   # Grant each agent atespace access to its credential namespace explicitly.
   # HTTPS also requires the egress-mitm-ca-pool Secret in Substrate's namespace.
   credentialProvider:

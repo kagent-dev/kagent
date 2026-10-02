@@ -276,28 +276,9 @@ Controller gRPC observability Grafana dashboard ConfigMap name.
 {{- printf "%s-controller-grpc-dashboard" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/*
-PostgreSQL service name for the bundled postgres instance
-*/}}
-{{- define "kagent.postgresqlServiceName" -}}
-{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
-{{- end -}}
-
-{{/*
-Bundled PostgreSQL image - constructs the full image reference from registry/repository/name/tag
-*/}}
-{{- define "kagent.postgresql.image" -}}
-{{- $pg := .Values.database.postgres.bundled -}}
-{{- $registry := default $pg.image.registry (include "kagent.globalImageRegistry" .) -}}
-{{- $parts := compact (list $registry $pg.image.repository $pg.image.name) -}}
-{{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
-{{- end -}}
-
-{{/*
-Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWORD.
-*/}}
-{{- define "kagent.passwordSecretName" -}}
-{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
+{{/* PostgreSQL connection Secret. */}}
+{{- define "kagent.postgres.connectionSecretName" -}}
+{{- .Values.database.postgres.secretRef.name -}}
 {{- end -}}
 
 {{/* Public A2A endpoint advertised by Session Agent Cards. */}}

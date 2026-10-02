@@ -22,6 +22,88 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
+### PostgreSQL
+
+The Helm chart does not deploy or initialize PostgreSQL. It expects a prepared
+database and connection Secrets. `kagent install` creates a development
+PostgreSQL instance, prepares the identities below, and then invokes Helm.
+To use `kagent install` with an already prepared database, pass
+`--skip-database-setup` and provide the Secret names through
+`KAGENT_HELM_EXTRA_ARGS` `--set` overrides.
+
+Kagent and Substrate use separate schemas and identities in one database:
+
+| Product access | User | Group role |
+| --- | --- | --- |
+| Kagent | `kagent_user` | `kagent_owner` |
+| Substrate owner | `substrate_owner_user` | `substrate_owner` |
+| Substrate read/write | `substrate_readwrite_user` | `substrate_readwrite` |
+
+Direct Helm installs must create those users, group roles, schemas, grants, and
+three connection Secrets before installing the chart. Enable Substrate with:
+
+```yaml
+substrate:
+  enabled: true
+```
+
+Configure the pre-created Secrets and roles with:
+
+```yaml
+database:
+  postgres:
+    secretRef:
+      name: kagent-postgres
+      key: connectionString
+substrate:
+  enabled: true
+  postgres:
+    readWriteConnectionStringSecretRef:
+      name: substrate-postgres-readwrite
+      key: readWriteConnectionString
+    ownerConnectionStringSecretRef:
+      name: substrate-postgres-owner
+      key: ownerConnectionString
+    readWriteRole: substrate_readwrite
+    ownerRole: substrate_owner
+```
+
+When vectors are enabled, install pgvector before migrations and set
+`database.postgres.vectorSchema` to its schema. Grant the Kagent role `USAGE`
+on that schema.
+
+#### Credential rotation
+
+An outside process rotates credentials. First, create a new user and grant the applicable group role.
+
+Next, update the connection Secret. Kagent and Substrate read the Secret before each new physical connection.
+
+Set each pool lifetime to limit old connection use. Keep both users valid during Secret projection and connection replacement.
+
+A host, port, fallback target, or database change requires a restart.
+
+Kagent 1.x removes `database.postgres.url` and `database.postgres.urlFile`. Replace either value:
+
+```yaml
+database:
+  postgres:
+    url: postgresql://user:password@database.example/kagent
+```
+
+with:
+
+```yaml
+database:
+  postgres:
+    secretRef:
+      name: postgres-connection
+      key: connectionString
+```
+
+This supports externally rotated Secret values. Minting an RDS IAM token in
+process on every connection is separate work and requires equivalent hooks in
+both Kagent and Substrate.
+
 #### OIDC authentication
 
 Set `controller.auth.mode: trusted-proxy` together with

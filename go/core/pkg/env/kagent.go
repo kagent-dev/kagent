@@ -1,5 +1,7 @@
 package env
 
+import "github.com/kagent-dev/kagent/go/core/pkg/consts"
+
 // Core kagent environment variables used by the controller and agent runtime.
 var (
 	LeaderElect = RegisterBoolVar(
@@ -111,7 +113,7 @@ var (
 	DatabaseVectorEnabled = RegisterBoolVar(
 		"KAGENT_DATABASE_VECTOR_ENABLED",
 		false,
-		"Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable.",
+		"Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable.",
 		ComponentDatabase, ComponentController, ComponentCLI,
 	)
 
@@ -120,5 +122,54 @@ var (
 		false,
 		"Verify required database migrations at startup without applying them.",
 		ComponentDatabase, ComponentController,
+	)
+
+	DatabaseRole = RegisterStringVar(
+		"POSTGRES_DATABASE_ROLE",
+		"",
+		"Stable PostgreSQL role assumed after authentication. Required for rotation to a different login user.",
+		ComponentDatabase,
+	)
+
+	DatabaseSchema = RegisterStringVar(
+		"POSTGRES_DATABASE_SCHEMA",
+		consts.DefaultPostgresTableSchema,
+		"PostgreSQL schema for Kagent tables.",
+		ComponentDatabase,
+	)
+
+	DatabaseVectorSchema = RegisterStringVar(
+		"POSTGRES_VECTOR_SCHEMA",
+		consts.DefaultPgvectorSchema,
+		"Schema where the shared pgvector extension is installed.",
+		ComponentDatabase,
+	)
+
+	DatabaseMaxConns = RegisterIntVar(
+		"DB_MAX_CONNS",
+		0,
+		"Maximum number of PostgreSQL pool connections. Zero keeps the pgx default.",
+		ComponentDatabase,
+	)
+
+	DatabaseMinConns = RegisterIntVar(
+		"DB_MIN_CONNS",
+		-1,
+		"Minimum number of PostgreSQL pool connections. Negative keeps the pgx default.",
+		ComponentDatabase,
+	)
+
+	DatabaseMaxConnIdleTime = RegisterDurationVar(
+		"DB_MAX_CONN_IDLE_TIME",
+		0,
+		"Maximum idle time for a PostgreSQL pool connection. Zero keeps the pgx default.",
+		ComponentDatabase,
+	)
+
+	DatabaseMaxConnLifetime = RegisterDurationVar(
+		"DB_MAX_CONN_LIFETIME",
+		0,
+		"Maximum lifetime of a PostgreSQL pool connection. This bounds credential rotation time.",
+		ComponentDatabase,
 	)
 )

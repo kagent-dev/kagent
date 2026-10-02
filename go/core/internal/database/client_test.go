@@ -14,12 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClientVectorSchemaDefaultAndOverride(t *testing.T) {
+	assert.Equal(t, `OPERATOR("extensions".<=>)`, NewClient(nil).vectorCosineOperator)
+	assert.Equal(t, `OPERATOR("public".<=>)`, NewClient(nil, "public").vectorCosineOperator)
+}
+
 // TestDirectModelScans covers database defaults, required catalog fields, and nullable
 // memory fields when rows are scanned directly into application models.
 func TestDirectModelScans(t *testing.T) {
 	ctx := t.Context()
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	_, err := db.Exec(ctx, `INSERT INTO tool (id, server_name, group_kind) VALUES ('defaulted', 'server', 'kind')`)
 	require.NoError(t, err)
 	_, err = db.Exec(ctx, `INSERT INTO toolserver (name, group_kind) VALUES ('defaulted', 'kind')`)
@@ -104,9 +109,8 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		t.Skip("skipping database test in short mode")
 	}
 
-	// Truncate application tables instead of full down+up migrations.
-	// Full down migration drops and recreates the pgvector extension, which
-	// changes type OIDs and breaks existing pool connections.
+	// Truncate application tables instead of rebuilding the schema while
+	// shared pool connections are active.
 	_, err := sharedDB.Exec(context.Background(), `
 		TRUNCATE TABLE
 			scheduled_run,
@@ -134,7 +138,7 @@ func makeEmbedding(v float32) pgvector.Vector {
 // via vector similarity search and that results are ordered by cosine similarity.
 func TestStoreAndSearchAgentMemory(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	agentName := "test-agent"
@@ -183,7 +187,7 @@ func TestStoreAndSearchAgentMemory(t *testing.T) {
 // atomically via a transaction and that they are all retrievable afterwards.
 func TestStoreAgentMemoriesBatch(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	agentName := "batch-agent"
@@ -207,7 +211,7 @@ func TestStoreAgentMemoriesBatch(t *testing.T) {
 // searching for similar memories.
 func TestSearchAgentMemoryLimit(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	agentName := "limit-agent"
@@ -247,7 +251,7 @@ func TestSearchAgentMemoryLimit(t *testing.T) {
 // correct (agentName, userID) pair and do not return results for other agents or users.
 func TestSearchAgentMemoryIsolation(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	mem1 := &Memory{AgentName: "agent-a", UserID: "user-1", Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5)}
@@ -266,7 +270,7 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 // normalization ListAgentMemories and DeleteAgentMemory already apply.
 func TestSearchAgentMemoryNormalizedName(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	stored := &Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
@@ -282,7 +286,7 @@ func TestSearchAgentMemoryNormalizedName(t *testing.T) {
 // given agent/user pair and that the hyphen-to-underscore normalization works correctly.
 func TestDeleteAgentMemory(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	agentName := "my-agent"
@@ -316,7 +320,7 @@ func TestDeleteAgentMemory(t *testing.T) {
 // and that frequently-accessed expired memories have their TTL extended instead.
 func TestPruneExpiredMemories(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 
 	agentName := "prune-agent"
@@ -365,7 +369,7 @@ func countRows(t *testing.T, db *pgxpool.Pool, query string, args ...any) int64 
 // return results.
 func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 

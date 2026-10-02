@@ -20,9 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
-const (
-	sourceFlag = "source"
-)
+const sourceFlag = "source"
 
 var (
 	sourceNameRE    = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -34,6 +32,7 @@ type SourcesFunc func(ctx context.Context) ([]migrations.Source, error)
 
 type commandState struct {
 	dbURL     string
+	dbRole    string
 	source    string
 	resolveFn SourcesFunc
 
@@ -92,9 +91,10 @@ func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
 		Use:   "migrate",
 		Short: "Apply, roll back, and inspect database migrations",
 		Long: `Apply, roll back, and inspect database migrations.
-The command reads KAGENT_POSTGRES_DATABASE_URL when --db-url is empty.`,
+The command reads KAGENT_POSTGRES_DATABASE_URL and POSTGRES_DATABASE_ROLE when their flags are empty.`,
 	}
 	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL")
+	command.PersistentFlags().StringVar(&state.dbRole, "db-role", "", "Stable PostgreSQL role to assume after authentication")
 	command.PersistentFlags().StringVar(&state.source, sourceFlag, "", "Migration source for down, goto, or version")
 	command.AddCommand(newUpCmd(state))
 	command.AddCommand(newDownCmd(state))
@@ -102,6 +102,13 @@ The command reads KAGENT_POSTGRES_DATABASE_URL when --db-url is empty.`,
 	command.AddCommand(newVersionCmd(state))
 	command.AddCommand(newGotoCmd(state))
 	return command
+}
+
+func (s *commandState) role() string {
+	if role := strings.TrimSpace(s.dbRole); role != "" {
+		return role
+	}
+	return strings.TrimSpace(env.DatabaseRole.Get())
 }
 
 func (s *commandState) resolveDSN() (string, error) {
@@ -205,7 +212,7 @@ func newUpCmd(state *commandState) *cobra.Command {
 			if len(sources) == 0 {
 				return errors.New("no migration sources are registered")
 			}
-			if err := migrations.RunUp(command.Context(), dsn, sources); err != nil {
+			if err := migrations.RunUpAsRole(command.Context(), dsn, state.role(), sources); err != nil {
 				return err
 			}
 			fmt.Fprintln(command.OutOrStdout(), "schema is up to date")
@@ -237,7 +244,7 @@ func newDownCmd(state *commandState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+			return migrations.WithProviderAsRole(command.Context(), dsn, state.role(), source, func(provider *goose.Provider) error {
 				current, err := readVersion(command.Context(), provider)
 				if err != nil {
 					return err
@@ -317,7 +324,7 @@ func newStatusCmd(state *commandState) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				err = migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+				err = migrations.WithProviderAsRole(command.Context(), dsn, state.role(), source, func(provider *goose.Provider) error {
 					status, err := provider.Status(command.Context())
 					if err != nil {
 						return err
@@ -433,7 +440,7 @@ func newVersionCmd(state *commandState) *cobra.Command {
 				sources = sources[index : index+1]
 			}
 			for _, source := range sources {
-				err := migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+				err := migrations.WithProviderAsRole(command.Context(), dsn, state.role(), source, func(provider *goose.Provider) error {
 					version, err := readVersion(command.Context(), provider)
 					if err != nil {
 						return err
@@ -487,7 +494,7 @@ func newGotoCmd(state *commandState) *cobra.Command {
 			if target != 0 && !slices.Contains(versions, target) {
 				return fmt.Errorf("version %d is not available. Valid versions are %s", target, formatVersionList(versions))
 			}
-			return migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+			return migrations.WithProviderAsRole(command.Context(), dsn, state.role(), source, func(provider *goose.Provider) error {
 				current, err := readVersion(command.Context(), provider)
 				if err != nil {
 					return err

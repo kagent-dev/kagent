@@ -49,6 +49,7 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
+KAGENT_POSTGRES_SECRET ?= kagent-postgres
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -467,8 +468,15 @@ helm-version: helm-cleanup helm-tools
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
-helm-install-provider: ## Install or upgrade kagent-crds and kagent Helm releases on the kind cluster
+helm-install-provider: ## Install or upgrade with Helm; requires a prepared PostgreSQL Secret
 helm-install-provider: helm-version check-api-key
+	@case "$(HELM_ACTION)" in \
+		*--dry-run*) ;; \
+		*) kubectl --context kind-$(KIND_CLUSTER_NAME) --namespace kagent get secret $(KAGENT_POSTGRES_SECRET) >/dev/null 2>&1 || { \
+			echo "Missing PostgreSQL Secret kagent/$(KAGENT_POSTGRES_SECRET). Use 'make kagent-cli-install' for the bundled development database, or create the Secret before a direct Helm install." >&2; \
+			exit 1; \
+		} ;; \
+	esac
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
@@ -497,12 +505,9 @@ helm-install-provider: helm-version check-api-key
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set database.postgres.secretRef.name=$(KAGENT_POSTGRES_SECRET) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set database.postgres.bundled.image.repository=pgvector \
-		--set database.postgres.bundled.image.name=pgvector \
-		--set database.postgres.bundled.image.tag=pg18-trixie \
-		--set database.postgres.vectorEnabled=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
@@ -633,7 +638,8 @@ helm-publish: helm-version
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
-kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
+kagent-cli-install: use-kind-cluster build-cli-local helm-version
+	KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION=$(VERSION) ./go/core/bin/kagent-local install
 	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward

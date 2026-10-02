@@ -1,0 +1,159 @@
+# Copyright 2026 The Kagent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+data:
+  pg_hba.conf: |
+    local all all trust
+    host all postgres all reject
+    host all all all scram-sha-256
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+  labels: &labels
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kagent-cli
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: *labels
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: postgresql
+        image: postgres:18.6-alpine3.23
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        env:
+        - name: POSTGRES_DB
+          value: kagent
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-admin
+              key: POSTGRES_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        args: ["-c", "hba_file=/etc/postgresql/pg_hba.conf"]
+        ports:
+        - name: postgresql
+          containerPort: 5432
+        readinessProbe:
+          exec:
+            command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          exec:
+            command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: config
+          mountPath: /etc/postgresql
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: kagent-postgresql
+      - name: config
+        configMap:
+          name: kagent-postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kagent-cli
+  ports:
+  - name: postgresql
+    port: 5432
+    targetPort: postgresql
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-postgres
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  connectionString: postgresql://kagent_user:kagent@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=disable
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: substrate-postgres-readwrite
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  readWriteConnectionString: postgresql://substrate_readwrite_user:substrate-readwrite@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=disable
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: substrate-postgres-owner
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  ownerConnectionString: postgresql://substrate_owner_user:substrate-owner@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=disable

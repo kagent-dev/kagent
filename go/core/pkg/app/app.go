@@ -190,27 +190,29 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	dbURL, err := database.ResolveURL(env(kagentenv.PostgresDatabaseURL), kagentenv.PostgresDatabaseURLFile.Get())
+	dbSource := env(kagentenv.PostgresDatabaseURL)
+	dbURL, err := database.ResolveURL(dbSource)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve database connection: %w", err)
 	}
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
+	dbRole := kagentenv.DatabaseRole.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
-	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
+	sources := append(migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get()), opts.ExtraMigrations...)
 	if kagentenv.SkipMigrations.Get() {
-		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
-	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+	} else if err := migrations.RunUpAsRole(ctx, dbURL, dbRole, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL, VectorEnabled: vectorEnabled})
+	db, err := database.Connect(ctx, postgresConfigFromEnv(dbSource, vectorEnabled))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db)
+	store := database.NewClient(db, kagentenv.DatabaseVectorSchema.Get())
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},
@@ -440,6 +442,31 @@ func env(variable kagentenv.StringVar) string {
 		return value
 	}
 	return variable.DefaultValue()
+}
+
+func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
+	config := &database.PostgresConfig{
+		URL:           source,
+		Role:          kagentenv.DatabaseRole.Get(),
+		Schema:        kagentenv.DatabaseSchema.Get(),
+		VectorSchema:  kagentenv.DatabaseVectorSchema.Get(),
+		VectorEnabled: vectorEnabled,
+	}
+	if value := kagentenv.DatabaseMaxConns.Get(); value > 0 {
+		maxConns := int32(value)
+		config.MaxConns = &maxConns
+	}
+	if value := kagentenv.DatabaseMinConns.Get(); value >= 0 {
+		minConns := int32(value)
+		config.MinConns = &minConns
+	}
+	if value := kagentenv.DatabaseMaxConnIdleTime.Get(); value > 0 {
+		config.MaxConnIdleTime = &value
+	}
+	if value := kagentenv.DatabaseMaxConnLifetime.Get(); value > 0 {
+		config.MaxConnLifetime = &value
+	}
+	return config
 }
 
 // metricsBindAddress resolves KAGENT_METRICS_BIND_ADDRESS. controller-runtime reads an

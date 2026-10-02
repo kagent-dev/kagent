@@ -63,9 +63,9 @@ data:
   {{- end }}
   KAGENT_DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   KAGENT_SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
-  {{- with .Values.database.postgres.urlFile }}
-  KAGENT_POSTGRES_DATABASE_URL_FILE: {{ . | quote }}
-  {{- end }}
+  POSTGRES_DATABASE_ROLE: {{ .Values.database.postgres.role | quote }}
+  POSTGRES_DATABASE_SCHEMA: {{ .Values.database.postgres.schema | quote }}
+  POSTGRES_VECTOR_SCHEMA: {{ .Values.database.postgres.vectorSchema | quote }}
   {{- with .Values.database.postgres.pool }}
   {{- if and (hasKey . "maxConns") (ne .maxConns nil) }}
   DB_MAX_CONNS: {{ .maxConns | quote }}
