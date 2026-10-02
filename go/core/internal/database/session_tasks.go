@@ -226,6 +226,9 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		if err := storeSessionTaskEvent(ctx, tx, session, task, event, boundary); err != nil {
 			return err
 		}
+		if err := bindInitialPushForTask(ctx, tx, session.HistoryID, string(task.ID)); err != nil {
+			return err
+		}
 		version, err = taskVersion(ctx, tx, session.HistoryID, string(task.ID))
 		if err != nil {
 			return err
