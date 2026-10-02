@@ -19,6 +19,7 @@ import {
   apiClient,
   useAgentInstance,
   useAgentInstances,
+  useAgentTakesFiles,
   useChat,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
@@ -28,6 +29,8 @@ import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { Checkpoint } from "@/api";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
+import { messageSummary } from "@/components/chat/messageText";
+import { takeHandedOffFiles } from "@/api/chat/attachments";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentUrl } from "@/components/agent/agentUrl";
 
@@ -97,8 +100,8 @@ export function AgentChatPage() {
    * rail reading its own copy would show a conversation this page had just removed.
    */
   const instances = useAgentInstances();
-
   const agent = instance.data?.agent;
+  const canAttach = useAgentTakesFiles(agent);
   const contextId = instance.data?.contextId;
   const conversation = useMemo(
     () => (id && agent ? { id, agent, contextId } : undefined),
@@ -154,8 +157,7 @@ export function AgentChatPage() {
    */
   const autoTitle = useMemo(() => {
     const firstFromReader = chat.messages.find((message) => message.role === "user");
-    const said = firstFromReader?.parts.find((part) => part.kind === "text")?.text;
-    return autoTitleFrom(said);
+    return autoTitleFrom(firstFromReader && messageSummary(firstFromReader));
   }, [chat.messages]);
 
   const [isSharing, setSharing] = useState(false);
@@ -446,7 +448,14 @@ export function AgentChatPage() {
      * wire: a conversation showing what you typed, never answering, and no
      * `SendStreamingMessage` in the controller's log at all.
      */
-    if (!pending || sentInitial.current || !conversation || chat.isLoadingHistory) return;
+    // `""` is a real message when files were attached to it.
+    if (
+      pending === undefined ||
+      sentInitial.current ||
+      !conversation ||
+      chat.isLoadingHistory
+    )
+      return;
     sentInitial.current = true;
     /*
      * Sent before the history entry is cleared, not after.
@@ -460,7 +469,7 @@ export function AgentChatPage() {
      * The clear still has to happen, or a reload would send it again; it just belongs
      * after the turn is under way.
      */
-    void chat.send(pending);
+    void chat.send(pending, takeHandedOffFiles(conversation.id));
     /*
      * And now cleared, because `location.state` is kept in the browser's session
      * history rather than in memory: it survives a refresh, so a reader who reloaded
@@ -744,6 +753,8 @@ export function AgentChatPage() {
               send={chat.send}
               isStreaming={chat.phase === "streaming"}
               onCancel={chat.cancel}
+              canAttach={canAttach}
+              key={id}
               onCheckpoint={checkpointChat}
               canCheckpoint={canCheckpoint}
               isCheckpointing={isCheckpointing}

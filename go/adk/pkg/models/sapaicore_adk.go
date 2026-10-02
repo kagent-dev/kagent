@@ -204,6 +204,8 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
+			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				textParts = append(textParts, unsupportedImageNote(part.InlineData))
 			}
 		}
 
