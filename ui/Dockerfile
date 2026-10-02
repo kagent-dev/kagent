@@ -64,14 +64,14 @@ ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
-# Only the packages named here are pinned. Their libraries float, so fixes land on rebuild.
+# Shipped packages are pinned to a major version only, so security fixes land on rebuild.
 # No openssl CLI: nothing here runs it. curl stays for exec-based probes on IPv6 clusters.
 RUN echo "Installing on $BUILDPLATFORM" \
     && apk add --no-cache \
-        bash=5.3-r13 \
-        ca-certificates=20260909-r1 \
-        curl=8.22.0-r3 \
-        nginx-mainline=1.31.6-r2 \
+        "bash~5" \
+        ca-certificates \
+        "curl~8" \
+        "nginx-mainline~1" \
     && update-ca-certificates
 
 # `kagent` owns both the static root and the writable runtime dirs. /tmp/kagent
