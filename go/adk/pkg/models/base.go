@@ -165,6 +165,25 @@ func UserFromContext(ctx context.Context) string {
 	return user
 }
 
+// agentInstanceKey is the context key of the AgentInstance a turn runs in,
+// its own type for the reason given at userKey.
+type agentInstanceKey struct{}
+
+// WithAgentInstance returns a copy of ctx that carries the id of the
+// AgentInstance (the session) the turn every model call made under ctx belongs
+// to runs in; the call sends it as the x-kagent-agent-instance-id header. The
+// A2A server sets it from the metadata of the same name the gateway forwards.
+func WithAgentInstance(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, agentInstanceKey{}, id)
+}
+
+// AgentInstanceFromContext returns the id set by WithAgentInstance, or "" when
+// there is none.
+func AgentInstanceFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(agentInstanceKey{}).(string)
+	return id
+}
+
 // runtimeIdentityHeaders is the identity the controller injected into this
 // runtime — the name of the AgentTemplate it executes (KAGENT_AGENT_TEMPLATE)
 // and its namespace (KAGENT_NAMESPACE) — as the headers every model call
@@ -182,7 +201,10 @@ func runtimeIdentityHeaders() map[string]string {
 // headerTransport wraps an http.RoundTripper and sets headers on every request:
 // the configured default headers, then the runtime's identity — which therefore
 // wins over a configured header of the same name, so a model configuration
-// cannot name another agent — then the user of the turn the request belongs to.
+// cannot name another agent — then the user of the turn the request belongs to
+// and the AgentInstance it runs in. The instance header is the turn's alone: a
+// request outside a turn sends none, whatever the configuration sets, so a
+// model configuration cannot name a session either.
 type headerTransport struct {
 	base     http.RoundTripper
 	headers  map[string]string
@@ -199,6 +221,11 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if user := UserFromContext(req.Context()); user != "" {
 		req.Header.Set(adk.UserHeader, user)
+	}
+	if instance := AgentInstanceFromContext(req.Context()); instance != "" {
+		req.Header.Set(adk.AgentInstanceHeader, instance)
+	} else {
+		req.Header.Del(adk.AgentInstanceHeader)
 	}
 	return t.base.RoundTrip(req)
 }

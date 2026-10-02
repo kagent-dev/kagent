@@ -39,6 +39,7 @@ func (s claimsSession) Principal() auth.Principal {
 
 // The runtime learns the person of the turn only when the gateway resolved
 // one: a session with claims forwards x-kagent-user, any other forwards none.
+// Every turn names the Session the gateway routed it to.
 func TestRuntimeDialerForwardsTheResolvedPersonOnly(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -73,6 +74,7 @@ func TestRuntimeDialerForwardsTheResolvedPersonOnly(t *testing.T) {
 			select {
 			case md := <-received:
 				require.Equal(t, tt.want, md.Get(adk.UserHeader))
+				require.Equal(t, []string{"session"}, md.Get(adk.AgentInstanceHeader))
 				require.Equal(t, []string{"Bearer runtime-test"}, md.Get("authorization"))
 			case <-ctx.Done():
 				t.Fatal("runtime did not receive the call")

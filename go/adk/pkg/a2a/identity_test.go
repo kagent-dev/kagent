@@ -26,16 +26,18 @@ import (
 // it has resolved the caller — reaches the agent's invocation context, where
 // the model transport reads it (models.UserFromContext). Neither the session
 // owner in x-user-id nor the caller's bearer in authorization ever does: in a
-// flow that puts a raw token there, no model call names it.
+// flow that puts a raw token there, no model call names it. The instance the
+// turn runs in reaches it the same way, with or without a person.
 func TestKAgentExecutorNamesTheResolvedUserToModelCalls(t *testing.T) {
 	for _, user := range []string{"", "alice"} {
 		t.Run("user="+user, func(t *testing.T) {
-			var gotUser string
+			var gotUser, gotInstance string
 			agent, err := adkagent.New(adkagent.Config{
 				Name: "identity-agent",
 				Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
 					return func(yield func(*adksession.Event, error) bool) {
 						gotUser = models.UserFromContext(ic)
+						gotInstance = models.AgentInstanceFromContext(ic)
 						event := adksession.NewEvent(ic, ic.InvocationID())
 						event.Author = ic.Agent().Name()
 						event.LLMResponse = model.LLMResponse{Content: genai.NewContentFromText("done", genai.RoleModel)}
@@ -54,8 +56,9 @@ func TestKAgentExecutorNamesTheResolvedUserToModelCalls(t *testing.T) {
 			// What the gateway forwards to an actor: the caller's bearer (stored for
 			// API-key passthrough), the session owner, and — once resolved — the person.
 			params := map[string][]string{
-				"authorization": {"Bearer eyJraWQiOiJyYXctdG9rZW4ifQ.eyJlbWFpbCI6ImFsaWNlIn0.sig"},
-				"x-user-id":     {"eyJraWQiOiJyYXctdG9rZW4ifQ.not-a-person"},
+				"authorization":         {"Bearer eyJraWQiOiJyYXctdG9rZW4ifQ.eyJlbWFpbCI6ImFsaWNlIn0.sig"},
+				"x-user-id":             {"eyJraWQiOiJyYXctdG9rZW4ifQ.not-a-person"},
+				adk.AgentInstanceHeader: {"instance"},
 			}
 			if user != "" {
 				params[adk.UserHeader] = []string{user}
@@ -70,6 +73,7 @@ func TestKAgentExecutorNamesTheResolvedUserToModelCalls(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, user, gotUser)
+			require.Equal(t, "instance", gotInstance)
 		})
 	}
 }

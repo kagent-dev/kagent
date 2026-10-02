@@ -21,4 +21,11 @@ const (
 	// the same name. A call outside a turn, or in a turn whose caller the
 	// controller did not resolve, carries no such header.
 	UserHeader = "x-kagent-user"
+	// AgentInstanceHeader carries the id of the AgentInstance (the session: a
+	// conversation, a thread) the turn the call belongs to runs in, which the
+	// controller's gateway forwards to the runtime as request metadata of the
+	// same name. It is the name of the header that routes a call to an
+	// AgentInstance (a2a.AgentInstanceIDHeader). A call outside a turn carries
+	// no such header.
+	AgentInstanceHeader = "x-kagent-agent-instance-id"
 )

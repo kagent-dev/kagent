@@ -134,3 +134,28 @@ func TestBuildHTTPClient_SendsNoIdentityItDoesNotHave(t *testing.T) {
 		})
 	}
 }
+
+// Every model call of a turn names the AgentInstance the turn runs in; a call
+// outside a turn names none, even when the model configuration sets one.
+func TestBuildHTTPClient_NamesTheSessionOfTheTurnOnly(t *testing.T) {
+	configured := TransportConfig{Headers: map[string]string{adk.AgentInstanceHeader: "impostor"}}
+	tests := []struct {
+		name     string
+		instance string
+	}{
+		{name: "turn in an instance", instance: "0199a5f0-7c1e-7d4b-9a43-6f1e2b3c4d5e"},
+		{name: "call outside a turn"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tt.instance != "" {
+				ctx = WithAgentInstance(ctx, tt.instance)
+			}
+			got := headersSeenBy(t, ctx, configured)
+			if values := got.Values(adk.AgentInstanceHeader); tt.instance == "" && len(values) != 0 || tt.instance != "" && (len(values) != 1 || values[0] != tt.instance) {
+				t.Errorf("header %s = %q, want %q", adk.AgentInstanceHeader, values, tt.instance)
+			}
+		})
+	}
+}
