@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -207,6 +208,7 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 	require.Empty(t, card.SupportedInterfaces[0].Tenant)
 	require.Equal(t, a2atype.TransportProtocolGRPC, card.SupportedInterfaces[1].ProtocolBinding)
 	require.Equal(t, gatewayTestAgent, card.SupportedInterfaces[1].Tenant)
+	require.True(t, card.Capabilities.PushNotifications)
 	require.Len(t, card.Capabilities.Extensions, 1)
 
 	// A standard SDK client can use the discovered URL without a routing header.
@@ -419,4 +421,63 @@ func startCoreTestServer(t *testing.T, gateway a2asrv.RequestHandler, shares ses
 	})
 
 	return listener.Addr().String()
+}
+
+func TestEmbeddedPushAcrossTransports(t *testing.T) {
+	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
+		for _, streaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", protocol, streaming), func(t *testing.T) {
+				store := &gatewayTestStore{created: map[string]*apiv1alpha1.Session{}}
+				runtime := &gatewayTestRuntime{}
+				runtime.onStream = func(req *a2atype.SendMessageRequest) {
+					store.task = &a2atype.Task{ID: "runtime-task", ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+				}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
+				transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+				params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
+				tenant := ""
+				if protocol == a2atype.TransportProtocolGRPC {
+					tenant = gatewayTestAgent
+				}
+				request := func() *a2atype.SendMessageRequest {
+					return &a2atype.SendMessageRequest{Tenant: tenant, Message: &a2atype.Message{ID: "initial", Role: a2atype.MessageRoleUser, Parts: a2atype.ContentParts{a2atype.NewTextPart("hello")}}, Config: &a2atype.SendMessageConfig{ReturnImmediately: true, HistoryLength: new(0), PushConfig: &a2atype.PushConfig{URL: "https://receiver", Tenant: gatewayTestAgent, Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: "secret"}}}}
+				}
+				send := func() error {
+					if streaming {
+						for _, err := range transport.SendStreamingMessage(t.Context(), params, request()) {
+							return err
+						}
+						return nil
+					}
+					_, err := transport.SendMessage(t.Context(), params, request())
+					return err
+				}
+				require.NoError(t, send())
+				require.NotNil(t, store.pushConfig)
+				require.NotEmpty(t, store.pushConfig.ID)
+				configID := store.pushConfig.ID
+				require.Equal(t, store.session.Id, store.pushSessionID)
+				require.Equal(t, "initial", store.pushMessageID)
+				require.NotNil(t, runtime.sentConfig)
+				require.Nil(t, runtime.sentConfig.PushConfig)
+				require.True(t, runtime.sentConfig.ReturnImmediately)
+				require.Equal(t, 0, *runtime.sentConfig.HistoryLength)
+				// Already accepted input still registers, without dispatching again.
+				store.reserveErr = database.ErrMessageAccepted
+				store.task = &a2atype.Task{ID: "accepted", ContextID: store.session.Id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+				store.replay = store.task
+				runtime.sentConfig, store.pushConfig = nil, nil
+				require.NoError(t, send())
+				require.NotNil(t, store.pushConfig)
+				require.Equal(t, configID, store.pushConfig.ID)
+				require.Nil(t, runtime.sentConfig)
+				// Persistence failure prevents both reservation and forwarding.
+				store.pushErr = database.ErrIdempotencyConflict
+				reservations := store.reserveCalls
+				require.Error(t, send())
+				require.Equal(t, reservations, store.reserveCalls)
+				require.Nil(t, runtime.sentConfig)
+			})
+		}
+	}
 }
