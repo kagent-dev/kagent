@@ -209,7 +209,9 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
     })) {
       void event;
     }
-    expect(headers?.["a2a-extensions"]).toBe("https://kagent.dev/extensions/hitl/v1");
+    expect(headers?.["a2a-extensions"]).toBe(
+      "https://kagent.dev/extensions/hitl/v1,https://kagent.dev/extensions/usage/v1",
+    );
   });
 
   it("names the parked turn, so the answer resumes it instead of opening another", async () => {

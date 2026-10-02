@@ -59,7 +59,11 @@ import {
   type TaskStatus,
 } from "@/generated/a2a_pb";
 import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
-import { A2A_METADATA, metadataString } from "./a2aMetadata";
+import {
+  A2A_METADATA,
+  metadataString,
+  USAGE_EXTENSION_URI,
+} from "./a2aMetadata";
 import {
   HITL_EXTENSION_HEADER,
   HITL_EXTENSION_URI,
@@ -326,8 +330,10 @@ export class A2AGrpcChatClient implements ChatClient {
        * re-reading it with the header does not recover what was never attached.
        * Sending it on a read costs nothing, so it is not worth being clever about
        * which calls need it.
+       *
+       * The usage extension rides on the same header.
        */
-      [HITL_EXTENSION_HEADER]: HITL_EXTENSION_URI,
+      [HITL_EXTENSION_HEADER]: `${HITL_EXTENSION_URI},${USAGE_EXTENSION_URI}`,
     };
     /*
      * A share token, when the page was opened with one for *this* conversation.
