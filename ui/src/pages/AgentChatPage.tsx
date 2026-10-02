@@ -13,6 +13,7 @@ import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsM
 import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
+import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificationsModal";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
 import {
@@ -30,6 +31,7 @@ import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentUrl } from "@/components/agent/agentUrl";
+import { isMockMode } from "@/api/config";
 
 /**
  * How often the instance is re-read while it is doing something.
@@ -126,6 +128,7 @@ export function AgentChatPage() {
   }, [instance.data?.state, id]);
 
   const chat = useChat(conversation, resumeFirst);
+  const [pushTask, setPushTask] = useState<{ conversationId: string; taskId: string }>();
 
   /*
    * The other side of a share writes here too.
@@ -712,6 +715,11 @@ export function AgentChatPage() {
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}
             onDeleteCheckpoint={deleteCheckpoint}
+            // The mock chat client has no A2A push store; hide the control rather
+            // than showing a backend error over an otherwise scripted transcript.
+            onManageTaskPush={isMockMode ? undefined : (taskId) => {
+              if (conversation) setPushTask({ conversationId: conversation.id, taskId });
+            }}
             checkpointsById={checkpointsById}
             checkpointByMessage={checkpointByMessage}
             // The question is answered in a field inside the transcript, and once it
@@ -849,6 +857,15 @@ export function AgentChatPage() {
         open={isShowingDetails}
         onClose={() => setShowingDetails(false)}
       />
+
+      {conversation && pushTask?.conversationId === conversation.id ? (
+        <TaskPushNotificationsModal
+          key={`${conversation.id}/${pushTask.taskId}`}
+          conversation={conversation}
+          taskId={pushTask.taskId}
+          onClose={() => setPushTask(undefined)}
+        />
+      ) : null}
 
       {/* Mounted only while a snapshot is open, so the rename box inside it seeds from
           the record rather than from whichever snapshot was opened first. */}

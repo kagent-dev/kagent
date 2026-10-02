@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
-import { Typography } from "antd";
+import { Button, Tooltip, Typography } from "antd";
+import { Bell } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { ExtensionSlot, useExtensionChatPartRenderers } from "@/appExtensions";
 import type { ChatPartRendererProps, ExtensionChatPartRenderers } from "@/appExtensions";
@@ -27,12 +28,15 @@ export function ChatMessageItem({
   message,
   sessionId,
   isCheckpointed = false,
+  onManagePush,
 }: {
   message: ChatMessage;
   /** The conversation this message belongs to, for the per-message extension point. */
   sessionId?: string;
   /** Whether this message is above the nearest saved boundary, for the browser suite. */
   isCheckpointed?: boolean;
+  /** Opens the callback settings for this message's task. */
+  onManagePush?: () => void;
 }) {
   const theme = useTheme();
   const isUser = message.role === "user";
@@ -67,6 +71,18 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
+        {onManagePush ? (
+          <Tooltip title="Task notifications">
+            <Button
+              type="text"
+              size="small"
+              icon={<Bell size={14} aria-hidden />}
+              aria-label="Task notifications"
+              data-testid={`task-push-open-${message.taskId}`}
+              onClick={onManagePush}
+            />
+          </Tooltip>
+        ) : null}
         {/* Per-message point: a contribution gets this message's identity and content,
             so it can act on the message it is attached to — plus the turn and
             conversation it belongs to, which is what a backend keyed by turns needs. */}
