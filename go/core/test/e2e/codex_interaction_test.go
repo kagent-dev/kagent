@@ -120,6 +120,7 @@ func createCodexMockModel(t *testing.T, kube ctrlclient.Client, baseURL string) 
 			t.Errorf("delete Codex mock ModelConfig: %v", err)
 		}
 	})
+	waitModelConfigReady(t, kube, model)
 	return model
 }
 
