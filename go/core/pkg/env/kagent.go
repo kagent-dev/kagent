@@ -66,14 +66,14 @@ var (
 
 	A2APushAllowPrivateNetworks = RegisterBoolVar(
 		"KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS",
-		false,
-		"Allow A2A push callbacks to private, loopback, and link-local destinations. Enable only for trusted internal receivers.",
+		true,
+		"Allow A2A push callbacks to private, loopback, and link-local destinations. Set to false to block these destinations.",
 		ComponentController,
 	)
 	A2APushAllowHTTP = RegisterBoolVar(
 		"KAGENT_A2A_PUSH_ALLOW_HTTP",
-		false,
-		"Allow unencrypted A2A push callbacks for trusted local development only.",
+		true,
+		"Allow HTTP A2A push callbacks. Set to false to require HTTPS.",
 		ComponentController,
 	)
 
