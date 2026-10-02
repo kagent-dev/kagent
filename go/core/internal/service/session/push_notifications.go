@@ -61,7 +61,7 @@ func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest) 
 }
 
 type pushStore interface {
-	ListOpenPushRegistrations(context.Context, *database.PushRegistration, int) ([]database.PushRegistration, error)
+	ListUnboundPushRegistrations(context.Context, *database.PushRegistration, int) ([]database.PushRegistration, error)
 	GetSessionTaskByMessage(context.Context, string, string, string) (*a2a.Task, error)
 	BindSessionPush(context.Context, database.PushRegistration, string) (bool, error)
 	CloseUnboundSessionPush(context.Context, database.PushRegistration) error
@@ -91,11 +91,15 @@ func NewPushWorker(store pushStore, sender pushSender) *PushWorker {
 func (p *PushWorker) NeedLeaderElection() bool { return true }
 
 func (p *PushWorker) Start(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
-		if err := p.poll(ctx); err != nil && ctx.Err() == nil {
+		fullBatch, err := p.poll(ctx)
+		if err != nil && ctx.Err() == nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
+		}
+		if fullBatch {
+			continue
 		}
 		select {
 		case <-ctx.Done():
@@ -105,24 +109,28 @@ func (p *PushWorker) Start(ctx context.Context) error {
 	}
 }
 
-func (p *PushWorker) poll(ctx context.Context) error {
+// poll reports whether it filled the batch, so a backlog can drain without
+// waiting for the idle polling interval.
+func (p *PushWorker) poll(ctx context.Context) (bool, error) {
 	// Bound each pass so an always-due backlog cannot starve input maintenance.
+	claimed := 0
 	for range 100 {
 		if err := ctx.Err(); err != nil {
-			return err
+			return false, err
 		}
 		delivery, err := p.store.ClaimDuePushDelivery(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if delivery == nil {
 			break
 		}
+		claimed++
 		if err := p.send(ctx, *delivery); err != nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "push delivery attempt failed", "notification_id", delivery.ID, "error", err)
 		}
 	}
-	return p.maintainPending(ctx)
+	return claimed == 100, p.maintainPending(ctx)
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {
@@ -152,16 +160,13 @@ func (p *PushWorker) maintainPending(ctx context.Context) error {
 	// recovers registrations left unresolved by a failed or interrupted send.
 	var cursor *database.PushRegistration
 	for {
-		registrations, err := p.store.ListOpenPushRegistrations(ctx, cursor, 100)
+		registrations, err := p.store.ListUnboundPushRegistrations(ctx, cursor, 100)
 		if err != nil {
 			return err
 		}
 		for _, registration := range registrations {
 			if err := ctx.Err(); err != nil {
 				return err
-			}
-			if registration.TaskID != nil {
-				continue
 			}
 			if err := p.resolvePending(ctx, registration); err != nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "failed to resolve push registration", "session_id", registration.SessionID, "message_id", registration.InitialMessageID, "error", err)

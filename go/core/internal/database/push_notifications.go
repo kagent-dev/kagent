@@ -28,7 +28,6 @@ type PushRegistration struct {
 	ConfigID         string
 	URL              string
 	CreatedAt        time.Time
-	TaskID           *string
 }
 
 // RegisterSessionPush saves the callback supplied with SendMessage before
@@ -103,18 +102,19 @@ func (c *Client) RegisterSessionPush(ctx context.Context, sessionID, messageID, 
 	})
 }
 
-// ListOpenPushRegistrations scans open rows for the recovery worker. It pages
-// over bound rows too; the worker skips those and resolves only pending inputs.
-func (c *Client) ListOpenPushRegistrations(ctx context.Context, after *PushRegistration, limit int) ([]PushRegistration, error) {
+// ListUnboundPushRegistrations pages only unresolved input receipts. Bound
+// callbacks are handled by task writes and never need recovery polling.
+func (c *Client) ListUnboundPushRegistrations(ctx context.Context, after *PushRegistration, limit int) ([]PushRegistration, error) {
 	var afterID int64
 	if after != nil {
 		afterID = after.ID
 	}
 	return queryMany(ctx, c.db, `
         SELECT p.id, p.history_id, COALESCE(p.initial_message_id, '') AS initial_message_id,
-            s.id::text AS session_id, p.config_id, p.url, p.created_at, p.task_id
+            s.id::text AS session_id, p.config_id, p.url, p.created_at
         FROM session_push_registration p JOIN session_record s ON s.history_id = p.history_id
-        WHERE p.closed_at IS NULL AND s.state <> 'RUNTIME_STATE_DELETED' AND p.id > $1
+        WHERE p.closed_at IS NULL AND p.task_id IS NULL
+            AND s.state <> 'RUNTIME_STATE_DELETED' AND p.id > $1
         ORDER BY p.id LIMIT $2
     `, pgx.RowToStructByName[PushRegistration], afterID, limit)
 }
