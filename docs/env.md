@@ -122,7 +122,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_OTEL_CAPTURE_RAW_API_BODIES` | Boolean | `false` | Set to true, t, or 1 (case-insensitive) to enable native Claude raw API body logging when log export is enabled. Independent of span content capture; bodies may contain sensitive data. |
 | `KAGENT_OTEL_MAX_CAPTURE_BYTES` | Integer | `16384` | Per-input/output content capture budget in bytes when capture is enabled. Valid values are 1 through 65536; absent or invalid values use 16384. |
 | `KAGENT_OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Resource attributes, as key=value pairs, added to every agent runtime. |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `16` | Maximum size of the PostgreSQL connection pool |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
@@ -170,7 +170,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `16` | Maximum size of the PostgreSQL connection pool |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
