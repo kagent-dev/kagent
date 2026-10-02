@@ -25,8 +25,8 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig) (*a2a
 		return nil, a2a.ErrInvalidParams
 	}
 	config := *input
-	if config.Auth == nil || !strings.EqualFold(config.Auth.Scheme, "Bearer") || config.Auth.Credentials == "" || strings.ContainsAny(config.Auth.Credentials, " \t\r\n") {
-		return nil, a2a.NewError(a2a.ErrInvalidParams, "push authentication requires Bearer credentials without whitespace")
+	if config.Auth != nil && (!strings.EqualFold(config.Auth.Scheme, "Bearer") || config.Auth.Credentials == "" || strings.ContainsAny(config.Auth.Credentials, " \t\r\n")) {
+		return nil, a2a.NewError(a2a.ErrInvalidParams, "push authentication, when supplied, requires Bearer credentials without whitespace")
 	}
 	if config.Tenant != "" && config.Tenant != agent.Namespace+"/"+agent.Name {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "push tenant does not match Agent route")
@@ -135,7 +135,11 @@ func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) e
 	if err != nil {
 		return fmt.Errorf("convert durable notification: %w", err)
 	}
-	sendErr := p.sender.SendPush(ctx, &a2a.PushConfig{URL: delivery.URL, Token: delivery.Token, Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: delivery.AuthCredentials}}, event)
+	config := &a2a.PushConfig{URL: delivery.URL, Token: delivery.Token}
+	if delivery.AuthCredentials != "" {
+		config.Auth = &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: delivery.AuthCredentials}
+	}
+	sendErr := p.sender.SendPush(ctx, config, event)
 	// A failed HTTP attempt remains durable for the store's retry schedule.
 	if err := p.store.FinishPushDelivery(ctx, delivery, sendErr == nil); err != nil {
 		return fmt.Errorf("persist push delivery outcome: %w", err)

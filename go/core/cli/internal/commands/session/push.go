@@ -83,12 +83,11 @@ func newPushCmd() *cobra.Command {
 			command.Use += " CONFIG_ID"
 		}
 		if op == pushCreate {
-			command.Flags().StringVar(&cfg.URL, "url", "", "HTTPS callback URL")
+			command.Flags().StringVar(&cfg.URL, "url", "", "HTTP or HTTPS callback URL")
 			command.Flags().StringVar(&cfg.ID, "id", "", "Callback ID (generated when omitted)")
 			command.Flags().StringVar(&cfg.TokenFile, "token-file", "", "Read the optional notification token from a file")
-			command.Flags().StringVar(&cfg.BearerFile, "bearer-token-file", "", "Read the required webhook Bearer credential from a file")
+			command.Flags().StringVar(&cfg.BearerFile, "bearer-token-file", "", "Read an optional webhook Bearer credential from a file")
 			_ = command.MarkFlagRequired("url")
-			_ = command.MarkFlagRequired("bearer-token-file")
 		}
 		if op == pushList {
 			command.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Callbacks per page (default 50, maximum 100)")
@@ -144,14 +143,13 @@ func runPush(ctx context.Context, options connection.Options, op pushOperation, 
 			if err != nil {
 				return err
 			}
-			if cfg.BearerFile == "" {
-				return errors.New("--bearer-token-file is required")
-			}
+			cfg.Token = token
+		}
+		if cfg.BearerFile != "" {
 			cfg.BearerCredential, err = readPushToken(cfg.BearerFile)
 			if err != nil {
 				return err
 			}
-			cfg.Token = token
 		}
 	}
 	if op == pushList && (cfg.PageSize < 0 || cfg.PageSize > 100) {
@@ -180,10 +178,17 @@ func readPushToken(path string) (string, error) {
 	return strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"), nil
 }
 
+func pushBearerAuth(credential string) *a2a.PushAuthInfo {
+	if credential == "" {
+		return nil
+	}
+	return &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
+}
+
 func executePush(ctx context.Context, client taskPushClient, pages pushPageClient, op pushOperation, sessionID, taskID string, extra []string, cfg *pushCfg, format clioutput.Format, out io.Writer) error {
 	switch op {
 	case pushCreate:
-		config, err := client.CreateTaskPushConfig(ctx, &a2a.PushConfig{TaskID: a2a.TaskID(taskID), ID: cfg.ID, URL: cfg.URL, Token: cfg.Token, Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: cfg.BearerCredential}})
+		config, err := client.CreateTaskPushConfig(ctx, &a2a.PushConfig{TaskID: a2a.TaskID(taskID), ID: cfg.ID, URL: cfg.URL, Token: cfg.Token, Auth: pushBearerAuth(cfg.BearerCredential)})
 		if err != nil {
 			return fmt.Errorf("create task push callback: %w", err)
 		}
@@ -241,8 +246,8 @@ func writePushConfig(out io.Writer, format clioutput.Format, config *a2a.PushCon
 
 func validatePushURL(raw string) error {
 	endpoint, err := url.Parse(raw)
-	if err != nil || endpoint.Hostname() == "" || endpoint.Scheme != "https" || endpoint.User != nil || endpoint.Fragment != "" || strings.TrimSpace(raw) != raw {
-		return errors.New("push URL must be an absolute HTTPS URL without credentials")
+	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.User != nil || endpoint.Fragment != "" || strings.TrimSpace(raw) != raw {
+		return errors.New("push URL must be an absolute HTTP or HTTPS URL without credentials")
 	}
 	return nil
 }

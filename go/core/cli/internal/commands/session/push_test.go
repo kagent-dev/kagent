@@ -70,6 +70,9 @@ func TestExecutePushOperations(t *testing.T) {
 	require.NoError(t, executePush(ctx, client, pages, pushCreate, "session", "task", nil,
 		&pushCfg{URL: "https://receiver.example/callback", Token: "secret", BearerCredential: "receiver-credential"}, clioutput.FormatJSON, &out))
 	require.Equal(t, "secret", client.created.Token)
+	require.NoError(t, executePush(ctx, client, pages, pushCreate, "session", "task", nil,
+		&pushCfg{URL: "https://receiver.example/callback"}, clioutput.FormatJSON, &out))
+	require.Nil(t, client.created.Auth)
 
 	out.Reset()
 	require.NoError(t, executePush(ctx, client, pages, pushGet, "session", "task", []string{"callback"},
@@ -130,6 +133,13 @@ func TestInvokeWithPushRegistersImmediateTask(t *testing.T) {
 	require.NotContains(t, out.String(), "receiver-credential")
 }
 
+func TestInvokeWithPushAllowsURLWithoutBearer(t *testing.T) {
+	client := &fakePushInvoker{state: a2a.TaskStateWorking}
+	require.NoError(t, invokeWithPush(t.Context(), client, newInvokeRequest("hello"),
+		&InvokeCfg{PushURL: "https://receiver.example/callback"}, clioutput.FormatJSON, &bytes.Buffer{}))
+	require.Nil(t, client.request.Config.PushConfig.Auth)
+}
+
 func TestInvokeWithPushEmbedsCallbackBeforeCompletedTask(t *testing.T) {
 	credentialFile := filepath.Join(t.TempDir(), "bearer")
 	require.NoError(t, os.WriteFile(credentialFile, []byte("receiver-credential"), 0o600))
@@ -142,7 +152,8 @@ func TestInvokeWithPushEmbedsCallbackBeforeCompletedTask(t *testing.T) {
 
 func TestValidatePushURL(t *testing.T) {
 	require.NoError(t, validatePushURL("https://receiver.example/callback"))
-	for _, raw := range []string{"", "receiver.example/callback", "ftp://receiver.example", "http://receiver.example", "https://user:pass@receiver.example", " https://receiver.example"} {
+	require.NoError(t, validatePushURL("http://receiver.example/callback"))
+	for _, raw := range []string{"", "receiver.example/callback", "ftp://receiver.example", "https://user:pass@receiver.example", " https://receiver.example"} {
 		require.Error(t, validatePushURL(raw), raw)
 	}
 }
