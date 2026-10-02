@@ -1,5 +1,5 @@
 import { describe, expect, it, jest, beforeEach, afterEach, afterAll } from '@jest/globals';
-import { createRFC1123ValidName, getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
+import { copyText, createRFC1123ValidName, getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
 
 describe('URL Generation Utilities', () => {
   const originalEnv = process.env;
@@ -121,3 +121,47 @@ describe('RFC 1123 Valid Name', () => {
   });
 });
 
+
+describe('copyText', () => {
+  const setClipboard = (value: { writeText: (text: string) => Promise<void> } | undefined) => {
+    Object.defineProperty(navigator, 'clipboard', { value, configurable: true });
+  };
+
+  // execCommand('copy'), as a browser that honours it behaves.
+  const execCommandThatCopies = (setData: (type: string, value: string) => void) =>
+    jest.fn(() => {
+      const event = new Event('copy') as ClipboardEvent;
+      Object.defineProperty(event, 'clipboardData', { value: { setData } });
+      document.dispatchEvent(event);
+      return true;
+    });
+
+  afterEach(() => {
+    setClipboard(undefined);
+  });
+
+  it('uses the clipboard API where there is one', async () => {
+    const writeText = jest.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+    setClipboard({ writeText });
+
+    await expect(copyText('a-token')).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('a-token');
+  });
+
+  it('answers the copy event when there is no clipboard API', async () => {
+    setClipboard(undefined);
+    const setData = jest.fn();
+    document.execCommand = execCommandThatCopies(setData);
+
+    await expect(copyText('a-token')).resolves.toBe(true);
+    expect(setData).toHaveBeenCalledWith('text/plain', 'a-token');
+  });
+
+  it('reports failure when the copy event never fires, whatever execCommand says', async () => {
+    setClipboard(undefined);
+    // The browser's own answer when a copy is refused: true, and nothing copied.
+    document.execCommand = jest.fn(() => true);
+
+    await expect(copyText('a-token')).resolves.toBe(false);
+  });
+});
