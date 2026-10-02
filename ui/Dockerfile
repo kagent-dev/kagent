@@ -9,17 +9,17 @@ ENV LC_ALL=C.UTF-8
 ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
-# The tools are pinned so the bundle builds with the same Node every time. Their libraries float: this stage never ships.
+# Tools hold a major version so the bundle always builds with Node 24, and old revisions can't break the build.
 RUN echo "Installing on $BUILDPLATFORM" \
     && apk add --no-cache \
-        curl=8.22.0-r3 \
-        bash=5.3-r13 \
-        openssl=3.6.4-r8 \
-        unzip=6.0-r8 \
-        ca-certificates=20260909-r1 \
-        "nodejs-${TOOLS_NODE_VERSION}=24.21.0-r3" \
-        npm-12=12.1.0-r0 \
-        node-gyp=13.0.2-r1 \
+        "curl~8" \
+        "bash~5" \
+        "openssl~3" \
+        "unzip~6" \
+        ca-certificates \
+        "nodejs-${TOOLS_NODE_VERSION}" \
+        npm-12 \
+        "node-gyp~13" \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
