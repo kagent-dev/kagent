@@ -239,3 +239,78 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 		})
 	}
 }
+
+func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	ephemeralDir := filepath.Join(t.TempDir(), "generated")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{
+		"tools":     {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}, RequireApproval: true},
+		"knowledge": {Type: "http", URL: "https://mcp.example.com/read", Headers: map[string]string{"Authorization": "Bearer ${KAGENT_CLAUDE_MCP_CREDENTIAL_ABC}"}},
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin", "KAGENT_PROPAGATE_TOKEN=true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close() })
+	contents, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written struct {
+		Servers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(contents, &written); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"tools", "knowledge", "kagent_hitl"} {
+		server, ok := written.Servers[name]
+		if !ok {
+			t.Fatalf("mcp.json lacks %q: %s", name, contents)
+		}
+		if server.Type != "http" || !strings.HasPrefix(server.URL, "http://127.0.0.1:") {
+			t.Errorf("%s = %+v, want a loopback http endpoint", name, server)
+		}
+		if len(server.Headers) != 1 || !strings.HasPrefix(server.Headers["Authorization"], "Bearer ") {
+			t.Errorf("%s headers = %v, want only the loopback token", name, server.Headers)
+		}
+	}
+	for _, leaked := range []string{"tools.example.com", "mcp.example.com", "X-Toolset", "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC"} {
+		if strings.Contains(string(contents), leaked) {
+			t.Errorf("mcp.json carries upstream detail %q: %s", leaked, contents)
+		}
+	}
+	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--permission-prompt-tool\nmcp__kagent_hitl__approve\n") {
+		t.Fatalf("the approval bridge is lost behind the forwarder: %s", args)
+	}
+}
+
+func TestNewRefusesToFrontSSEServers(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{"legacy": {Type: "sse", URL: "https://mcp.example.com/sse"}}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: filepath.Join(t.TempDir(), "generated"), Environment: []string{"KAGENT_PROPAGATE_TOKEN=true"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "streamable HTTP") {
+		t.Fatalf("New() error = %v, want the SSE refusal", err)
+	}
+}
