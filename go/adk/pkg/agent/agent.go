@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -26,6 +28,7 @@ import (
 	"google.golang.org/adk/v2/tool/preloadmemorytool"
 	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -519,7 +522,11 @@ func makeAfterToolCallback(logger *slog.Logger) llmagent.AfterToolCallback {
 	}
 }
 
-// makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors.
+// rejectedToolMessage matches the Python runtime (kagent/adk/_approval.py).
+const rejectedToolMessage = "Tool call was rejected by user."
+
+// makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors
+// and marks the function response of a failed call with isError.
 func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 	return func(ctx agent.Context, t tool.Tool, args map[string]any, err error) (map[string]any, error) {
 		logger.ErrorContext(ctx, "tool execution failed", "error", err,
@@ -528,8 +535,30 @@ func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 			"session_id", ctx.SessionID(),
 			"invocation_id", ctx.InvocationID(),
 		)
-		return nil, nil
+		// A confirmation request is a pause, not a failure; clients match its plain text.
+		if errors.Is(err, tool.ErrConfirmationRequired) {
+			return nil, nil
+		}
+		message := err.Error()
+		if errors.Is(err, tool.ErrConfirmationRejected) {
+			message = rejectionMessage(ctx.ToolConfirmation())
+		}
+		return map[string]any{"error": message, "isError": true}, nil
 	}
+}
+
+// rejectionMessage adds the reason the person gave, if any. A confirmation
+// that stands for a child agent's decisions carries no reason of its own.
+func rejectionMessage(confirmation *toolconfirmation.ToolConfirmation) string {
+	var payload map[string]any
+	if confirmation != nil {
+		payload, _ = confirmation.Payload.(map[string]any)
+	}
+	reason, _ := payload[apia2a.ToolConfirmationRejectionReasonKey].(string)
+	if reason = strings.TrimSpace(reason); reason == "" {
+		return rejectedToolMessage
+	}
+	return rejectedToolMessage + " Reason: " + reason
 }
 
 // mapKeys returns the top-level keys of a map for logging without exposing values.
