@@ -450,8 +450,9 @@ export type CreateSessionShareRequest = Message<"kagent.api.v1alpha1.CreateSessi
   permission: SessionSharePermission;
 
   /**
-   * How long the share's token grants access, from its creation. Unset means
-   * until the share is revoked or the session deleted.
+   * How long the share's token grants access, from its creation. Unset takes the
+   * controller's maximum share lifetime; without one, the share grants access
+   * until it is revoked or the session deleted.
    *
    * @generated from field: google.protobuf.Duration ttl = 3;
    */

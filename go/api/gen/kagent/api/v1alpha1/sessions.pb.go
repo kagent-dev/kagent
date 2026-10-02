@@ -1013,8 +1013,9 @@ type CreateSessionShareRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	SessionId  string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	Permission SessionSharePermission `protobuf:"varint,2,opt,name=permission,proto3,enum=kagent.api.v1alpha1.SessionSharePermission" json:"permission,omitempty"`
-	// How long the share's token grants access, from its creation. Unset means
-	// until the share is revoked or the session deleted.
+	// How long the share's token grants access, from its creation. Unset takes the
+	// controller's maximum share lifetime; without one, the share grants access
+	// until it is revoked or the session deleted.
 	Ttl           *durationpb.Duration `protobuf:"bytes,3,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

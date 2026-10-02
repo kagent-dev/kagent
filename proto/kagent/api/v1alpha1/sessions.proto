@@ -161,8 +161,9 @@ message CreateSessionShareRequest {
     defined_only: true
     not_in: 0
   }];
-  // How long the share's token grants access, from its creation. Unset means
-  // until the share is revoked or the session deleted.
+  // How long the share's token grants access, from its creation. Unset takes the
+  // controller's maximum share lifetime; without one, the share grants access
+  // until it is revoked or the session deleted.
   google.protobuf.Duration ttl = 3 [(buf.validate.field).duration.gt = {}];
 }
 
