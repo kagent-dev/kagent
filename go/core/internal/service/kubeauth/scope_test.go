@@ -1,10 +1,10 @@
-package kubeauth_test
+package kubeauth
 
 import (
+	"fmt"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,7 +44,7 @@ func TestMatcher(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			matcher, err := kubeauth.CompileScope(test.scope)
+			matcher, err := CompileScope(test.scope)
 			if err != nil {
 				t.Fatalf("CompileScope() error = %v", err)
 			}
@@ -53,7 +53,7 @@ func TestMatcher(t *testing.T) {
 			}
 		})
 	}
-	if (kubeauth.Matcher{}).Matches(object) {
+	if (Matcher{}).Matches(object) {
 		t.Fatal("zero Matcher matches object")
 	}
 }
@@ -66,7 +66,7 @@ func TestMatcherOwnsCompiledScope(t *testing.T) {
 		Values:    values,
 	}}
 	clauses := []apiauthorization.ScopeClause{{All: predicates}}
-	matcher, err := kubeauth.CompileScope(apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: clauses})
+	matcher, err := CompileScope(apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: clauses})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +89,76 @@ func TestMatcherOwnsCompiledScope(t *testing.T) {
 	}
 }
 
+func TestMatcherMatchesAnyName(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope apiauthorization.AuthorizationScope
+		want  bool
+	}{
+		{name: "all", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, want: true},
+		{name: "none", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}},
+		{
+			name:  "namespace",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}}}}}},
+			want:  true,
+		},
+		{
+			name: "later clause permits namespace",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{
+				{All: []apiauthorization.ScopePredicate{
+					{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a"}},
+					{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}},
+				}},
+				{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}}}},
+			}},
+			want: true,
+		},
+		{
+			name: "all namespace predicates must match",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a"}},
+				{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}},
+			}}}},
+		},
+		{
+			name:  "different namespace",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-b"}}}}}},
+		},
+		{
+			name: "intersecting names",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a", "agent-b"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-b"}},
+			}}}},
+			want: true,
+		},
+		{
+			name: "disjoint names",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-a"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"agent-b"}},
+			}}}},
+		},
+		{
+			name:  "invalid resource name",
+			scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"NOT A NAME"}}}}}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			matcher, err := CompileScope(test.scope)
+			if err != nil {
+				t.Fatalf("CompileScope() error = %v", err)
+			}
+			if got := matcher.matchesAnyName("team-a"); got != test.want {
+				t.Fatalf("matchesAnyName() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -108,8 +178,31 @@ func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := kubeauth.CompileScope(test.scope); err == nil {
+			if _, err := CompileScope(test.scope); err == nil {
 				t.Error("CompileScope() error = nil")
+			}
+		})
+	}
+}
+
+func BenchmarkMatchesAnyNameDenied(b *testing.B) {
+	for _, count := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			scope := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
+			for i := range count {
+				scope.AnyOf = append(scope.AnyOf, apiauthorization.ScopeClause{All: []apiauthorization.ScopePredicate{
+					{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{fmt.Sprintf("team-%d", i)}},
+				}})
+			}
+			matcher, err := CompileScope(scope)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if matcher.matchesAnyName("outside") {
+					b.Fatal("unexpected access")
+				}
 			}
 		})
 	}

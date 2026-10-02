@@ -12,6 +12,11 @@ type ShareContext struct {
 	SessionID string
 }
 
+// AllowsAccess reports whether this share permits an RPC with the requested access.
+func (s *ShareContext) AllowsAccess(access AccessMode) bool {
+	return s == nil || !s.ReadOnly || access == AccessPublic || access == AccessRead
+}
+
 // IsForSession reports whether this share grants access to the named session.
 func (s *ShareContext) IsForSession(sessionID string) bool {
 	return s != nil && s.SessionID != "" && s.SessionID == sessionID

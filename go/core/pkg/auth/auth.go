@@ -18,6 +18,12 @@ const (
 	VerbDelete Verb = "delete"
 )
 
+const (
+	ResourceAgentTemplate = "AgentTemplate"
+	ResourceHarness       = "Harness"
+	ResourceModelConfig   = "ModelConfig"
+)
+
 type Resource struct {
 	Type      string
 	Namespace string
@@ -87,6 +93,8 @@ type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
 }
 
+// CollectionAuthorizer enumerates every namespace/name combination allowed for a verb.
+// Scope must fail rather than return a partial result.
 type CollectionAuthorizer interface {
 	Authorizer
 	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (authorization.AuthorizationScope, error)

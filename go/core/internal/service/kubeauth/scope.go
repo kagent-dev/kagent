@@ -6,6 +6,7 @@ import (
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 // Matcher is a validated authorization scope that can be applied to Kubernetes objects.
@@ -70,19 +71,54 @@ func (m Matcher) Matches(object metav1.Object) bool {
 		return true
 	}
 	for _, clause := range m.scope.AnyOf {
-		matches := true
+		if matchesClause(clause, object.GetNamespace(), object.GetName()) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesClause(clause apiauthorization.ScopeClause, namespace, name string) bool {
+	for _, predicate := range clause.All {
+		value := namespace
+		if predicate.Attribute == apiauthorization.AttributeName {
+			value = name
+		}
+		if value == "" || !slices.Contains(predicate.Values, value) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesAnyName reports whether the scope contains any valid Kubernetes
+// resource name in namespace.
+func (m Matcher) matchesAnyName(namespace string) bool {
+	if m.scope.Kind == apiauthorization.ScopeAll {
+		return true
+	}
+clauses:
+	for _, clause := range m.scope.AnyOf {
+		var names []string
 		for _, predicate := range clause.All {
-			value := object.GetNamespace()
-			if predicate.Attribute == apiauthorization.AttributeName {
-				value = object.GetName()
+			if predicate.Attribute == apiauthorization.AttributeNamespace && !slices.Contains(predicate.Values, namespace) {
+				continue clauses
 			}
-			matches = value != "" && slices.Contains(predicate.Values, value)
-			if !matches {
-				break
+			if predicate.Attribute == apiauthorization.AttributeName && names == nil {
+				names = predicate.Values
 			}
 		}
-		if matches {
+		if names == nil {
 			return true
+		}
+		for _, name := range names {
+			if len(utilvalidation.IsDNS1123Subdomain(name)) != 0 {
+				continue
+			}
+			// Check only this clause to avoid rescanning the full scope for each candidate name.
+			if matchesClause(clause, namespace, name) {
+				return true
+			}
 		}
 	}
 	return false
