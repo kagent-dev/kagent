@@ -50,7 +50,7 @@ export function AgentConcepts() {
         >
           Agent Substrate
         </a>{" "}
-        concepts. A harness draws on a pool of <b>workers</b>, and each AgentInstance
+        concepts. A harness draws on a pool of <b>workers</b>, and each session
         runs as an <b>actor</b> scheduled onto one of them.
       </Line>
 
@@ -95,7 +95,7 @@ export function AgentConcepts() {
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />
-        <Box kind="AgentInstance" detail="One chat with an agent, run as a Substrate Actor." />
+        <Box kind="Session" detail="One chat with an agent, run as a Substrate Actor." />
       </div>
 
     </Card>
