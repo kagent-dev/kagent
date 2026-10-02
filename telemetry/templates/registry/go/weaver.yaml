@@ -1,0 +1,20 @@
+params:
+  # Attributes kagent writes that no attribute group can hold, since they are complex or span specific.
+  span_attributes: [gen_ai.operation.name, gen_ai.input.messages, gen_ai.output.messages]
+templates:
+  - pattern: conv_gen.go.j2
+    file_name: conv_gen.go
+    application_mode: single
+    filter: >
+      def word: {"ai":"AI","id":"ID","a2a":"A2A","adk":"ADK","gcp":"GCP","aws":"AWS","ibm":"IBM","openai":"OpenAI","langgraph":"LangGraph","crewai":"CrewAI","byo":"BYO"}[.] // ((.[0:1] | ascii_upcase) + .[1:]);
+      def pascal: [splits("[._]")] | map(word) | join("");
+      def text: (. // "") | gsub("\\s+"; " ") | sub(" $"; "");
+      ([.registry.attributes[]]
+       + [.registry.attribute_groups[].attributes[]]
+       + [.registry.entities[] | (.identity + .description)[]]
+       + [.refinements.spans[].attributes[] | select(.key as $k | $params.span_attributes | index($k))])
+      | if ([.[].key] | contains($params.span_attributes)) then . else error("a span_attributes entry is not on any span refinement") end
+      | map(select(.key | test("^(kagent|a2a|gen_ai)\\.")) | select(.deprecated == null))
+      | unique_by(.key)
+      | map({key, brief: (.brief | text), name: (.key | pascal),
+             members: [(.type.members? // [])[] | select(.deprecated == null) | {value, brief: (.brief | text), name: (.id | pascal)}]})

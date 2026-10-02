@@ -1,5 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import { agentChat, instances } from "../../helpers/app";
+import { pressOnce } from "../../helpers/resource";
+import { sendAndAwaitTurn } from "../../helpers/chat";
 
 /** The menu that is actually on screen: antd leaves a closed dropdown mounted. */
 const openMenu = (page: import("@playwright/test").Page) =>
@@ -47,9 +49,8 @@ test("chat: the snapshot is taken from the composer, and marks where a fork woul
     await expect(page.getByTestId("chat-checkpoint")).toBeDisabled();
   });
 
-  await test.step("4. and offers one as soon as there is a newer turn", async () => {
-    await page.getByTestId("chat-input").fill("Another question, so the boundary moves.");
-    await page.getByTestId("chat-send").click();
+  await test.step("4. and offers one once a newer turn finishes", async () => {
+    await sendAndAwaitTurn(page, "Another question, so the boundary moves.");
     await expect(mine).toHaveCount(2, { timeout: 30_000 });
 
     await expect(page.getByTestId("chat-checkpoint")).toBeEnabled();
@@ -111,7 +112,9 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    // `pressOnce`, not a raw click: the popconfirm is still animating in here,
+    // and a click lands on the backdrop while it moves.
+    await pressOnce(page.getByTestId(`chat-checkpoint-delete-cancel-${id}`));
     await expect(dividers(page)).toHaveCount(1);
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
@@ -151,8 +154,7 @@ test("chat: a fork holds only what was above its line, takes the snapshot's name
   // A second turn and a second boundary, so the seeded one is no longer the latest and
   // forking it has something to leave behind — and so this page is holding a locally
   // saved mark for the fork to fail to inherit.
-  await page.getByTestId("chat-input").fill("A second turn, after the saved boundary.");
-  await page.getByTestId("chat-send").click();
+  await sendAndAwaitTurn(page, "A second turn, after the saved boundary.");
   await expect(mine).toHaveCount(2, { timeout: 30_000 });
   await page.getByTestId("chat-checkpoint").click();
   await expect(dividers(page)).toHaveCount(2);
@@ -162,7 +164,8 @@ test("chat: a fork holds only what was above its line, takes the snapshot's name
     await page.getByTestId("snapshot-rename-input").locator("input").fill(SNAPSHOT_NAME);
     // Exact, because an accessible name matches on substring: "Save" alone would
     // also find any control whose label merely starts with it.
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    // The rename dialog animates in; a raw click can land on the backdrop.
+    await pressOnce(page.getByRole("button", { name: "Save", exact: true }));
     // The mark itself, re-read: the name is on the snapshot before anything forks it.
     await expect(
       dividers(page).first().locator('[data-testid^="chat-checkpoint-subtitle-"]'),
@@ -197,8 +200,7 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
   await expect(mine.first()).toBeVisible({ timeout: 30_000 });
 
   // A second boundary, so the delete has to remove one line rather than all of them.
-  await page.getByTestId("chat-input").fill("A second turn, to save a second boundary at.");
-  await page.getByTestId("chat-send").click();
+  await sendAndAwaitTurn(page, "A second turn, to save a second boundary at.");
   await expect(mine).toHaveCount(2, { timeout: 30_000 });
   await page.getByTestId("chat-checkpoint").click();
   await expect(dividers(page)).toHaveCount(2);
@@ -210,7 +212,8 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
     await openSnapshot(page, page.getByTestId(`chat-checkpoint-mark-${id}`));
     await page.getByTestId("snapshot-details-delete").click();
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    // The modal animates in like the popconfirm above: press once it has stopped arriving.
+    await pressOnce(page.getByTestId("snapshot-details-delete-cancel"));
     await expect(page.getByText("Delete this snapshot?")).toBeHidden();
     await expect(dividers(page)).toHaveCount(2);
   });

@@ -10,7 +10,12 @@ lint:
   ignore:
     - a2a.proto
     - ateapi.proto
+    - ateenv/v1alpha/guest.proto
 breaking:
   use:
     - FILE
+  # Vendored upstream alpha API; upgrades follow go.mod. Kagent does not expose
+  # its egress policy types, which changed incompatibly in alpha3.
+  ignore:
+    - ateapi.proto
   ignore_unstable_packages: true

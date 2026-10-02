@@ -5,13 +5,13 @@ Shared types, interfaces, and implementations for the Kagent Go ADK.
 ## Overview
 
 - **a2a/** - A2A executor, event conversion (GenAI <-> A2A), error mappings, HITL; includes `server/` for the HTTP server and health checks
-- **agent/** - Google ADK agent creation from `AgentConfig`
+- **agent/** - Google ADK agent creation from `AgentConfig`, including the context compaction config the runner applies
 - **app/** - Application lifecycle (server startup, shutdown, task store wiring)
 - **auth/** - KAgent API token management
 - **config/** - Agent configuration loading and validation
 - **mcp/** - MCP client toolset creation from HTTP/SSE server configs
 - **models/** - LLM model adapters (OpenAI, Anthropic) implementing Google ADK's `model.LLM`
-- **runner/** - Google ADK `runner.Config` creation from `AgentConfig`
+- **runner/** - Google ADK `runner.Config` creation from `AgentConfig` (agent, session service, memory, plugins, context compaction)
 - **session/** - Session management, persistence, and ADK session service adapter
 - **tools/** - Agent tools, including skill filesystem and shell execution
 - **taskstore/** - A2A task persistence through the kagent controller API

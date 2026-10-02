@@ -28,11 +28,11 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			harness := &v1alpha3.Harness{
 				ObjectMeta: metav1.ObjectMeta{Name: "harness", Namespace: "test"},
 				Spec: v1alpha3.HarnessSpec{
-					Kagent:                &v1alpha3.KagentHarness{},
-					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
-					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
-					Substrate: v1alpha3.HarnessSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					Kagent: &v1alpha3.KagentHarness{},
+
+					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}
@@ -49,8 +49,8 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				child := template.DeepCopy()
 				child.Name = "child"
 				template.Spec.ModelConfig.Name = "default-model"
-				template.Spec.Tools = []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
-					Name: "child", Description: "delegate", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
+				template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
+					Name: "child", Description: "delegate", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
 				}}}
 				objects = append(objects, child, modelConfig())
 			case "memory":
@@ -69,7 +69,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
 					Data:       map[string]string{"endpoint": endpoint},
 				}
-				revision, err := compiler(t, append(objects, configMap)...).CompileAgentTemplate(t.Context(), harness, template)
+				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
 				var config adk.AgentConfig
 				require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
@@ -90,8 +90,8 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				require.Len(t, revision.Credentials, 1)
 				require.Equal(t, host, revision.Credentials[0].Hostname)
 				require.Equal(t, "api-key", revision.Credentials[0].Header)
-				require.Equal(t, "ate-secret://kubernetes.io/test/foundry-auth/token", revision.Credentials[0].URI)
-				require.Contains(t, revision.EgressDestinations, host)
+				require.Equal(t, "ate-secret://k8s.io/default/test/foundry-auth/token", revision.Credentials[0].URI)
+				require.Contains(t, revision.EgressDestinations, "https://"+host+":443")
 				require.Equal(t, original, model, "compilation must not patch the source ModelConfig")
 				digest, err := revision.Digest()
 				require.NoError(t, err)

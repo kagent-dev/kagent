@@ -78,7 +78,7 @@ Target personas interact with kagent through multiple interfaces:
 
 3. **Kubernetes API**: Direct interaction via `kubectl` and Kubernetes manifests:
    ```yaml
-   apiVersion: kagent.dev/v1alpha3
+   apiVersion: api.kagent.dev/v1alpha3
    kind: AgentTemplate
    metadata:
      name: my-agent
@@ -195,7 +195,7 @@ Kagent implements a multi-layered IAM approach:
    - Example roles in [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml)
 
 2. **API Authentication** (planned enhancement - [Issue #476](https://github.com/kagent-dev/kagent/issues/476)):
-   - Current: UnsecureAuthenticator for development, A2AAuthenticator for agent-to-agent
+   - Current: InsecureAuthenticator for development, A2AAuthenticator for agent-to-agent
    - Planned: Extensible authentication system with support for API keys, OAuth, and service accounts
    - Framework in [go/pkg/auth/auth.go](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/pkg/auth/auth.go)
 
@@ -283,10 +283,10 @@ Persistent Storage:
 Kagent exposes multiple API surfaces:
 
 1. **Kubernetes API** (CRDs):
-   - `sandboxagents.kagent.dev/v1alpha3` - Agent definitions
-   - `modelconfigs.kagent.dev/v1alpha3` - LLM model configurations
+   - `sandboxagents.api.kagent.dev/v1alpha3` - Agent definitions
+   - `modelconfigs.api.kagent.dev/v1alpha3` - LLM model configurations
    - `toolservers.kagent.dev/v1alpha1` - MCP tool server definitions
-   - `remotemcpservers.kagent.dev/v1alpha3` - Remote MCP servers
+   - `remotemcpservers.api.kagent.dev/v1alpha3` - Remote MCP servers
    - `memories.kagent.dev/v1alpha1` - Memory/vector store configurations
    - `mcpservers.kagent.dev` (inherited via KMCP dependency)
 
@@ -329,7 +329,7 @@ For production use, configure:
 - LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
-- OpenTelemetry endpoints (`otel.tracing.enabled`, `otel.tracing.exporter.otlp.endpoint`)
+- OpenTelemetry endpoints (`otel.traces.enabled`, `otel.exporter.otlp.endpoint`)
 - Network policies for pod isolation
 - RBAC policies per agent based on required permissions
 
@@ -446,7 +446,7 @@ kubectl wait --for=condition=Ready pods --all -n kagent --timeout=120s
 
 ```bash
 kubectl get crds
-# Expected: agenttemplates.kagent.dev, harnesses.kagent.dev, modelconfigs.kagent.dev, etc.
+# Expected: agents.api.kagent.dev, agenttemplates.api.kagent.dev, harnesses.api.kagent.dev, modelconfigs.api.kagent.dev, etc.
 ```
 
 **3. Check Agents:**
@@ -574,7 +574,7 @@ Kagent satisfies the [Cloud Native Security Tenets](https://github.com/cncf/tag-
 For development or specific use cases, users may need to relax security:
 
 1. **Development Mode Authentication:**
-   - Default: UnsecureAuthenticator (no auth checks)
+   - Default: InsecureAuthenticator (no auth checks)
    - Production: Configure proper authentication via [Issue #476](https://github.com/kagent-dev/kagent/issues/476)
    - Documentation: Planned for v1.0 release
 

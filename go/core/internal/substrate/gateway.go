@@ -7,9 +7,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
-// DefaultAtenetRouterURL is the in-cluster HTTP endpoint for Substrate's router.
-const DefaultAtenetRouterURL = "http://atenet-router.ate-system.svc:80"
-
 const defaultActorHostSuffix = "actors.resources.substrate.ate.dev"
 
 // ActorHost returns the logical A2A authority stored for an actor.

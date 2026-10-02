@@ -37,7 +37,6 @@ func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := &adk.AgentConfig{}
-			runtime := &modelRuntime{data: &modelDeploymentData{}}
 			server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{
 				URL: "https://mcp.example.test", Protocol: test.protocol,
 			}}
@@ -46,7 +45,7 @@ func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
 				tools = []string{"write"}
 			}
 
-			err := (&Builder{}).addRemoteMCPServer(config, runtime, server, tools, true, nil)
+			err := (&Builder{}).addRemoteMCPServer(config, server, tools, true, nil)
 			require.NoError(t, err)
 			test.assert(t, config)
 		})

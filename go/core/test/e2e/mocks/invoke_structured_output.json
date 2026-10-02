@@ -1,0 +1,67 @@
+{
+  "openai": [
+    {
+      "name": "structured_output_tool_call",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Add 3 and 5 and return the structured result.",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-structured-output-tool-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "structured_call_1",
+                  "type": "function",
+                  "function": {
+                    "name": "add_numbers",
+                    "arguments": "{\"a\":3,\"b\":5}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "structured_output_after_tool",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "8",
+          "role": "tool",
+          "tool_call_id": "structured_call_1"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-structured-output-tool-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "{\"answer\":8,\"explanation\":\"three plus five equals eight\"}",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

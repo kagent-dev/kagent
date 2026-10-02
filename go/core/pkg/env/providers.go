@@ -1,15 +1,16 @@
 package env
 
-// LLM provider environment variables. These are injected into agent pods
-// by the controller and consumed by the agent runtime.
+// LLM provider environment variables consumed by runtimes and provider SDKs.
+// Managed runtimes receive configuration from the controller; credentials may
+// instead be injected into requests at the egress gateway.
 
 // OpenAI
 var (
 	OpenAIAPIKey = RegisterStringVar(
 		"OPENAI_API_KEY",
 		"",
-		"API key for OpenAI.",
-		ComponentAgentRuntime,
+		"API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty.",
+		ComponentAgentRuntime, ComponentCLI, ComponentTesting,
 	)
 
 	OpenAIOrganization = RegisterStringVar(
@@ -33,7 +34,7 @@ var (
 		"ANTHROPIC_API_KEY",
 		"",
 		"API key for Anthropic.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 )
 
@@ -43,7 +44,7 @@ var (
 		"AZURE_OPENAI_API_KEY",
 		"",
 		"API key for Azure OpenAI.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 
 	AzureADToken = RegisterStringVar(
@@ -56,7 +57,7 @@ var (
 	OpenAIAPIVersion = RegisterStringVar(
 		"OPENAI_API_VERSION",
 		"",
-		"Azure OpenAI API version (e.g. 2024-02-15-preview).",
+		"Azure OpenAI API version. The Go and Python ADKs fall back to 2024-02-15-preview when model configuration and this variable are unset.",
 		ComponentAgentRuntime,
 	)
 
@@ -74,7 +75,7 @@ var (
 		"GOOGLE_API_KEY",
 		"",
 		"API key for Google Gemini.",
-		ComponentAgentRuntime,
+		ComponentAgentRuntime, ComponentCLI,
 	)
 
 	GoogleCloudProject = RegisterStringVar(
@@ -111,7 +112,7 @@ var (
 	AWSRegion = RegisterStringVar(
 		"AWS_REGION",
 		"",
-		"AWS region for Bedrock.",
+		"AWS region for Bedrock. Python Bedrock and Go Bedrock embeddings prefer AWS_DEFAULT_REGION, then AWS_REGION, then us-east-1.",
 		ComponentAgentRuntime,
 	)
 
@@ -149,9 +150,23 @@ var (
 	OllamaAPIBase = RegisterStringVar(
 		"OLLAMA_API_BASE",
 		"",
-		"Base URL for the Ollama API endpoint.",
+		"Base URL for the Ollama API endpoint; falls back to http://localhost:11434 when model configuration and this variable are unset.",
 		ComponentAgentRuntime,
 	)
+
+	OllamaAPIKey = RegisterStringVar(
+		"OLLAMA_API_KEY",
+		"",
+		"API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly.",
+		ComponentAgentRuntime, ComponentCLI,
+	)
+)
+
+// Provider aliases.
+var (
+	GeminiAPIKey      = RegisterStringVar("GEMINI_API_KEY", "", "Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs.", ComponentAgentRuntime, ComponentCLI)
+	GoogleCloudRegion = RegisterStringVar("GOOGLE_CLOUD_REGION", "", "Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset.", ComponentAgentRuntime)
+	AWSDefaultRegion  = RegisterStringVar("AWS_DEFAULT_REGION", "", "Preferred region for Python Bedrock models and Go/Python Bedrock embeddings, before AWS_REGION and the us-east-1 fallback.", ComponentAgentRuntime)
 )
 
 // SAP AI Core
@@ -167,6 +182,23 @@ var (
 		"SAP_AI_CORE_CLIENT_SECRET",
 		"",
 		"OAuth2 client secret for SAP AI Core authentication.",
+		ComponentAgentRuntime,
+	)
+)
+
+// Mistral
+var (
+	MistralAPIKey = RegisterStringVar(
+		"MISTRAL_API_KEY",
+		"",
+		"API key for Mistral AI.",
+		ComponentAgentRuntime,
+	)
+
+	MistralAPIBase = RegisterStringVar(
+		"MISTRAL_API_BASE",
+		"",
+		"Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1).",
 		ComponentAgentRuntime,
 	)
 )

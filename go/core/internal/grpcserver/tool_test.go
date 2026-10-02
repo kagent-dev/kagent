@@ -18,7 +18,6 @@ import (
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -111,8 +110,8 @@ func (a *toolGRPCAuthorizer) setDenied(denied bool) {
 func TestToolServiceGeneratedClient(t *testing.T) {
 	kubeClient := toolGRPCKubeClient(t)
 	store := &toolGRPCDiscoveryStore{
-		tools:   []database.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev", Description: "Move a task"}},
-		servers: []database.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev"}},
+		tools:   []database.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.api.kagent.dev", Description: "Move a task"}},
+		servers: []database.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.api.kagent.dev"}},
 	}
 	authorizer := &toolGRPCAuthorizer{}
 	mcpClient := &toolGRPCMCPClient{}
@@ -132,7 +131,7 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if err := structuredobject.ToGo(listedTools.GetTools()[0].GetResource(), toolKind, decodedTool, DefaultMaxMessageSize); err != nil {
 		t.Fatalf("decode listed Tool: %v", err)
 	}
-	if decodedTool.ID != "move_task" || decodedTool.GroupKind != "RemoteMCPServer.kagent.dev" {
+	if decodedTool.ID != "move_task" || decodedTool.GroupKind != "RemoteMCPServer.api.kagent.dev" {
 		t.Fatalf("decoded Tool = %+v", decodedTool)
 	}
 
@@ -287,8 +286,7 @@ func newToolGRPCClient(t *testing.T, service *toolservice.Service) (apiv1alpha1.
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:      listener,
-		Registerer:    prometheus.NewRegistry(),
-		Authenticator: &authimpl.UnsecureAuthenticator{},
+		Authenticator: &authimpl.InsecureAuthenticator{},
 		SystemService: testSystemService(),
 		ToolService:   service,
 	})

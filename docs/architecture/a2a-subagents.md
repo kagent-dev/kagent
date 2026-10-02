@@ -8,21 +8,36 @@ flowchart TB
     PARENT -->|Shared binding compiled into one runtime| LOCAL[Native in-process subagent]
     PARENT -->|remote A2A tool call| REMOTE[Addressable A2A agent]
     REMOTE -->|task + context IDs retained| CONTINUE[input-required continuation]
-    DEDICATED[Dedicated binding] -. deferred .-> SEPARATE[separate AgentInstance]
-    PUBLIC[Public cross-instance delegation] -. deferred .-> POLICY[credential and lineage policy]
+    PUBLIC[Public cross-session delegation] -. deferred .-> POLICY[credential and lineage policy]
 ```
 
 ## Shared agent tools
 
-An `AgentTemplate` can bind another template as a `Shared` agent tool. The
+An `AgentTemplate` can bind another template as a Shared tool through `spec.tools[].subAgent.templateRef`. The
 translator resolves the referenced template in the same compilation tree and
 the selected harness compiler emits its native, in-process representation.
 Kagent, Codex, and Claude support Shared bindings according to their runtime
 capabilities.
 
+For example, in an AgentTemplate spec (or an Agent's inline `template`):
+
+```yaml
+tools:
+  - subAgent:
+      name: reviewer
+      description: Review proposed changes before applying them.
+      templateRef:
+        name: review-context
+```
+
 Tree resolution detects missing references and cycles before compilation.
-`Dedicated` bindings are represented in the API but are currently rejected;
-they do not create a separate AgentInstance today.
+
+## Dedicated agent tools
+
+Dedicated bindings would select an independently configured Agent with its own
+Harness and Session, invoked over A2A. This execution path is deferred. The
+`agentRef` field is commented out in the source and absent from the served API;
+subagent bindings currently require `templateRef`.
 
 ## Runtime remote A2A tools
 
@@ -36,6 +51,6 @@ Implementations:
 - [`go/adk/pkg/tools/remote_a2a_tool.go`](../../go/adk/pkg/tools/remote_a2a_tool.go)
 - [`python/packages/kagent-adk/src/kagent/adk/_remote_a2a_tool.py`](../../python/packages/kagent-adk/src/kagent/adk/_remote_a2a_tool.py)
 
-This runtime helper is not public cross-AgentInstance delegation. Gateway-level
+This runtime helper is not public cross-Session delegation. Gateway-level
 delegation still requires scoped credentials, lineage/depth/cycle enforcement,
-and streamed child execution; that work is deferred in the execution plan.
+and streamed child execution; that work remains deferred.

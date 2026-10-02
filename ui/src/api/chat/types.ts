@@ -21,8 +21,17 @@ export interface ChatTextPart {
 export interface ChatDataPart {
   kind: "data";
   /** What the payload represents, so a renderer can pick a component. */
-  dataKind: "tool_call" | "tool_result" | "tool_not_run" | "unknown";
+  dataKind:
+    | "tool_call"
+    | "tool_result"
+    | "tool_not_run"
+    | "structured_output"
+    | "unknown";
   data: Record<string, unknown>;
+  /** A2A media type, retained so JSON answers are not mistaken for tool payloads. */
+  mediaType?: string;
+  /** Includes the output-schema digest attached to a structured terminal result. */
+  metadata?: Record<string, unknown>;
 }
 
 /** A structured human decision, rendered as an audit-friendly status card. */
@@ -78,9 +87,11 @@ export type ChatEvent =
 
 /** A conversation identified by UUID. */
 export interface ChatConversationRef {
-  /** The AgentInstance id. A UUID; the gateway rejects anything else. */
+  /** The Session UUID, also its A2A conversation ID. */
   id: string;
-  /** Omitted until loaded; the routed gateway resolves an empty context. */
+  /** Agent selected for A2A routing, as namespace/name. */
+  agent: string;
+  /** The Session conversation ID. */
   contextId?: string;
 }
 

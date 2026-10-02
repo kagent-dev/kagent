@@ -2,6 +2,33 @@ suite: test ui config configmap
 templates:
   - ui-nginx-configmap.yaml
 tests:
+  - it: preserves internal identity header forwarding in insecure mode
+    asserts:
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-agent-name "";'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-user-id "";'
+
+  - it: routes MCP to the controller without buffering
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location = /mcp \{\s+proxy_pass http://kagent_backend/mcp;'
+
+  - it: strips internal agent identity headers in trusted proxy mode even if opted in
+    set:
+      controller.auth.mode: trusted-proxy
+      ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-agent-name "";'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-user-id "";'
+
   - it: should render the unified UI ConfigMap
     template: ui-nginx-configmap.yaml
     asserts:
@@ -182,3 +209,33 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'proxy_set_header x-forwarded-user "";'
+
+  - it: should strip ui.basePath so an unstripped proxy still works
+    template: ui-nginx-configmap.yaml
+    set:
+      ui:
+        basePath: /my.ui/
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'rewrite \^/my\\\.ui\(/\.\*\)\$ \$1 last;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'rewrite \^/my\\\.ui\$ / last;'
+
+  - it: should not rewrite paths without ui.basePath
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'rewrite '
+
+  - it: should not rewrite paths when ui.basePath is the root
+    template: ui-nginx-configmap.yaml
+    set:
+      ui:
+        basePath: /
+    asserts:
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'rewrite '

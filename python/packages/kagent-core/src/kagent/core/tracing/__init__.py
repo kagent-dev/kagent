@@ -1,3 +1,3 @@
-from ._utils import configure, force_flush
+from ._utils import configure, force_flush, signal_enabled
 
-__all__ = ["configure", "force_flush"]
+__all__ = ["configure", "force_flush", "signal_enabled"]

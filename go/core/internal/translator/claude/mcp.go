@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"istio.io/istio/pkg/kube/krt"
@@ -58,7 +59,7 @@ func (c *Compiler) compileMCP(
 		if compatibilityWarning != "" {
 			result.warnings = append(result.warnings, compatibilityWarning)
 		}
-		hostname, err := mcpHostname(server.Spec.URL)
+		hostname, err := mcpOrigin(server.Spec.URL)
 		if err != nil {
 			return mcpCompilation{}, err
 		}
@@ -142,12 +143,12 @@ func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, string, error
 	}
 }
 
-func mcpHostname(raw string) (string, error) {
+func mcpOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return "", v2translator.NewValidationError("Claude RemoteMCPServer URL must be absolute HTTP(S) without credentials or fragment")
 	}
-	return parsed.Hostname(), nil
+	return egress.Origin(parsed), nil
 }
 
 func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {

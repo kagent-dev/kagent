@@ -69,7 +69,8 @@ func lastBlock(t *testing.T, blocks []map[string]any) map[string]any {
 }
 
 func TestBuildAnthropicParamsWithoutPromptCachingSendsNoBreakpoints(t *testing.T) {
-	params := buildAnthropicParams(anthropicAgentLoopRequest(), &AnthropicConfig{Model: "claude-sonnet-4-6"})
+	params, err := buildAnthropicParams(anthropicAgentLoopRequest(), &AnthropicConfig{Model: "claude-sonnet-4-6"})
+	require.NoError(t, err)
 
 	body := marshalParams(t, params)
 	assert.NotContains(t, string(body), "cache_control")
@@ -91,7 +92,8 @@ func TestBuildAnthropicParamsPromptCachingMarksToolsSystemAndLatestTurn(t *testi
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			params := buildAnthropicParams(anthropicAgentLoopRequest(), &AnthropicConfig{Model: "claude-sonnet-4-6", PromptCaching: true, CacheTTL: tt.cacheTTL})
+			params, err := buildAnthropicParams(anthropicAgentLoopRequest(), &AnthropicConfig{Model: "claude-sonnet-4-6", PromptCaching: true, CacheTTL: tt.cacheTTL})
+			require.NoError(t, err)
 
 			body := marshalParams(t, params)
 			assert.Equal(t, 3, strings.Count(string(body), `"cache_control"`), "one breakpoint each for tools, system and the latest turn: %s", body)
@@ -120,7 +122,8 @@ func TestBuildAnthropicParamsPromptCachingMarksTrailingToolResult(t *testing.T) 
 	req := anthropicAgentLoopRequest()
 	req.Contents = req.Contents[:3] // the turn ends with the tool result
 
-	params := buildAnthropicParams(req, &AnthropicConfig{Model: "claude-sonnet-4-6", PromptCaching: true})
+	params, err := buildAnthropicParams(req, &AnthropicConfig{Model: "claude-sonnet-4-6", PromptCaching: true})
+	require.NoError(t, err)
 
 	wire := decodeWireRequest(t, marshalParams(t, params))
 	last := wire.Messages[len(wire.Messages)-1]
@@ -132,7 +135,8 @@ func TestBuildAnthropicParamsPromptCachingMarksTrailingToolResult(t *testing.T) 
 func TestBuildAnthropicParamsPromptCachingWithoutToolsOrSystem(t *testing.T) {
 	req := &model.LLMRequest{Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hi"}}}}}
 
-	params := buildAnthropicParams(req, &AnthropicConfig{Model: "claude-sonnet-4-6", PromptCaching: true})
+	params, err := buildAnthropicParams(req, &AnthropicConfig{Model: "claude-sonnet-4-6", PromptCaching: true})
+	require.NoError(t, err)
 
 	body := marshalParams(t, params)
 	assert.Equal(t, 1, strings.Count(string(body), `"cache_control"`), "only the conversation breakpoint applies: %s", body)
@@ -247,4 +251,63 @@ func TestAnthropicStreamingCarriesBreakpointsAndCacheUsage(t *testing.T) {
 	assert.Equal(t, &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 1000, CachedContentTokenCount: 900, CandidatesTokenCount: 5}, final.UsageMetadata)
 	require.Len(t, final.Content.Parts, 1)
 	assert.Equal(t, "pod-a", final.Content.Parts[0].Text)
+}
+
+func TestAnthropicModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encoded, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(encoded, &body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"id":"msg-1","type":"message","role":"assistant","model":"claude-sonnet-4-5",
+			"content":[{"type":"text","text":"{\"answer\":4}"}],
+			"stop_reason":"end_turn","stop_sequence":null,
+			"usage":{"input_tokens":1,"output_tokens":1}
+		}`)
+	}))
+	defer server.Close()
+
+	llm, err := newAnthropicModelFromConfig(context.Background(), &AnthropicConfig{
+		Model:   "claude-sonnet-4-5",
+		BaseUrl: server.URL,
+	}, "test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{"answer": map[string]any{"type": "integer"}},
+		"required":             []any{"answer"},
+		"additionalProperties": false,
+	}
+	request := &model.LLMRequest{
+		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "calculate"}}}},
+		Config: &genai.GenerateContentConfig{
+			ResponseJsonSchema: schema,
+			Tools: []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name: "calculator", ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}}}},
+		},
+	}
+	for _, generateErr := range llm.GenerateContent(context.Background(), request, false) {
+		if generateErr != nil {
+			t.Fatalf("GenerateContent error: %v", generateErr)
+		}
+	}
+
+	outputConfig, ok := body["output_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("output_config = %#v", body["output_config"])
+	}
+	format, ok := outputConfig["format"].(map[string]any)
+	if !ok || format["type"] != "json_schema" {
+		t.Fatalf("output_config.format = %#v", outputConfig["format"])
+	}
+	if gotSchema, ok := format["schema"].(map[string]any); !ok || gotSchema["additionalProperties"] != false {
+		t.Fatalf("output_config.format.schema = %#v", format["schema"])
+	}
+	if tools, ok := body["tools"].([]any); !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one tool", body["tools"])
+	}
 }

@@ -227,6 +227,7 @@ export function SnapshotDetailsModal({
             okText="Delete"
             okButtonProps={{ danger: true, "data-testid": "snapshot-details-delete-confirm" }}
             cancelText="Cancel"
+            cancelButtonProps={{ "data-testid": "snapshot-details-delete-cancel" }}
             onConfirm={() => void act(() => onDelete(checkpoint.id))}
           >
             <Button

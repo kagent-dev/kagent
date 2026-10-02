@@ -44,9 +44,10 @@ import (
 
 const (
 	conditionAccepted = "Accepted"
-	remoteGroupKind   = "RemoteMCPServer.kagent.dev"
 	refreshInterval   = 5 * time.Minute
 )
+
+var remoteGroupKind = v1alpha3.GroupVersion.WithKind("RemoteMCPServer").GroupKind().String()
 
 // ToolDiscoverer returns the tools currently advertised by one MCP server.
 type ToolDiscoverer interface {
@@ -182,9 +183,6 @@ func (r *Reconciler) requestsForDependency(ctx context.Context, object client.Ob
 func referencesDependency(server *v1alpha3.RemoteMCPServer, object client.Object) bool {
 	switch object.(type) {
 	case *corev1.Secret:
-		if server.Spec.TLS != nil && server.Spec.TLS.CACertSecretRef == object.GetName() {
-			return true
-		}
 		for i := range server.Spec.HeadersFrom {
 			from := server.Spec.HeadersFrom[i].ValueFrom
 			if from != nil && from.Type == v1alpha3.SecretValueSource && from.Name == object.GetName() {

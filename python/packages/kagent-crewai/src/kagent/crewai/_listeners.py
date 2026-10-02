@@ -20,8 +20,7 @@ from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    get_kagent_metadata_key,
+    A2A_PART_TYPE_METADATA_KEY,
     now_timestamp,
 )
 
@@ -75,12 +74,10 @@ class A2ACrewAIListener(BaseEventListener):
         self,
         context: RequestContext,
         event_queue: EventQueue,
-        app_name: str,
     ):
         # Handlers close over self; fields must exist before super() registers them.
         self.context = context
         self.event_queue = event_queue
-        self.app_name = app_name
         self.loop = asyncio.get_running_loop()
         # Stack of in-flight tool call IDs keyed by a stable tool invocation fingerprint.
         self._tool_call_ids: dict[tuple[str, str, str, str], list[str]] = {}
@@ -89,29 +86,19 @@ class A2ACrewAIListener(BaseEventListener):
     def _enqueue_event(self, event: Any):
         asyncio.run_coroutine_threadsafe(self.event_queue.enqueue_event(event), self.loop)
 
-    def _base_metadata(self) -> dict[str, str]:
-        return {
-            get_kagent_metadata_key("app_name"): self.app_name,
-            get_kagent_metadata_key("session_id"): self.context.context_id or "",
-        }
-
     def _enqueue_parts(self, parts: list[Part], *, event_type: str | None = None):
-        metadata = self._base_metadata()
-        if event_type:
-            metadata[get_kagent_metadata_key("event_type")] = event_type
+        del event_type
         self._enqueue_event(
             TaskArtifactUpdateEvent(
                 task_id=self.context.task_id,
                 context_id=self.context.context_id,
                 last_chunk=True,
-                artifact=Artifact(artifact_id=str(uuid.uuid4()), parts=parts, metadata=metadata),
-                metadata=metadata,
+                artifact=Artifact(artifact_id=str(uuid.uuid4()), parts=parts),
             )
         )
 
     def _enqueue_status(self, text: str):
         """Emit WORKING status for progress tracking (not chat transcript)."""
-        metadata = self._base_metadata()
         self._enqueue_event(
             TaskStatusUpdateEvent(
                 task_id=self.context.task_id,
@@ -125,7 +112,6 @@ class A2ACrewAIListener(BaseEventListener):
                     ),
                     timestamp=now_timestamp(),
                 ),
-                metadata=metadata,
             )
         )
 
@@ -134,7 +120,7 @@ class A2ACrewAIListener(BaseEventListener):
             [
                 Part(
                     data=ParseDict(data, Value()),
-                    metadata={get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): part_type},
+                    metadata={A2A_PART_TYPE_METADATA_KEY: part_type},
                 )
             ],
             event_type=event_type,

@@ -11,153 +11,184 @@ import (
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
+func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 	t.Parallel()
-	target := interactionTarget(t)
-	templateName := createInteractionTemplate(t, startInteractionMock(t))
-	binary := kagentCLI(t)
-	baseArgs := []string{
-		"--api-url", "http://" + target,
-		"--gateway-url", "http://" + target,
-		"--namespace", "kagent",
-		"--user-id", "e2e",
-	}
-	run := func(ctx context.Context, args ...string) string {
-		return runKagentCLI(t, ctx, binary, append(append([]string{}, baseArgs...), args...)...)
-	}
-
-	listedTemplates := run(t.Context(), "get", "agent-template")
-	if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "TRUE") {
-		t.Fatalf("list AgentTemplates stdout = %q, want ready template %s", listedTemplates, templateName)
-	}
-	templateJSON := run(t.Context(), "--output-format", "json", "get", "agent-template", templateName)
-	if !json.Valid([]byte(templateJSON)) || !strings.Contains(templateJSON, `"name":"`+templateName+`"`) ||
-		!strings.Contains(templateJSON, `"status":"True"`) {
-		t.Fatalf("get AgentTemplate stdout = %q, want ready template %s as JSON", templateJSON, templateName)
-	}
-
-	requestID := uuid.NewString()
-	createArgs := []string{
-		"--output-format", "json", "create", "agent-instance",
-		"--harness", "kagent", "--agent-template", templateName, "--request-id", requestID,
-	}
-	createdJSON := run(t.Context(), createArgs...)
-	var created apiv1alpha1.CreateAgentInstanceResponse
-	if err := protojson.Unmarshal([]byte(createdJSON), &created); err != nil {
-		t.Fatalf("decode create AgentInstance stdout %q: %v", createdJSON, err)
-	}
-	instance := created.GetAgentInstance()
-	if instance.GetId() == "" || instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
-		t.Fatalf("created AgentInstance = %#v, want ID and READY state", instance)
-	}
-	deleted := false
-	t.Cleanup(func() {
-		if !deleted {
-			run(context.Background(), "delete", "agent-instance", instance.GetId())
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
+		target := interactionTarget(t)
+		templateName := createInteractionTemplate(t, harness, startInteractionMock(t))
+		binary := kagentCLI(t)
+		baseArgs := []string{
+			"--api-url", "http://" + target,
+			"--gateway-url", "http://" + target,
+			"--namespace", "kagent",
+			"--user-id", "e2e",
 		}
-	})
+		run := func(ctx context.Context, args ...string) string {
+			return runKagentCLI(t, ctx, binary, append(append([]string{}, baseArgs...), args...)...)
+		}
 
-	replayedJSON := run(t.Context(), createArgs...)
-	var replayed apiv1alpha1.CreateAgentInstanceResponse
-	if err := protojson.Unmarshal([]byte(replayedJSON), &replayed); err != nil {
-		t.Fatalf("decode replayed create stdout %q: %v", replayedJSON, err)
-	}
-	if replayed.GetAgentInstance().GetId() != instance.GetId() {
-		t.Fatalf("replayed create ID = %q, want %q", replayed.GetAgentInstance().GetId(), instance.GetId())
-	}
+		listedTemplates := run(t.Context(), "agent", "list")
+		if !strings.Contains(listedTemplates, templateName) || !strings.Contains(listedTemplates, "True") {
+			t.Fatalf("list Agents stdout = %q, want ready template %s", listedTemplates, templateName)
+		}
+		templateJSON := run(t.Context(), "--output-format", "json", "agent", "get", templateName)
+		if !json.Valid([]byte(templateJSON)) || !strings.Contains(templateJSON, `"name":"`+templateName+`"`) ||
+			!strings.Contains(templateJSON, `"status":"True"`) {
+			t.Fatalf("get Agent stdout = %q, want ready template %s as JSON", templateJSON, templateName)
+		}
 
-	listedInstances := run(t.Context(), "get", "agent-instance")
-	if !strings.Contains(listedInstances, instance.GetId()) {
-		t.Fatalf("list AgentInstances stdout = %q, want instance %s", listedInstances, instance.GetId())
-	}
-	gotInstance := run(t.Context(), "--output-format", "json", "get", "agent-instance", instance.GetId())
-	if !json.Valid([]byte(gotInstance)) || !strings.Contains(gotInstance, instance.GetId()) {
-		t.Fatalf("get AgentInstance stdout = %q, want instance %s as JSON", gotInstance, instance.GetId())
-	}
-
-	deletedJSON := run(t.Context(), "--output-format", "json", "delete", "agent-instance", instance.GetId())
-	deleted = true
-	var deletedResponse apiv1alpha1.DeleteAgentInstanceResponse
-	if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
-		t.Fatalf("decode delete AgentInstance stdout %q: %v", deletedJSON, err)
-	}
-	if deletedResponse.GetAgentInstance().GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-		t.Fatalf("deleted AgentInstance state = %s, want DELETED", deletedResponse.GetAgentInstance().GetState())
-	}
-}
-
-func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
-	t.Parallel()
-	target := interactionTarget(t)
-	fixture := newInteractionFixture(t, target, startInteractionMock(t))
-	binary := kagentCLI(t)
-	baseArgs := []string{
-		"--api-url", "http://" + target,
-		"--gateway-url", "http://" + target,
-		"--namespace", "kagent",
-		"--user-id", "e2e",
-	}
-
-	listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "agent-instance")...)
-	if !strings.Contains(listOutput, fixture.instanceID) {
-		t.Fatalf("list AgentInstances stdout = %q, want instance %s", listOutput, fixture.instanceID)
-	}
-
-	getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "agent-instance", fixture.instanceID)
-	getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
-	if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.instanceID) {
-		t.Fatalf("get AgentInstance stdout = %q, want JSON for instance %s", getOutput, fixture.instanceID)
-	}
-
-	tests := []struct {
-		name   string
-		format string
-		stream bool
-	}{
-		{name: "table", format: "table"},
-		{name: "table stream", format: "table", stream: true},
-		{name: "json", format: "json"},
-		{name: "json stream", format: "json", stream: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := append(append([]string{}, baseArgs...),
-				"--output-format", tt.format,
-				"invoke",
-				"--agent-instance", fixture.instanceID,
-				"--task", "What is 2+2?",
-			)
-			if tt.stream {
-				args = append(args, "--stream")
-			}
-			stdout := runKagentCLI(t, fixture.ctx, binary, args...)
-			if tt.format == "table" {
-				if got := strings.TrimSpace(stdout); got != "The answer is 4." {
-					t.Fatalf("CLI stdout = %q, want final response once", got)
-				}
-				return
-			}
-			lines := strings.Split(strings.TrimSpace(stdout), "\n")
-			if !tt.stream && len(lines) != 1 {
-				t.Fatalf("non-streaming JSON stdout has %d lines, want 1", len(lines))
-			}
-			for _, line := range lines {
-				if !json.Valid([]byte(line)) {
-					t.Fatalf("CLI stdout line is not JSON: %q", line)
-				}
+		requestID := uuid.NewString()
+		createArgs := []string{
+			"--output-format", "json", "agent", "session", "create",
+			"--agent", templateName, "--request-id", requestID,
+		}
+		createdJSON := run(t.Context(), createArgs...)
+		var created apiv1alpha1.CreateSessionResponse
+		if err := protojson.Unmarshal([]byte(createdJSON), &created); err != nil {
+			t.Fatalf("decode create Session stdout %q: %v", createdJSON, err)
+		}
+		session := created.GetSession()
+		if session.GetId() == "" || session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
+			t.Fatalf("created Session = %#v, want ID and READY state", session)
+		}
+		deleted := false
+		t.Cleanup(func() {
+			if !deleted {
+				run(context.Background(), "agent", "session", "delete", session.GetId())
 			}
 		})
+
+		replayedJSON := run(t.Context(), createArgs...)
+		var replayed apiv1alpha1.CreateSessionResponse
+		if err := protojson.Unmarshal([]byte(replayedJSON), &replayed); err != nil {
+			t.Fatalf("decode replayed create stdout %q: %v", replayedJSON, err)
+		}
+		if replayed.GetSession().GetId() != session.GetId() {
+			t.Fatalf("replayed create ID = %q, want %q", replayed.GetSession().GetId(), session.GetId())
+		}
+
+		listedSessions := listKagentCLISessionPage(t, t.Context(), binary, baseArgs, session.GetId())
+		if !strings.Contains(listedSessions, session.GetId()) {
+			t.Fatalf("list Sessions stdout = %q, want session %s", listedSessions, session.GetId())
+		}
+		gotSession := run(t.Context(), "--output-format", "json", "agent", "session", "get", session.GetId())
+		if !json.Valid([]byte(gotSession)) || !strings.Contains(gotSession, session.GetId()) {
+			t.Fatalf("get Session stdout = %q, want session %s as JSON", gotSession, session.GetId())
+		}
+
+		deletedJSON := run(t.Context(), "--output-format", "json", "agent", "session", "delete", session.GetId())
+		deleted = true
+		var deletedResponse apiv1alpha1.DeleteSessionResponse
+		if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
+			t.Fatalf("decode delete Session stdout %q: %v", deletedJSON, err)
+		}
+		if deletedResponse.GetSession().GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+			t.Fatalf("deleted Session state = %s, want DELETED", deletedResponse.GetSession().GetState())
+		}
+	})
+}
+
+func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
+	t.Parallel()
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
+		target := interactionTarget(t)
+		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
+		binary := kagentCLI(t)
+		baseArgs := []string{
+			"--api-url", "http://" + target,
+			"--gateway-url", "http://" + target,
+			"--namespace", "kagent",
+			"--user-id", "e2e",
+		}
+
+		listOutput := listKagentCLISessionPage(t, fixture.ctx, binary, baseArgs, fixture.sessionID)
+		if !strings.Contains(listOutput, fixture.sessionID) {
+			t.Fatalf("list Sessions stdout = %q, want session %s", listOutput, fixture.sessionID)
+		}
+
+		getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "agent", "session", "get", fixture.sessionID)
+		getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
+		if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.sessionID) {
+			t.Fatalf("get Session stdout = %q, want JSON for session %s", getOutput, fixture.sessionID)
+		}
+
+		tests := []struct {
+			name   string
+			format string
+			stream bool
+		}{
+			{name: "table", format: "table"},
+			{name: "table stream", format: "table", stream: true},
+			{name: "json", format: "json"},
+			{name: "json stream", format: "json", stream: true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				args := append(append([]string{}, baseArgs...),
+					"--output-format", tt.format,
+					"agent", "invoke",
+					"--session", fixture.sessionID,
+					"--task", "What is 2+2?",
+				)
+				if tt.stream {
+					args = append(args, "--stream")
+				}
+				stdout := runKagentCLI(t, fixture.ctx, binary, args...)
+				if tt.format == "table" {
+					if got := strings.TrimSpace(stdout); got != "The answer is 4." {
+						t.Fatalf("CLI stdout = %q, want final response once", got)
+					}
+					return
+				}
+				lines := strings.Split(strings.TrimSpace(stdout), "\n")
+				if !tt.stream && len(lines) != 1 {
+					t.Fatalf("non-streaming JSON stdout has %d lines, want 1", len(lines))
+				}
+				for _, line := range lines {
+					if !json.Valid([]byte(line)) {
+						t.Fatalf("CLI stdout line is not JSON: %q", line)
+					}
+				}
+			})
+		}
+	})
+}
+
+// Locate the fixture through pagination, then exercise the table output for its
+// page. Repeated local runs may leave more than one page of unrelated Sessions.
+func listKagentCLISessionPage(t *testing.T, ctx context.Context, binary string, baseArgs []string, sessionID string) string {
+	t.Helper()
+	for pageToken := ""; ; {
+		args := append(append([]string{}, baseArgs...), "agent", "session", "list", "--page-token", pageToken)
+		output := runKagentCLI(t, ctx, binary, append(append([]string{}, args...), "--output-format", "json")...)
+		var response apiv1alpha1.ListSessionsResponse
+		if err := protojson.Unmarshal([]byte(output), &response); err != nil {
+			t.Fatalf("decode list Sessions stdout: %v", err)
+		}
+		for _, session := range response.GetSessions() {
+			if session.GetId() == sessionID {
+				return runKagentCLI(t, ctx, binary, args...)
+			}
+		}
+		next := response.GetPage().GetNextPageToken()
+		if next == "" || next == pageToken {
+			t.Fatalf("list Sessions omitted %s after following pagination", sessionID)
+		}
+		pageToken = next
 	}
 }
 
 func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(ctx, binary, args...)
-	kubeconfig := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	kubeconfig := kagentenv.Kubeconfig.Get()
 	if kubeconfig == "" {
 		kubeconfig = clientcmd.RecommendedHomeFile
 	}
@@ -176,7 +207,7 @@ func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...stri
 
 func kagentCLI(t *testing.T) string {
 	t.Helper()
-	binary := os.Getenv("KAGENT_E2E_CLI")
+	binary := kagentenv.E2ECLI.Get()
 	if binary == "" {
 		t.Fatal("KAGENT_E2E_CLI is not set; run E2E tests through `make -C go e2e`")
 	}

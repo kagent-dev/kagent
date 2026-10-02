@@ -20,7 +20,7 @@ global:
   # -- Registry that overrides every per-image registry when set. This is the
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
-  # registry keys. Covers this chart's own images: controller, ui, bundled
+  # registry keys. Covers this chart's own images: controller, sandbox guest, ui, bundled
   # postgres, grafana-mcp, and substrateWorkerPool.workerImage. The vendored
   # subcharts (kagent-tools, kmcp, substrate) adopt it when their pinned
   # versions bump.
@@ -196,7 +196,7 @@ rbac:
   # If that is also unset, the chart creates cluster-scoped ClusterRole and
   # ClusterRoleBinding resources, and the controller watches all namespaces.
   # If set, the chart creates a Role and a RoleBinding per listed namespace.
-  # The controller's WATCH_NAMESPACES derives from the same list, unless
+  # The controller's KAGENT_WATCH_NAMESPACES derives from the same list, unless
   # controller.watchNamespaces overrides it.
   # An explicit empty list forces cluster-scoped RBAC, even under a parent that
   # sets global.watchNamespaces. This is why the key ships commented out: a
@@ -212,21 +212,25 @@ rbac:
 controller:
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
+    # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.
+    create: true
+    # -- Name of the controller ServiceAccount.
+    # @default -- `<fullname>-controller`
+    name: ""
     # -- Annotations to add to the controller ServiceAccount.
     # Useful for GCP Workload Identity, AWS IRSA, or Azure Workload Identity.
     # @default -- {} (no extra annotations)
     annotations: {}
   replicas: 1
   loglevel: "info"
-  # Authentication mode: "unsecure" (default) or "trusted-proxy"
-  # - unsecure: uses X-User-Id header/query param or defaults to admin@kagent.dev
-  # - trusted-proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
   auth:
-    mode: unsecure
-    # JWT claim for user identity (default: "sub")
-    # Override only if your OIDC provider uses a different claim
+    # -- Controller authentication: insecure or trusted-proxy.
+    # trusted-proxy requires a validating proxy and network isolation; see
+    # docs/architecture/oidc-proxy-authentication.md.
+    mode: insecure
+    # -- JWT identity claim. Empty uses sub; a missing custom claim falls back to sub.
     userIdClaim: ""
-  # -- Public gRPC URL advertised by AgentInstance Agent Cards.
+  # -- Public gateway base URL advertised by Session Agent Cards for gRPC and HTTP/JSON-RPC.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
   # -- The image used for declarative agents.
@@ -333,7 +337,7 @@ controller:
   # `<fullname>-metrics-reader` to your Prometheus ServiceAccount to grant
   # scrape access. Use `bindAddress` for any port change: the Service
   # `targetPort` and the pod `containerPort` are derived from it at
-  # template time, so overriding `METRICS_BIND_ADDRESS` via
+  # template time, so overriding `KAGENT_METRICS_BIND_ADDRESS` via
   # `controller.env` shifts only the runtime listener and leaves the
   # rendered Service pointing at the chart-time port. Setting
   # `bindAddress: "0"` (or empty) is treated as a disable signal —
@@ -403,13 +407,28 @@ controller:
   # -- gRPC application API settings. Native gRPC, gRPC-Web, MCP, and health
   # share the controller service port.
   grpc:
-    maxMessageBytes: 16777216
     reflection: false
-    tlsCertFile: ""
-    tlsKeyFile: ""
 
-  # Extra controller env (mapped to flags via SUBSTRATE_* env names).
+  # Extra controller environment variables, applied after ConfigMap defaults.
+  # Kept in the Deployment to support valueFrom and $(VAR_NAME) expansion.
   env: []
+
+  # Session idle retention. Running tasks and turns waiting for input do not expire.
+  # 168h is seven days; 0 disables expiration. Audit history and checkpoints remain.
+  sessionIdleTTL: "168h"
+
+  # Standalone workspaces, enabled by default.
+  # Each SandboxTemplate supplies its own digest-pinned tools image.
+  sandbox:
+    # Supply a pinned guest image to prepare sandboxes.
+    guestImage:
+      registry: "" # Defaults to the top-level registry; global.imageRegistry overrides both.
+      repository: kagent-dev/kagent/sandbox-guest
+      digest: "" # Required for sandbox preparation: sha256:<digest>.
+    cpu: "1"
+    memory: "1Gi"
+    defaultTTL: "1h"
+    maxTTL: "24h"
 
   # Agent Substrate. Requires ate-system installed. kagent creates ate-api
   # ActorTemplates and references an existing Kubernetes WorkerPool.
@@ -417,15 +436,10 @@ controller:
     enabled: false
     ateApiEndpoint: ""
     atenetRouterURL: ""
-    defaultWorkerPool:
-      namespace: ""
-      name: ""
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
     #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
-    #   defaultWorkerPool:
-    #     name: "kagent-default"
   envFrom: []
 
   # Additional volumes on the output Deployment definition.
@@ -460,8 +474,11 @@ substrateWorkerPool:
   name: kagent-default
   replicas: 1
   workerImage: ""
-  # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
-  # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
+  # sandboxClass selects the sandbox runtime family (gvisor|microvm) for workers
+  # and kagent-generated ActorTemplates whose Harness references this pool.
+  # Use a matching workerImage (ateom-gvisor or ateom-microvm). Substrate must have
+  # the corresponding SandboxConfig installed (gvisor-default or microvm);
+  # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
   # Extra labels merged onto the WorkerPool metadata (in addition to the
   # kagent.dev/worker-pool label used by generated ActorTemplates to select this pool).
@@ -525,18 +542,20 @@ ui:
     proxyReadTimeout: 1800s
     # -- proxy_send_timeout: max time between two successive writes to the upstream.
     proxySendTimeout: 1800s
-  # -- Extra environment variables for the UI container: a list of `{name, value}`
-  # entries, spliced into its `env:` verbatim. An installed app extension's own
-  # settings go here, named `EXTENSION_*`; the container's startup script copies
+  # -- Extra environment variables for the UI container, applied after ConfigMap
+  # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
+  # expansion. An installed app extension's settings go here, named
+  # `KAGENT_UI_EXTENSION_*`; the container's startup script copies
   # those onto `window.environmentVariables` for the browser to read.
   env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
-  # /api/ and /a2a/. Names are case-insensitive. Authorization is always
+  # /api/, /a2a/, and /mcp. Names are case-insensitive. Authorization is always
   # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
   # x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username) are
   # stripped from client requests unless listed here, so a caller cannot spoof
   # an identity the backend trusts. Headers outside that set are forwarded by
-  # nginx as normal.
+  # nginx as normal. In trusted-proxy mode, X-Agent-Name and X-User-Id are
+  # always stripped, even if listed here.
   additionalForwardedHeaders: []
   # Example:
   #   additionalForwardedHeaders:
@@ -550,6 +569,9 @@ ui:
   # controller; set an absolute URL only if the browser must reach the API
   # somewhere other than the UI origin.
   publicBackendUrl: "/api"
+  # -- Prefix a reverse proxy strips before forwarding, e.g. `/ui`; root-relative URLs such as `publicBackendUrl` get it too.
+  # With oauth2-proxy, set `OIDC_REDIRECT_URL` under it and restart oauth2-proxy after changing it.
+  basePath: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -707,12 +729,19 @@ providers:
     # This same block can be used under any provider.
     # tls:
     #   disableVerify: false
-    #   caCertSecretRef: ""
-    #   caCertSecretKey: ""
-    #   disableSystemCAs: false
   ollama:
     provider: Ollama
+    # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
+    # the UI (see the controller's static catalog) and reached with a ":cloud" tag
+    # or bare cloud tag such as "deepseek-v4.1-flash".
     model: "llama3.2"
+    # apiKeySecretRef/apiKeySecretKey point at the Secret holding OLLAMA_API_KEY.
+    # With no explicit host, a cloud model reaches api.ollama.com via gateway
+    # credential injection; without a Secret it uses the signed-in local daemon.
+    # Remove config.host below for direct cloud routing (the default host pins
+    # requests to the local daemon even when a Secret is configured).
+    # apiKeySecretRef: "kagent-ollama-cloud"
+    # apiKeySecretKey: "OLLAMA_API_KEY"
     config:
       host: host.docker.internal:11434
       options:
@@ -743,9 +772,15 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.5-flash-lite"
+    model: "gemini-3.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
+    # apiKey: ""
+  mistral:
+    provider: Mistral
+    model: "mistral-large-latest"
+    apiKeySecretRef: kagent-mistral
+    apiKeySecretKey: MISTRAL_API_KEY
     # apiKey: ""
 
 # ==============================================================================
@@ -846,7 +881,8 @@ grafana-mcp:
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================
 # Enable oauth2-proxy subchart for OIDC authentication
-# Requires controller.auth.mode: trusted-proxy
+# Set controller.auth.mode=trusted-proxy to authenticate controller requests; see
+# docs/architecture/oidc-proxy-authentication.md.
 
 oauth2-proxy:
   enabled: false
@@ -948,28 +984,40 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
-  # -- Include prompts, tool details, and assistant responses in agent telemetry.
-  # This may expose sensitive user or model content.
-  captureSensitiveContent: false
-  tracing:
+  exporter:
+    otlp:
+      # -- OTLP endpoint for every signal, as an http or https URL.
+      endpoint: ""
+      # -- OTLP protocol, `grpc` or `http/protobuf`.
+      protocol: grpc
+      # -- Export timeout in milliseconds. Empty keeps the SDK default.
+      timeout: ""
+  traces:
     enabled: false
-    exporter:
-      otlp:
-        endpoint: ""
-        protocol: "grpc"
-        timeout: 15000 # milliseconds
-        insecure: true
-  logging:
+    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for traces.
+    endpoint: ""
+    protocol: ""
+  metrics:
     enabled: false
+    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for metrics.
+    endpoint: ""
+    protocol: ""
+  logs:
+    enabled: false
+    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for logs.
+    endpoint: ""
+    protocol: ""
+  capture:
+    # -- Record prompts, tool details, and responses on agent telemetry.
+    # This may expose sensitive user or model content.
+    messageContent: false
+    # -- Bytes kept per captured prompt or response. Empty keeps the default.
+    maxBytes: ""
     # -- Include complete provider API request and response bodies in Claude logs.
-    # This is more verbose than captureSensitiveContent.
-    captureRawApiBodies: false
-    exporter:
-      otlp:
-        endpoint: ""
-        protocol: "grpc"
-        timeout: 15000 # milliseconds
-        insecure: true
+    rawApiBodies: false
+  # -- Resource attributes added to the controller and every agent, such as
+  # `deployment.environment.name` or `k8s.cluster.name`.
+  resourceAttributes: {}
 
 # ==============================================================================
 # EXTRA OBJECTS

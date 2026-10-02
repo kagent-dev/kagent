@@ -1,0 +1,11 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"parent","turnId":"turn","item":{"type":"collabAgentToolCall","id":"agent-1","tool":"spawnAgent","prompt":"Translate: Good morning, my friend.","senderThreadId":"parent","receiverThreadIds":[],"agentsStates":{},"status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"commandExecution","id":"agent-1","command":"pwd","cwd":"/data/workspace","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"child","turnId":"child-turn","itemId":"child-message","delta":"Private child output"}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"child","turnId":"child-turn","item":{"type":"commandExecution","id":"agent-1","command":"pwd","cwd":"/data/workspace","status":"completed","exitCode":0}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"child","turn":{"id":"child-turn","status":"completed"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"parent","turnId":"turn","item":{"type":"collabAgentToolCall","id":"agent-1","tool":"spawnAgent","prompt":"Translate: Good morning, my friend.","senderThreadId":"parent","receiverThreadIds":["child"],"agentsStates":{},"status":"completed"}}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"parent","turnId":"turn","itemId":"message","delta":"Bonjour, mon ami."}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"parent","turn":{"id":"turn","status":"completed"}}}
+{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"child","turn":{"id":"child-next-turn","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"child","turnId":"child-next-turn","itemId":"child-next-message","delta":"Late child output"}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"child","turn":{"id":"child-next-turn","status":"completed"}}}

@@ -1,7 +1,5 @@
 package a2a
 
-import "google.golang.org/adk/v2/server/adka2a/v2"
-
 const (
 	StateKeySessionName = "session_name"
 	StateKeySource      = "source"
@@ -22,20 +20,3 @@ const (
 	PartKeyResponse = "response"
 	PartKeyID       = "id"
 )
-
-// ReadMetadataValue checks adk_<key> first, then kagent_<key>.
-// Returns the value and true if found, or (nil, false).
-func ReadMetadataValue(metadata map[string]any, key string) (any, bool) {
-	if metadata == nil {
-		return nil, false
-	}
-	adkKey := adka2a.ToA2AMetaKey(key)
-	if v, ok := metadata[adkKey]; ok {
-		return v, true
-	}
-	kagentKey := KAgentMetadataKeyPrefix + key
-	if v, ok := metadata[kagentKey]; ok {
-		return v, true
-	}
-	return nil, false
-}

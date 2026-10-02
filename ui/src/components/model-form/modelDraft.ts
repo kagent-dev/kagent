@@ -15,7 +15,11 @@ import {
   type TLSConfig,
 } from "@/api";
 import { DEFAULT_NAMESPACE } from "@/components/common/resourceName";
-import { OLLAMA_DEFAULT_TAG, OLLAMA_PROVIDER } from "./providerInfo";
+import {
+  OLLAMA_DEFAULT_TAG,
+  OLLAMA_PROVIDER,
+  supportsPassthrough,
+} from "./providerInfo";
 
 /**
  * How the model authenticates:
@@ -35,9 +39,6 @@ export interface HeaderRow {
 
 /** The TLS options the form edits, flattened from `TLSConfig`. */
 export interface ModelTls {
-  caCertSecretRef: string;
-  caCertSecretKey: string;
-  disableSystemCAs: boolean;
   disableVerify: boolean;
 }
 
@@ -72,9 +73,6 @@ export function newHeaderRow(): HeaderRow {
 
 function emptyTls(): ModelTls {
   return {
-    caCertSecretRef: "",
-    caCertSecretKey: "",
-    disableSystemCAs: false,
     disableVerify: false,
   };
 }
@@ -189,20 +187,46 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
       ([key, value]) => ({ ...newHeaderRow(), key, value }),
     ),
     tls: {
-      caCertSecretRef: config.spec.tls?.caCertSecretRef ?? "",
-      caCertSecretKey: config.spec.tls?.caCertSecretKey ?? "",
-      disableSystemCAs: config.spec.tls?.disableSystemCAs ?? false,
       disableVerify: config.spec.tls?.disableVerify ?? false,
     },
   };
 }
 
-/** Which auth mode an existing spec expresses. */
+/**
+ * Which auth mode an existing spec expresses. For Ollama a named Secret is a
+ * real choice — it is what authenticates an Ollama Cloud model — so it is
+ * surfaced rather than collapsed to "none"; a bare local model still reads as
+ * "none".
+ */
 function authTypeFrom(spec: ModelConfigSpec): ModelAuthType {
-  if (spec.provider === OLLAMA_PROVIDER) return "none";
+  if (spec.provider === OLLAMA_PROVIDER) {
+    return spec.apiKeySecret ? "secret" : "none";
+  }
   if (spec.apiKeyPassthrough) return "passthrough";
   if (spec.apiKeySecret) return "secret";
   return "none";
+}
+
+/**
+ * The auth mode to switch to when the provider changes.
+ *
+ * Keep the current mode when the new provider still offers it; otherwise land on
+ * one it does. Passthrough is refused by providers the CRD does not allow it for,
+ * and Ollama offers neither "apiKey" nor "passthrough", so a draft switching to
+ * it from either has to move rather than leave the radio group with nothing
+ * selected. The inverse of {@link authTypeFrom}.
+ */
+export function authTypeForProvider(
+  provider: string | undefined,
+  current: ModelAuthType,
+): ModelAuthType {
+  if (provider === OLLAMA_PROVIDER) {
+    return current === "secret" || current === "none" ? current : "none";
+  }
+  if (current === "passthrough" && !supportsPassthrough(provider)) {
+    return "apiKey";
+  }
+  return current;
 }
 
 /** The stored provider block, flattened to the form's string values. */
@@ -249,7 +273,9 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     (spec as unknown as Record<string, unknown>)[blockKey] = block;
   }
 
-  // Authentication. Ollama takes none; otherwise the mode decides what is sent.
+  // Authentication. Ollama defaults to none — a local daemon needs no
+  // credential — but a cloud model reaches api.ollama.com with one, so a Secret
+  // named here is carried through. Every other provider lets the mode decide.
   let inlineKey = "";
   if (!isOllama) {
     if (draft.authType === "apiKey") {
@@ -264,6 +290,10 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     } else if (draft.authType === "passthrough") {
       spec.apiKeyPassthrough = true;
     }
+  } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
+    spec.apiKeySecret = draft.apiKeySecret.trim();
+    spec.apiKeySecretKey =
+      draft.apiKeySecretKey.trim() || "OLLAMA_API_KEY";
   }
 
   const headers = headersToRecord(draft.defaultHeaders);
@@ -293,12 +323,6 @@ function headersToRecord(rows: HeaderRow[]): Record<string, string> {
 /** A `TLSConfig` with only the options the reader set, or `undefined` if none. */
 function buildTls(tls: ModelTls): TLSConfig | undefined {
   const out: TLSConfig = {};
-  if (tls.caCertSecretRef.trim()) {
-    out.caCertSecretRef = tls.caCertSecretRef.trim();
-    if (tls.caCertSecretKey.trim())
-      out.caCertSecretKey = tls.caCertSecretKey.trim();
-  }
-  if (tls.disableSystemCAs) out.disableSystemCAs = true;
   if (tls.disableVerify) out.disableVerify = true;
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -354,6 +378,14 @@ export function modelDraftIssues(
       draft.apiKeySecretKey.trim() &&
       !draft.apiKeySecret.trim()
     ) {
+      issues.push("A secret key needs the secret that holds it.");
+    }
+  } else if (isOllama && draft.authType === "secret") {
+    // Ollama needs no credential locally, but a cloud model reaches
+    // api.ollama.com with the key that a Secret supplies, so naming the Secret
+    // is what makes that work. A Secret key is still optional: an operator
+    // relying on the chart's OLLAMA_API_KEY names only the Secret.
+    if (draft.apiKeySecretKey.trim() && !draft.apiKeySecret.trim()) {
       issues.push("A secret key needs the secret that holds it.");
     }
   }

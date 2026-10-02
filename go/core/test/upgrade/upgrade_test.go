@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/stretchr/testify/require"
 )
@@ -45,8 +46,8 @@ type postgresMigrationState struct {
 }
 
 func TestUpgrade(t *testing.T) {
-	if os.Getenv("RUN_UPGRADE_TESTS") != "true" {
-		t.Skip("set RUN_UPGRADE_TESTS=true to run upgrade tests")
+	if kagentenv.E2ERunUpgradeTests.Get() != "true" {
+		t.Skip("set KAGENT_E2E_RUN_UPGRADE_TESTS=true to run upgrade tests")
 	}
 
 	env := loadUpgradeEnv(t)
@@ -310,45 +311,45 @@ func installPreviousReleaseCommand(ctx context.Context, env upgradeEnv) *exec.Cm
 func loadUpgradeEnv(t *testing.T) upgradeEnv {
 	t.Helper()
 
-	// Resolve the repo root. Prefer an explicit REPO_ROOT (set by the make
+	// Resolve the repo root. Prefer an explicit KAGENT_E2E_REPO_ROOT (set by the make
 	// targets), otherwise ask git: this is location-independent, so moving this
 	// file cannot silently point make at the wrong root, and git is already a hard
 	// dependency of this flow (the make targets derive versions from git tags).
-	repoRoot := os.Getenv("REPO_ROOT")
+	repoRoot := kagentenv.E2ERepoRoot.Get()
 	if repoRoot == "" {
 		out, err := exec.CommandContext(t.Context(), "git", "rev-parse", "--show-toplevel").Output()
-		require.NoError(t, err, "resolve repo root via `git rev-parse --show-toplevel`; set REPO_ROOT to override")
+		require.NoError(t, err, "resolve repo root via `git rev-parse --show-toplevel`; set KAGENT_E2E_REPO_ROOT to override")
 		repoRoot = strings.TrimSpace(string(out))
 	}
 
 	// Fail clearly here rather than letting `make -C <repoRoot> ...` fail with a
 	// confusing "no rule to make target" if the root resolved wrong.
 	_, err := os.Stat(filepath.Join(repoRoot, "Makefile"))
-	require.NoError(t, err, "resolved repo root %q has no Makefile; set REPO_ROOT", repoRoot)
+	require.NoError(t, err, "resolved repo root %q has no Makefile; set KAGENT_E2E_REPO_ROOT", repoRoot)
 
-	clusterName := envOrDefault("KIND_CLUSTER_NAME", "kagent")
+	clusterName := envOrDefault(kagentenv.E2EKindClusterName, kagentenv.E2EKindClusterName.DefaultValue())
 	return upgradeEnv{
 		repoRoot:           repoRoot,
-		upgradeFromVersion: requireEnv(t, "UPGRADE_FROM_VERSION"),
-		version:            requireEnv(t, "VERSION"),
-		dockerRegistry:     envOrDefault("DOCKER_REGISTRY", "localhost:5001"),
+		upgradeFromVersion: requireEnv(t, kagentenv.E2EUpgradeFromVersion),
+		version:            requireEnv(t, kagentenv.E2EVersion),
+		dockerRegistry:     envOrDefault(kagentenv.E2EDockerRegistry, kagentenv.E2EDockerRegistry.DefaultValue()),
 		kindClusterName:    clusterName,
-		namespace:          envOrDefault("NAMESPACE", "kagent"),
-		kubeContext:        envOrDefault("KUBE_CONTEXT", "kind-"+clusterName),
-		openAIAPIKey:       envOrDefault("OPENAI_API_KEY", "fake"),
+		namespace:          envOrDefault(kagentenv.E2ENamespace, kagentenv.E2ENamespace.DefaultValue()),
+		kubeContext:        envOrDefault(kagentenv.E2EKubeContext, "kind-"+clusterName),
+		openAIAPIKey:       envOrDefault(kagentenv.OpenAIAPIKey, "fake"),
 	}
 }
 
-func requireEnv(t *testing.T, key string) string {
+func requireEnv(t *testing.T, variable kagentenv.StringVar) string {
 	t.Helper()
 
-	val := os.Getenv(key)
-	require.NotEmpty(t, val, "%s must be set", key)
+	val := variable.Get()
+	require.NotEmpty(t, val, "%s must be set", variable.Name())
 	return val
 }
 
-func envOrDefault(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
+func envOrDefault(variable kagentenv.StringVar, fallback string) string {
+	if val := variable.Get(); val != "" {
 		return val
 	}
 	return fallback

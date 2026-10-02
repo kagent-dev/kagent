@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -41,8 +40,11 @@ func (m *AnthropicModel) Name() string {
 // GenerateContent implements model.LLM. Uses only ADK/genai types.
 func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
-		params := buildAnthropicParams(req, m.Config)
-		telemetry.SetLLMRequestAttributes(ctx, string(params.Model), req)
+		params, err := buildAnthropicParams(req, m.Config)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
 		if stream {
 			runAnthropicStreaming(ctx, m, params, yield)
@@ -55,7 +57,7 @@ func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 // buildAnthropicParams translates an ADK request into a Messages API request:
 // model, system prompt, conversation, sampling options and tools, plus the
 // prompt-cache breakpoints when cfg enables them.
-func buildAnthropicParams(req *model.LLMRequest, cfg *AnthropicConfig) anthropic.MessageNewParams {
+func buildAnthropicParams(req *model.LLMRequest, cfg *AnthropicConfig) (anthropic.MessageNewParams, error) {
 	if cfg == nil {
 		cfg = &AnthropicConfig{}
 	}
@@ -82,13 +84,20 @@ func buildAnthropicParams(req *model.LLMRequest, cfg *AnthropicConfig) anthropic
 		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
 	}
 	applyAnthropicConfig(&params, cfg)
+	schema, err := structuredOutputSchema(req.Config)
+	if err != nil {
+		return anthropic.MessageNewParams{}, err
+	}
+	if schema != nil {
+		params.OutputConfig.Format = anthropic.JSONOutputFormatParam{Schema: schema}
+	}
 	if req.Config != nil && len(req.Config.Tools) > 0 {
 		params.Tools = genaiToolsToAnthropicTools(req.Config.Tools)
 	}
 	if cfg.PromptCaching {
 		markAnthropicCacheBreakpoints(&params, anthropicCacheControl(cfg.CacheTTL))
 	}
-	return params
+	return params, nil
 }
 
 func applyAnthropicConfig(params *anthropic.MessageNewParams, cfg *AnthropicConfig) {
@@ -411,7 +420,6 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		UsageMetadata: anthropicUsageToGenai(usage),
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, resp)
 	_ = yield(resp, nil)
 }
 
@@ -450,6 +458,5 @@ func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params ant
 		UsageMetadata: anthropicUsageToGenai(message.Usage),
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}
-	telemetry.SetLLMResponseAttributes(ctx, resp)
 	yield(resp, nil)
 }
