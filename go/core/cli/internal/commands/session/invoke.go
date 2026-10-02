@@ -62,9 +62,6 @@ func runInvoke(
 		return errors.New("--push-bearer-token-file requires --push-url")
 	}
 	if cfg.PushURL != "" {
-		if cfg.PushBearerTokenFile == "" {
-			return errors.New("--push-bearer-token-file is required with --push-url")
-		}
 		if err := validatePushURL(cfg.PushURL); err != nil {
 			return err
 		}
@@ -103,16 +100,20 @@ type pushInvokeClient interface {
 
 // Embed the callback in the initial send so it is stored before dispatch.
 func invokeWithPush(ctx context.Context, client pushInvokeClient, request *a2atype.SendMessageRequest, cfg *InvokeCfg, format clioutput.Format, out io.Writer) error {
-	credential, err := readPushToken(cfg.PushBearerTokenFile)
-	if err != nil {
-		return fmt.Errorf("read push Bearer credential: %w", err)
+	var credential string
+	if cfg.PushBearerTokenFile != "" {
+		var err error
+		credential, err = readPushToken(cfg.PushBearerTokenFile)
+		if err != nil {
+			return fmt.Errorf("read push Bearer credential: %w", err)
+		}
 	}
 	callbackID := cfg.PushID
 	if callbackID == "" {
 		callbackID = uuid.NewString()
 	}
 	request.Config = &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{
-		ID: callbackID, URL: cfg.PushURL, Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: credential},
+		ID: callbackID, URL: cfg.PushURL, Auth: pushBearerAuth(credential),
 	}}
 	result, err := client.SendMessage(withModelToken(ctx, cfg.Token), request)
 	if err != nil {
@@ -430,7 +431,7 @@ func NewInvokeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
 	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register this callback after the new task is created; return the task immediately")
 	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
-	cmd.Flags().StringVar(&cfg.PushBearerTokenFile, "push-bearer-token-file", "", "Read the required webhook Bearer credential from a file")
+	cmd.Flags().StringVar(&cfg.PushBearerTokenFile, "push-bearer-token-file", "", "Read an optional webhook Bearer credential from a file")
 	_ = cmd.MarkFlagRequired("session")
 	cmd.MarkFlagsOneRequired("task", "file")
 	cmd.MarkFlagsMutuallyExclusive("task", "file")

@@ -13,7 +13,7 @@ import {
 function callbackURL(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && !url.hash;
   } catch {
     return false;
   }
@@ -65,11 +65,11 @@ export function TaskPushNotificationsModal({
   async function save() {
     if (!editable) return;
     if (!callbackURL(url.trim())) {
-      setError("Enter an absolute HTTPS callback URL without credentials.");
+      setError("Enter an absolute HTTP or HTTPS callback URL without credentials.");
       return;
     }
-    if (!bearerCredential || /\s/.test(bearerCredential)) {
-      setError("Enter a Bearer credential without whitespace.");
+    if (/\s/.test(bearerCredential)) {
+      setError("Bearer credential must not contain whitespace.");
       return;
     }
     setSaving(true);
@@ -109,8 +109,7 @@ export function TaskPushNotificationsModal({
           Add a callback while the task is active. New callbacks are rejected after it finishes.
           Only future updates are sent when the task needs input or reaches a final state.
           Failed attempts are retried, so a
-          receiver may see duplicates. Use a URL reachable from the controller; this list does
-          not show delivery status. Credentials and notification tokens are never shown again;
+          receiver may see duplicates. Credentials and notification tokens are never shown again;
           enter new values when editing a callback.
         </Typography.Paragraph>
         {editable === false ? (
@@ -171,7 +170,7 @@ export function TaskPushNotificationsModal({
         />
         <Input.Password
           aria-label="Bearer credential"
-          placeholder="Bearer credential (required; enter again when editing)"
+          placeholder="Bearer credential (optional; enter again when editing)"
           value={bearerCredential}
           onChange={(event) => setBearerCredential(event.target.value)}
         />

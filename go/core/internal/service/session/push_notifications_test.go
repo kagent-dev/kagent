@@ -19,7 +19,6 @@ import (
 )
 
 func TestEmbeddedPushConfig(t *testing.T) {
-	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "true")
 	agent := types.NamespacedName{Namespace: "team", Name: "agent"}
 	for _, test := range []struct {
 		name   string
@@ -37,7 +36,7 @@ func TestEmbeddedPushConfig(t *testing.T) {
 		{"missing message", func(r *a2a.SendMessageRequest) { r.Message = nil }, false},
 		{"missing message id", func(r *a2a.SendMessageRequest) { r.Message.ID = "" }, false},
 		{"embedded task", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.TaskID = "task" }, false},
-		{"missing auth", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.Auth = nil }, false},
+		{"missing auth", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.Auth = nil }, true},
 		{"unsupported auth", func(r *a2a.SendMessageRequest) {
 			r.Config.PushConfig.Auth = &a2a.PushAuthInfo{Scheme: "Basic", Credentials: "secret"}
 		}, false},
@@ -63,13 +62,14 @@ func TestEmbeddedPushConfig(t *testing.T) {
 	}
 }
 
-func TestPushRequiresHTTPSByDefault(t *testing.T) {
+func TestPushRequiresHTTPSWhenHTTPDisabled(t *testing.T) {
 	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "false")
 	agent := types.NamespacedName{Namespace: "team", Name: "agent"}
 	config := &a2a.PushConfig{URL: "http://receiver/callback", Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "secret"}}
 	_, err := validatePushConfig(agent, config)
 	require.ErrorIs(t, err, a2a.ErrInvalidParams)
 	config.URL = "https://receiver/callback"
+	config.Auth = nil
 	_, err = validatePushConfig(agent, config)
 	require.NoError(t, err)
 }

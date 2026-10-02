@@ -70,7 +70,7 @@ export async function saveTaskPushConfig(
 ): Promise<TaskPushConfig> {
   try {
     const saved = await serviceClient(A2AService).createTaskPushNotificationConfig(
-      { tenant: conversation.agent, taskId, id: config.id, url: config.url, token: config.token ?? "", authentication: { scheme: "Bearer", credentials: config.bearerCredential ?? "" } },
+      { tenant: conversation.agent, taskId, id: config.id, url: config.url, token: config.token ?? "", authentication: config.bearerCredential ? { scheme: "Bearer", credentials: config.bearerCredential } : undefined },
       callOptions(conversation),
     );
     return fromWire(saved);

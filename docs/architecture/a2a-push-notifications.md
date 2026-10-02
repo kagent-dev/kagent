@@ -7,8 +7,8 @@ every task in its conversation.
 
 ## Set up a callback
 
-1. Expose a webhook that accepts an HTTP POST and verifies a Bearer credential.
-2. Supply a `taskPushNotificationConfig` with an HTTPS URL and that credential
+1. Expose a webhook that accepts an HTTP POST.
+2. Supply a `taskPushNotificationConfig` with an HTTPS URL
    on `SendMessage` or `SendStreamingMessage`. Kagent saves the registration
    before dispatch and attaches it to a task only when that task accepts the
    message. The config's `taskId` must be empty, even when the message
@@ -30,8 +30,7 @@ deployment's normal A2A authentication:
     "configuration": {
       "returnImmediately": true,
       "taskPushNotificationConfig": {
-        "url": "https://receiver.example/callback",
-        "authentication": {"scheme": "Bearer", "credentials": "receiver-secret"}
+        "url": "https://receiver.example/callback"
       }
     }
   }
@@ -39,9 +38,9 @@ deployment's normal A2A authentication:
 ```
 
 The CLI offers the same initial-send flow with
-`kagent agent invoke --session SESSION_ID --task TEXT --push-url URL --push-bearer-token-file PATH`.
+`kagent agent invoke --session SESSION_ID --task TEXT --push-url URL`.
 For an existing active task, use
-`kagent agent session push create SESSION_ID TASK_ID --url URL --bearer-token-file PATH`;
+`kagent agent session push create SESSION_ID TASK_ID --url URL`;
 `push get`, `push list`, and `push delete` manage its callbacks.
 
 ## What happens
@@ -73,7 +72,7 @@ sequenceDiagram
     Kagent-->>Client: Task ID (client may disconnect)
     Agent-->>Kagent: Eligible task state
     Note over Kagent: Publish state and queue callback together
-    Kagent->>Webhook: POST statusUpdate with Bearer credential
+    Kagent->>Webhook: POST statusUpdate (optional Bearer credential)
     Webhook-->>Kagent: 2xx acknowledgement
     Webhook->>Kagent: Authenticated GetTask(task ID)
     Kagent-->>Webhook: Current task and artifacts
@@ -84,6 +83,18 @@ a terminal state (`COMPLETED`, `FAILED`, `CANCELED`, or `REJECTED`). The update
 contains the task ID and status; it may contain a status message. Treat it as a
 signal to call authenticated `GetTask` for the current result and artifacts.
 Ordinary progress updates do not trigger callbacks.
+
+For example, the webhook receives this JSON body when a task completes:
+
+```json
+{
+  "statusUpdate": {
+    "taskId": "task-123",
+    "contextId": "context-456",
+    "status": {"state": "TASK_STATE_COMPLETED"}
+  }
+}
+```
 
 ```mermaid
 flowchart LR
@@ -117,16 +128,17 @@ flowchart LR
 
 ## Security
 
-The webhook must verify `Authorization: Bearer <credentials>`. An optional
-`token` is also sent in `A2A-Notification-Token` for additional validation.
+If a Bearer credential is configured, Kagent sends it as
+`Authorization: Bearer <credentials>`; the receiver should verify it. An optional
+`token` is sent in `A2A-Notification-Token` for additional validation.
 Create, Get, and List responses omit both secrets; keep them securely on the
 client and supply new values when replacing a config. Task reads still require
 normal A2A authorization.
 
-Callback URLs require HTTPS. The controller blocks private, loopback, and
-link-local destinations by default. Operators can allow trusted internal
-receivers with `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS=true` and allow HTTP for
-local development with the separate `KAGENT_A2A_PUSH_ALLOW_HTTP=true` setting.
+HTTP callbacks and private, loopback, and link-local destinations are allowed
+by default. Operators can set `KAGENT_A2A_PUSH_ALLOW_HTTP=false` to require
+HTTPS and `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS=false` to block private
+destinations. Use HTTPS for callbacks that cross untrusted networks.
 
 ## Appendix: how the components work together
 
@@ -172,7 +184,7 @@ sequenceDiagram
     T->>DB: Publish state and insert callback deliveries atomically
     W->>DB: Claim due delivery with a lease
     DB-->>W: Saved status update and destination
-    W->>H: POST statusUpdate with callback credential
+    W->>H: POST statusUpdate (with configured credential)
     H-->>W: 2xx or failure
     W->>DB: Record success or schedule retry
     opt Receiver handles callback
