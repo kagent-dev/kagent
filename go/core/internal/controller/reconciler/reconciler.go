@@ -692,14 +692,21 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		// Accept it without connecting: the status carries no tools, the DB keeps
 		// the server with an empty inventory, and agents resolve the tool list at
 		// run time with the credentials they carry. The TLS Secret hash is still
-		// published (agents fold it into their rollout hash), and a broken
-		// spec.tls Secret reference still fails the server.
+		// published (agents fold it into their rollout hash), and the server
+		// still fails on what discovery would have rejected before dialing: a
+		// broken spec.tls Secret reference or a CA bundle without a valid
+		// certificate. A failure to persist the empty inventory fails it too,
+		// with the stale tools cleared from the status.
 		l.Info("skipping tool discovery for remote MCP server", "url", server.Spec.URL, "label", consts.DiscoveryLabel)
-		if err := a.storeToolServerWithoutTools(ctx, dbServer); err != nil {
-			return err
+		err := secretErr
+		if err == nil {
+			_, err = a.buildRemoteMCPServerTLSConfig(ctx, server)
 		}
-		if secretErr != nil {
-			if err := a.reconcileRemoteMCPServerStatus(ctx, server, nil, secretHash, secretErr); err != nil {
+		if storeErr := a.storeToolServerWithoutTools(ctx, dbServer); storeErr != nil {
+			err = multierror.Append(err, storeErr)
+		}
+		if err != nil {
+			if err := a.reconcileRemoteMCPServerStatus(ctx, server, nil, secretHash, err); err != nil {
 				return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
 			}
 			return nil
@@ -776,7 +783,7 @@ func (a *kagentReconciler) computeRemoteMCPServerSecretHash(ctx context.Context,
 // remoteMCPServerDiscoveryDisabledMessage explains an Accepted RemoteMCPServer
 // that publishes no discovered tools because its operator opted out of discovery.
 const remoteMCPServerDiscoveryDisabledMessage = "Tool discovery is disabled by the " + consts.DiscoveryLabel + "=" + consts.DiscoveryDisabled +
-	" label; agents resolve the tool list at run time"
+	" label; agents resolve the tool list at run time. The controller did not connect: runtime authentication and reachability are not validated"
 
 // remoteMCPServerDiscoveryDisabled reports whether the operator opted the server
 // out of tool discovery with the kagent.dev/discovery=disabled label.
