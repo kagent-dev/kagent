@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/push"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -99,7 +101,7 @@ type pushTestStore struct {
 
 var _ pushStore = (*pushTestStore)(nil)
 
-func (p *pushTestStore) ListOpenPushRegistrations(_ context.Context, after *database.PushRegistration, limit int) ([]database.PushRegistration, error) {
+func (p *pushTestStore) ListUnboundPushRegistrations(_ context.Context, after *database.PushRegistration, limit int) ([]database.PushRegistration, error) {
 	start := 0
 	if after != nil {
 		for start < len(p.rows) && p.rows[start].ID <= after.ID {
@@ -170,6 +172,29 @@ func TestPushWorkerPendingAssociation(t *testing.T) {
 	}
 }
 
+func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
+	event := &a2a.TaskStatusUpdateEvent{TaskID: "task", Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}}
+	wire, err := pbconv.ToProtoStreamResponse(event)
+	require.NoError(t, err)
+	payload, err := proto.Marshal(wire)
+	require.NoError(t, err)
+
+	store := &pushTestStore{deliveries: make([]database.PushDelivery, 100)}
+	for i := range store.deliveries {
+		store.deliveries[i].Payload = payload
+	}
+	sender := &pushTestSender{}
+	worker := NewPushWorker(store, sender)
+	full, err := worker.poll(t.Context())
+	require.NoError(t, err)
+	require.True(t, full)
+	require.Equal(t, 100, sender.calls)
+
+	full, err = worker.poll(t.Context())
+	require.NoError(t, err)
+	require.False(t, full)
+}
+
 func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}).Create(t.Context(), session)
@@ -193,16 +218,19 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 	version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
 	require.NoError(t, err)
 	sender := push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true})
-	require.NoError(t, NewPushWorker(store, sender).poll(t.Context()))
+	_, err = NewPushWorker(store, sender).poll(t.Context())
+	require.NoError(t, err)
 	require.Empty(t, events)
 	task.Status.State = a2a.TaskStateCompleted
 	digest = sha256.Sum256([]byte("complete"))
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, NewPushWorker(store, sender).poll(t.Context()))
+	_, err = NewPushWorker(store, sender).poll(t.Context())
+	require.NoError(t, err)
 	require.Empty(t, events, "staged completion must not be notified")
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-	require.NoError(t, NewPushWorker(store, sender).poll(t.Context()))
+	_, err = NewPushWorker(store, sender).poll(t.Context())
+	require.NoError(t, err)
 	require.Len(t, events, 1)
 	var envelope struct {
 		StatusUpdate *a2a.TaskStatusUpdateEvent `json:"statusUpdate"`
@@ -211,6 +239,7 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 	require.NotNil(t, envelope.StatusUpdate)
 	require.Equal(t, a2a.TaskStateCompleted, envelope.StatusUpdate.Status.State)
 	require.Empty(t, envelope.StatusUpdate.Metadata)
-	require.NoError(t, NewPushWorker(store, sender).poll(t.Context()))
+	_, err = NewPushWorker(store, sender).poll(t.Context())
+	require.NoError(t, err)
 	require.Empty(t, events, "failed attempt must wait for retry delay")
 }

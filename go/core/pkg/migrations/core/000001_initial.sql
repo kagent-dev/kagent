@@ -352,8 +352,8 @@ CREATE UNIQUE INDEX session_push_registration_initial ON session_push_registrati
     WHERE initial_message_id IS NOT NULL;
 CREATE UNIQUE INDEX session_push_registration_task_config ON session_push_registration (history_id, task_id, config_id)
     WHERE task_id IS NOT NULL AND closed_at IS NULL;
-CREATE INDEX session_push_registration_open ON session_push_registration (id)
-    WHERE closed_at IS NULL;
+CREATE INDEX session_push_registration_unbound ON session_push_registration (id)
+    WHERE closed_at IS NULL AND task_id IS NULL;
 CREATE UNIQUE INDEX session_task_event_push_source ON session_task_event (sequence, history_id, task_id);
 
 CREATE TABLE session_push_outbox (

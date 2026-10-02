@@ -24,7 +24,7 @@ func TestPushRegistrationPaginationBindingAndDeletion(t *testing.T) {
 	var cursor *PushRegistration
 	var all []PushRegistration
 	for {
-		rows, err := client.ListOpenPushRegistrations(ctx, cursor, 100)
+		rows, err := client.ListUnboundPushRegistrations(ctx, cursor, 100)
 		require.NoError(t, err)
 		all = append(all, rows...)
 		if len(rows) < 100 {
@@ -51,11 +51,11 @@ func TestPushRegistrationPaginationBindingAndDeletion(t *testing.T) {
 	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, all[1].InitialMessageID, "", config))
 	// Closing cannot race a successful bind and consume that registration.
 	require.NoError(t, client.CloseUnboundSessionPush(ctx, all[0]))
-	rows, err := client.ListOpenPushRegistrations(ctx, nil, 300)
+	rows, err := client.ListUnboundPushRegistrations(ctx, nil, 300)
 	require.NoError(t, err)
-	require.Len(t, rows, 204)
+	require.Len(t, rows, 203)
 	require.NoError(t, deleteSession(ctx, client, session.Id))
-	rows, err = client.ListOpenPushRegistrations(ctx, nil, 300)
+	rows, err = client.ListUnboundPushRegistrations(ctx, nil, 300)
 	require.NoError(t, err)
 	require.Empty(t, rows)
 	require.ErrorIs(t, client.RegisterSessionPush(ctx, session.Id, "new", "", config), ErrNotFound)
@@ -143,10 +143,9 @@ func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
 	}
 	taskID := string(task.ID)
 	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "input", taskID, original))
-	registrations, err := client.ListOpenPushRegistrations(ctx, nil, 10)
+	registrations, err := client.ListUnboundPushRegistrations(ctx, nil, 10)
 	require.NoError(t, err)
 	require.Len(t, registrations, 1)
-	require.Nil(t, registrations[0].TaskID, "the request's task ID is not proof of acceptance")
 	task.History = append(task.History, &a2a.Message{ID: "input", Role: a2a.MessageRoleUser})
 	task.Status.State = a2a.TaskStateWorking
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
@@ -209,10 +208,9 @@ func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
 	session, task := waitingTaskFixture(t, client)
 	config := &a2a.PushConfig{ID: "continuation", URL: "http://receiver", Token: "secret"}
 	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "follow-up", string(task.ID), config))
-	rows, err := client.ListOpenPushRegistrations(ctx, nil, 10)
+	rows, err := client.ListUnboundPushRegistrations(ctx, nil, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	require.Nil(t, rows[0].TaskID, "known-task sends also wait for acceptance")
 	_, err = client.GetTaskPushConfig(ctx, session.Id, string(task.ID), config.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 	task.History = append(task.History, &a2a.Message{ID: "follow-up", Role: a2a.MessageRoleUser})
@@ -222,10 +220,9 @@ func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
 	got, err := client.GetTaskPushConfig(ctx, session.Id, string(task.ID), config.ID)
 	require.NoError(t, err)
 	require.Equal(t, config.Token, got.Token)
-	rows, err = client.ListOpenPushRegistrations(ctx, nil, 10)
+	rows, err = client.ListUnboundPushRegistrations(ctx, nil, 10)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, string(task.ID), *rows[0].TaskID)
+	require.Empty(t, rows, "accepted input no longer needs recovery polling")
 	delivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "working state is not a notification boundary")
