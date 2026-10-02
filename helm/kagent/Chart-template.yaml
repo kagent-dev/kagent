@@ -13,7 +13,7 @@ dependencies:
     repository: ${SUBSTRATE_REPO}
     condition: substrate.enabled
   - name: kagent-tools
-    version: 0.2.1
+    version: 0.3.0
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
   - name: grafana-mcp
