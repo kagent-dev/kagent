@@ -48,18 +48,23 @@ describe("agent template model selection", () => {
     models({ data: [model], isEmpty: false });
     renderForm({ namespace: "other" });
 
-    expect(screen.getByText(/No model configurations are available in namespace "other"/)).toBeVisible();
-    expect(screen.getByText(/Choose another namespace or ask an administrator/)).toBeVisible();
-    expect(screen.getByText(/add a model configuration or check your access/)).toBeVisible();
+    const hint = screen.getByTestId("template-form-model-availability");
+    expect(hint).toBeVisible();
+    expect(hint).toHaveTextContent(/No model configurations found in namespace "other"/);
+    expect(hint).toHaveTextContent(/Create one or choose another namespace/);
+    expect(hint).toHaveTextContent(/If one should be listed, check your access/);
+    expect(hint).not.toHaveTextContent(/administrator/i);
     expect(screen.queryByText(/A model configuration is required/)).toBeNull();
   });
 
   it("does not suggest changing the namespace of an existing template", () => {
     renderForm({ isCreate: false });
 
-    expect(screen.getByText(/No model configurations are available in namespace "kagent"/)).toBeVisible();
-    expect(screen.getByText(/Ask an administrator to add a model configuration or check your access/)).toBeVisible();
-    expect(screen.queryByText(/Choose another namespace/)).toBeNull();
+    const hint = screen.getByTestId("template-form-model-availability");
+    expect(hint).toBeVisible();
+    expect(hint).toHaveTextContent(/No model configurations found in namespace "kagent"/);
+    expect(hint).toHaveTextContent(/Create one\. If one should be listed, check your access/);
+    expect(hint).not.toHaveTextContent(/choose another namespace|administrator/i);
   });
 
   it("reports a failed load instead of describing it as an empty namespace", () => {
@@ -67,7 +72,7 @@ describe("agent template model selection", () => {
     renderForm();
 
     expect(screen.getByText(/Could not load model configurations/)).toBeVisible();
-    expect(screen.queryByText(/No model configurations are available/)).toBeNull();
+    expect(screen.queryByText(/No model configurations found/)).toBeNull();
   });
 
   it("reports a failed refresh when cached models belong to another namespace", () => {
@@ -83,14 +88,14 @@ describe("agent template model selection", () => {
 
     expect(screen.getByText(/Every harness needs one except bring-your-own/)).toBeVisible();
     expect(screen.queryByText(/Could not load model configurations/)).toBeNull();
-    expect(screen.queryByText(/No model configurations are available/)).toBeNull();
+    expect(screen.queryByText(/No model configurations found/)).toBeNull();
   });
 
   it("does not claim the namespace is empty during the first load", () => {
     models({ data: undefined, isLoading: true, isValidating: true, isEmpty: false });
     renderForm();
 
-    expect(screen.queryByText(/No model configurations are available/)).toBeNull();
+    expect(screen.queryByText(/No model configurations found/)).toBeNull();
     expect(screen.queryByText(/Could not load model configurations/)).toBeNull();
   });
 
@@ -99,6 +104,6 @@ describe("agent template model selection", () => {
     renderForm({ isCreate: false, readOnly: true });
 
     expect(screen.queryByText(/Could not load model configurations/)).toBeNull();
-    expect(screen.queryByText(/No model configurations are available/)).toBeNull();
+    expect(screen.queryByText(/No model configurations found/)).toBeNull();
   });
 });

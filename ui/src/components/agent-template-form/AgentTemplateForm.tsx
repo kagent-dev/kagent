@@ -110,9 +110,9 @@ export function AgentTemplateForm({
       modelHint = `Could not load model configurations for namespace "${namespace}". Try again later.`;
     } else if (models.data !== undefined) {
       const nextStep = isCreate
-        ? "Choose another namespace or ask an administrator to add a model configuration or check your access."
-        : "Ask an administrator to add a model configuration or check your access.";
-      modelHint = `No model configurations are available in namespace "${namespace}". ${nextStep}`;
+        ? "Create one or choose another namespace."
+        : "Create one.";
+      modelHint = `No model configurations found in namespace "${namespace}". ${nextStep} If one should be listed, check your access.`;
     }
   }
 
@@ -197,7 +197,7 @@ export function AgentTemplateForm({
 
         <Form.Item
           label="Model configuration"
-          extra={modelHint}
+          extra={<span data-testid="template-form-model-availability">{modelHint}</span>}
         >
           <div data-testid="template-form-model">
             <Select
