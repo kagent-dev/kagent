@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import { loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
-import { CORE_ENV_KEYS, ENV_DEFAULTS } from "./src/env.ts";
+import { CORE_ENV_VARS, ENV_DEFAULTS } from "./src/env.ts";
 
 /**
  * Where the dev server forwards `/api` and `/a2a`.
@@ -21,8 +21,8 @@ import { CORE_ENV_KEYS, ENV_DEFAULTS } from "./src/env.ts";
 function devProxy(mode: string) {
   const fromFiles = loadEnv(mode, import.meta.dirname, "");
   const target =
-    process.env.KAGENT_DEV_CONTROLLER_URL ||
-    fromFiles.KAGENT_DEV_CONTROLLER_URL ||
+    process.env.KAGENT_UI_DEV_CONTROLLER_URL ||
+    fromFiles.KAGENT_UI_DEV_CONTROLLER_URL ||
     "http://127.0.0.1:8083";
 
   return {
@@ -42,17 +42,17 @@ function devProxy(mode: string) {
  *
  * A prefix instead. `readEnv` already takes any key and `window.environmentVariables`
  * is already an open record, so nothing in the application changes when an extension
- * adds a setting: it names it `EXTENSION_SOMETHING` and it arrives.
+ * adds a setting: it names it `KAGENT_UI_EXTENSION_SOMETHING` and it arrives.
  *
- * Still bounded, which is the point of `CORE_ENV_KEYS` being a list at all: the dev
+ * Still bounded, which is the point of `CORE_ENV_VARS` being an explicit map: the dev
  * server inlines these into the document, so a wholesale copy of the environment would
  * publish every credential on the machine into the HTML. A variable has to be
  * deliberately named for an extension to be copied — but only that deliberately, so a
- * stray `EXTENSION_` variable in a shell will be inlined. It is a development server
+ * stray `KAGENT_UI_EXTENSION_` variable in a shell will be inlined. It is a development server
  * rendering a page for the developer who started it; the container path below is the
  * one that faces a cluster, and there the environment is the chart's own.
  */
-const EXTENSION_ENV_PREFIX = "EXTENSION_";
+const EXTENSION_ENV_PREFIX = "KAGENT_UI_EXTENSION_";
 
 /**
  * Serves the deployment configuration the way the container does.
@@ -84,7 +84,11 @@ function devEnvConfig(mode: string): Plugin {
         ...Object.keys(process.env),
       ].filter((key) => key.startsWith(EXTENSION_ENV_PREFIX));
 
-      for (const key of [...CORE_ENV_KEYS, ...extensionKeys]) {
+      for (const [key, variable] of Object.entries(CORE_ENV_VARS)) {
+        const value = process.env[variable] ?? fromFiles[variable];
+        if (value !== undefined && value !== "") merged[key] = value;
+      }
+      for (const key of extensionKeys) {
         const value = process.env[key] ?? fromFiles[key];
         if (value !== undefined && value !== "") merged[key] = value;
       }
@@ -94,7 +98,7 @@ function devEnvConfig(mode: string): Plugin {
       const serialised = JSON.stringify(merged, null, 2).replace(/</g, "\\u003c");
 
       return html.replace(
-        /<script[^>]+src="[^"]*\/env-config\.js"[^>]*><\/script>/,
+        /<script[^>]+src="[^"]*env-config\.js"[^>]*><\/script>/,
         `<script>\nwindow.environmentVariables = ${serialised};\n</script>`,
       );
     },
@@ -114,6 +118,10 @@ function devEnvConfig(mode: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
+  // Only explicit build-time settings are exposed through import.meta.env.
+  envPrefix: "KAGENT_UI_VITE_",
+  // Relative asset URLs, resolved against the `<base href>` in index.html.
+  base: "./",
   // JSX is transformed by oxc, which routes the factory at @emotion/react —
   // that alone enables the `css` prop, no Babel step required.
   plugins: [react({ jsxImportSource: "@emotion/react" }), devEnvConfig(mode)],
@@ -140,7 +148,7 @@ export default defineConfig(({ mode }) => ({
     alias: { "@": path.resolve(import.meta.dirname, "./src") },
   },
   server: {
-    port: Number(process.env.UI_LOOP_PORT ?? 8001),
+    port: Number(process.env.KAGENT_E2E_UI_LOOP_PORT ?? 8001),
     host: "0.0.0.0",
     // Stands in for what nginx does in a deployed cluster, so a dev server
     // talking to a real controller uses the same relative URLs as production.
@@ -149,7 +157,7 @@ export default defineConfig(({ mode }) => ({
     proxy: devProxy(mode),
   },
   preview: {
-    port: Number(process.env.UI_LOOP_PORT ?? 8001),
+    port: Number(process.env.KAGENT_E2E_UI_LOOP_PORT ?? 8001),
     host: "0.0.0.0",
   },
   test: {
@@ -164,6 +172,6 @@ export default defineConfig(({ mode }) => ({
     // mode is stated rather than inherited. It used to come free from the dev
     // default; that default is gone, because a page that quietly serves fixtures
     // when the backend is down is worse than one that says so.
-    env: { VITE_API_MODE: "mock" },
+    env: { KAGENT_UI_VITE_API_MODE: "mock" },
   },
 }));

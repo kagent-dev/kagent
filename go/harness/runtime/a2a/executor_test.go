@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -94,7 +95,7 @@ func TestExecuteStreamsCompletesAndPersistsSession(t *testing.T) {
 			return runtime.Outcome{}, err
 		}
 		return runtime.Outcome{}, nil
-	}}, continuation)
+	}}, continuation, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestExecutePreservesTextAndToolOrder(t *testing.T) {
 			}
 		}
 		return runtime.Outcome{}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +214,7 @@ func TestExecuteRejectsMalformedToolActivity(t *testing.T) {
 	for _, emit := range tests {
 		executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 			return runtime.Outcome{}, emit(sink)
-		}}, &fakeContinuation{})
+		}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +237,7 @@ func assertToolActivity(t *testing.T, events []a2atype.Event, partType string, w
 			continue
 		}
 		part := update.Artifact.Parts[0]
-		if part.Metadata["kagent_type"] != partType {
+		if part.Metadata[apia2a.PartTypeMetadataKey] != partType {
 			continue
 		}
 		if got := part.Data(); !reflect.DeepEqual(got, want) {
@@ -250,7 +251,7 @@ func assertToolActivity(t *testing.T, events []a2atype.Event, partType string, w
 func TestExecuteFailureBoundary(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
 		return runtime.Outcome{Failure: &runtime.Failure{Message: "budget limit reached"}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +270,7 @@ func TestExecuteReleasesActiveTaskBeforeTerminalEvent(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
 		close(runnerReturned)
 		return runtime.Outcome{}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestBusyAndCancellation(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return runtime.Outcome{}, ctx.Err()
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +339,7 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 				return nil
 			},
 		}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +401,7 @@ func TestCancelParkedTurn(t *testing.T) {
 				},
 			}}, nil
 		},
-	}, &fakeContinuation{})
+	}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,11 +442,14 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 				return runtime.Outcome{}, nil
 			},
 		}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	first := requestContext("task-approval", "write")
+	if executor.ReservedTaskID() != "" {
+		t.Fatal("idle session is reserved")
+	}
 	events, errs := collect(executor.Execute(t.Context(), first))
 	if len(errs) != 0 || len(events) != 2 {
 		t.Fatalf("first execution events/errors = %#v/%v", events, errs)
@@ -455,6 +459,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatalf("input-required event = %#v", events[1])
 	}
 	decisionMessage := a2atype.NewMessage(a2atype.MessageRoleUser)
+	if executor.ReservedTaskID() != first.TaskID {
+		t.Fatal("pending approval did not reserve its native session")
+	}
 	decisionMessage.TaskID, decisionMessage.ContextID = first.TaskID, first.ContextID
 	if err := apia2a.AttachHITL(decisionMessage, apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: "7", Approved: false, RejectionReason: "production is still serving traffic"}}}); err != nil {
 		t.Fatal(err)
@@ -463,6 +470,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 	_, errs = collect(executor.Execute(t.Context(), second))
 	if len(errs) != 0 || decision == nil || decision.ID != "7" || decision.Approved || decision.RejectionReason != "production is still serving traffic" {
 		t.Fatalf("approval decision = %#v, errors = %v", decision, errs)
+	}
+	if executor.ReservedTaskID() != "" {
+		t.Fatal("completed approval kept its native session reserved")
 	}
 }
 
@@ -481,7 +491,7 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 				return runtime.Outcome{}, nil
 			},
 		}}, nil
-	}}, &fakeContinuation{})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
 		t.Fatal(err)
 	}

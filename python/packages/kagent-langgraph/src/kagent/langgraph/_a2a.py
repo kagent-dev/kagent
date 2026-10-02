@@ -7,14 +7,12 @@ with A2A protocol support for LangGraph workflows.
 import faulthandler
 import logging
 
-from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -22,11 +20,13 @@ from kagent.core.a2a import (
     get_a2a_max_content_length,
 )
 
+# --- Configure Logging ---
+from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+
 from langgraph.graph.state import CompiledStateGraph
 
 from ._executor import LangGraphAgentExecutor, LangGraphAgentExecutorConfig
 
-# --- Configure Logging ---
 logger = logging.getLogger(__name__)
 
 
@@ -93,13 +93,14 @@ class KAgentApp:
         )
 
         # Create task store
-        task_store = InMemoryTaskStore()
+        controller = AsyncControllerClient(self.config.api_url)
+        task_store = KAgentTaskStore(controller)
 
         # Create request context builder
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
 
         # Create request handler
-        request_handler = DefaultRequestHandlerV2(
+        request_handler = KAgentRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,
@@ -111,6 +112,7 @@ class KAgentApp:
 
         # Create FastAPI application
         app = FastAPI(
+            lifespan=controller.lifespan(),
             title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,

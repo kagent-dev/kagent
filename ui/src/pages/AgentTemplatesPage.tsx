@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Button, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Space, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
@@ -13,7 +13,6 @@ import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, paths } from "@/router/routes";
 import {
   apiClient,
-  isUsable,
   useAgentTemplatesAcrossNamespaces,
   useInvalidateAgentTemplates,
   useNamespaces,
@@ -25,35 +24,13 @@ const { Text } = Typography;
 const FILTER_IDS: readonly string[] = ["ns"];
 const PAGE_SIZE = 25;
 
-/**
- * The agent templates in the cluster.
- *
- * ## What a template is
- *
- * Half of an agent. A template says what the agent *does* — its model
- * configuration, system prompt and tools — and a `Harness` says how it *runs* —
- * the runtime adapter, the worker pool and the image. An `AgentInstance` is one of
- * each, so creating an agent is choosing a pair rather than filling in a spec.
- *
- * ## The column that matters most
- *
- * "Runs on". A harness admits templates through a **label selector**, and the CRD
- * is explicit that a harness with no selector admits none — so a template no
- * harness matches reaches no prepared revision and **no agent can ever be created
- * from it**. Nothing about such a template looks wrong: it has a model, a prompt,
- * tools, and a row here like any other.
- *
- * That is why the state is a column rather than a detail, and why the empty case
- * says what to do about it instead of showing a dash. It was confirmed on a
- * cluster: an unlabelled template sat at `status: {observedGeneration: 1}` with no
- * harnesses at all until the one label its harness selects on was added.
- */
+
 /**
  * The templates, as a tab of the agents page.
  *
  * It was a page of its own with its own entry in the sidebar, which put the three
  * halves of one idea in three places: a template, the harness that runs it, and the
- * agent that is the pair. They are tabs of one surface now, and this is the part of it
+ * Agent that references them. They are tabs of one surface now, and this is the part of it
  * that lists templates.
  *
  * It keeps its own refresh and its own "new" button rather than handing them to the
@@ -111,7 +88,6 @@ export function AgentTemplatesTab() {
           row.namespace,
           row.description ?? "",
           row.modelConfigRef,
-          ...row.admittingHarnesses,
         ]),
       ),
     [rows, view.query],
@@ -160,32 +136,6 @@ export function AgentTemplatesTab() {
         key: "tools",
         width: 90,
         render: (_, row) => (row.resource.spec.tools ?? []).length,
-      },
-      {
-        /*
-         * Whether anything will run it — the question that decides whether the row
-         * above is usable at all. A template admitted by nothing is not broken and
-         * not incomplete; it simply cannot become an agent, and only this column
-         * says so.
-         */
-        title: "Runs on",
-        key: "harnesses",
-        render: (_, row) =>
-          isUsable(row) ? (
-            <Space size={4} wrap>
-              {row.admittingHarnesses.map((harness) => (
-                <Tag key={harness} color="success">
-                  {harness}
-                </Tag>
-              ))}
-            </Space>
-          ) : (
-            <Tooltip title="A harness admits templates through a label selector, and none of them selects this template's labels. No agent can be created from it until that changes.">
-              <Tag color="warning" data-testid={`template-unusable-${row.name}`}>
-                No harness
-              </Tag>
-            </Tooltip>
-          ),
       },
       {
         title: "",

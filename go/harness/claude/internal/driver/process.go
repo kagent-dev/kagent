@@ -4,7 +4,10 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -14,11 +17,6 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"go.opentelemetry.io/otel/propagation"
 )
-
-// bareBuiltinTools is the intentionally small built-in surface available in
-// bare mode. This controls tool availability only; MCP approval policy remains
-// exclusively defined by the generated permissions.ask rules.
-const bareBuiltinTools = "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch"
 
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
 // process. Actor-owned paths and environment are supplied by the adapter.
@@ -34,11 +32,15 @@ type ProcessConfig struct {
 	SettingsPath         string
 	PermissionPromptTool string
 	SkillRoot            string
+	PluginDirs           []string
 	Environment          []string
 	MaxEventBytes        int
 	MaxStderrBytes       int
 	InterruptGrace       time.Duration
 	ApprovalBroker       *ApprovalBroker
+	// AwaitTelemetry holds each prompt until Claude Code telemetry has
+	// initialized.
+	AwaitTelemetry bool
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -118,13 +120,12 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 // Args compiles one runtime turn into Claude Code command-line arguments.
 func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	args := []string{
-		"-p", turn.Prompt,
+		"-p",
+		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
 		"--strict-mcp-config",
-		"--tools", bareBuiltinTools,
-		"--bare",
 		"--dangerously-skip-permissions",
 	}
 	if d.config.ApprovalBroker != nil {
@@ -147,9 +148,12 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		args = append(args, "--mcp-config", d.config.MCPConfigPath)
 	}
 	if d.config.SkillRoot != "" {
-		// Bare mode skips implicit skill discovery. --add-dir loads only the
-		// compiler-selected skills materialized beneath SkillRoot/.claude/skills.
+		// --add-dir exposes compiler-selected skills materialized beneath
+		// SkillRoot/.claude/skills.
 		args = append(args, "--add-dir", d.config.SkillRoot)
+	}
+	for _, dir := range d.config.PluginDirs {
+		args = append(args, "--plugin-dir", dir)
 	}
 	if turn.ContinuationID != "" {
 		// Resume the Actor's exact root conversation. --continue selects Claude's
@@ -164,10 +168,27 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if strings.TrimSpace(turn.Prompt) == "" {
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
+	message, err := userMessage(turn.Prompt)
+	if err != nil {
+		return runtime.Outcome{}, err
+	}
+	environment := traceEnvironment(ctx, d.config.Environment)
+	var gate *tracingGate
+	if d.config.AwaitTelemetry {
+		if gate, err = newTracingGate(); err != nil {
+			warnTelemetryNotReady(ctx, "port_unavailable", err)
+		} else {
+			environment = gate.environment(environment)
+		}
+	}
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
 	cmd.Dir = d.config.Workspace
-	cmd.Env = traceEnvironment(ctx, d.config.Environment)
+	cmd.Env = environment
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return runtime.Outcome{}, fmt.Errorf("open Claude stdin: %w", err)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Claude stdout: %w", err)
@@ -207,6 +228,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	session := &processSession{
 		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr,
 	}
+	go sendPrompt(ctx, stdin, message, gate, parseDone)
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
@@ -221,6 +243,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 }
 
 // traceEnvironment injects the trace context into the environment variables.
+// Claude reads it once at startup, so a turn that is resumed after an approval
+// keeps emitting under the trace of the request that started the process. The
+// resumed A2A segment records a link to that origin rather than reparenting it.
 func traceEnvironment(ctx context.Context, environment []string) []string {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
@@ -239,6 +264,41 @@ func traceEnvironment(ctx context.Context, environment []string) []string {
 		result = append(result, "TRACESTATE="+tracestate)
 	}
 	return result
+}
+
+// userMessage encodes a prompt as one Claude Code stream-JSON input line.
+func userMessage(prompt string) ([]byte, error) {
+	type content struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	message, err := json.Marshal(struct {
+		Type    string  `json:"type"`
+		Message content `json:"message"`
+	}{Type: "user", Message: content{Role: "user", Content: prompt}})
+	if err != nil {
+		return nil, fmt.Errorf("encode Claude prompt: %w", err)
+	}
+	return append(message, '\n'), nil
+}
+
+// sendPrompt writes the prompt once the gate opens, then ends the input as a
+// prompt argument would, since Claude holds its result for background agents
+// only once its input has ended. A gate that times out still sends the
+// prompt, trading the turn's native telemetry for the turn.
+func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate *tracingGate, exited <-chan struct{}) {
+	defer stdin.Close()
+	if gate != nil {
+		err := gate.wait(ctx, exited)
+		if errors.Is(err, errProcessExited) || ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			warnTelemetryNotReady(ctx, "timeout", err)
+		}
+	}
+	// A failed write means Claude has exited, which consume reports.
+	_, _ = stdin.Write(message)
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
@@ -284,6 +344,13 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				return runtime.Outcome{}, err
 			}
 			if item.err != nil {
+				// A process that exits before its result can explain the failure
+				// only on stderr. Reap it to finish draining stderr; malformed
+				// output can also stop the parser while the process is still alive.
+				d.stopSession(session)
+				if stderr := strings.TrimSpace(session.stderr.String()); stderr != "" {
+					return runtime.Outcome{}, fmt.Errorf("%w: %s", item.err, stderr)
+				}
 				return runtime.Outcome{}, item.err
 			}
 			if waitErr := <-session.wait; waitErr != nil {

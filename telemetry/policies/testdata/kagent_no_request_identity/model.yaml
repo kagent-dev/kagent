@@ -1,0 +1,21 @@
+file_format: definition/2
+attributes:
+  - key: a2a.task.id
+    brief: The A2A task.
+    stability: development
+    type: string
+    examples: ["t"]
+  - key: kagent.runtime
+    brief: The runtime.
+    stability: development
+    type: string
+    examples: ["adk-go"]
+entities:
+  - type: kagent.agent
+    requirement_level: recommended
+    brief: An entity that carries request identity.
+    stability: development
+    identity:
+      - ref: kagent.runtime
+    description:
+      - ref: a2a.task.id

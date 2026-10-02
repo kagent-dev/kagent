@@ -1,0 +1,100 @@
+file_format: definition/2
+attributes:
+  - key: kagent.runtime
+    brief: The runtime that produces the model and tool spans of an agent.
+    note: >
+      Every runtime declares it on its resource. The name of a Harness object is
+      not its runtime.
+    stability: development
+    type:
+      members:
+        - id: adk_go
+          value: adk-go
+          brief: The Go ADK runtime.
+          stability: development
+        - id: adk_python
+          value: adk-python
+          brief: The Python ADK runtime.
+          stability: development
+        - id: claude
+          value: claude
+          brief: The Claude Code harness.
+          stability: development
+        - id: codex
+          value: codex
+          brief: The Codex harness.
+          stability: development
+        - id: langgraph
+          value: langgraph
+          brief: The LangGraph runtime.
+          stability: development
+        - id: crewai
+          value: crewai
+          brief: The CrewAI runtime.
+          stability: development
+        - id: openai_agents
+          value: openai-agents
+          brief: The OpenAI Agents SDK runtime.
+          stability: development
+        - id: byo
+          value: byo
+          brief: A bring-your-own image built on kagent-core.
+          stability: development
+
+  - key: kagent.invocation.segment
+    brief: Whether an execution starts a task or continues it.
+    note: >
+      A task that pauses for an approval or a question runs as several segments.
+      Count turns by this attribute, not by invoke_agent spans.
+    stability: development
+    type:
+      members:
+        - id: initial
+          value: initial
+          brief: The first execution of a task.
+          stability: development
+        - id: resumed
+          value: resumed
+          brief: An execution that continues a task after an approval or a question.
+          stability: development
+
+  - key: kagent.invocation.disposition
+    brief: How a segment stopped, when the task state does not say it.
+    stability: development
+    type:
+      members:
+        - id: canceled
+          value: canceled
+          brief: A client asked to cancel the task.
+          stability: development
+        - id: abandoned
+          value: abandoned
+          brief: The A2A event consumer stopped reading before execution finished.
+          stability: development
+        - id: interrupted
+          value: interrupted
+          brief: The execution context ended without a cancellation request.
+          stability: development
+
+  - key: kagent.invocation.relationship
+    brief: Why a segment links to another span.
+    note: >
+      A link attribute. A link states a relationship. It does not reparent spans
+      and it does not move the token usage recorded under the linked span.
+    stability: development
+    type:
+      members:
+        - id: resume_origin
+          value: resume_origin
+          brief: The link from a resumed segment to the segment that started the native turn.
+          stability: development
+
+  - key: kagent.capture.input_truncated
+    brief: Whether the captured input messages were shortened to the capture budget.
+    stability: development
+    type: boolean
+
+  - key: kagent.capture.output_truncated
+    brief: Whether the captured output messages were shortened to the capture budget.
+    stability: development
+    type: boolean

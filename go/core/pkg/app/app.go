@@ -10,13 +10,13 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,24 +31,31 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	v2mcp "github.com/kagent-dev/kagent/go/core/internal/mcp"
-	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
@@ -60,18 +67,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 // Options are the components a library consumer may supply in place of core's own.
 //
-// A nil field is not an error: it selects the default, which is what this
-// repository's controller runs with. Supplying one does not change how core
-// uses it — the authenticator still guards the gRPC server and the /mcp
-// endpoint, and the authorizer is still consulted by every service that takes
-// one — so a library consumer cannot narrow where its own policy applies.
+// A nil field is not an error: it selects the library default. The shipped
+// controller selects its authenticator from environment settings. Supplying
+// one does not change how core uses it — the authenticator still guards the
+// gRPC server and the /mcp endpoint, and the authorizer is still consulted by
+// every service that takes one — so a library consumer cannot narrow where
+// its own policy applies.
 type Options struct {
-	// Authenticator identifies the caller. Nil selects UnsecureAuthenticator,
+	// Authenticator identifies the caller. Nil selects InsecureAuthenticator,
 	// which admits every request.
 	Authenticator auth.AuthProvider
 	// Authorizer decides what an identified caller may do and which collection
@@ -112,7 +122,7 @@ type Options struct {
 func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 	authenticator := o.Authenticator
 	if authenticator == nil {
-		authenticator = &authimpl.UnsecureAuthenticator{}
+		authenticator = &authimpl.InsecureAuthenticator{}
 	}
 	authorizer := o.Authorizer
 	if authorizer == nil {
@@ -122,7 +132,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 }
 
 // SetupLogger installs the controller-runtime logger, at the level named by
-// LOG_LEVEL.
+// KAGENT_LOG_LEVEL.
 //
 // Run calls this itself, so a library consumer needs it only when it logs
 // before Run — and it must then call it first, because controller-runtime
@@ -136,7 +146,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 func SetupLogger() error {
 	logger, err := logging.NewFromEnv(os.Stderr)
 	if err != nil {
-		return fmt.Errorf("parse LOG_LEVEL: %w", err)
+		return fmt.Errorf("parse KAGENT_LOG_LEVEL: %w", err)
 	}
 	slog.SetDefault(logger)
 	ctrl.SetLogger(logging.AsLogr(logger))
@@ -156,21 +166,31 @@ func Run(ctx context.Context, opts Options) error {
 	for _, warning := range telemetryWarnings {
 		logger.WarnContext(ctx, "invalid agent telemetry configuration; disabling signal", "error", warning)
 	}
-	// otelgrpc snapshots the global TracerProvider and propagator when its handler
-	// is constructed, so tracing has to be registered before any server is built.
-	shutdownTracing, err := telemetry.InitTracerProvider(ctx, version.Version)
+	telemetryOptions := telemetry.Options{Defaults: []attribute.KeyValue{
+		semconv.ServiceName("kagent-controller"), semconv.ServiceNamespace("kagent"), semconv.ServiceVersion(version.Version),
+	}}
+	if metricsBindAddress() != "0" {
+		reader, err := otelprometheus.New(otelprometheus.WithRegisterer(crmetrics.Registry))
+		if err != nil {
+			return fmt.Errorf("create Prometheus metric reader: %w", err)
+		}
+		telemetryOptions.MetricReaders = []sdkmetric.Reader{reader}
+	}
+	// otelgrpc snapshots the global providers and propagator when its handler is
+	// constructed, so telemetry has to be registered before any server is built.
+	providers, err := telemetry.Init(ctx, telemetryOptions)
 	if err != nil {
-		return fmt.Errorf("initialize tracing: %w", err)
+		logger.ErrorContext(ctx, "failed to initialize telemetry", "error", err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := shutdownTracing(shutdownCtx); err != nil {
-			logger.ErrorContext(shutdownCtx, "failed to shut down tracing", "error", err)
+		if err := providers.Shutdown(shutdownCtx); err != nil {
+			logger.ErrorContext(shutdownCtx, "failed to shut down telemetry", "error", err)
 		}
 	}()
 
-	dbURL, err := database.ResolveURL(env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres"), os.Getenv("POSTGRES_DATABASE_URL_FILE"))
+	dbURL, err := database.ResolveURL(env(kagentenv.PostgresDatabaseURL), kagentenv.PostgresDatabaseURLFile.Get())
 	if err != nil {
 		return err
 	}
@@ -207,7 +227,7 @@ func Run(ctx context.Context, opts Options) error {
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
 	utilruntime.Must(kmcp.AddToScheme(managerScheme))
-	watchNamespaces := namespaces(os.Getenv("WATCH_NAMESPACES"))
+	watchNamespaces := namespaces(kagentenv.WatchNamespaces.Get())
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
 	if len(watchNamespaces) > 0 {
@@ -216,14 +236,24 @@ func Run(ctx context.Context, opts Options) error {
 		// Forbidden response without a failing Namespace informer blocking startup.
 		managerClientOptions.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Namespace{}}}
 	}
+	metricsOptions := metricsserver.Options{
+		BindAddress:   metricsBindAddress(),
+		SecureServing: kagentenv.MetricsSecure.Get(),
+	}
+	if metricsOptions.SecureServing {
+		// SecureServing alone only encrypts. The filter authenticates the scraper
+		// with a TokenReview and authorizes it with a SubjectAccessReview on the
+		// /metrics nonResourceURL.
+		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
 		Client:                  managerClientOptions,
-		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		Metrics:                 metricsOptions,
 		LeaderElection:          kagentenv.LeaderElect.Get(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
-		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
+		LeaderElectionNamespace: env(kagentenv.KagentNamespace),
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
@@ -233,9 +263,9 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
-		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
-		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
+		AteAPIEndpoint: env(kagentenv.SubstrateATEAPIEndpoint),
+		CAFile:         kagentenv.SubstrateATEAPICAFile.Get(),
+		ClientCertFile: kagentenv.SubstrateATEAPIClientCertFile.Get(),
 		CallTimeout:    30 * time.Second,
 	})
 	if err != nil {
@@ -268,33 +298,71 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	authenticator, authorizer := opts.resolve()
-	resourceNamespace := env("KAGENT_NAMESPACE", "kagent")
+	resourceNamespace := env(kagentenv.KagentNamespace)
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
-	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
-	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
-	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors)
+	runtimeTasks := taskstore.NewService(store)
+	if err := manager.Add(sessionWorkflow); err != nil {
+		return fmt.Errorf("register idle session worker: %w", err)
+	}
+	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, kagentenv.SessionIdleTTL.Get(), kagentenv.SessionExpirationPollInterval.Get())
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(expiration); err != nil {
+		return fmt.Errorf("register session expiration worker: %w", err)
+	}
+	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow)
+	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		env("SUBSTRATE_ATENET_ROUTER_URL", substrate.DefaultAtenetRouterURL),
+		kagentenv.SubstrateAtenetRouterURL.Get(),
 		authenticator,
 	)
 	if err != nil {
 		return err
 	}
-	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
-		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
+	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions)
+	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
-	if err := manager.Add(scheduledruncontroller.NewController(store, instanceWorkflow,
+	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
 		gateway)); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
-	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)
+	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
+	guests, err := sandboxservice.NewGuestDialer(kagentenv.SubstrateAtenetRouterURL.Get(), authenticator)
+	if err != nil {
+		return err
+	}
+	defer guests.Close()
+	policy := substrate.SandboxPolicy{
+		GuestImage: env(kagentenv.SandboxGuestImage),
+		CPU:        kagentenv.SandboxCPU.Get(),
+		Memory:     kagentenv.SandboxMemory.Get(),
+	}
+	preparation, err := v2controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(preparation); err != nil {
+		return err
+	}
+	sandboxes, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: manager.GetClient(), Authorizer: authorizer, Actors: actors, Guests: guests,
+		DefaultTTL: kagentenv.SandboxDefaultTTL.Get(), MaxTTL: kagentenv.SandboxMaxTTL.Get()})
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(sandboxes); err != nil {
+		return err
+	}
+	mcpHandler, err := v2mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
 	if err != nil {
 		return err
 	}
@@ -306,28 +374,33 @@ func Run(ctx context.Context, opts Options) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
+	mux.Handle("/mcp", otelhttp.NewHandler(auth.AuthnMiddleware(authenticator)(mcpHandler), "/mcp"))
+	mux.Handle(a2agateway.HTTPPathPrefix, otelhttp.NewHandler(a2agateway.NewHTTPHandler(gateway, authenticator, store), a2agateway.HTTPPathPrefix))
 	server, err := grpcserver.New(grpcserver.Config{
 		MethodPolicies:        policies,
 		RegisterServices:      opts.GRPCServices,
-		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
-		Reflection:            envBool("GRPC_REFLECTION"),
+		BindAddress:           env(kagentenv.HTTPBindAddress),
+		Reflection:            kagentenv.GRPCReflection.Get(),
 		Authenticator:         authenticator,
+		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,
 		PromptTemplateService: prompts,
 		SystemService:         system,
 		MemoryService:         memory,
-		AgentInstanceService:  instances,
+		TaskStoreService:      runtimeTasks,
+		SessionService:        sessions,
 		ScheduledRunService:   schedules,
-		// Both halves of the pair CreateAgentInstance names. Without these two
-		// the only way to author a Harness or an AgentTemplate is kubectl.
-		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
-		CheckpointService:    checkpoints,
-		A2AHandler:           gateway,
-		HTTPHandler:          mux,
+		// Author Agents and their reusable configuration through the API.
+		AgentService:           agents,
+		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
+		SandboxTemplateService: sandboxTemplates,
+		SandboxService:         sandboxes,
+		CheckpointService:      checkpoints,
+		A2AHandler:             gateway,
+		HTTPHandler:            mux,
 	})
 	if err != nil {
 		return err
@@ -357,16 +430,22 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 	return merged, nil
 }
 
-func env(name, fallback string) string {
-	if value := os.Getenv(name); value != "" {
+// env preserves the controller's default-on-empty behavior for string settings.
+func env(variable kagentenv.StringVar) string {
+	if value := variable.Get(); value != "" {
 		return value
 	}
-	return fallback
+	return variable.DefaultValue()
 }
 
-func envBool(name string) bool {
-	value, _ := strconv.ParseBool(os.Getenv(name))
-	return value
+// metricsBindAddress resolves KAGENT_METRICS_BIND_ADDRESS. controller-runtime reads an
+// empty address as "unset" and falls back to :8080, so an empty value would
+// serve metrics on a port nobody asked for. "0" disables the metrics server.
+func metricsBindAddress() string {
+	if address := kagentenv.MetricsBindAddress.Get(); address != "" {
+		return address
+	}
+	return "0"
 }
 
 func namespaces(value string) []string {

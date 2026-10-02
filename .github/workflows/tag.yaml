@@ -37,6 +37,7 @@ jobs:
           - golang-adk
           - claude-harness
           - codex-harness
+          - sandbox-guest
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -113,23 +114,38 @@ jobs:
         uv build --package agentsts-adk
         uv publish --token ${{ secrets.PYPI_TOKEN }}
 
-  release:
-    # Only run release after images and helm chart are pushed
-    # In the future we can take the chart from the helm action,
-    # and build the CLI beforehand.
-    needs:
-    - setup
-    - push-helm-chart
-    - release-python-packages
+  build-release-artifacts:
+    needs: setup
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
     - name: Checkout
       uses: actions/checkout@v6
     - uses: ./.github/actions/build-release-artifacts
       with:
         version: ${{ needs.setup.outputs.version }}
+    - uses: actions/upload-artifact@v7
+      with:
+        name: release-artifacts
+        path: |
+          go/core/bin/kagent-*
+          dist/kagent-*.tgz
+        if-no-files-found: error
+
+  release:
+    # Publish after all packages and release artifacts are ready.
+    needs:
+    - build-release-artifacts
+    - push-helm-chart
+    - release-python-packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: release-artifacts
     - name: Release
       uses: softprops/action-gh-release@v3
       if: startsWith(github.ref, 'refs/tags/')

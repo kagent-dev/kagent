@@ -5,7 +5,6 @@ import pytest
 from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict
-from kagent.core.a2a import get_kagent_metadata_key
 from pydantic import BaseModel, Field
 
 from kagent.adk.converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
@@ -125,11 +124,8 @@ class TestEventConverter:
         ]
         assert len(error_events4) == 1, f"Expected 1 error event for MALFORMED_FUNCTION_CALL, got {len(error_events4)}"
 
-        # Check that the error event has the correct error code in metadata
         error_event = error_events4[0]
-        error_code_key = get_kagent_metadata_key("error_code")
-        assert error_code_key in error_event.metadata
-        assert error_event.metadata[error_code_key] == str(genai_types.FinishReason.MALFORMED_FUNCTION_CALL)
+        assert not error_event.metadata
 
     def test_content_is_emitted_as_artifact(self):
         invocation_context = _create_mock_invocation_context()
@@ -145,7 +141,7 @@ class TestEventConverter:
         assert artifact_event.context_id == "ctx-xyz"
         assert artifact_event.artifact.parts[0].text == "hello world"
         assert artifact_event.last_chunk is True
-        assert get_kagent_metadata_key("adk_partial") not in artifact_event.metadata
+        assert "adk_partial" not in artifact_event.metadata
         assert not any(
             isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING for e in result
         )

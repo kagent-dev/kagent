@@ -24,14 +24,15 @@ import (
 func TestKAgentExecutorForkRetainsConversation(t *testing.T) {
 	for _, user := range []string{"", "alice"} {
 		t.Run("user="+user, func(t *testing.T) {
-			var wantContext, wantUser string
+			var wantContext string
 			var wantEvents int
 			agent, err := adkagent.New(adkagent.Config{
 				Name: "memory-agent",
 				Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
 					return func(yield func(*adksession.Event, error) bool) {
-						require.Equal(t, wantContext, ic.Session().ID())
-						require.Equal(t, wantUser, ic.Session().UserID())
+						require.Equal(t, "conversation", ic.Session().ID())
+						require.Equal(t, wantContext, ContextIDFromContext(ic))
+						require.Equal(t, "conversation", ic.Session().UserID())
 						// The runner appends this turn's input before invoking the agent.
 						require.Equal(t, wantEvents, ic.Session().Events().Len())
 						event := adksession.NewEvent(ic, ic.InvocationID())
@@ -46,17 +47,16 @@ func TestKAgentExecutorForkRetainsConversation(t *testing.T) {
 				t.Helper()
 				svc, err := localsession.NewLocalSessionService("sqlite:///" + path)
 				require.NoError(t, err)
-				return NewKAgentExecutor(KAgentExecutorConfig{
+				executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 					AppName: "app", SessionService: svc, Logger: slog.New(slog.DiscardHandler),
 					RunnerConfig: runner.Config{AppName: "app", Agent: agent},
 				})
+				require.NoError(t, err)
+				return executor
 			}
 			send := func(executor *KAgentExecutor, contextID string, eventCount int) {
 				t.Helper()
-				wantContext, wantUser, wantEvents = contextID, user, eventCount
-				if wantUser == "" {
-					wantUser = "A2A_USER_" + contextID
-				}
+				wantContext, wantEvents = contextID, eventCount
 				ctx, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"x-user-id": {user}}))
 				ctx, _, err := UserIDCallInterceptor().Before(ctx, callCtx, nil)
 				require.NoError(t, err)
@@ -73,22 +73,35 @@ func TestKAgentExecutorForkRetainsConversation(t *testing.T) {
 				}
 				require.True(t, completed)
 			}
+			restore := func(path string) {
+				t.Helper()
+				snapshot, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(path+".restored", snapshot, 0o600))
+				require.NoError(t, os.Rename(path+".restored", path))
+			}
 			sourcePath := filepath.Join(t.TempDir(), "source.db")
 			source := open(sourcePath)
+			// Golden restore keeps the executor and session service in memory,
+			// while the durable database is materialized as a new backing file.
+			restore(sourcePath)
 			send(source, "source", 1)
 			// Capture the quiescent SQLite file, then let the source advance.
 			snapshot, err := os.ReadFile(sourcePath)
 			require.NoError(t, err)
+			// A later resume must also keep the history writable without rebuilding
+			// the executor or losing the connections policy after its first use.
+			restore(sourcePath)
 			send(source, "source", 3)
 			forkPath := filepath.Join(t.TempDir(), "fork.db")
 			require.NoError(t, os.WriteFile(forkPath, snapshot, 0o600))
-			send(open(forkPath), "source", 3)
-			send(open(forkPath), "source", 5)
+			send(open(forkPath), "fork", 3)
+			send(open(forkPath), "fork", 5)
 			snapshot, err = os.ReadFile(forkPath)
 			require.NoError(t, err)
 			fork2Path := filepath.Join(t.TempDir(), "fork2.db")
 			require.NoError(t, os.WriteFile(fork2Path, snapshot, 0o600))
-			send(open(fork2Path), "source", 7)
+			send(open(fork2Path), "fork2", 7)
 			send(source, "source", 5)
 		})
 	}

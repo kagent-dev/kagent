@@ -12,10 +12,11 @@ import (
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
-func TestMaterializeGitPlugin(t *testing.T) {
-	repository := t.TempDir()
+// commitFiles creates a git repository holding files and returns its path and HEAD commit.
+func commitFiles(t *testing.T, files map[string]string) (repository, commit string) {
+	t.Helper()
+	repository = t.TempDir()
 	git := func(args ...string) string {
-		t.Helper()
 		command := exec.Command("git", append([]string{"-C", repository}, args...)...)
 		output, err := command.CombinedOutput()
 		if err != nil {
@@ -26,22 +27,26 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	git("init")
 	git("config", "user.email", "test@example.com")
 	git("config", "user.name", "Test")
-	if err := os.MkdirAll(filepath.Join(repository, "skills", "review"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	files := map[string]string{
-		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
-		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
-		"skills/review/SKILL.md": "# Review",
-	}
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(repository, filepath.FromSlash(name)), []byte(content), 0o644); err != nil {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	git("add", ".")
 	git("commit", "-m", "plugin")
-	commit := git("rev-parse", "HEAD")
+	return repository, git("rev-parse", "HEAD")
+}
+
+func TestMaterializeGitPlugin(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{
+		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
+		"skills/review/SKILL.md": "# Review",
+	})
 
 	root := t.TempDir()
 	materialization, err := Materialize(context.Background(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{
@@ -140,9 +145,74 @@ func TestLoadManifestUsesAgentPluginsV1Schema(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadManifest(root)
-	if err != nil || manifest.Name != "acme.tools" {
-		t.Fatalf("loadManifest() = %#v, %v", manifest, err)
+	manifest, claudeFormat, err := loadManifest(root)
+	if err != nil || claudeFormat || manifest.Name != "acme.tools" {
+		t.Fatalf("loadManifest() = %#v, %v, %v", manifest, claudeFormat, err)
+	}
+}
+
+func TestLoadManifestFormats(t *testing.T) {
+	const agentPlugins = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools"}`
+	const claude = `{"name":"acme-claude"}`
+	tests := []struct {
+		name             string
+		files            map[string]string
+		wantName         string
+		wantClaudeFormat bool
+		wantErr          bool
+	}{
+		{name: "agent plugins manifest", files: map[string]string{"plugin.json": agentPlugins}, wantName: "acme.tools"},
+		{name: "claude manifest", files: map[string]string{".claude-plugin/plugin.json": claude}, wantName: "acme-claude", wantClaudeFormat: true},
+		{name: "both manifests use the root one", files: map[string]string{"plugin.json": agentPlugins, ".claude-plugin/plugin.json": claude}, wantName: "acme.tools"},
+		{name: "no manifest", files: map[string]string{}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, content := range tt.files {
+				path := filepath.Join(root, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			manifest, claudeFormat, err := loadManifest(root)
+			if (err != nil) != tt.wantErr || manifest.Name != tt.wantName || claudeFormat != tt.wantClaudeFormat {
+				t.Fatalf("loadManifest() = %#v, %v, %v", manifest, claudeFormat, err)
+			}
+		})
+	}
+}
+
+func TestMaterializeClaudeFormatPlugin(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{
+		".claude-plugin/plugin.json": `{"name":"acme-native","version":"1.0.0"}`,
+		"skills/review/SKILL.md":     "# Review",
+	})
+	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
+	}}}
+
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	materialization, err := Materialize(context.Background(), resources, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := materialization.ClaudeFormatPluginRoots()
+	if len(roots) != 1 {
+		t.Fatalf("ClaudeFormatPluginRoots() = %v, want 1", roots)
+	}
+	if _, err := os.Stat(filepath.Join(roots[0], ".claude-plugin", "plugin.json")); err != nil {
+		t.Fatalf("plugin root %s: %v", roots[0], err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "review")); !os.IsNotExist(err) {
+		t.Fatalf("skill copied from a Claude-format plugin: %v", err)
+	}
+	if mcp, err := LoadMCP(context.Background(), materialization, filepath.Join(root, "data")); err != nil || len(mcp.Stdio)+len(mcp.SSE)+len(mcp.StreamableHTTP) != 0 {
+		t.Fatalf("LoadMCP() = %#v, %v", mcp, err)
 	}
 }
 

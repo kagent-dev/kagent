@@ -1,8 +1,39 @@
 suite: test postgresql
 templates:
+  - postgresql-configmap.yaml
   - postgresql.yaml
   - postgresql-secret.yaml
 tests:
+  - it: loads non-secret database settings from the ConfigMap
+    template: postgresql.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            configMapRef:
+              name: RELEASE-NAME-postgresql
+        documentIndex: 2
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 1
+        documentIndex: 2
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/configmap"]
+          pattern: "^[a-f0-9]{64}$"
+        documentIndex: 2
+      - notExists:
+          path: data.POSTGRES_PASSWORD
+        template: postgresql-configmap.yaml
+
+  - it: omits the database ConfigMap when bundled postgres is disabled
+    template: postgresql-configmap.yaml
+    set:
+      database.postgres.bundled.enabled: false
+      database.postgres.url: postgres://user:pass@external-host:5432/db
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # =============================================================================
   # bundled mode (default — url and urlFile both empty, bundled.enabled true)
   # =============================================================================
@@ -153,29 +184,21 @@ tests:
                 key: POSTGRES_PASSWORD
 
   - it: should set POSTGRES_DB and POSTGRES_USER to hardcoded values
-    template: postgresql.yaml
-    documentIndex: 2
+    template: postgresql-configmap.yaml
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DB
-            value: "kagent"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_USER
-            value: "kagent"
+      - equal:
+          path: data.POSTGRES_DB
+          value: "kagent"
+      - equal:
+          path: data.POSTGRES_USER
+          value: "kagent"
 
   - it: should set PGDATA env var
-    template: postgresql.yaml
-    documentIndex: 2
+    template: postgresql-configmap.yaml
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PGDATA
-            value: /var/lib/postgresql/data/pgdata
+      - equal:
+          path: data.PGDATA
+          value: /var/lib/postgresql/data/pgdata
 
   - it: should have liveness and readiness probes
     template: postgresql.yaml

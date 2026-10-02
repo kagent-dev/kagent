@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestOptionsResolve(t *testing.T) {
 		{
 			name:      "both nil selects core defaults",
 			opts:      Options{},
-			wantAuthn: &authimpl.UnsecureAuthenticator{},
+			wantAuthn: &authimpl.InsecureAuthenticator{},
 			wantAuthz: &auth.NoopAuthorizer{},
 		},
 		{
@@ -59,7 +60,7 @@ func TestOptionsResolve(t *testing.T) {
 		{
 			name:      "authorizer only leaves the default authenticator",
 			opts:      Options{Authorizer: consumerAuthz},
-			wantAuthn: &authimpl.UnsecureAuthenticator{},
+			wantAuthn: &authimpl.InsecureAuthenticator{},
 			wantAuthz: consumerAuthz,
 		},
 		{
@@ -86,14 +87,46 @@ func TestOptionsResolve(t *testing.T) {
 	}
 }
 
-func TestLeaderElectionDefaultsOnWithLocalOptOut(t *testing.T) {
-	t.Setenv("LEADER_ELECT", "")
+func TestLeaderElectionConfiguration(t *testing.T) {
+	t.Setenv("KAGENT_LEADER_ELECT", "")
 	if !kagentenv.LeaderElect.Get() {
 		t.Fatal("leader election must default to enabled")
 	}
-	t.Setenv("LEADER_ELECT", "false")
+	t.Setenv("KAGENT_LEADER_ELECT", "false")
 	if kagentenv.LeaderElect.Get() {
-		t.Fatal("local testing must be able to disable leader election")
+		t.Fatal("an explicit false must be preserved for startup validation")
+	}
+}
+
+func TestMetricsBindAddressNeverFallsBackToTheControllerRuntimeDefault(t *testing.T) {
+	set := func(value string) *string { return &value }
+	for name, testCase := range map[string]struct {
+		value *string
+		want  string
+	}{
+		"unset":    {value: nil, want: "0"},
+		"empty":    {value: set(""), want: "0"},
+		"disabled": {value: set("0"), want: "0"},
+		"port":     {value: set(":8443"), want: ":8443"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if testCase.value != nil {
+				t.Setenv("KAGENT_METRICS_BIND_ADDRESS", *testCase.value)
+			}
+			if got := metricsBindAddress(); got != testCase.want {
+				t.Fatalf("metricsBindAddress() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestMetricsSecureDefaultsOff(t *testing.T) {
+	if kagentenv.MetricsSecure.Get() {
+		t.Fatal("KAGENT_METRICS_SECURE must default to false")
+	}
+	t.Setenv("KAGENT_METRICS_SECURE", "true")
+	if !kagentenv.MetricsSecure.Get() {
+		t.Fatal("KAGENT_METRICS_SECURE=true must enable secure serving")
 	}
 }
 
@@ -101,6 +134,41 @@ func TestNamespaces(t *testing.T) {
 	want := []string{"one", "two"}
 	if got := namespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("namespaces() = %q, want %q", got, want)
+	}
+}
+
+func TestRegisteredStringDefaults(t *testing.T) {
+	for _, variable := range []kagentenv.StringVar{
+		kagentenv.HTTPBindAddress,
+		kagentenv.PostgresDatabaseURL,
+		kagentenv.SubstrateATEAPIEndpoint,
+		kagentenv.KagentNamespace,
+	} {
+		t.Run(variable.Name(), func(t *testing.T) {
+			for _, test := range []struct {
+				name  string
+				value *string
+				want  string
+			}{
+				{name: "unset", want: variable.DefaultValue()},
+				{name: "empty", value: new(""), want: variable.DefaultValue()},
+				{name: "override", value: new("override"), want: "override"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					t.Setenv(variable.Name(), "")
+					if test.value == nil {
+						if err := os.Unsetenv(variable.Name()); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						t.Setenv(variable.Name(), *test.value)
+					}
+					if got := env(variable); got != test.want {
+						t.Errorf("env() = %q, want %q", got, test.want)
+					}
+				})
+			}
+		})
 	}
 }
 
@@ -140,9 +208,9 @@ func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
 // SetupLogger rejects a bad level before it touches the global logger, so this
 // case does not disturb whatever logger the rest of the suite runs under.
 func TestSetupLoggerRejectsBadLevel(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "not-a-level")
+	t.Setenv("KAGENT_LOG_LEVEL", "not-a-level")
 	if err := SetupLogger(); err == nil {
-		t.Fatal("SetupLogger accepted an unparseable LOG_LEVEL")
+		t.Fatal("SetupLogger accepted an unparseable KAGENT_LOG_LEVEL")
 	}
 }
 

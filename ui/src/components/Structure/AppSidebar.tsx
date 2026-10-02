@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Layout, Menu } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import { SidebarFooter } from "./SidebarFooter";
 import { coreNavItems } from "./navItems";
 import type { NavItem } from "./navItems";

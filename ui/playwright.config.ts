@@ -6,7 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
  * main process and again in every worker, so anything varying per process gives
  * each worker a different base URL from the one the servers were started on.
  */
-const PORT = Number(process.env.UI_LOOP_PORT ?? 8001);
+const PORT = Number(process.env.KAGENT_E2E_UI_LOOP_PORT ?? 8001);
 const BASE_URL = `http://localhost:${PORT}`;
 
 /**
@@ -21,7 +21,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 // Deliberately not PORT + 1: Vite falls forward to the next free port when the
 // one it is told to use is busy, so adjacent ports let a slow-to-die server from
 // a previous run push one app onto the other's port.
-const EXTENSION_PORT = Number(process.env.UI_LOOP_EXTENSION_PORT ?? PORT + 50);
+const EXTENSION_PORT = Number(process.env.KAGENT_E2E_UI_LOOP_EXTENSION_PORT ?? PORT + 50);
 const EXTENSION_BASE_URL = `http://localhost:${EXTENSION_PORT}`;
 
 /** Specs that need an extension installed opt in by filename. */
@@ -30,10 +30,10 @@ const EXTENSION_SPECS = /\.withExtension\.spec\.ts$/;
 /**
  * The suite is the acceptance bar, so what it runs against cannot depend on the
  * shell it was started from: both servers are pinned to the in-browser mock
- * backend. An inherited VITE_API_MODE=live would otherwise point a whole run at
+ * backend. An inherited KAGENT_UI_VITE_API_MODE=live would otherwise point a whole run at
  * a real cluster.
  */
-const MOCK_BACKEND = { VITE_API_MODE: "mock" };
+const MOCK_BACKEND = { KAGENT_UI_VITE_API_MODE: "mock" };
 
 /**
  * What each of the three servers is pinned to.
@@ -42,13 +42,13 @@ const MOCK_BACKEND = { VITE_API_MODE: "mock" };
  * stated in one place — and so a branch that installs an extension changes a
  * value instead of restructuring the `projects`/`webServer` blocks.
  *
- * `VITE_EXAMPLE_EXTENSION` is pinned on the bare server for the same reason
- * `VITE_API_MODE` is: an inherited value must not be able to decide what a run
+ * `KAGENT_UI_VITE_EXAMPLE_EXTENSION` is pinned on the bare server for the same reason
+ * `KAGENT_UI_VITE_API_MODE` is: an inherited value must not be able to decide what a run
  * measures. Left unpinned, the bare project measures whatever the shell happened
  * to export.
  */
-const BARE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "false" };
-const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "true" };
+const BARE_APP = { ...MOCK_BACKEND, KAGENT_UI_VITE_EXAMPLE_EXTENSION: "false" };
+const EXAMPLE_APP = { ...MOCK_BACKEND, KAGENT_UI_VITE_EXAMPLE_EXTENSION: "true" };
 
 /**
  * The third mode: one app, wired to a real backend.
@@ -67,7 +67,7 @@ const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "true" };
  * So `LIVE` swaps the whole `projects`/`webServer` pair rather than appending to
  * it. `yarn test:pw` and `yarn test:pw:live` are two disjoint runs.
  */
-const LIVE = process.env.UI_LOOP_LIVE === "true";
+const LIVE = process.env.KAGENT_E2E_UI_LOOP_LIVE === "true";
 
 /**
  * Its own port, far from the mock servers' 8001/8051, for the same reason those
@@ -75,7 +75,7 @@ const LIVE = process.env.UI_LOOP_LIVE === "true";
  * told to use is busy, so a live run must not be able to land on a port a mock
  * server is about to want, or vice versa.
  */
-const LIVE_PORT = Number(process.env.UI_LOOP_LIVE_PORT ?? 8301);
+const LIVE_PORT = Number(process.env.KAGENT_E2E_UI_LOOP_LIVE_PORT ?? 8301);
 const LIVE_BASE_URL = `http://localhost:${LIVE_PORT}`;
 
 /** Read by `playwright/globalSetup.ts` to decide what to verify about a server. */
@@ -86,11 +86,11 @@ export const LIVE_PROJECT = "chromium-live";
  * build reaches it through nginx — so the app uses the same relative URLs either
  * way and this mode tests the addressing a real deployment uses.
  *
- * `VITE_API_MODE` is pinned as well as the runtime flag: the build-time pin is
+ * `KAGENT_UI_VITE_API_MODE` is pinned as well as the runtime flag: the build-time pin is
  * the one thing an inherited `.env` cannot override, and a live suite that
  * silently answered from fixtures would be worse than a red one.
  */
-const LIVE_APP = { VITE_API_MODE: "live", ENABLE_MOCK_UI: "false" };
+const LIVE_APP = { KAGENT_UI_VITE_API_MODE: "live", KAGENT_UI_ENABLE_MOCK: "false" };
 
 /**
  * How the live server is started.
@@ -197,7 +197,7 @@ export default defineConfig({
   // extension specs then fail looking for contributions that were never installed.
   // That was an intermittent failure whose frequency depended only on whether
   // something happened to linger. Refusing to adopt makes an occupied port a
-  // loud startup error instead; set UI_LOOP_PORT / UI_LOOP_EXTENSION_PORT to run
+  // loud startup error instead; set KAGENT_E2E_UI_LOOP_PORT / KAGENT_E2E_UI_LOOP_EXTENSION_PORT to run
   // alongside a dev server you want to keep.
   webServer: LIVE
     ? [

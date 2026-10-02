@@ -239,8 +239,5 @@ func referencedSecretNames(spec v1alpha3.ModelConfigSpec) map[string]struct{} {
 	if spec.APIKeySecret != "" {
 		references[spec.APIKeySecret] = struct{}{}
 	}
-	if spec.TLS != nil && spec.TLS.CACertSecretRef != "" {
-		references[spec.TLS.CACertSecretRef] = struct{}{}
-	}
 	return references
 }

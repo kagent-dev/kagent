@@ -20,7 +20,7 @@ import (
 )
 
 // vectorEnabledKey names two lookups that deliberately share it: the CLI's
-// own DATABASE_VECTOR_ENABLED env var (a local operator override), and the
+// own KAGENT_DATABASE_VECTOR_ENABLED env var (a local operator override), and the
 // controller-configmap key the chart renders — the value the controller pod
 // itself consumes via envFrom. Same name, two different places.
 var vectorEnabledKey = kagentenv.DatabaseVectorEnabled.Name()
@@ -45,20 +45,17 @@ func NewDBCmd() *cobra.Command {
 // migrationSources resolves the built-in migration tracks when a db
 // subcommand runs (never during command construction, so unrelated commands
 // do no work and print no warnings). The vector track is gated, in order of
-// precedence, on: the DATABASE_VECTOR_ENABLED env var in the CLI's own
+// precedence, on: the KAGENT_DATABASE_VECTOR_ENABLED env var in the CLI's own
 // environment (explicit operator intent, works without a cluster), the
 // controller's configmap on the live cluster (the same value the server
-// reads), and finally the controller's default (enabled).
+// reads), and finally the CLI's fallback (enabled).
 func migrationSources(namespace *string) dbmigrate.SourcesFunc {
 	return func(ctx context.Context) ([]migrations.Source, error) {
 		vectorEnabled := true
-		if v := os.Getenv(vectorEnabledKey); v != "" {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: invalid %s=%q; assuming true\n", vectorEnabledKey, v)
-			} else {
-				vectorEnabled = b
-			}
+		if b, set, err := kagentenv.DatabaseVectorEnabled.LookupWithError(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v; assuming true\n", err)
+		} else if set {
+			vectorEnabled = b
 		} else if b, ok := clusterVectorEnabled(ctx, *namespace); ok {
 			vectorEnabled = b
 		}

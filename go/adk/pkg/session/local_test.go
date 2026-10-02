@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -100,7 +101,75 @@ func TestLocalSessionServiceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, sess3.Events().Len())
 
-	// Unknown sessions fail the lookup.
-	_, err = get(svc2, "missing")
-	require.Error(t, err)
+	// A fork has a new public context but continues the copied native session.
+	fork, err := get(svc2, "fork-context")
+	require.NoError(t, err)
+	require.Equal(t, 2, fork.Events().Len())
+}
+
+func TestLocalSessionServiceRestoredDatabase(t *testing.T) {
+	t.Parallel()
+	for _, populated := range []bool{false, true} {
+		name := "golden"
+		if populated {
+			name = "existing conversation"
+		}
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sessions.db")
+			svc, err := NewLocalSessionService("sqlite:///" + path)
+			require.NoError(t, err)
+			ctx := t.Context()
+			create := &adksession.CreateRequest{AppName: "app", UserID: "source-user", SessionID: "source"}
+			get := &adksession.GetRequest{AppName: "app", UserID: "fork-user", SessionID: "fork"}
+			if populated {
+				created, err := svc.Create(ctx, create)
+				require.NoError(t, err)
+				require.NoError(t, svc.AppendEvent(ctx, created.Session, &adksession.Event{
+					ID: "before", Author: "user", Timestamp: time.Now(),
+					LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("remember teal", genai.RoleUser)},
+					Actions:     adksession.EventActions{StateDelta: map[string]any{"color": "teal"}},
+				}))
+			}
+
+			// A VM restore retains the service in memory but gives /data new backing
+			// files. Preserve the old inode, then install the snapshot at the same path.
+			snapshot, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.NoError(t, os.Rename(path, path+".before-restore"))
+			require.NoError(t, os.WriteFile(path, snapshot, 0o600))
+
+			if !populated {
+				_, err := svc.Create(ctx, create)
+				require.NoError(t, err, "first message after golden restore must be able to create its session")
+			}
+			got, err := svc.Get(ctx, get)
+			require.NoError(t, err)
+			if populated {
+				require.Equal(t, 1, got.Session.Events().Len())
+				require.Equal(t, "remember teal", got.Session.Events().At(0).Content.Parts[0].Text)
+				color, err := got.Session.State().Get("color")
+				require.NoError(t, err)
+				require.Equal(t, "teal", color)
+			}
+			require.NoError(t, svc.AppendEvent(ctx, got.Session, &adksession.Event{
+				ID: "after", Author: "model", Timestamp: time.Now(),
+				LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("continued", genai.RoleModel)},
+			}))
+			got, err = svc.Get(ctx, get)
+			require.NoError(t, err)
+			wantEvents := 1
+			if populated {
+				wantEvents++
+			}
+			require.Equal(t, wantEvents, got.Session.Events().Len())
+			require.Equal(t, "continued", got.Session.Events().At(wantEvents - 1).Content.Parts[0].Text)
+			listed, err := svc.List(ctx, &adksession.ListRequest{AppName: "app", UserID: "fork-user"})
+			require.NoError(t, err)
+			require.Len(t, listed.Sessions, 1)
+			require.NoError(t, svc.Delete(ctx, &adksession.DeleteRequest{AppName: "app", UserID: "fork-user", SessionID: "fork"}))
+			listed, err = svc.List(ctx, &adksession.ListRequest{AppName: "app", UserID: "fork-user"})
+			require.NoError(t, err)
+			require.Empty(t, listed.Sessions)
+		})
+	}
 }

@@ -9,7 +9,7 @@
  * precedence.
  */
 
-import { env, envFlag } from "@/env";
+import { env, envFlag, withBasePath } from "@/env";
 
 export type ApiMode = "mock" | "live";
 
@@ -27,7 +27,7 @@ export const MOCK_API_BASE_URL = "http://localhost:8083/api";
  *
  * Two sources, most specific first.
  *
- * `VITE_API_MODE` is a build-time pin and always wins — the e2e suite sets it so
+ * `KAGENT_UI_VITE_API_MODE` is a build-time pin and always wins — the e2e suite sets it so
  * a run cannot be aimed at a real cluster by whatever the shell exported.
  *
  * Failing that, `ENABLE_MOCK_UI` decides, and **fixtures are never the default**.
@@ -41,8 +41,8 @@ export const MOCK_API_BASE_URL = "http://localhost:8083/api";
 export const apiMode: ApiMode = resolveApiMode();
 
 function resolveApiMode(): ApiMode {
-  if (import.meta.env.VITE_API_MODE === "live") return "live";
-  if (import.meta.env.VITE_API_MODE === "mock") return "mock";
+  if (import.meta.env.KAGENT_UI_VITE_API_MODE === "live") return "live";
+  if (import.meta.env.KAGENT_UI_VITE_API_MODE === "mock") return "mock";
 
   const wantsMock = envFlag("ENABLE_MOCK_UI");
 
@@ -71,7 +71,7 @@ export const isMockMode = apiMode === "mock";
  * environment has to arrive synchronously — see `@/env`.
  */
 export const apiBaseUrl: string = stripTrailingSlash(
-  apiMode === "live" ? env("API_BASE_URL") : MOCK_API_BASE_URL,
+  apiMode === "live" ? withBasePath(env("API_BASE_URL")) : MOCK_API_BASE_URL,
 );
 
 /** How long a unary request may run before the client aborts it. Streams use the idle timeout in `useChat` instead. */

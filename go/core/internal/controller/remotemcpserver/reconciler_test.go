@@ -83,7 +83,7 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 	if result.RequeueAfter != 5*time.Minute {
 		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
 	}
-	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.kagent.dev" {
+	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.api.kagent.dev" {
 		t.Fatalf("discovery ref = %#v", discoverer.ref)
 	}
 
@@ -181,7 +181,6 @@ func TestReferencesDependency(t *testing.T) {
 		{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}},
 		{Name: "X-Config", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "headers", Key: "value"}},
 	}
-	server.Spec.TLS = &v1alpha3.TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"}
 
 	tests := []struct {
 		name string
@@ -189,7 +188,6 @@ func TestReferencesDependency(t *testing.T) {
 		want bool
 	}{
 		{name: "header secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth"}}, want: true},
-		{name: "CA secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ca"}}, want: true},
 		{name: "header ConfigMap", obj: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "headers"}}, want: true},
 		{name: "unrelated secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "other"}}},
 	}

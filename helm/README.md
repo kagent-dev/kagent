@@ -19,7 +19,47 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ol
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
+
+#### OIDC authentication
+
+Set `controller.auth.mode: trusted-proxy` together with
+`oauth2-proxy.enabled: true`. Set `controller.auth.userIdClaim: email` to use
+email identities, or leave it empty to use `sub`. The chart renders
+`KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM`, which the shipped controller
+consumes at startup. Unsupported modes fail startup; `insecure` remains the
+default.
+
+Follow the [OIDC deployment configuration](../docs/architecture/oidc-proxy-authentication.md#deployment-configuration)
+for provider credentials, callback URL, proxy ingress, and required network
+isolation. The trusted controller decodes claims without verifying signatures
+or expiry, so all public API, A2A, and MCP traffic must pass through the validating
+proxy and UI nginx.
+
+#### Selecting a Substrate sandbox
+
+The default sandbox is `gvisor`. With Substrate configured, use these values
+to select `microvm`:
+
+```yaml
+controller:
+  substrate:
+    enabled: true
+substrateWorkerPool:
+  create: true
+  sandboxClass: microvm
+  workerImage: <matching-microvm-worker-image>
+```
+
+Substrate worker images are published to GHCR, for example
+`ghcr.io/kagent-dev/substrate/ateom-microvm:latest`. For a pinned installation,
+use a release tag matching your Substrate version.
+
+Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.
+
+**Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
+workers. kagent does not install these prerequisites.
 
 ### Using Make
 

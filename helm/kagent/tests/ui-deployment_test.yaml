@@ -1,8 +1,53 @@
 suite: test ui deployment
 templates:
+  - ui-configmap.yaml
   - ui-deployment.yaml
   - ui-nginx-configmap.yaml
 tests:
+  - it: loads browser settings from the ConfigMap and rolls out on changes
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            configMapRef:
+              name: RELEASE-NAME-ui
+      - notExists:
+          path: spec.template.spec.containers[0].env
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/configmap"]
+          pattern: "^[a-f0-9]{64}$"
+
+  - it: preserves explicit env overrides and Secret references
+    template: ui-deployment.yaml
+    set:
+      ui.env:
+        - name: KAGENT_UI_API_BASE_URL
+          value: /custom-api
+        - name: CUSTOM_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: ui-token
+              key: token
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: KAGENT_UI_API_BASE_URL
+              value: /custom-api
+            - name: CUSTOM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ui-token
+                  key: token
+      - equal:
+          path: data.KAGENT_UI_API_BASE_URL
+          value: /api
+        template: ui-configmap.yaml
+      - notExists:
+          path: data.CUSTOM_TOKEN
+        template: ui-configmap.yaml
+
   - it: should render ui deployment with default values
     template: ui-deployment.yaml
     asserts:
@@ -303,91 +348,105 @@ tests:
           path: spec.template.spec.topologySpreadConstraints
 
   - it: should pass runtime browser config to init.sh as env
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_API_BASE_URL
-            value: "/api"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SSO_REDIRECT_PATH
-            value: "/oauth2/start"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_STREAM_TIMEOUT_MS
-            value: "1800000"
+      - equal:
+          path: data.KAGENT_UI_API_BASE_URL
+          value: "/api"
+      - equal:
+          path: data.KAGENT_UI_SSO_REDIRECT_PATH
+          value: "/oauth2/start"
+      - equal:
+          path: data.KAGENT_UI_STREAM_TIMEOUT_MS
+          value: "1800000"
 
   - it: should carry an overridden publicBackendUrl through to the browser config
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         publicBackendUrl: "https://api.example.com/api"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_API_BASE_URL
-            value: "https://api.example.com/api"
+      - equal:
+          path: data.KAGENT_UI_API_BASE_URL
+          value: "https://api.example.com/api"
 
   - it: should fall back to /api when publicBackendUrl is blanked
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         publicBackendUrl: ""
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_API_BASE_URL
-            value: "/api"
+      - equal:
+          path: data.KAGENT_UI_API_BASE_URL
+          value: "/api"
+
+  - it: should pass ui.basePath through to the browser config only when set
+    template: ui-configmap.yaml
+    set:
+      ui:
+        basePath: /ui
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BASE_PATH
+          value: "/ui"
+
+  - it: should omit KAGENT_UI_BASE_PATH by default
+    template: ui-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BASE_PATH
+
+  - it: should reject a ui.basePath that is not a path
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: ui
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath must be a path like /ui
+
+  - it: should reject a ui.basePath with dot segments
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /ui/..
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath must be a path like /ui
+
+  - it: should reject a ui.basePath that starts with a path nginx serves
+    template: ui-deployment.yaml
+    set:
+      ui:
+        basePath: /assets/ui
+    asserts:
+      - failedTemplate:
+          errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
+
+  - it: should accept a ui.basePath that only shares a prefix with a served path
+    template: ui-configmap.yaml
+    set:
+      ui:
+        basePath: /apis
+    asserts:
+      - equal:
+          path: data.KAGENT_UI_BASE_PATH
+          value: "/apis"
 
   - it: should reflect overridden auth and stream settings
-    template: ui-deployment.yaml
+    template: ui-configmap.yaml
     set:
       ui:
         auth:
           ssoRedirectPath: /custom/start
         streamTimeoutSeconds: 90
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SSO_REDIRECT_PATH
-            value: "/custom/start"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_STREAM_TIMEOUT_MS
-            value: "90000"
-
-  - it: should not set env vars that only the removed node server consumed
-    template: ui-deployment.yaml
-    asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: NEXT_PUBLIC_BACKEND_URL
-            value: "/api"
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: NEXT_PUBLIC_SSO_REDIRECT_PATH
-            value: "/oauth2/start"
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: BACKEND_INTERNAL_URL
-            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083/api"
-      # The browser reaches gRPC over the same origin, through nginx, so there is
-      # no separate gRPC URL for anything to be configured with.
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: BACKEND_GRPC_URL
+      - equal:
+          path: data.KAGENT_UI_SSO_REDIRECT_PATH
+          value: "/custom/start"
+      - equal:
+          path: data.KAGENT_UI_STREAM_TIMEOUT_MS
+          value: "90000"
 
   - it: should not mount a nextjs build cache
     template: ui-deployment.yaml

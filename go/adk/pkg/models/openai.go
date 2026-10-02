@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -107,7 +107,7 @@ func resolveOpenAIAPIKey(ctx context.Context, config *OpenAIConfig) (string, err
 	if config.APIKey != "" {
 		return config.APIKey, nil
 	}
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+	if apiKey := env.OpenAIAPIKey.Get(); apiKey != "" {
 		return apiKey, nil
 	}
 	if config.BaseUrl == "" {
@@ -135,7 +135,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	logger := logging.FromContext(ctx)
 	endpoint := config.Endpoint
 	if endpoint == "" {
-		endpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
+		endpoint = env.AzureOpenAIEndpoint.Get()
 	}
 	if endpoint == "" {
 		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
@@ -143,7 +143,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 
 	apiVersion := config.APIVersion
 	if apiVersion == "" {
-		apiVersion = os.Getenv("OPENAI_API_VERSION")
+		apiVersion = env.OpenAIAPIVersion.Get()
 	}
 	if apiVersion == "" {
 		apiVersion = "2024-02-15-preview"
@@ -170,7 +170,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	// (a placeholder Api-Key is overwritten per request by openAIPassthroughOpts),
 	// otherwise the AZURE_OPENAI_API_KEY Api-Key header, otherwise
 	// DefaultAzureCredential (Workload Identity), eagerly probed for readiness.
-	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	apiKey := env.AzureOpenAIAPIKey.Get()
 	if config.APIKeyPassthrough {
 		apiKey = "passthrough"
 	}

@@ -1,11 +1,19 @@
 package models
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"log/slog"
+
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
 
@@ -13,6 +21,67 @@ func TestOpenAIModel_Name(t *testing.T) {
 	m := &OpenAIModel{Config: &OpenAIConfig{Model: "gpt-4o"}}
 	if got := m.Name(); got != "gpt-4o" {
 		t.Errorf("Name() = %q, want %q", got, "gpt-4o")
+	}
+}
+
+func TestOpenAIModelGenerateContentSendsStructuredOutputWithTools(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encoded, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(encoded, &body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"gpt-4o",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":4}"},"finish_reason":"stop"}]
+		}`)
+	}))
+	defer server.Close()
+
+	client := openai.NewClient(
+		option.WithAPIKey("test"),
+		option.WithBaseURL(server.URL),
+		option.WithHTTPClient(server.Client()),
+	)
+	llm := &OpenAIModel{
+		Config: &OpenAIConfig{Model: "gpt-4o"},
+		Client: client,
+		Logger: slog.New(slog.DiscardHandler),
+	}
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"answer": map[string]any{"type": "integer"}},
+	}
+	request := &model.LLMRequest{
+		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "calculate"}}}},
+		Config: &genai.GenerateContentConfig{
+			ResponseJsonSchema: schema,
+			Tools: []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name: "calculator", ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}}}},
+		},
+	}
+	for _, err := range llm.GenerateContent(context.Background(), request, false) {
+		if err != nil {
+			t.Fatalf("GenerateContent error: %v", err)
+		}
+	}
+
+	responseFormat, ok := body["response_format"].(map[string]any)
+	if !ok || responseFormat["type"] != "json_schema" {
+		t.Fatalf("response_format = %#v", body["response_format"])
+	}
+	jsonSchema, ok := responseFormat["json_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("response_format.json_schema = %#v", responseFormat["json_schema"])
+	}
+	if _, present := jsonSchema["strict"]; present {
+		t.Fatalf("response_format.json_schema.strict must be omitted: %#v", jsonSchema)
+	}
+	if gotSchema, ok := jsonSchema["schema"].(map[string]any); !ok || gotSchema["type"] != "object" {
+		t.Fatalf("response_format.json_schema.schema = %#v", jsonSchema["schema"])
+	}
+	if tools, ok := body["tools"].([]any); !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one tool", body["tools"])
 	}
 }
 

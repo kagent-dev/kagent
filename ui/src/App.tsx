@@ -5,7 +5,8 @@ import { RouterProvider } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { SWRConfig } from "swr";
 import { GlobalStyles } from "./theme/GlobalStyles";
-import { ThemeModeProvider, useThemeMode } from "./theme/themeMode";
+import { ThemeModeProvider } from "./theme/themeMode";
+import { useThemeMode } from "./theme/useThemeMode";
 import {
   resolveAntdTheme,
   resolveAppTheme,
@@ -89,7 +90,8 @@ function ThemedApp() {
               value={{ revalidateOnFocus: false, shouldRetryOnError: false }}
             >
               <AppRouter />
-              <Toaster position="bottom-right" />
+              {/* Top centre, over the header's empty middle: bottom-right covered the chat's Send button. */}
+              <Toaster position="top-center" />
             </SWRConfig>
           </ExtensionProviders>
         </ThemeProvider>

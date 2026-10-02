@@ -17,17 +17,22 @@ This package supports both CrewAI Crews and Flows. To get started, define your C
 ```python
 from kagent.crewai import KAgentApp
 from kagent.core import KAgentConfig
+
 # This is the crew or flow you defined
 from research_crew.crew import ResearchCrew
 
-app = KAgentApp(crew=ResearchCrew().crew(), agent_card={
-    "name": "my-crewai-agent",
-    "description": "A CrewAI agent with KAgent integration",
-    "version": "0.1.0",
-    "capabilities": {"streaming": True},
-    "defaultInputModes": ["text"],
-    "defaultOutputModes": ["text"]
-}, config=KAgentConfig())
+app = KAgentApp(
+    crew=ResearchCrew().crew(),
+    agent_card={
+        "name": "my-crewai-agent",
+        "description": "A CrewAI agent with KAgent integration",
+        "version": "0.1.0",
+        "capabilities": {"streaming": True},
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+    },
+    config=KAgentConfig(),
+)
 
 fastapi_app = app.build()
 uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)

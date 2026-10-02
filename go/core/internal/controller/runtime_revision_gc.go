@@ -16,8 +16,8 @@ import (
 const runtimeRevisionGCInterval = time.Minute
 
 type runtimeRevisionGCStore interface {
-	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
-	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
+	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeArtifact, error)
+	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeArtifact, error)
 	DeleteRuntimeRevision(context.Context, string, string) error
 }
 
@@ -65,7 +65,6 @@ func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
 		return
 	}
-	// ponytail: sweeps are serial; add bounded workers if slow deletions delay reclamation.
 	for _, candidate := range revisions {
 		if ctx.Err() != nil {
 			return

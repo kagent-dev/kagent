@@ -6,16 +6,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/pelletier/go-toml/v2"
 )
 
-const codexHomeEnv = "CODEX_HOME"
+const (
+	codexHomeEnv       = "CODEX_HOME"
+	otelCompressionEnv = "OTEL_EXPORTER_OTLP_COMPRESSION"
+)
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Codex driver.
@@ -48,11 +53,15 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
 	if cfg.SkillResources != nil {
-		if _, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
+		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
 			Skills:   filepath.Join(codexHome, "skills"),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
+		}
+		if len(materialized.ClaudeFormatPluginRoots()) > 0 {
+			return nil, fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 		}
 	}
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
@@ -65,7 +74,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
-	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
+	environment := nativeEnvironment(input.Environment, codexHome, cfg.RuntimeTelemetry)
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {
@@ -284,6 +293,15 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 		}
 	}
 	return nil
+}
+
+// nativeEnvironment drops OTLP compression: the Codex exporter is built without
+// gzip and refuses to start when asked for it.
+func nativeEnvironment(environment []string, codexHome string, telemetry tracing.RuntimeTelemetry) []string {
+	environment = tracing.ResourceEnvironment(setEnvironment(environment, codexHomeEnv, codexHome), telemetry.ChildResource())
+	return slices.DeleteFunc(environment, func(item string) bool {
+		return strings.HasPrefix(item, otelCompressionEnv+"=")
+	})
 }
 
 func setEnvironment(environment []string, name, value string) []string {

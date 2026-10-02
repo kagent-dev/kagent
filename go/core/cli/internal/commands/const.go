@@ -1,17 +1,13 @@
 package commands
 
 import (
-	"os"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
-const (
-	DefaultModelProvider   = v1alpha3.ModelProviderOpenAI
-	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
-)
+const DefaultModelProvider = v1alpha3.ModelProviderOpenAI
 
 // GetModelProvider returns the model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable
 func GetModelProvider() v1alpha3.ModelProvider {
@@ -50,35 +46,24 @@ func GetModelProviderHelmValuesKey(provider v1alpha3.ModelProvider) string {
 	return helmKey
 }
 
-// GetProviderAPIKey returns the env var name for the provider's API key.
-// Returns "" for providers that use cloud credentials instead of an API key
-// (Ollama, Bedrock, GeminiVertexAI, AnthropicVertexAI).
-func GetProviderAPIKey(provider v1alpha3.ModelProvider) string {
+// providerAPIKey selects the registered API key for a provider. Cloud credential
+// providers have no API-key setting.
+func providerAPIKey(provider v1alpha3.ModelProvider) (env.StringVar, bool) {
 	switch provider {
 	case v1alpha3.ModelProviderOpenAI:
-		return env.OpenAIAPIKey.Name()
+		return env.OpenAIAPIKey, true
 	case v1alpha3.ModelProviderAnthropic:
-		return env.AnthropicAPIKey.Name()
+		return env.AnthropicAPIKey, true
 	case v1alpha3.ModelProviderAzureOpenAI:
-		return env.AzureOpenAIAPIKey.Name()
+		return env.AzureOpenAIAPIKey, true
+	case v1alpha3.ModelProviderOllama:
+		return env.OllamaAPIKey, true
 	case v1alpha3.ModelProviderGemini:
-		// Prefer GOOGLE_API_KEY, fall back to GEMINI_API_KEY to match the
-		// runtime behaviour in go/adk/pkg/agent/agent.go.
-		if _, ok := os.LookupEnv(env.GoogleAPIKey.Name()); ok {
-			return env.GoogleAPIKey.Name()
+		if _, set := env.GoogleAPIKey.Lookup(); set {
+			return env.GoogleAPIKey, true
 		}
-		return "GEMINI_API_KEY"
+		return env.GeminiAPIKey, true
 	default:
-		// Ollama, Bedrock, GeminiVertexAI, AnthropicVertexAI use cloud
-		// credentials rather than a simple API key, so no check is needed.
-		return ""
+		return env.StringVar{}, false
 	}
-}
-
-// GetEnvVarWithDefault returns the value of the environment variable if it exists, otherwise returns the default value
-func GetEnvVarWithDefault(envVar, defaultValue string) string {
-	if value, exists := os.LookupEnv(envVar); exists {
-		return value
-	}
-	return defaultValue
 }
