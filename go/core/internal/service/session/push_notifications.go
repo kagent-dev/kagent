@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"golang.org/x/net/http/httpguts"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -25,6 +26,9 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig) (*a2a
 		return nil, a2a.ErrInvalidParams
 	}
 	config := *input
+	if !httpguts.ValidHeaderFieldValue(config.Token) {
+		return nil, a2a.NewError(a2a.ErrInvalidParams, "push notification token contains an invalid HTTP header value")
+	}
 	if config.Auth != nil && (!strings.EqualFold(config.Auth.Scheme, "Bearer") || config.Auth.Credentials == "" || strings.ContainsAny(config.Auth.Credentials, " \t\r\n")) {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "push authentication, when supplied, requires Bearer credentials without whitespace")
 	}

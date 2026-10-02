@@ -35,6 +35,8 @@ func TestEmbeddedPushConfig(t *testing.T) {
 		{"context continuation", func(r *a2a.SendMessageRequest) { r.Message.ContextID = "context" }, true},
 		{"task continuation", func(r *a2a.SendMessageRequest) { r.Message.TaskID = "task" }, true},
 		{"token", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.Token = "secret" }, true},
+		{"newline in token", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.Token = "first\nsecond" }, false},
+		{"null in token", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.Token = "first\x00second" }, false},
 		{"missing message", func(r *a2a.SendMessageRequest) { r.Message = nil }, false},
 		{"missing message id", func(r *a2a.SendMessageRequest) { r.Message.ID = "" }, false},
 		{"embedded task", func(r *a2a.SendMessageRequest) { r.Config.PushConfig.TaskID = "task" }, false},
