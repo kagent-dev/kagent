@@ -13,6 +13,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,6 +57,27 @@ func TestReadInvokeTask(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestInvokePushFlagsRejectInvalidCombinationsBeforeConnecting(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cfg  InvokeCfg
+		want string
+	}{
+		{name: "id without URL", cfg: InvokeCfg{PushID: "callback"}, want: "--push-id requires --push-url"},
+		{name: "stream with push", cfg: InvokeCfg{PushURL: "https://receiver.example", PushBearerTokenFile: "credential", Stream: true}, want: "cannot be combined with --stream"},
+		{name: "invalid URL", cfg: InvokeCfg{PushURL: "not-a-url", PushBearerTokenFile: "credential"}, want: "push URL must be"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := test.cfg
+			cfg.Task = "hello"
+			cfg.Session = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
+			cfg.OutputFormat = "table"
+			err := runInvoke(t.Context(), connection.DefaultOptions(), &cfg, strings.NewReader(""), &bytes.Buffer{})
+			require.ErrorContains(t, err, test.want)
 		})
 	}
 }

@@ -22,12 +22,15 @@ import (
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")
 
 type InvokeCfg struct {
-	OutputFormat string
-	Task         string
-	File         string
-	Session      string
-	Stream       bool
-	Token        string
+	OutputFormat        string
+	Task                string
+	File                string
+	Session             string
+	Stream              bool
+	Token               string
+	PushURL             string
+	PushID              string
+	PushBearerTokenFile string
 }
 
 func runInvoke(
@@ -52,6 +55,23 @@ func runInvoke(
 	if strings.ContainsAny(cfg.Token, " \t\r\n") {
 		return errors.New("model API key must not contain whitespace")
 	}
+	if cfg.PushID != "" && cfg.PushURL == "" {
+		return errors.New("--push-id requires --push-url")
+	}
+	if cfg.PushBearerTokenFile != "" && cfg.PushURL == "" {
+		return errors.New("--push-bearer-token-file requires --push-url")
+	}
+	if cfg.PushURL != "" {
+		if cfg.PushBearerTokenFile == "" {
+			return errors.New("--push-bearer-token-file is required with --push-url")
+		}
+		if err := validatePushURL(cfg.PushURL); err != nil {
+			return err
+		}
+		if cfg.Stream {
+			return errors.New("--push-url cannot be combined with --stream; push invocation returns the task immediately")
+		}
+	}
 
 	session, err := connection.OpenGateway(ctx, options)
 	if err != nil {
@@ -66,12 +86,51 @@ func runInvoke(
 	}
 
 	request := newInvokeRequest(task)
+	if cfg.PushURL != "" {
+		return invokeWithPush(ctx, a2aClient, request, cfg, format, out)
+	}
 	ctx = withModelToken(ctx, cfg.Token)
 
 	if cfg.Stream {
 		return invokeStreaming(ctx, a2aClient, request, format, out)
 	}
 	return invokeNonStreaming(ctx, a2aClient, request, format, out)
+}
+
+type pushInvokeClient interface {
+	SendMessage(context.Context, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error)
+}
+
+// Embed the callback in the initial send so it is stored before dispatch.
+func invokeWithPush(ctx context.Context, client pushInvokeClient, request *a2atype.SendMessageRequest, cfg *InvokeCfg, format clioutput.Format, out io.Writer) error {
+	credential, err := readPushToken(cfg.PushBearerTokenFile)
+	if err != nil {
+		return fmt.Errorf("read push Bearer credential: %w", err)
+	}
+	callbackID := cfg.PushID
+	if callbackID == "" {
+		callbackID = uuid.NewString()
+	}
+	request.Config = &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{
+		ID: callbackID, URL: cfg.PushURL, Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: credential},
+	}}
+	result, err := client.SendMessage(withModelToken(ctx, cfg.Token), request)
+	if err != nil {
+		return fmt.Errorf("invoke Session: %w", err)
+	}
+	task, ok := result.(*a2atype.Task)
+	if !ok || task.ID == "" {
+		return errors.New("invocation returned no task ID")
+	}
+	config := &a2atype.PushConfig{TaskID: task.ID, ID: callbackID, URL: cfg.PushURL}
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteJSON(out, struct {
+			Task       *a2atype.Task       `json:"task"`
+			PushConfig *a2atype.PushConfig `json:"pushConfig"`
+		}{Task: task, PushConfig: config})
+	}
+	_, err = fmt.Fprintf(out, "Task ID: %s\nState: %s\nCallback ID: %s\nURL: %s\n", task.ID, task.Status.State, config.ID, config.URL)
+	return err
 }
 
 func newInvokeRequest(task string) *a2atype.SendMessageRequest {
@@ -369,6 +428,9 @@ func NewInvokeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
 	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
+	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register this callback after the new task is created; return the task immediately")
+	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
+	cmd.Flags().StringVar(&cfg.PushBearerTokenFile, "push-bearer-token-file", "", "Read the required webhook Bearer credential from a file")
 	_ = cmd.MarkFlagRequired("session")
 	cmd.MarkFlagsOneRequired("task", "file")
 	cmd.MarkFlagsMutuallyExclusive("task", "file")
