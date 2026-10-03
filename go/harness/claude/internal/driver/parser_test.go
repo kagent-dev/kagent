@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 const pinnedClaudeVersion = "2.1.260"
@@ -78,8 +80,28 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 	if err := ParseJSONL(bytes.NewReader(b), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if last.Kind != EventFailed || last.Category != "error_max_budget_usd" {
-		t.Fatalf("last event = %#v", last)
+	if last.Kind != EventCompleted || last.Category != runtime.LimitBudget || last.Usage == nil {
+		t.Fatalf("a turn that reached its budget is complete with the limit named: %#v", last)
+	}
+	events := []string{
+		`{"type":"system","subtype":"init","session_id":"22222222-2222-4222-8222-222222222222"}`,
+		`{"type":"result","subtype":"error_max_turns","is_error":true,"result":"turn limit","total_cost_usd":0.25,"num_turns":3,"usage":{"input_tokens":120,"cache_read_input_tokens":3000,"cache_creation_input_tokens":500,"output_tokens":40},"session_id":"22222222-2222-4222-8222-222222222222"}`,
+	}
+	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if last.Kind != EventCompleted || last.Category != runtime.LimitTurns || last.Usage == nil || last.Usage.TotalCostUSD != 0.25 || last.Usage.NumTurns != 3 || last.Usage.InputTokens != 3620 || last.Usage.CachedTokens != 3000 || last.Usage.OutputTokens != 40 {
+		t.Fatalf("turn-limited result = %#v, usage %#v", last, last.Usage)
+	}
+	events[1] = `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","total_cost_usd":0.1,"num_turns":2,"usage":{"input_tokens":50,"output_tokens":7},"session_id":"22222222-2222-4222-8222-222222222222"}`
+	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if last.Kind != EventFailed || last.Category != "error_during_execution" {
+		t.Fatalf("any other error is still a failure: %#v", last)
+	}
+	if last.Usage == nil || last.Usage.TotalCostUSD != 0.1 || last.Usage.InputTokens != 50 || last.Usage.OutputTokens != 7 {
+		t.Fatalf("a failed turn keeps the usage it spent: %#v", last.Usage)
 	}
 }
 
