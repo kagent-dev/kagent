@@ -401,8 +401,8 @@ build-sandbox-guest: buildx-create
 	$(DOCKER_PUSH) $(SANDBOX_GUEST_IMG)
 
 .PHONY: push
-push: ## Push all component images (controller, ui, ADKs)
-push: push-controller push-ui push-kagent-adk push-golang-adk
+push: ## Build and push all component images (alias for build)
+push: build
 
 
 ##@ Testing
