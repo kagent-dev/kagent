@@ -38,6 +38,31 @@ func (c *A2AClient) ForSession(ctx context.Context, id string) (*a2aclient.Clien
 	return c.forAgent(ctx, response.GetSession().GetAgent(), id)
 }
 
+// ListTaskPushConfigsPage preserves the pagination token that the upstream
+// a2aclient.Client List method currently discards.
+func (c *A2AClient) ListTaskPushConfigsPage(ctx context.Context, sessionID, taskID string, pageSize int32, pageToken string) (*a2apb.ListTaskPushNotificationConfigsResponse, error) {
+	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1alpha1.GetSessionRequest{SessionId: sessionID})
+	if err != nil {
+		return nil, err
+	}
+	agent := response.GetSession().GetAgent()
+	if agent.GetNamespace() == "" || agent.GetName() == "" {
+		return nil, fmt.Errorf("agent namespace and name are required")
+	}
+	connection, err := c.client.grpcConnection()
+	if err != nil {
+		return nil, err
+	}
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	return a2apb.NewA2AServiceClient(connection).ListTaskPushNotificationConfigs(callContext, &a2apb.ListTaskPushNotificationConfigsRequest{
+		Tenant:    agent.Namespace + "/" + agent.Name,
+		TaskId:    taskID,
+		PageSize:  pageSize,
+		PageToken: pageToken,
+	})
+}
+
 func (c *A2AClient) forAgent(ctx context.Context, agent *apiv1alpha1.ResourceReference, contextID string) (*a2aclient.Client, error) {
 	if agent.GetNamespace() == "" || agent.GetName() == "" {
 		return nil, fmt.Errorf("agent namespace and name are required")

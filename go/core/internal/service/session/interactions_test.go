@@ -48,6 +48,23 @@ func (s *interactionTestStore) GetSessionTaskByMessage(context.Context, string, 
 	return s.task, nil
 }
 
+func (s *interactionTestStore) GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error) {
+	s.taskReads++
+	return &database.TaskPushConfig{ID: "callback", URL: "https://receiver.example/callback"}, nil
+}
+
+func (s *interactionTestStore) ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error) {
+	s.taskReads++
+	return []database.TaskPushConfig{{ID: "callback", URL: "https://receiver.example/callback"}}, nil
+}
+
+func TestTaskPageTokenRejectsInvalidUTF8(t *testing.T) {
+	_, err := decodeTaskPageToken("invalid")
+	if err == nil {
+		t.Fatal("invalid UTF-8 page token was accepted")
+	}
+}
+
 func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 	id := uuid.NewString()
 	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
@@ -83,6 +100,21 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 		{name: "list", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
 			_, err := s.ListTasks(ctx, agent, &a2atype.ListTasksRequest{ContextID: id})
 			return err
+		}},
+		{name: "push create", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.CreateTaskPushConfig(ctx, agent, &a2atype.PushConfig{TaskID: "task", ID: "callback", URL: "https://receiver.example/callback", Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: "secret"}})
+			return err
+		}},
+		{name: "push get", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.GetTaskPushConfig(ctx, agent, &a2atype.GetTaskPushConfigRequest{TaskID: "task", ID: "callback"})
+			return err
+		}},
+		{name: "push list", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.ListTaskPushConfigs(ctx, agent, &a2atype.ListTaskPushConfigRequest{TaskID: "task"})
+			return err
+		}},
+		{name: "push delete", verb: auth.VerbDelete, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			return s.DeleteTaskPushConfig(ctx, agent, &a2atype.DeleteTaskPushConfigRequest{TaskID: "task", ID: "callback"})
 		}},
 		{name: "subscribe", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
 			_, _, err := s.PrepareTaskSubscription(ctx, agent, &a2atype.SubscribeToTaskRequest{ID: "task"})

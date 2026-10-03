@@ -199,4 +199,7 @@ supplies actor JWT injection. That implementation will replace the header path
 outright, including trusted issuer/JWKS, signature, audience, and expiry validation;
 there will be no fallback to unsigned headers.
 
-Push notifications are outside this cutover and are rejected by the public gateway.
+## Push notifications
+
+See [A2A push notifications](a2a-push-notifications.md) for setup, callback
+behavior, delivery guarantees, and receiver responsibilities.

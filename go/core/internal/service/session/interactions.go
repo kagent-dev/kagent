@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -21,6 +22,11 @@ import (
 )
 
 type interactionStore interface {
+	RegisterSessionPush(context.Context, string, string, string, *a2atype.PushConfig) error
+	SaveTaskPushConfig(context.Context, string, string, *a2atype.PushConfig) error
+	GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error)
+	ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error)
+	DeleteTaskPushConfig(context.Context, string, string, string) error
 	ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error
 	RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
@@ -132,9 +138,24 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 // An initial-message retry returns its saved task without granting another send.
 func (s *InteractionService) PrepareSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*PreparedSend, error) {
 	initialID := initialMessageID(req)
+	pushConfig, err := initialPushConfig(agent, req)
+	if err != nil {
+		return nil, err
+	}
 	session, err := s.resolveSend(ctx, agent, req)
 	if err != nil {
 		return nil, err
+	}
+	if pushConfig != nil {
+		if pushConfig.ID == "" {
+			pushConfig.ID = uuid.NewSHA1(uuid.NameSpaceURL, []byte("a2a/push/"+session.Id+"/"+req.Message.ID)).String()
+		}
+		if err := s.store.RegisterSessionPush(ctx, session.Id, req.Message.ID, string(req.Message.TaskID), pushConfig); err != nil {
+			return nil, interactionStoreError(ctx, err)
+		}
+		config := *req.Config
+		config.PushConfig = nil
+		req.Config = &config
 	}
 	id, err := s.reserveDispatch(ctx, session.Id, initialID)
 	if errors.Is(err, database.ErrMessageAccepted) {
@@ -362,9 +383,6 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 	if req == nil || req.Message == nil || req.Message.ID == "" {
 		return nil, a2atype.ErrInvalidParams
 	}
-	if req.Config != nil && req.Config.PushConfig != nil {
-		return nil, a2atype.ErrPushNotificationNotSupported
-	}
 	if err := validateInteractionAgent(agent); err != nil {
 		return nil, err
 	}
@@ -403,7 +421,7 @@ func interactionStoreError(ctx context.Context, err error) error {
 		return a2atype.ErrTaskNotFound
 	}
 	if errors.Is(err, database.ErrFailedPrecondition) {
-		return a2atype.NewError(a2atype.ErrInvalidRequest, "reply does not match the pending input request")
+		return a2atype.NewError(a2atype.ErrInvalidRequest, err.Error())
 	}
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
@@ -501,7 +519,7 @@ func decodeTaskPageToken(token string) (string, error) {
 		return "", nil
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(decoded) == 0 {
+	if err != nil || len(decoded) == 0 || !utf8.Valid(decoded) {
 		return "", fmt.Errorf("invalid page token")
 	}
 	return string(decoded), nil

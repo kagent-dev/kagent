@@ -2,10 +2,12 @@ package grpcserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +28,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/push"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
@@ -45,6 +48,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type lostRuntimeSaveResponse struct {
@@ -113,6 +117,7 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
+	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "true")
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	dbtest.MigrateT(t, dsn, false)
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
@@ -265,6 +270,32 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		MessageId: "input-1", ContextId: id, Role: a2apb.Role_ROLE_USER,
 		Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "work"}}},
 	}}
+	callbacks := make(chan *a2a.TaskStatusUpdateEvent, 4)
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer receiver-credential" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var envelope struct {
+			StatusUpdate *a2a.TaskStatusUpdateEvent `json:"statusUpdate"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		callbacks <- envelope.StatusUpdate
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(receiver.Close)
+	// This fixture exercises private TaskStore publication. Public embedded
+	// registration and validation are covered by the gateway transport tests.
+	require.NoError(t, store.RegisterSessionPush(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL, Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "receiver-credential"}}))
+	workerCtx, stopWorker := context.WithCancel(t.Context())
+	workerDone := make(chan error, 1)
+	worker := sessionsvc.NewPushWorker(database.NewClient(db), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}))
+	go func() { workerDone <- worker.Start(workerCtx) }()
+	t.Cleanup(func() { stopWorker(); require.NoError(t, <-workerDone) })
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
 	require.NoError(t, err)
 	var taskID string
@@ -317,6 +348,15 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	readBack, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, readBack.Status.State)
+	select {
+	case callback := <-callbacks:
+		require.NotNil(t, callback)
+		require.Equal(t, a2a.TaskID(taskID), callback.TaskID)
+		require.Equal(t, id, callback.ContextID)
+		require.Equal(t, a2a.TaskStateCompleted, callback.Status.State)
+	case <-time.After(5 * time.Second):
+		t.Fatal("missing callback after observer disconnect")
+	}
 	require.True(t, store.lost.Load())
 	require.True(t, store.lostCreate.Load())
 	parkInput := proto.CloneOf(input)
@@ -325,6 +365,80 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	parked, err := second.SendMessage(publicCtx, parkInput)
 	require.NoError(t, err)
 	require.Equal(t, a2apb.TaskState_TASK_STATE_INPUT_REQUIRED, parked.GetTask().GetStatus().GetState())
+	parkedID := parked.GetTask().GetId()
+	grpcConfig, err := second.CreateTaskPushNotificationConfig(publicCtx, &a2apb.TaskPushNotificationConfig{
+		Tenant: "team-a/assistant", TaskId: parkedID, Id: "managed-grpc", Url: receiver.URL, Token: "notification-secret",
+		Authentication: &a2apb.AuthenticationInfo{Scheme: "Bearer", Credentials: "receiver-credential"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "managed-grpc", grpcConfig.GetId())
+	require.Empty(t, grpcConfig.GetToken())
+	require.Nil(t, grpcConfig.GetAuthentication())
+	params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
+	jsonConfig, err := httpTransport.CreateTaskPushConfig(publicCtx, params, &a2a.PushConfig{
+		TaskID: a2a.TaskID(parkedID), ID: "managed-json", URL: receiver.URL, Token: "notification-secret", Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "receiver-credential"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "managed-json", jsonConfig.ID)
+	require.Empty(t, jsonConfig.Token)
+	require.Nil(t, jsonConfig.Auth)
+	gotJSON, err := httpTransport.GetTaskPushConfig(publicCtx, params, &a2a.GetTaskPushConfigRequest{
+		TaskID: a2a.TaskID(parkedID), ID: "managed-grpc",
+	})
+	require.NoError(t, err)
+	require.Equal(t, receiver.URL, gotJSON.URL)
+	require.Empty(t, gotJSON.Token)
+	require.Nil(t, gotJSON.Auth)
+	storedConfigs, err := store.ListTaskPushConfigs(t.Context(), id, parkedID, "", 10)
+	require.NoError(t, err)
+	require.Len(t, storedConfigs, 2, "stored configs: %+v", storedConfigs)
+	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil))
+	serviceCtx := auth.AuthSessionTo(publicCtx, &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "alice"}}})
+	servicePage, err := managedService.ListTaskPushConfigs(serviceCtx, types.NamespacedName{Namespace: "team-a", Name: "assistant"},
+		&a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID), PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, servicePage.Configs, 1)
+	require.NotEmpty(t, servicePage.NextPageToken)
+	serviceNext, err := managedService.ListTaskPushConfigs(serviceCtx, types.NamespacedName{Namespace: "team-a", Name: "assistant"},
+		&a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID), PageSize: 1, PageToken: servicePage.NextPageToken})
+	require.NoError(t, err)
+	require.Len(t, serviceNext.Configs, 1)
+	require.Empty(t, serviceNext.NextPageToken)
+	firstPage, err := second.ListTaskPushNotificationConfigs(publicCtx, &a2apb.ListTaskPushNotificationConfigsRequest{
+		Tenant: "team-a/assistant", TaskId: parkedID, PageSize: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, firstPage.GetConfigs(), 1)
+	require.Empty(t, firstPage.GetConfigs()[0].GetToken())
+	require.Nil(t, firstPage.GetConfigs()[0].GetAuthentication())
+	require.NotEmpty(t, firstPage.GetNextPageToken())
+	secondPage, err := second.ListTaskPushNotificationConfigs(publicCtx, &a2apb.ListTaskPushNotificationConfigsRequest{
+		Tenant: "team-a/assistant", TaskId: parkedID, PageSize: 1, PageToken: firstPage.GetNextPageToken(),
+	})
+	require.NoError(t, err)
+	require.Len(t, secondPage.GetConfigs(), 1)
+	require.Empty(t, secondPage.GetNextPageToken())
+	_, err = second.ListTaskPushNotificationConfigs(publicCtx, &a2apb.ListTaskPushNotificationConfigsRequest{
+		Tenant: "team-a/assistant", TaskId: parkedID, PageToken: "invalid",
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	listedJSON, err := httpTransport.ListTaskPushConfigs(publicCtx, params, &a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID)})
+	require.NoError(t, err)
+	require.Len(t, listedJSON, 2)
+	for _, config := range listedJSON {
+		require.Empty(t, config.Token)
+		require.Nil(t, config.Auth)
+	}
+	gotGRPC, err := second.GetTaskPushNotificationConfig(publicCtx, &a2apb.GetTaskPushNotificationConfigRequest{
+		Tenant: "team-a/assistant", TaskId: parkedID, Id: "managed-json",
+	})
+	require.NoError(t, err)
+	require.Empty(t, gotGRPC.GetToken())
+	require.Nil(t, gotGRPC.GetAuthentication())
+	_, err = second.DeleteTaskPushNotificationConfig(publicCtx, &a2apb.DeleteTaskPushNotificationConfigRequest{
+		Tenant: "team-a/assistant", TaskId: parkedID, Id: "managed-grpc",
+	})
+	require.NoError(t, err)
 	replyInput := proto.CloneOf(input)
 	replyInput.Message.MessageId = "input-reply"
 	replyInput.Message.TaskId = parked.GetTask().GetId()
@@ -336,6 +450,17 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		require.NoError(t, err)
 		replyCompleted = event.GetTask().GetStatus().GetState() == a2apb.TaskState_TASK_STATE_COMPLETED
 	}
+	require.Eventually(t, func() bool {
+		select {
+		case callback := <-callbacks:
+			return callback != nil && callback.TaskID == a2a.TaskID(parkedID) && callback.Status.State == a2a.TaskStateCompleted
+		default:
+			return false
+		}
+	}, 5*time.Second, 10*time.Millisecond, "missing managed task callback")
+	require.NoError(t, httpTransport.DeleteTaskPushConfig(publicCtx, params, &a2a.DeleteTaskPushConfigRequest{
+		TaskID: a2a.TaskID(parkedID), ID: "managed-json",
+	}))
 	beforeReplyRetry := executions.Load()
 	_, err = second.SendMessage(publicCtx, replyInput)
 	require.Error(t, err, "a completed task cannot be continued")

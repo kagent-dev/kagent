@@ -64,6 +64,19 @@ var (
 		ComponentAgentRuntime, ComponentController,
 	)
 
+	A2APushAllowPrivateNetworks = RegisterBoolVar(
+		"KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS",
+		true,
+		"Allow A2A push callbacks to private, loopback, and link-local destinations. Set to false to block these destinations.",
+		ComponentController,
+	)
+	A2APushAllowHTTP = RegisterBoolVar(
+		"KAGENT_A2A_PUSH_ALLOW_HTTP",
+		true,
+		"Allow HTTP A2A push callbacks. Set to false to require HTTPS.",
+		ComponentController,
+	)
+
 	KagentSkillsFolder = RegisterStringVar(
 		"KAGENT_SKILLS_FOLDER",
 		"/skills",

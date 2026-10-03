@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv/push"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
@@ -331,6 +332,12 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions)
+	pushSender := push.NewHTTPPushSender(&push.HTTPSenderConfig{
+		Timeout: 5 * time.Second, AllowPrivateNetworks: kagentenv.A2APushAllowPrivateNetworks.Get(), FailOnError: true,
+	})
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender)); err != nil {
+		return fmt.Errorf("failed to add push worker: %w", err)
+	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {

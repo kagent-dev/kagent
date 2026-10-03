@@ -11,6 +11,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
@@ -146,7 +147,11 @@ func New(config Config) (*Server, error) {
 	apiv1alpha1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
 	apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
 	apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
-	a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
+	// The pinned SDK gRPC handler drops the next-page token for push config List.
+	// Override only that method until upstream preserves the service response.
+	a2apb.RegisterA2AServiceServer(grpcServer, &pushListGRPCHandler{
+		A2AServiceServer: a2agrpc.NewHandler(config.A2AHandler), handler: config.A2AHandler,
+	})
 	// After core's own, so reflection sees them and a consumer registering a
 	// duplicate service name panics here rather than silently taking over.
 	if config.RegisterServices != nil {
