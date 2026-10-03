@@ -36,13 +36,12 @@ type actorClient interface {
 // lifecycle RPCs. Only the claiming caller issues lifecycle mutations; others
 // observe current completion or receive a pending/superseded-operation error.
 type ActorWorkflow struct {
-	store        workflowStore
-	actors       actorClient
-	pollInterval time.Duration
+	store  workflowStore
+	actors actorClient
 }
 
-func NewActorWorkflow(store workflowStore, actors actorClient, pollInterval time.Duration) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, pollInterval: pollInterval}
+func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
+	return &ActorWorkflow{store: store, actors: actors}
 }
 
 // Pause checkpoints the runtime on its current worker without changing the

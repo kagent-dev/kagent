@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -17,46 +16,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-type idleQuiescenceStore struct {
-	workflowStore
-	claims atomic.Int32
-}
-
-var _ workflowStore = (*idleQuiescenceStore)(nil)
-
-func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error) {
-	s.claims.Add(1)
-	return nil, database.ErrNotFound
-}
-
-func TestQuiescenceRejectsInvalidInterval(t *testing.T) {
-	for _, interval := range []time.Duration{0, -time.Second} {
-		t.Run(interval.String(), func(t *testing.T) {
-			require.ErrorContains(t, NewActorWorkflow(nil, nil, interval).Start(t.Context()), "interval must be positive")
-		})
-	}
-}
-
-func TestConfiguredQuiescenceInterval(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		store := &idleQuiescenceStore{}
-		done := make(chan error, 1)
-		go func() { done <- NewActorWorkflow(store, nil, 20*time.Minute).Start(ctx) }()
-		synctest.Wait()
-		require.EqualValues(t, 4, store.claims.Load())
-		time.Sleep(19 * time.Minute)
-		synctest.Wait()
-		require.EqualValues(t, 4, store.claims.Load(), "idle workers must not query before the interval")
-		time.Sleep(time.Minute)
-		synctest.Wait()
-		require.EqualValues(t, 8, store.claims.Load())
-		cancel()
-		require.NoError(t, <-done, "shutdown must not wait for the polling interval")
-	})
-}
 
 func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 	for _, test := range []struct {
@@ -71,7 +30,7 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			session, err := NewActorWorkflow(store, base, time.Second).Create(t.Context(), session)
+			session, err := NewActorWorkflow(store, base).Create(t.Context(), session)
 			require.NoError(t, err)
 			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
 			message.ContextID = session.ContextId
@@ -98,7 +57,7 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
 			writes := &quiescenceRetryStore{lifecycleTestStore: store, failures: test.finishFailures}
-			go func() { done <- NewActorWorkflow(writes, actors, time.Second).Start(ctx) }()
+			go func() { done <- NewActorWorkflow(writes, actors).Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			select {
 			case <-entered:
