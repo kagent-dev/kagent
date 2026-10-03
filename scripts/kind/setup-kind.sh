@@ -5,6 +5,8 @@ set -o pipefail
 
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
 KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.35.0}
+# Set to 0s to return as soon as the API server is up; later steps wait for what they need.
+KIND_WAIT=${KIND_WAIT:-60s}
 
 # Auto-detect container runtime: prefer CONTAINER_RUNTIME env var,
 # fall back to podman if available, then docker.
@@ -62,7 +64,7 @@ else
   kind create cluster --name "${KIND_CLUSTER_NAME}" \
     --config "$kind_config" \
     --image="kindest/node:v${KIND_IMAGE_VERSION}" \
-    --wait 60s
+    --wait "${KIND_WAIT}"
 fi
 
 # 3. Add the registry config to the nodes
