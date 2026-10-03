@@ -57,9 +57,9 @@ new revision; create a new Session to use it. A2A task events remain streamable
 when model streaming is disabled. This setting does not configure
 the Codex or Claude harnesses.
 
-### kagent workload overrides
+### Workload overrides
 
-The kagent compiler preserves explicit `spec.workload.command` and
+Every harness compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
 regardless of the runtime image's implementation language. Omitted overrides
 remain unset.
