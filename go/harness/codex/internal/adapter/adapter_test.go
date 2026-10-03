@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -249,4 +251,19 @@ func featureEnabled(output []byte, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestNativeEnvironmentDropsCompressionCodexCannotLoad(t *testing.T) {
+	got := nativeEnvironment([]string{"PATH=/bin", "OTEL_EXPORTER_OTLP_COMPRESSION=gzip", "CODEX_HOME=/wrong"}, "/data/codex",
+		tracing.RuntimeTelemetry{Runtime: tracing.RuntimeCodex, AgentName: "demo-codex", AgentNamespace: "team"})
+	for _, variable := range got {
+		if strings.HasPrefix(variable, "OTEL_EXPORTER_OTLP_COMPRESSION=") {
+			t.Fatalf("environment = %v, want no OTLP compression", got)
+		}
+	}
+	if !slices.Contains(got, "CODEX_HOME=/data/codex") || !slices.ContainsFunc(got, func(variable string) bool {
+		return strings.HasPrefix(variable, "OTEL_RESOURCE_ATTRIBUTES=") && strings.Contains(variable, "gen_ai.agent.name=demo-codex")
+	}) {
+		t.Fatalf("environment = %v, want CODEX_HOME and the compiled identity", got)
+	}
 }

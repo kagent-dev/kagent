@@ -22,7 +22,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme, type CSSObject, type Theme } from "@emotion/react";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import { Radio, Search } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { StatTile } from "@/components/dashboard/StatTile";
@@ -885,7 +885,7 @@ export function SubstratePage() {
         [
           template.atespace,
           template.name,
-          template.goldenActorId,
+          template.goldenTag,
           template.phase,
           template.sandboxClass,
           template.workerSelector,
@@ -977,11 +977,10 @@ export function SubstratePage() {
         render: (_, template) => (
           <div>
             {qualified(template.atespace, template.name)}
-            {/* The golden actor is the snapshot every new actor of this template is
-                cut from, so it is the one identifier worth carrying beside the name. */}
-            {template.goldenActorId ? (
+            {/* The golden Tag retains the snapshot used to start new actors. */}
+            {template.goldenTag ? (
               <Text css={{ ...mono, ...muted, display: "block" }}>
-                golden: {template.goldenActorId}
+                golden: {template.goldenTag}
               </Text>
             ) : null}
           </div>

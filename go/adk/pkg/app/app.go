@@ -5,17 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	adkagent "google.golang.org/adk/v2/agent"
 )
 
@@ -27,13 +32,16 @@ const (
 
 // AppConfig holds configuration for a KAgent A2A application.
 type AppConfig struct {
+	// ControllerClient shares the existing controller channel with the TaskStore.
+	// When nil, KAGENT_API_URL must configure a channel owned by this app.
+	ControllerClient *controllerclient.Client
 	// AgentCard describes the agent's capabilities for A2A discovery.
 	AgentCard a2atype.AgentCard
 
 	// Host is the address to bind to. Empty string binds to all interfaces.
 	Host string
 
-	// Port is the port to listen on. Defaults to the PORT env var, then "8080".
+	// Port is the port to listen on. Defaults to the KAGENT_PORT env var, then "8080".
 	Port string
 
 	// AppName identifies this application for session and tracing purposes.
@@ -43,6 +51,10 @@ type AppConfig struct {
 
 	// ShutdownTimeout is the graceful shutdown timeout. Defaults to 5 seconds.
 	ShutdownTimeout time.Duration
+
+	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
+	HealthPaths   []string
+	HealthHandler http.Handler
 
 	// Logger is the structured logger. If nil, a JSON logger is created.
 	Logger *slog.Logger
@@ -54,43 +66,19 @@ type AppConfig struct {
 	// Agent is the ADK agent used to enrich the agent card with skills via
 	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
+
+	// Telemetry is the compiler-owned telemetry contract for this runtime. Its
+	// static identity is stamped on every invocation span. The zero value
+	// leaves invocation spans without a runtime or agent identity.
+	Telemetry tracing.RuntimeTelemetry
+	Flush     func(context.Context) error
 }
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
 type KAgentApp struct {
-	server *server.A2AServer
-	logger *slog.Logger
-}
-
-type seedTaskInterceptor struct {
-	a2asrv.PassthroughCallInterceptor
-	store a2ataskstore.Store
-}
-
-func (i seedTaskInterceptor) Before(ctx context.Context, _ *a2asrv.CallContext, req *a2asrv.Request) (context.Context, any, error) {
-	if req == nil {
-		return ctx, nil, nil
-	}
-	send, ok := req.Payload.(*a2atype.SendMessageRequest)
-	if !ok || send.Message == nil || send.Message.TaskID == "" {
-		return ctx, nil, nil
-	}
-	storedTask, err := apia2a.TakeStoredTask(send.Message)
-	if err != nil {
-		return ctx, nil, err
-	}
-	if _, err := i.store.Get(ctx, send.Message.TaskID); err == nil {
-		return ctx, nil, nil
-	} else if !errors.Is(err, a2atype.ErrTaskNotFound) {
-		return ctx, nil, fmt.Errorf("load actor task: %w", err)
-	}
-	if storedTask == nil {
-		storedTask = a2atype.NewSubmittedTask(send.Message, send.Message)
-	}
-	if _, err := i.store.Create(ctx, storedTask); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
-		return ctx, nil, fmt.Errorf("seed actor task: %w", err)
-	}
-	return ctx, nil, nil
+	server          *server.A2AServer
+	logger          *slog.Logger
+	ownedController *controllerclient.Client
 }
 
 // New creates a KAgentApp by wiring the provided executor with kagent
@@ -102,7 +90,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	if cfg.Logger == nil {
 		logger, err := logging.NewFromEnv(os.Stderr)
 		if err != nil {
-			return nil, fmt.Errorf("parse LOG_LEVEL: %w", err)
+			return nil, fmt.Errorf("parse KAGENT_LOG_LEVEL: %w", err)
 		}
 		cfg.Logger = logger
 	}
@@ -112,33 +100,52 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	log := cfg.Logger
 
 	app := &KAgentApp{logger: log}
-	tasks := a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
-	handlerOpts := []a2asrv.RequestHandlerOption{a2asrv.WithTaskStore(tasks)}
+	controller := cfg.ControllerClient
+	if controller == nil {
+		apiURL := env.KagentAPIURL.Get()
+		if apiURL == "" {
+			return nil, fmt.Errorf("ControllerClient or %s is required", env.KagentAPIURL.Name())
+		}
+		var err error
+		controller, err = controllerclient.New(controllerclient.Config{APIURL: apiURL, AgentName: cfg.AppName})
+		if err != nil {
+			return nil, err
+		}
+		app.ownedController = controller
+	}
+	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
+	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
+	executor = runtimeExecutor
+	handlerOpts := []a2asrv.RequestHandlerOption{
+		a2asrv.WithTaskStore(tasks),
+		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}),
+	}
 
-	// The private runtime receives a gateway-assigned ID for a new task. Seed it
-	// locally so upstream A2A does not mistake that ID for a continuation.
+	// Coordinate native execution with ordinary SDK persistence and cleanup.
 	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
 		a2a.HITLActivationInterceptor(),
 		a2a.UserIDCallInterceptor(),
-		seedTaskInterceptor{store: tasks},
+		runtimeExecutor,
 	))
 
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
 
-	// Enrich agent card with skills derived from the ADK agent.
-	if cfg.Agent != nil {
-		a2a.EnrichAgentCard(&cfg.AgentCard, cfg.Agent)
-	}
-
 	serverConfig := server.ServerConfig{
 		Host:            cfg.Host,
 		Port:            cfg.Port,
 		ShutdownTimeout: cfg.ShutdownTimeout,
+		HealthPaths:     cfg.HealthPaths,
+		HealthHandler:   cfg.HealthHandler,
+		Telemetry:       cfg.Telemetry,
+		Flush:           cfg.Flush,
 	}
 
-	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)
+	a2aServer, err := server.NewA2AServer(buildAgentCard(cfg), executor, log, serverConfig, handlerOpts...)
 	if err != nil {
+		if app.ownedController != nil {
+			err = errors.Join(err, app.ownedController.Close())
+		}
 		return nil, fmt.Errorf("failed to create A2A server: %w", err)
 	}
 	app.server = a2aServer
@@ -146,9 +153,24 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	return app, nil
 }
 
+// buildAgentCard returns the card the server serves. The HITL extension is declared
+// for every app, whether or not an ADK agent was supplied for skill derivation.
+func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
+	card := cfg.AgentCard
+	a2a.EnsureHITLExtension(&card)
+	if cfg.Agent != nil {
+		a2a.EnrichAgentCard(&card, cfg.Agent)
+	}
+	return card
+}
+
 // Run starts the A2A server and blocks until a shutdown signal is received.
 func (a *KAgentApp) Run() error {
-	return a.server.Run()
+	err := a.server.Run()
+	if a.ownedController != nil {
+		err = errors.Join(err, a.ownedController.Close())
+	}
+	return err
 }
 
 // Logger returns the logger used by this app.
@@ -159,7 +181,7 @@ func (a *KAgentApp) Logger() *slog.Logger {
 // applyDefaults fills in zero-value fields with sensible defaults.
 func applyDefaults(cfg AppConfig) AppConfig {
 	if cfg.Port == "" {
-		cfg.Port = os.Getenv("PORT")
+		cfg.Port = env.KagentPort.Get()
 	}
 	if cfg.Port == "" {
 		cfg.Port = defaultPort
@@ -187,10 +209,10 @@ func applyDefaults(cfg AppConfig) AppConfig {
 // buildAppName derives the app name from environment variables or agent card,
 // following the same convention as the Python KAgentConfig.
 func buildAppName(agentCard *a2atype.AgentCard) string {
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+	kagentName := env.KagentName.Get()
+	kagentNamespace, namespaceSet := env.KagentNamespace.Lookup()
 
-	if kagentNamespace != "" && kagentName != "" {
+	if namespaceSet && kagentNamespace != "" && kagentName != "" {
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
 		return namespace + "__NS__" + name

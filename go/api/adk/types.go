@@ -118,6 +118,7 @@ const (
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
 	ModelTypeFoundry         = "foundry"
+	ModelTypeMistral         = "mistral"
 )
 
 // Foundry API format values used by a Foundry model.
@@ -190,6 +191,30 @@ func (a *Anthropic) MarshalJSON() ([]byte, error) {
 
 func (a *Anthropic) GetType() string {
 	return ModelTypeAnthropic
+}
+
+type Mistral struct {
+	BaseModel
+	BaseUrl     string   `json:"base_url,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	Timeout     *int     `json:"timeout,omitempty"`
+}
+
+func (m *Mistral) MarshalJSON() ([]byte, error) {
+	type Alias Mistral
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeMistral,
+		Alias: (*Alias)(m),
+	})
+}
+
+func (m *Mistral) GetType() string {
+	return ModelTypeMistral
 }
 
 type GeminiVertexAI struct {
@@ -444,6 +469,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &foundry, nil
+	case ModelTypeMistral:
+		var mistral Mistral
+		if err := json.Unmarshal(bytes, &mistral); err != nil {
+			return nil, err
+		}
+		return &mistral, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -567,6 +598,10 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
 		copyTLS(v.BaseModel)
+	case *Mistral:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	default:
 		e.Model = ""
 	}
@@ -625,6 +660,14 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// OutputConfig is the root agent's structured-output contract. JSONSchema is
+// canonical JSON produced by the controller; SHA256 identifies that exact
+// contract in public A2A results.
+type OutputConfig struct {
+	JSONSchema json.RawMessage `json:"json_schema"`
+	SHA256     string          `json:"sha256"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Name            string                 `json:"name,omitempty"`
@@ -644,6 +687,7 @@ type AgentConfig struct {
 	SessionDBURL    string                 `json:"session_db_url,omitempty"`
 	SkillsDirectory string                 `json:"skills_directory,omitempty"`
 	SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
+	Output          *OutputConfig          `json:"output,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -655,65 +699,25 @@ func (a *AgentConfig) GetStream() bool {
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
+	// Decode ordinary fields through the schema itself. Only Model needs a
+	// discriminator; the defined type prevents recursive UnmarshalJSON calls.
+	type agentConfig AgentConfig
 	var tmp struct {
-		Name            string                 `json:"name,omitempty"`
-		Model           json.RawMessage        `json:"model"`
-		Description     string                 `json:"description"`
-		Instruction     string                 `json:"instruction"`
-		HttpTools       []HttpMcpServerConfig  `json:"http_tools,omitempty"`
-		SseTools        []SseMcpServerConfig   `json:"sse_tools,omitempty"`
-		StdioTools      []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
-		RemoteAgents    []RemoteAgentConfig    `json:"remote_agents,omitempty"`
-		Stream          *bool                  `json:"stream,omitempty"`
-		Memory          json.RawMessage        `json:"memory"`
-		Network         *NetworkConfig         `json:"network,omitempty"`
-		AgentPlugins    *agentplugin.Resources `json:"agent_plugins,omitempty"`
-		ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
-		ShareTools      *bool                  `json:"share_tools,omitempty"`
-		SessionDBURL    string                 `json:"session_db_url,omitempty"`
-		SkillsDirectory string                 `json:"skills_directory,omitempty"`
-		SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
+		agentConfig
+		Model json.RawMessage `json:"model"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	// BYO agents carry a minimal config with no model (it marshals as "model":null); a config
-	// without a model is legal and must round-trip — ParseModel would reject it.
-	var model Model
+	// BYO images may supply their own model, so both absent and null are valid.
 	if len(tmp.Model) > 0 && string(tmp.Model) != "null" {
-		var err error
-		model, err = ParseModel(tmp.Model)
+		model, err := ParseModel(tmp.Model)
 		if err != nil {
 			return err
 		}
+		tmp.agentConfig.Model = model
 	}
-
-	var memory *MemoryConfig
-	if len(tmp.Memory) > 0 && string(tmp.Memory) != "null" {
-		var m MemoryConfig
-		if err := json.Unmarshal(tmp.Memory, &m); err != nil {
-			return err
-		}
-		memory = &m
-	}
-
-	a.Name = tmp.Name
-	a.Model = model
-	a.Description = tmp.Description
-	a.Instruction = tmp.Instruction
-	a.HttpTools = tmp.HttpTools
-	a.SseTools = tmp.SseTools
-	a.StdioTools = tmp.StdioTools
-	a.RemoteAgents = tmp.RemoteAgents
-	a.Stream = tmp.Stream
-	a.Memory = memory
-	a.Network = tmp.Network
-	a.AgentPlugins = tmp.AgentPlugins
-	a.ContextConfig = tmp.ContextConfig
-	a.ShareTools = tmp.ShareTools
-	a.SessionDBURL = tmp.SessionDBURL
-	a.SkillsDirectory = tmp.SkillsDirectory
-	a.SubAgents = tmp.SubAgents
+	*a = AgentConfig(tmp.agentConfig)
 	return nil
 }
 

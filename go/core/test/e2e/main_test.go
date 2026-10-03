@@ -2,15 +2,21 @@ package e2e_test
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"testing"
+
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var suiteTraceReceiver *otlpTraceReceiver
 
 func TestMain(m *testing.M) {
-	address := os.Getenv("KAGENT_E2E_OTLP_LISTEN_ADDRESS")
+	ctrl.SetLogger(logging.AsLogr(slog.Default()))
+	address := kagentenv.E2EOTLPListenAddress.Get()
 	if address == "" {
 		os.Exit(m.Run())
 	}

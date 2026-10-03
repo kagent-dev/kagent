@@ -48,7 +48,7 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []v2t
 		if warning := codexMCPCompatibilityWarning(server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
-		host, err := absoluteHTTPHostname(server.Spec.URL)
+		host, err := absoluteHTTPOrigin(server.Spec.URL)
 		if err != nil {
 			return mcpCompilation{}, v2translator.NewValidationError("Codex RemoteMCPServer %q URL %v", server.Name, err)
 		}

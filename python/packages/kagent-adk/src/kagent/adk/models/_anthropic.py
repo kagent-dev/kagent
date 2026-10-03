@@ -7,9 +7,14 @@ import os
 from functools import cached_property
 from typing import Optional
 
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from google.adk.models.anthropic_llm import AnthropicLlm
 
+from ._azure import (
+    build_foundry_anthropic_client,
+    resolve_azure_api_key,
+    resolve_foundry_endpoint_deployment,
+)
 from ._ssl import KAgentTLSMixin
 
 logger = logging.getLogger(__name__)
@@ -28,18 +33,17 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
 
     def set_passthrough_key(self, token: str) -> None:
         """Forward the Bearer token from the incoming A2A request as the Anthropic API key."""
-        self._api_key = token
-        # Invalidate cached clients so they're recreated with the new key
-        self.__dict__.pop("_anthropic_client", None)
-        self.__dict__.pop("_http_client", None)
+        if self._api_key != token:
+            self._api_key = token
+            # The SDK client captures auth at construction, so rebuild it only when the token changes.
+            self.__dict__.pop("_anthropic_client", None)
 
-    def _create_http_client(self):
-        """Create HTTP client with custom SSL context using Anthropic SDK defaults.
-
-        Returns:
-            httpx.AsyncClient with SSL configuration, or None if no TLS config
-        """
-        return self._httpx_async_client_if_tls()
+    def _create_http_client(self) -> DefaultAsyncHttpxClient | None:
+        """Create the SDK's HTTP client with custom TLS settings when configured."""
+        tls_kwargs = self._tls_httpx_kwargs()
+        if not tls_kwargs:
+            return None
+        return DefaultAsyncHttpxClient(**tls_kwargs)
 
     @cached_property
     def _anthropic_client(self) -> AsyncAnthropic:
@@ -52,9 +56,36 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
         if self.extra_headers:
             kwargs["default_headers"] = self.extra_headers
 
-        # Use the httpx.AsyncClient with SSL configuration if present
         http_client = self._create_http_client()
         if http_client is not None:
             kwargs["http_client"] = http_client
 
         return AsyncAnthropic(**kwargs)
+
+
+class FoundryAnthropic(KAgentAnthropicLlm):
+    """Claude on Azure AI Foundry's Anthropic Messages API."""
+
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+
+    def _resolve_model_name(self, model: Optional[str]) -> str:
+        del model
+        _, deployment = resolve_foundry_endpoint_deployment(self.endpoint, self.deployment)
+        return deployment
+
+    @cached_property
+    def _anthropic_client(self) -> AsyncAnthropic:
+        endpoint, _ = resolve_foundry_endpoint_deployment(self.endpoint, self.deployment)
+        api_key = resolve_azure_api_key(
+            self._api_key,
+            api_key_passthrough=self.api_key_passthrough,
+            environment_variable="FOUNDRY_API_KEY",
+        )
+        return build_foundry_anthropic_client(
+            endpoint=endpoint,
+            api_key=api_key,
+            api_key_passthrough=self.api_key_passthrough,
+            default_headers=self.extra_headers,
+            http_client=self._create_http_client(),
+        )

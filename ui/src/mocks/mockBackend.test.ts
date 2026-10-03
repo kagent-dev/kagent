@@ -1,3 +1,4 @@
+import { saveAgent } from "./state";
 /**
  * The fixture backend, exercised through the same entry point the app uses.
  *
@@ -42,10 +43,18 @@ afterEach(() => clearApiExtensions());
  * entry here fails to compile, so the sweep below cannot silently stop covering
  * the whole surface.
  */
+for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{description:"Inline fixture"},harnessRef:{name:"k8s-agent"}}}});
+
 const INPUTS = {
+  "agents.list": {namespace:"kagent"},
+  "agents.get": {namespace:"kagent", name:"k8s-agent-7f3a91c"},
+  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{templateRef:{name:"note-taker"},harnessRef:{name:"k8s-agent"}}}},
+  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{description:"Changed inline"},harnessRef:{name:"k8s-agent"}}}},
+  "agents.delete": {namespace:"kagent", name:"disposable-agent"},
+
   "scheduledRuns.list": {},
   "scheduledRuns.get": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
-  "scheduledRuns.create": { requestId: "sweep-schedule", harness: { namespace: "kagent", name: "k8s-agent" }, agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.create": { requestId: "sweep-schedule", agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, config: { prompt: "Report", schedule: "0 9 * * *" } },
   "scheduledRuns.update": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000002", etag: "d686bd1d-9124-4e96-8df7-000000000002", config: { prompt: "Report", schedule: "0 9 * * *" } },
   "scheduledRuns.delete": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000003" },
   "scheduledRuns.trigger": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001", requestId: "sweep-trigger" },
@@ -129,8 +138,7 @@ const INPUTS = {
     shareId: "mock-instance-share-seed",
   },
   "agentInstances.create": {
-    harness: { namespace: "kagent", name: "k8s-agent" },
-    agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+    agent: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
     // Required by the controller, and by the fixture backend for the same reason.
     requestId: "swept-create",
   },
@@ -210,12 +218,23 @@ const INPUTS = {
   "agentInstances.checkpoints.create": {
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
     requestId: "fixture-suite-checkpoint",
+    expectedHeadTaskId: SEEDED_CHECKPOINT.headTaskId,
   },
   "agentInstances.checkpoints.list": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
   "agentInstances.checkpoints.fork": {
     checkpointId: SEEDED_CHECKPOINT.id,
     requestId: "fixture-suite-checkpoint-fork",
     name: "Forked from a checkpoint by the fixture suite",
+  },
+
+  /*
+   * The seeded boundary again. The disposable one is deleted below, and a rename
+   * racing that delete would fail on a row that is legitimately gone; renaming the
+   * seeded one only changes what the concurrent fork ends up titled.
+   */
+  "agentInstances.checkpoints.rename": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    name: "Renamed by the fixture suite",
   },
 
   // The disposable boundary: deleting the seeded one would race the fork case above.
@@ -261,9 +280,9 @@ describe("the fixture backend", () => {
       name: "coder-template",
       phase: "Ready",
       sandboxClass: "gvisor",
-      workerSelector: "pool=default-pool",
+      workerSelector: "pool=kagent-default",
     });
-    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
     expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
       atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
     });
@@ -389,7 +408,7 @@ describe("the fixture backend", () => {
 
     it("lists conversations from targets in multiple namespaces", async () => {
       const rows = await invoke("agentInstances.list", {});
-      expect(new Set(rows.map(row => row.agentTemplate?.split("/")[0])).size).toBeGreaterThan(1);
+      expect(new Set(rows.map(row => row.agent?.split("/")[0])).size).toBeGreaterThan(1);
     });
   });
 

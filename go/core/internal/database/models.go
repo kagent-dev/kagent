@@ -5,6 +5,7 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/pgvector/pgvector-go"
@@ -48,48 +49,54 @@ type AgentMemorySearchResult struct {
 	Score float64 `json:"score"`
 }
 
-type AgentTemplateHarnessPair struct {
-	Namespace         string
-	AgentTemplateName string
-	AgentTemplateUID  string
-	HarnessName       string
-	HarnessUID        string
-	DesiredRevision   string
+// AgentDefinition tracks the desired and last successful runtime for an Agent UID.
+type AgentDefinition struct {
+	Namespace string
+	AgentName string
+	AgentUID  string
+	// DesiredRevision is a compiled runtime digest, or empty while inputs are unresolved.
+	DesiredRevision string
 }
 
 type RuntimeRevision struct {
 	Revision              string
 	Namespace             string
-	AgentTemplateName     string
-	AgentTemplateUID      string
-	HarnessName           string
-	HarnessUID            string
+	AgentName             string
+	AgentUID              string
 	SourceSnapshot        json.RawMessage
 	AgentCard             *a2apb.AgentCard
+	Credentials           []egress.Credential
 	EgressDestinations    []string
 	ActorTemplateAtespace string
 	ActorTemplateName     string
 	ActorTemplateUID      string
 }
 
-// AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
-// filter on this", so an empty query lists the caller's own instances.
-type AgentInstanceQuery struct {
+// SessionQuery narrows a page of sessions to an optional Agent.
+type SessionQuery struct {
 	UserID   string
 	AllUsers bool
-	// AgentTemplate and Harness name the agent whose conversations are wanted.
-	// They are matched against the (AgentTemplate, Harness) pair the instance's
-	// prepared revision was built from.
-	AgentTemplate *apiv1alpha1.ResourceReference
-	Harness       *apiv1alpha1.ResourceReference
-	AfterID       string
-	Limit         int
+	Agent    *apiv1alpha1.ResourceReference
+	AfterID  string
+	Limit    int
 }
 
-// AgentInstanceTaskSnapshot records the external snapshot at an A2A turn boundary.
+// SessionTaskSnapshot records the external snapshot at an A2A turn boundary.
 // Only an explicit checkpoint retains a copy after the Actor advances or is deleted.
-type AgentInstanceTaskSnapshot struct {
+type SessionTaskSnapshot struct {
 	Atespace     string
 	URI          string
 	ContentScope string
+}
+
+// RuntimeArtifact identifies backend resources retained by either runtime kind.
+// Agent configuration and SandboxTemplate provenance stay in their extensions.
+type RuntimeArtifact struct {
+	Revision              string
+	Kind                  string
+	Namespace             string
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUID      string
+	DeletedAt             *time.Time
 }

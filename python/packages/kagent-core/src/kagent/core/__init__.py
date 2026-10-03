@@ -1,3 +1,7 @@
+from .telemetry import _defaults
+
+# isort: split
+
 from ._config import KAgentConfig
 from ._grpc import AsyncControllerClient, AsyncFileTokenProvider, AsyncTokenProvider
 from ._logging import configure_logging

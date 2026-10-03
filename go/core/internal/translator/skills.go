@@ -6,11 +6,12 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // CompileSkillResources translates portable AgentTemplate skill selections
 // into the runtime-neutral resource contract shared by Harness adapters.
-func CompileSkillResources(template *v1alpha3.AgentTemplate) (agentplugin.Resources, []string, error) {
+func CompileSkillResources(template *TemplateConfiguration) (agentplugin.Resources, []string, error) {
 	resources := agentplugin.Resources{
 		Skills:  make([]agentplugin.Skill, 0, len(template.Spec.Skills)),
 		Plugins: make([]agentplugin.Bundle, 0, len(template.Spec.Plugins)),
@@ -63,25 +64,25 @@ func compileArtifactSource(source v1alpha3.ArtifactSource) agentplugin.Source {
 func appendArtifactSourceDestination(destinations []string, source agentplugin.Source) []string {
 	switch {
 	case source.Git != nil:
-		return appendURLHostname(destinations, source.Git.URL)
+		return appendURLOrigin(destinations, source.Git.URL)
 	case source.OCI != "":
 		repository := strings.SplitN(source.OCI, "@", 2)[0]
 		first, _, found := strings.Cut(repository, "/")
 		if found && (strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost") {
-			return append(destinations, first)
+			return appendURLOrigin(destinations, "https://"+first)
 		}
-		return append(destinations, "registry-1.docker.io")
+		return append(destinations, "https://registry-1.docker.io:443")
 	case source.S3 != nil:
-		return appendURLHostname(destinations, source.S3.Endpoint)
+		return appendURLOrigin(destinations, source.S3.Endpoint)
 	default:
 		return destinations
 	}
 }
 
-func appendURLHostname(destinations []string, rawURL string) []string {
+func appendURLOrigin(destinations []string, rawURL string) []string {
 	parsed, err := url.Parse(rawURL)
 	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, parsed.Hostname())
+		return append(destinations, egress.Origin(parsed))
 	}
 	return destinations
 }

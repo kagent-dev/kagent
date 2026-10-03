@@ -1,5 +1,40 @@
 # Development
 
+The [environment variable reference](docs/env.md) is generated from
+`go/core/pkg/env`. Register user-configurable settings there, including settings
+consumed by Python, the UI, or standalone runtimes. Exclude controller-generated
+payloads, credentials, private paths, and other internal process wiring.
+Keep defaults and descriptions aligned with
+their readers, then run `make env-docs`. Use `make env-docs-check` to run the same
+freshness check as CI.
+
+Register shared settings once, passing each consuming component to
+`RegisterStringVar`, `RegisterBoolVar`, `RegisterIntVar`, or
+`RegisterDurationVar`, for example:
+
+```go
+RegisterStringVar("KAGENT_LOG_LEVEL", "info", "Logging level.", ComponentController, ComponentCLI, ComponentAgentRuntime)
+```
+
+The reference lists shared settings under each component. `kagent env --component`
+matches any registered component; JSON output includes a `components` array.
+
+Kagent-owned settings use the `KAGENT_` prefix. Keep names defined by upstream
+SDKs and tools, such as `OTEL_*`, provider credentials, and `KUBECONFIG`, unchanged.
+The pre-release rename replaces the old unprefixed names: for example,
+`LOG_LEVEL` becomes `KAGENT_LOG_LEVEL`, `HTTP_BIND_ADDRESS` becomes
+`KAGENT_HTTP_BIND_ADDRESS`, and the Go ADK's `PORT` becomes `KAGENT_PORT`.
+The old names are no longer read by kagent.
+
+Both ADKs use `KAGENT_PORT` for their A2A listener; Python's former
+`KAGENT_A2A_GRPC_ADDRESS` is removed. The controller sets `80`. Standalone
+defaults remain `8080` for Go's shared HTTP/gRPC listener and `80` for Python's
+gRPC listener; Python's HTTP port is configured separately with `--port`.
+
+UI containers and Vite development use the same `KAGENT_*` inputs, documented in
+`ui/.env.example`. UI build-time switches use `KAGENT_UI_VITE_*`; extension settings
+use `KAGENT_UI_EXTENSION_*`. Other `KAGENT_*` settings are not exposed to the browser.
+
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 
 When making changes to `kagent`, the most important thing is to figure out which piece of the project is affected by the change, and then make the change in the appropriate folder. Each piece of the project has its own README with more information about how to setup the development environment and run that piece of the project.
@@ -208,3 +243,24 @@ docker run --rm \
   --net=host \
   localhost:5001/kebab:latest
 ```
+
+## Telemetry
+
+The telemetry contract is a Weaver registry in `telemetry/registry`. The Go
+constants in `go/pkg/telemetry/conv`, the Python constants in
+`kagent.core.telemetry.conv`, and `docs/architecture/telemetry-contract.md` are
+generated from it. Never edit them by hand. After a registry change, run:
+
+```bash
+make semconv-generate   # regenerate everything from the registry
+make semconv-verify     # what CI runs: check, policy tests, generate, drift check
+```
+
+These targets need either Docker or a local `weaver` of exactly the version in
+`telemetry/versions.env`. A different local version is refused, so a green run
+on a laptop means the same as in CI. See
+[docs/architecture/telemetry.md](docs/architecture/telemetry.md) for the contract.
+
+To look at traces locally, `make otel-local` starts Jaeger with an OTLP receiver
+on ports 4317 and 4318 and its UI on http://localhost:16686. Point an install
+at it with `--set otel.traces.enabled=true --set otel.exporter.otlp.endpoint=http://<host>:4317`.

@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
-import { agentPairsFrom, newConversationBlockedReason, useAgentTemplatesAcrossNamespaces, useNamespaces } from "@/api";
+import { newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
+import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import type { ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 import { minuteIntervals, parseSchedule, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
@@ -37,17 +38,17 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   // Retain the key after a failed response: retrying must not create another schedule.
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId] = useState(() => randomId());
   const namespaces = useNamespaces();
-  const templates = useAgentTemplatesAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
-  const agents = agentPairsFrom(templates.data?.templates ?? []);
+  const definitions = useAgentsAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
+  const agents = definitions.data?.agents ?? [];
   const config = schedule?.config;
   const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
   const watched = Form.useWatch([], form) as FormValues | undefined;
   const timing = { ...initialTiming, ...watched };
   const initialTimeout = config?.executionTimeout
     ? Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9 : 900;
-  const loadError = namespaces.error ?? templates.error;
+  const loadError = namespaces.error ?? definitions.error;
 
   async function save(values: FormValues) {
     setSaving(true);
@@ -71,12 +72,11 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
           scheduledRunId: schedule.id, etag: schedule.etag, config: nextConfig,
         })).scheduledRun;
       } else {
-        const agent = agents.find((entry) => entry.id === values.agent);
+        const agent = agents.find((entry) => entry.ref === values.agent);
         if (!agent) throw new Error("Choose an available agent.");
         saved = (await invoke("scheduledRuns.create", {
           requestId,
-          harness: { namespace: agent.namespace, name: agent.harness },
-          agentTemplate: { namespace: agent.namespace, name: agent.agentTemplate },
+          agent: { namespace: agent.namespace, name: agent.name },
           config: nextConfig,
         })).scheduledRun;
       }
@@ -100,14 +100,14 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
     }}>
       {!schedule && <>
         {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
-        {templates.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
+        {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
           title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
         <Form.Item name="agent" label="Agent" rules={[{ required: true, message: "Choose an agent." }]}>
-          <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || templates.isLoading}
+          <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || definitions.isLoading}
             placeholder="Choose an agent" options={agents.map((agent) => {
               const blocked = newConversationBlockedReason(agent);
-              return { value: agent.id, disabled: !!blocked,
-                label: `${agent.namespace}/${agent.agentTemplate} on ${agent.harness}${blocked ? ` — ${blocked}` : ""}` };
+              return { value: agent.ref, disabled: !!blocked,
+                label: `${agent.namespace}/${agent.name}${blocked ? ` — ${blocked}` : ""}` };
             })} />
         </Form.Item>
       </>}

@@ -28,8 +28,7 @@ from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    get_kagent_metadata_key,
+    A2A_PART_TYPE_METADATA_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +52,6 @@ def convert_openai_event_to_a2a_events(
     event: StreamEvent,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert an OpenAI Agents SDK event to A2A events.
 
@@ -61,8 +59,6 @@ def convert_openai_event_to_a2a_events(
         event: OpenAI SDK streaming event
         task_id: A2A task ID
         context_id: A2A context ID
-        app_name: Application name for metadata
-
     Returns:
         List of A2A events (may be empty if event doesn't need conversion)
     """
@@ -71,7 +67,7 @@ def convert_openai_event_to_a2a_events(
     try:
         # Handle RunItemStreamEvent (messages, tool calls, tool outputs)
         if isinstance(event, RunItemStreamEvent):
-            a2a_events.extend(_convert_run_item_event(event, task_id, context_id, app_name))
+            a2a_events.extend(_convert_run_item_event(event, task_id, context_id))
 
         # Handle RawResponsesStreamEvent (raw LLM responses)
         elif isinstance(event, RawResponsesStreamEvent):
@@ -93,7 +89,6 @@ def _convert_run_item_event(
     event: RunItemStreamEvent,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert a RunItemStreamEvent to A2A events.
 
@@ -101,30 +96,28 @@ def _convert_run_item_event(
         event: OpenAI run item stream event
         task_id: A2A task ID
         context_id: A2A context ID
-        app_name: Application name
-
     Returns:
         List containing A2A events based on the item type
     """
     # Handle message output
     if isinstance(event.item, MessageOutputItem):
-        return _convert_message_output(event.item, task_id, context_id, app_name)
+        return _convert_message_output(event.item, task_id, context_id)
 
     # Handle tool calls
     elif isinstance(event.item, ToolCallItem):
-        return _convert_tool_call(event.item, task_id, context_id, app_name)
+        return _convert_tool_call(event.item, task_id, context_id)
 
     # Handle tool outputs
     elif isinstance(event.item, ToolCallOutputItem):
-        return _convert_tool_output(event.item, task_id, context_id, app_name)
+        return _convert_tool_output(event.item, task_id, context_id)
 
     # Handle handoff calls (map to subagent-style function_call for the UI)
     elif isinstance(event.item, HandoffCallItem):
-        return _convert_handoff_call(event.item, task_id, context_id, app_name)
+        return _convert_handoff_call(event.item, task_id, context_id)
 
     # Handle handoff outputs (map to subagent-style function_response)
     elif isinstance(event.item, HandoffOutputItem):
-        return _convert_handoff_output(event.item, task_id, context_id, app_name)
+        return _convert_handoff_output(event.item, task_id, context_id)
 
     # Other item types
     else:
@@ -136,7 +129,6 @@ def _convert_message_output(
     item: MessageOutputItem,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert a message output item to A2A event.
 
@@ -170,10 +162,6 @@ def _convert_message_output(
         message_id=str(uuid.uuid4()),
         role=Role.ROLE_AGENT,
         parts=[A2APart(text=text_content)],
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-            get_kagent_metadata_key("event_type"): "message_output",
-        },
     )
 
     return [_artifact_event(message, task_id, context_id)]
@@ -183,7 +171,6 @@ def _convert_tool_call(
     item: ToolCallItem,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert a tool call item to A2A event.
 
@@ -229,14 +216,10 @@ def _convert_tool_call(
             A2APart(
                 data=ParseDict(function_data, Value()),
                 metadata={
-                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                    A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
                 },
             )
         ],
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-            get_kagent_metadata_key("event_type"): "tool_call",
-        },
     )
 
     return [_artifact_event(message, task_id, context_id)]
@@ -246,7 +229,6 @@ def _convert_tool_output(
     item: ToolCallOutputItem,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert a tool output item to A2A event.
 
@@ -276,16 +258,10 @@ def _convert_tool_output(
             A2APart(
                 data=ParseDict(function_data, Value()),
                 metadata={
-                    get_kagent_metadata_key(
-                        A2A_DATA_PART_METADATA_TYPE_KEY
-                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                    A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
                 },
             )
         ],
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-            get_kagent_metadata_key("event_type"): "tool_output",
-        },
     )
 
     return [_artifact_event(message, task_id, context_id)]
@@ -325,7 +301,6 @@ def _convert_handoff_call(
     item: HandoffCallItem,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert a handoff request to a subagent-style function_call A2A event."""
     raw_call = item.raw_item
@@ -352,15 +327,10 @@ def _convert_handoff_call(
             A2APart(
                 data=ParseDict(function_data, Value()),
                 metadata={
-                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                    A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
                 },
             )
         ],
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-            get_kagent_metadata_key("event_type"): "agent_handoff",
-            get_kagent_metadata_key("new_agent_name"): agent_name,
-        },
     )
 
     return [_artifact_event(message, task_id, context_id)]
@@ -370,7 +340,6 @@ def _convert_handoff_output(
     item: HandoffOutputItem,
     task_id: str,
     context_id: str,
-    app_name: str,
 ) -> list[A2AEvent]:
     """Convert a handoff output to a subagent-style function_response A2A event."""
     raw_output = item.raw_item
@@ -395,17 +364,10 @@ def _convert_handoff_output(
             A2APart(
                 data=ParseDict(function_data, Value()),
                 metadata={
-                    get_kagent_metadata_key(
-                        A2A_DATA_PART_METADATA_TYPE_KEY
-                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                    A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
                 },
             )
         ],
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-            get_kagent_metadata_key("event_type"): "agent_handoff_output",
-            get_kagent_metadata_key("new_agent_name"): agent_name,
-        },
     )
 
     return [_artifact_event(message, task_id, context_id)]

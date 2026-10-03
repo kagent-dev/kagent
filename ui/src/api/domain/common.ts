@@ -27,6 +27,8 @@ export interface ResourceMetadata {
   /** RFC3339, from `metadata.creationTimestamp`. */
   creationTimestamp?: string;
   resourceVersion?: string;
+  /** Set by the API server; bumped on every spec change. */
+  generation?: number;
   labels?: Record<string, string>;
   /**
    * Where an extension form field folds its value on the way to the controller.
@@ -65,9 +67,10 @@ export interface ValueRef {
 
 export interface TLSConfig {
   disableVerify?: boolean;
-  caCertSecretRef?: string;
-  caCertSecretKey?: string;
-  disableSystemCAs?: boolean;
+  // Deferred until runtime custom CA support is available.
+  // caCertSecretRef?: string;
+  // caCertSecretKey?: string;
+  // disableSystemCAs?: boolean;
 }
 
 /** `namespace/name`, the ref format the API uses for path segments. */

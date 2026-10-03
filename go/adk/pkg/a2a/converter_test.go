@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
@@ -22,17 +23,17 @@ func convDataPart(data map[string]any, metadata map[string]any) *a2atype.Part {
 // convertDataPartToGenAI
 // ---------------------------------------------------------------------------
 
-func TestConvertDataPartToGenAI_FunctionCall_KagentPrefix(t *testing.T) {
+func TestConvertDataPartToGenAI_FunctionCall_PublicContract(t *testing.T) {
 	data := map[string]any{
 		"name": "my_func",
 		"args": map[string]any{"key": "value"},
 		"id":   "call_1",
 	}
 	meta := map[string]any{
-		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
+		kagenta2a.PartTypeMetadataKey: A2ADataPartMetadataTypeFunctionCall,
 	}
 
-	part, err := convertDataPartToGenAI(data, meta, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(data, meta, kagenta2a.PartTypeMetadataKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -76,10 +77,10 @@ func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
 		"id":       "call_2",
 	}
 	meta := map[string]any{
-		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
+		kagenta2a.PartTypeMetadataKey: A2ADataPartMetadataTypeFunctionResponse,
 	}
 
-	part, err := convertDataPartToGenAI(data, meta, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(data, meta, kagenta2a.PartTypeMetadataKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_Nil(t *testing.T) {
-	part, err := convertDataPartToGenAI(nil, nil, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(nil, nil, kagenta2a.PartTypeMetadataKey)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,8 +108,8 @@ func TestConvertDataPartToGenAI_Nil(t *testing.T) {
 func TestConvertDataPartToGenAI_UnknownType(t *testing.T) {
 	part, err := convertDataPartToGenAI(
 		map[string]any{"foo": "bar"},
-		map[string]any{"kagent_type": "unknown_type"},
-		"kagent_type",
+		map[string]any{kagenta2a.PartTypeMetadataKey: "unknown_type"},
+		kagenta2a.PartTypeMetadataKey,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error for unknown part type: %v", err)
@@ -133,7 +134,7 @@ func TestA2APartConverter_TextPart(t *testing.T) {
 }
 
 func TestA2APartConverter_DropsUnrecognisedDataPart(t *testing.T) {
-	// A DataPart with no recognised kagent_type metadata (e.g. a HITL decision
+	// A DataPart with no recognised part-type metadata (e.g. a HITL decision
 	// payload like {decision_type: "approve"}) should be dropped silently.
 	part, err := a2aPartConverter(
 		context.Background(), nil,
@@ -147,14 +148,14 @@ func TestA2APartConverter_DropsUnrecognisedDataPart(t *testing.T) {
 	}
 }
 
-func TestA2APartConverter_KagentTypeFunctionResponse(t *testing.T) {
-	// A DataPart with kagent_type=function_response should be converted to GenAI.
+func TestA2APartConverter_PublicFunctionResponse(t *testing.T) {
+	// A typed function response should be converted to GenAI.
 	dp := convDataPart(map[string]any{
 		"name":     "my_func",
 		"id":       "call_1",
 		"response": map[string]any{"result": "ok"},
 	}, map[string]any{
-		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
+		kagenta2a.PartTypeMetadataKey: A2ADataPartMetadataTypeFunctionResponse,
 	})
 	part, err := a2aPartConverter(context.Background(), nil, dp)
 	if err != nil {
@@ -182,7 +183,7 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 	if part == nil {
 		t.Fatal("genAIPartConverter() returned nil")
 	}
-	if got, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataIsLongRunningKey); got != true {
+	if got := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataIsLongRunningKey)]; got != true {
 		t.Fatalf("long-running metadata = %#v, want true", got)
 	}
 }

@@ -1,10 +1,9 @@
 /**
  * A saved turn boundary in a conversation, which a fork can start from.
  *
- * `CheckpointService` takes no cutoff: a checkpoint is always the conversation's
- * *latest* boundary at the moment it is taken. Anchoring one to a message earlier in
- * the transcript is therefore not something the reader chooses at fork time — it is
- * something they had to have saved while that message was the newest.
+ * Creation names the terminal task the reader intends to save. That task must
+ * still be the latest boundary; if the conversation advances, creation fails.
+ * A pending snapshot may be retried using the same request and task IDs.
  *
  * `headTaskId` is what ties a checkpoint back to the transcript: it names the turn the
  * boundary sits at, and every message of that turn carries the same id. That is the
@@ -30,6 +29,13 @@ export type CheckpointState =
 export interface Checkpoint {
   id: string;
   agentInstanceId: string;
+  /**
+   * What the reader calls it, and what a fork taken from it is named.
+   *
+   * Never empty: the controller generates one at creation and puts that default back
+   * when a name is cleared, so a fork always has something to be called.
+   */
+  name: string;
   /** The turn this boundary sits at. Matches `taskId` on that turn's messages. */
   headTaskId: string;
   state: CheckpointState;
@@ -43,3 +49,4 @@ export interface Checkpoint {
 export function canForkFrom(checkpoint: Checkpoint): boolean {
   return checkpoint.state === "ready";
 }
+

@@ -15,11 +15,8 @@ import type { AgentInstance } from "@/api";
  * it goes `CREATING` -> `READY`. Sending a message never touches it, so ordering by it
  * would be creation order under a label claiming otherwise.
  *
- * The signal that *would* answer it is `agent_instance_task.updated_at`, bumped on every
- * task upsert — on the task table, and not returned by `ListAgentInstances`. Reaching it
- * from here costs one `ListTasks` per row, which is why `useConversationTitles` budgets
- * thirty of them for titles alone. When the read grows a last-activity timestamp, this
- * comparator is the one thing that needs to change.
+ * `ListAgentInstances` does not expose a conversation's last-activity timestamp.
+ * When it does, this comparator can use it without fetching tasks for every row.
  *
  * Ties break on the id so that equal timestamps give one fixed order rather than
  * whatever the sort happened to do with them — a rail that reshuffles equal rows between

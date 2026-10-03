@@ -1,6 +1,6 @@
 # Codex Harness
 
-The Codex Harness compiles a `kagent.dev/v1alpha3` `AgentTemplate` into a
+The Codex Harness compiles an `api.kagent.dev/v1alpha3` `AgentTemplate` into a
 compiler-owned Codex configuration and runs one Codex App Server `0.148.0`
 process for each public A2A Task. Its native thread and workspace are retained
 in the Actor's `DurableDir`.
@@ -24,8 +24,7 @@ harness.
 
 - OpenAI through a Secret-backed API key, the Responses API, and an optional
   absolute HTTP(S) base URL.
-- Amazon Bedrock through either `AWS_BEARER_TOKEN_BEDROCK` or standard AWS
-  access-key credentials in one Secret.
+- Amazon Bedrock through `AWS_BEARER_TOKEN_BEDROCK` in a Secret.
 - Streaming text, command and file activity, direct Streamable HTTP MCP (with
   allowed-tools selection), and native Shared agents.
 - Per-server MCP tool approval with live App Server pause, resume, and cancel.
@@ -33,6 +32,10 @@ harness.
 - Standalone and plugin-selected skills without plugin hooks, commands,
   executables, or implicit plugin MCP servers.
 - Exact native thread resume and bounded cancellation through `turn/interrupt`.
+
+Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
+AWS IAM keys are rejected because they cannot be injected as outbound HTTP
+headers. Harness environment entries accept only literal values.
 
 The adapter deliberately fixes the native sandbox to `danger-full-access`; the
 Substrate Actor remains the security boundary. Its granular native approval
@@ -51,7 +54,7 @@ Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 An MCP binding with `requireApproval: true` is emitted with Codex's default
 tool approval mode set to `prompt`; other configured MCP servers use `approve`.
 The driver exposes only approval requests for the configured protected servers.
-Although Codex transports these requests using the `mcpServer/elicitation/request` 
+Although Codex transports these requests using the `mcpServer/elicitation/request`
 App Server method, the external MCP server is not performing MCP elicitation.
 
 ```mermaid
@@ -106,49 +109,42 @@ schema](https://learn.chatgpt.com/docs/app-server#message-schema).
 
 ## Example
 
+One `Agent` holds both the template and Harness inline. The referenced ModelConfig
+and RemoteMCPServer must already exist in `kagent`. Replace `${KAGENT_CODEX_IMAGE_DIGEST}`
+with the full harness image reference, including its `@sha256:` digest.
+
 ```yaml
-apiVersion: kagent.dev/v1alpha3
-kind: Harness
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
 metadata:
-  name: codex-harness
-  namespace: kagent
-spec:
-  codex: {}
-  workload:
-    image: ${KAGENT_CODEX_IMAGE_DIGEST}
-  substrate:
-    workerPoolRef:
-      name: kagent-default
-    snapshotPolicy:
-      location: gs://ate-snapshots/kagent/
-  allowedAgentTemplates:
-    selector:
-      matchLabels:
-        kagent.dev/e2e-runtime: codex
----
-apiVersion: kagent.dev/v1alpha3
-kind: AgentTemplate
-metadata:
-  labels:
-    kagent.dev/e2e-runtime: codex
   name: kagent-codex
   namespace: kagent
 spec:
-  description: test
-  modelConfig:
-    name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
-  systemPrompt: |
-      Follow the selected skill and use the configured MCP tool.
-  tools:
-    - mcp:
-        server:
-          kind: RemoteMCPServer
-          name: kagent-tool-server
-  plugins:
-    - source:
-        git:
-          url: https://github.com/agentplugins/agent-plugins-example.git
-          commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
-      skills:
-        - migrate-agent-plugin
+  template:
+    description: test
+    modelConfig:
+      name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
+    systemPrompt: |
+        Follow the selected skill and use the configured MCP tool.
+    tools:
+      - mcp:
+          server:
+            kind: RemoteMCPServer
+            name: kagent-tool-server
+    plugins:
+      - source:
+          git:
+            url: https://github.com/agentplugins/agent-plugins-example.git
+            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
+        skills:
+          - migrate-agent-plugin
+  harness:
+    codex: {}
+    workload:
+      image: ${KAGENT_CODEX_IMAGE_DIGEST}
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: gs://ate-snapshots/kagent/
 ```

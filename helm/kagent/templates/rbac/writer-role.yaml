@@ -1,14 +1,14 @@
 {{- define "kagent.writer.rules" -}}
 - apiGroups:
-  - kagent.dev
+  - api.kagent.dev
   resources:
   - harnesses
+  - agents
+  - sandboxtemplates
   - agenttemplates
   - modelconfigs
   - modelproviderconfigs
-  - toolservers
   - remotemcpservers
-  - mcpservers
   verbs:
   - create
   - update
@@ -17,12 +17,33 @@
 - apiGroups:
   - kagent.dev
   resources:
+  - mcpservers
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - api.kagent.dev
+  resources:
+  - sandboxtemplates/status
+  verbs:
+  - update
+  - patch
+- apiGroups:
+  - api.kagent.dev
+  resources:
   - harnesses/finalizers
-  - agenttemplates/finalizers
+  - agents/finalizers
+  - sandboxtemplates/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
-  - toolservers/finalizers
   - remotemcpservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kagent.dev
+  resources:
   - mcpservers/finalizers
   verbs:
   - update
@@ -74,9 +95,9 @@
 {{- end -}}
 
 {{- include "kagent.rbac.validate" . -}}
-{{- if .Values.rbac.namespaces }}
-{{- $namespaces := .Values.rbac.namespaces | uniq | sortAlpha }}
-{{- range $namespace := $namespaces }}
+{{- $rbacNamespaces := include "kagent.rbacNamespaces" . | fromJsonArray }}
+{{- if $rbacNamespaces }}
+{{- range $namespace := $rbacNamespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

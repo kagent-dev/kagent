@@ -27,6 +27,65 @@ type KagentHarness struct {
 	// Memory enables long-term memory for agents using this Harness.
 	// +optional
 	Memory *KagentHarnessMemory `json:"memory,omitempty"`
+
+	// Compaction summarizes older session events so the prompt stays small as
+	// a conversation grows. Omitted leaves the history uncompacted.
+	// +optional
+	Compaction *KagentHarnessCompaction `json:"compaction,omitempty"`
+}
+
+// KagentHarnessCompaction selects the compaction strategies and the model that
+// writes the summaries. The sliding window (compactionInterval, overlapSize)
+// summarizes each group of completed invocations; tail retention
+// (tokenThreshold, eventRetentionSize) bounds the prompt by summarizing
+// everything but the most recent events once the prompt grows past a token
+// count. At least one strategy must be configured.
+// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) || has(self.tokenThreshold)",message="compactionInterval or tokenThreshold must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.tokenThreshold) == has(self.eventRetentionSize)",message="tokenThreshold and eventRetentionSize must be specified together"
+// +kubebuilder:validation:XValidation:rule="!has(self.overlapSize) || has(self.compactionInterval)",message="overlapSize requires compactionInterval"
+type KagentHarnessCompaction struct {
+	// CompactionInterval is the number of new user-initiated invocations that,
+	// once fully represented in the session, triggers a sliding-window
+	// compaction of those invocations.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CompactionInterval *int `json:"compactionInterval,omitempty"`
+	// OverlapSize is the number of already-compacted invocations pulled back
+	// into the next sliding window so consecutive summaries overlap.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	OverlapSize *int `json:"overlapSize,omitempty"`
+	// TokenThreshold is the prompt token count at which tail-retention
+	// compaction summarizes the history before the next model call.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TokenThreshold *int `json:"tokenThreshold,omitempty"`
+	// EventRetentionSize is the number of most recent events that tail
+	// retention keeps uncompacted.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
+	// Summarizer selects the model and prompt that write the summaries.
+	// Omitted summarizes with the agent's own model and the runtime's default
+	// prompt.
+	// +optional
+	Summarizer *KagentHarnessSummarizer `json:"summarizer,omitempty"`
+}
+
+// KagentHarnessSummarizer configures the model that summarizes compacted events.
+// +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
+type KagentHarnessSummarizer struct {
+	// ModelConfigRef references the ModelConfig in the Harness namespace that
+	// writes the summaries. Omitted uses the agent's own model.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
+	// +optional
+	ModelConfigRef *corev1.LocalObjectReference `json:"modelConfigRef,omitempty"`
+	// PromptTemplate replaces the runtime's default summarization prompt. It
+	// must contain {conversation_history}, which the runtime replaces with the
+	// rendered events.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	PromptTemplate string `json:"promptTemplate,omitempty"`
 }
 
 // KagentHarnessMemory configures kagent's long-term memory service.
@@ -69,53 +128,6 @@ type HarnessWorkload struct {
 	Args []string `json:"args,omitempty"`
 }
 
-// HarnessEnvVar configures one runtime environment variable.
-//
-// +kubebuilder:validation:XValidation:rule="has(self.value) != has(self.credentialRef)",message="exactly one of value or credentialRef must be specified"
-// +kubebuilder:validation:XValidation:rule="!has(self.credentialRef) || self.credentialRef.name.size() > 0",message="credentialRef name must not be empty"
-type HarnessEnvVar struct {
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-
-	// Value is a literal value, including an empty string.
-	// +optional
-	Value *string `json:"value,omitempty"`
-
-	// CredentialRef references a key in a same-namespace Secret.
-	// +optional
-	CredentialRef *corev1.SecretKeySelector `json:"credentialRef,omitempty"`
-}
-
-// HarnessSnapshotPolicy configures storage for Substrate snapshots.
-type HarnessSnapshotPolicy struct {
-	// Location is the snapshot storage location used by Substrate.
-	// +kubebuilder:validation:Pattern=`^[^[:space:]]+$`
-	// +required
-	Location string `json:"location"`
-}
-
-// HarnessSubstratePolicy contains the Substrate policy shared by all runtime variants.
-//
-// +kubebuilder:validation:XValidation:rule="self.workerPoolRef.name.size() > 0",message="workerPoolRef name must not be empty"
-type HarnessSubstratePolicy struct {
-	// WorkerPoolRef references a WorkerPool in the Harness namespace.
-	// +required
-	WorkerPoolRef corev1.LocalObjectReference `json:"workerPoolRef"`
-
-	// SnapshotPolicy configures runtime snapshot storage.
-	// +required
-	SnapshotPolicy HarnessSnapshotPolicy `json:"snapshotPolicy"`
-}
-
-// HarnessAgentTemplateAdmission selects AgentTemplates that this Harness admits.
-// An omitted admission accepts no AgentTemplates.
-type HarnessAgentTemplateAdmission struct {
-	// Selector selects admitted AgentTemplates in the Harness namespace.
-	// +required
-	Selector metav1.LabelSelector `json:"selector"`
-}
-
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
@@ -140,15 +152,10 @@ type HarnessSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	// +listType=map
 	// +listMapKey=name
-	Env []HarnessEnvVar `json:"env,omitempty"`
+	Env []RuntimeEnvVar `json:"env,omitempty"`
 
 	// +required
-	Substrate HarnessSubstratePolicy `json:"substrate"`
-
-	// AllowedAgentTemplates selects AgentTemplates this Harness admits.
-	// When omitted, the Harness admits none.
-	// +optional
-	AllowedAgentTemplates *HarnessAgentTemplateAdmission `json:"allowedAgentTemplates,omitempty"`
+	Substrate RuntimeSubstratePolicy `json:"substrate"`
 }
 
 // HarnessCapabilities records behavior proven for a pinned adapter and runtime.
@@ -178,6 +185,10 @@ type HarnessCapabilities struct {
 	InputRequired bool `json:"inputRequired"`
 	// +required
 	Approvals bool `json:"approvals"`
+	// StructuredOutput reports whether the pinned adapter can enforce a root
+	// JSON output contract and emit it as an A2A DataPart.
+	// +required
+	StructuredOutput bool `json:"structuredOutput"`
 
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set

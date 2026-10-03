@@ -1,0 +1,17 @@
+params:
+  span_attributes: [gen_ai.operation.name, gen_ai.input.messages, gen_ai.output.messages]
+templates:
+  - pattern: telemetry-contract.md.j2
+    file_name: telemetry-contract.md
+    application_mode: single
+    filter: >
+      def text: (. // "") | gsub("\\s+"; " ") | sub(" $"; "") | gsub("\\|"; "\\|");
+      def req: if (.requirement_level | type) == "object" then (.requirement_level | to_entries[0] | (.key | gsub("_"; " ")) + ": " + (.value | text)) else (.requirement_level // "" | gsub("_"; " ")) end;
+      def row: {key, type: (if (.type | type) == "string" then .type else "enum" end), brief: (.brief | text), note: (.note | text), req: req, values: [(.type.members? // [])[] | .value]};
+      ([.registry.attribute_groups[].attributes[].key] + $params.span_attributes) as $kagent
+      | {
+          attributes: [.registry.attributes[] | row],
+          groups: [.registry.attribute_groups[] | {id, brief: (.brief | text), note: (.note | text), attributes: [.attributes[] | row]}],
+          spans: [.refinements.spans[] | {id, type, kind, brief: (.brief | text), note: (.note | text), attributes: [.attributes[] | select(.key as $k | $kagent | index($k)) | row]}],
+          entities: [.registry.entities[] | {type, brief: (.brief | text), note: (.note | text), identity: [.identity[] | row], description: [.description[] | row]}]
+        }

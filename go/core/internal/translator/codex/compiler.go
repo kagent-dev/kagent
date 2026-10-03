@@ -13,31 +13,32 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
-	codexHomeEnv             = "CODEX_HOME"
-	openAIAPIKeyEnv          = "OPENAI_API_KEY"
-	awsRegionEnv             = "AWS_REGION"
-	awsBedrockTokenEnv       = "AWS_BEARER_TOKEN_BEDROCK"
-	awsAccessKeyEnv          = "AWS_ACCESS_KEY_ID"
-	awsSecretKeyEnv          = "AWS_SECRET_ACCESS_KEY"
-	awsSessionTokenEnv       = "AWS_SESSION_TOKEN"
-	mcpCredentialPrefix      = "KAGENT_CODEX_MCP_CREDENTIAL_"
-	preResponseTraceFlushEnv = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
+	codexHomeEnv        = "CODEX_HOME"
+	openAIAPIKeyEnv     = "OPENAI_API_KEY"
+	awsRegionEnv        = "AWS_REGION"
+	awsBedrockTokenEnv  = "AWS_BEARER_TOKEN_BEDROCK"
+	awsAccessKeyEnv     = "AWS_ACCESS_KEY_ID"
+	awsSecretKeyEnv     = "AWS_SECRET_ACCESS_KEY"
+	awsSessionTokenEnv  = "AWS_SESSION_TOKEN"
+	mcpCredentialPrefix = "KAGENT_CODEX_MCP_CREDENTIAL_"
 )
 
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	preResponseTraceFlushEnv: {},
-	"KAGENT_NAME":            {}, "KAGENT_NAMESPACE": {},
+	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
 }
 
 type Compiler struct {
@@ -62,6 +63,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
+	template, harness := input.Root.Template, input.Harness
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
+		tracing.RuntimeCodex, input.AgentName, template.Namespace, model.Spec)
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
 	if err != nil {
@@ -76,33 +82,30 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	environment := append(providerEnvironment, mcp.environment...)
+	harnessAttributes := v2translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
+		if v2translator.IsResourceAttributesVariable(variable.Name) {
+			continue
+		}
 		_, reserved := ownedEnvironment[variable.Name]
 		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
-		envVar := corev1.EnvVar{Name: variable.Name}
-		if variable.Value != nil {
-			envVar.Value = *variable.Value
-		} else {
-			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: variable.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, envVar)
+		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
-	template, harness := input.Root.Template, input.Harness
 	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: preResponseTraceFlushEnv, Value: "true"},
+		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
-	environment = append(environment, telemetryConfig.TraceEnvironment()...)
-	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
 	}
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
+	cfg.RuntimeTelemetry = runtimeTelemetry
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
 		if traceConfig.Enabled {
@@ -122,34 +125,30 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}
-	provenance, err := c.buildProvenance(ctx, input, environment, configJSON)
+	provenance, err := c.buildProvenance(ctx, input, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
-	environment, err = c.resolveEnvironment(ctx, input.Harness.Namespace, environment)
+	environment, credentials, err := v2translator.CompileCredentials(input, nil, environment)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Codex runtime environment: %w", err)
+		return nil, err
 	}
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
-	if traceConfig.Enabled {
-		egress = append(egress, traceConfig.Hostname)
-	}
-	if logConfig.Enabled {
-		egress = append(egress, logConfig.Hostname)
-	}
+	egress = append(egress, telemetryConfig.Destinations()...)
+	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
-			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+			Namespace: template.Namespace,
+			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Provenance: provenance, EgressDestinations: egress,
+			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -171,9 +170,9 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 			return codexconfig.Provider{}, nil, nil, err
 		}
 		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL}
-		egress := []string{"api.openai.com"}
+		egress := []string{"https://api.openai.com:443"}
 		if baseURL != "" {
-			host, err := absoluteHTTPHostname(baseURL)
+			host, err := absoluteHTTPOrigin(baseURL)
 			if err != nil {
 				return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex OpenAI baseUrl %v", err)
 			}
@@ -217,7 +216,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
 			}
 		}
-		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"bedrock-runtime." + region + ".amazonaws.com"}, nil
+		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"https://bedrock-runtime." + region + ".amazonaws.com:443"}, nil
 	default:
 		return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -280,12 +279,12 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	}}}
 }
 
-func absoluteHTTPHostname(raw string) (string, error) {
+func absoluteHTTPOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return "", fmt.Errorf("must be an absolute HTTP(S) URL without credentials or fragment")
 	}
-	return parsed.Hostname(), nil
+	return egress.Origin(parsed), nil
 }
 
 type provenanceEntry struct {
@@ -298,31 +297,28 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON []byte) ([]byte, error) {
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec)}
-	entries = append(entries,
-		objectProvenance("kagent.internal/v1", "GeneratedInput", "config.json", "", 0, json.RawMessage(configJSON)),
-	)
+func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
+	var entries []provenanceEntry
+	// Inline configuration is recorded by the enclosing Agent provenance.
+	if input.Harness.Source != nil {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
+	}
 	seenObjects := map[string]struct{}{}
+	addObject := func(kind, name string, uid types.UID, generation int64, value any) {
+		identity := kind + "\x00" + name
+		if _, ok := seenObjects[identity]; !ok {
+			seenObjects[identity] = struct{}{}
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), kind, name, uid, generation, value))
+		}
+	}
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
 		model := agent.ResolvedModelConfig.Config
-		for _, object := range []struct {
-			kind, name string
-			uid        types.UID
-			generation int64
-			value      any
-		}{
-			{"AgentTemplate", agent.Template.Name, agent.Template.UID, agent.Template.Generation, agent.Template.Spec},
-			{"ModelConfig", model.Name, model.UID, model.Generation, model.Spec},
-		} {
-			identity := object.kind + "\x00" + object.name
-			if _, ok := seenObjects[identity]; !ok {
-				seenObjects[identity] = struct{}{}
-				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), object.kind, object.name, object.uid, object.generation, object.value))
-			}
+		if source := agent.Template.Source; source != nil {
+			addObject("AgentTemplate", source.Name, source.UID, source.Generation, agent.Template.Spec)
 		}
+		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if agent.Template.Spec.SystemPromptFrom != nil {
 			configMaps[agent.Template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}
@@ -372,12 +368,10 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		if err != nil {
 			return nil, err
 		}
-		value, ok := secret.Data[ref.Key]
+		_, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
-		hash := sha256.Sum256(value)
-		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
@@ -389,29 +383,6 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	raw, _ := json.Marshal(content)
 	hash := sha256.Sum256(raw)
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
-}
-
-func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
-	resolved := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range resolved {
-		if variable.ValueFrom == nil {
-			continue
-		}
-		if variable.ValueFrom.SecretKeyRef == nil {
-			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		secret, err := c.secret(ctx, namespace, ref.Name)
-		if err != nil {
-			return nil, err
-		}
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		resolved[i].Value, resolved[i].ValueFrom = string(value), nil
-	}
-	return resolved, nil
 }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)

@@ -27,7 +27,7 @@ Authorization decisions use trusted resource identity. Unauthorized resources ar
 ## Non-goals
 
 - Define roles, policies, claims, subjects, grants, or catalog keys.
-- Protect `SandboxAgent`, `AgentHarness`, `AgentInstance`, `ModelProviderConfig`, tool server, or prompt template resources.
+- Protect `SandboxAgent`, `AgentHarness`, `Session`, `ModelProviderConfig`, tool server, or prompt template resources.
 - Expose policy-engine, SQL, Kubernetes, or other backend expressions.
 - Predict authorization for UI controls.
 

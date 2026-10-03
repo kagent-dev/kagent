@@ -29,15 +29,12 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.controller.podLabels | default dict) (include "kagent.controller.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- with .Values.controller.imagePullSecrets | default .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" . "local" .Values.controller.imagePullSecrets) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.controller.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "kagent.fullname" . }}-controller
+      serviceAccountName: {{ include "kagent.controller.serviceAccountName" . | quote }}
       {{- if or (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
       volumes:
       {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
@@ -80,8 +77,8 @@ spec:
       {{- end }}
       containers:
         - name: controller
-          image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
+          image: {{ include "kagent.controllerImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.controller.image.pullPolicy) }}
           env:
             - name: KAGENT_NAMESPACE
               valueFrom:
@@ -91,21 +88,21 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: K8S_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: AUTH_MODE
-              value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
-            {{- if .Values.controller.auth.userIdClaim }}
-            - name: AUTH_USER_ID_CLAIM
-              value: {{ .Values.controller.auth.userIdClaim | quote }}
-            {{- end }}
-            {{- if .Values.database.postgres.urlFile }}
-            - name: POSTGRES_DATABASE_URL_FILE
-              value: {{ .Values.database.postgres.urlFile | quote }}
-            {{- else if .Values.database.postgres.url }}
-            - name: POSTGRES_DATABASE_URL
+            {{- /* Kubelet expands pod identity here; envFrom values are not expanded. */}}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
+            {{- /* Keep credentials and secret-dependent expansion out of the ConfigMap. */}}
+            {{- if not .Values.database.postgres.urlFile }}
+            {{- if .Values.database.postgres.url }}
+            - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ .Values.database.postgres.url | quote }}
             {{- else if .Values.database.postgres.bundled.enabled }}
             - name: POSTGRES_PASSWORD
@@ -113,47 +110,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
-            - name: POSTGRES_DATABASE_URL
+            - name: KAGENT_POSTGRES_DATABASE_URL
               value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
-            {{- if include "kagent.controller.metricsEnabled" . }}
-            - name: METRICS_BIND_ADDRESS
-              value: {{ .Values.controller.metrics.bindAddress | quote }}
-            - name: METRICS_SECURE
-              value: {{ .Values.controller.metrics.secureServing | quote }}
-            {{- end }}
-            - name: GRPC_MAX_MESSAGE_BYTES
-              value: {{ printf "%.0f" (.Values.controller.grpc.maxMessageBytes | float64) | quote }}
-            - name: GRPC_REFLECTION
-              value: {{ .Values.controller.grpc.reflection | quote }}
-            {{- with .Values.controller.grpc.tlsCertFile }}
-            - name: GRPC_TLS_CERT_FILE
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.grpc.tlsKeyFile }}
-            - name: GRPC_TLS_KEY_FILE
-              value: {{ . | quote }}
             {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
-            {{- end }}
-            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
-            - name: SUBSTRATE_ATE_API_ENDPOINT
-              value: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
-            - name: SUBSTRATE_ATE_API_CA_FILE
-              value: /run/substrate-servicedns/trust-bundle.pem
-            - name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
-              value: /run/substrate-podidentity/credential-bundle.pem
-            {{- with include "kagent.substrate.atenetRouterURL" . }}
-            - name: SUBSTRATE_ATENET_ROUTER_URL
-              value: {{ . | quote }}
-            {{- end }}
-            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
-              value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
-            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
-              value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
             {{- end }}
           envFrom:
             - configMapRef:

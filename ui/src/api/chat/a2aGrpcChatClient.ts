@@ -10,9 +10,8 @@
  *
  * ## What a conversation is
  *
- * The gateway routes and scopes history by the instance ID header. Its bound
- * A2A context ID is separate and survives a fork. Chat caches use the instance
- * ID so branches sharing a context cannot share a transcript.
+ * The Agent tenant selects the agent; the Session UUID selects its conversation.
+ * Forks have their own Session and context IDs, and chat caches use that identity.
  *
  * ## Why this is so much shorter than the client it replaces
  *
@@ -34,12 +33,6 @@
  * The three behaviours below were each a bug fixed against a live controller, and
  * none of them is implied by the protocol:
  *
- * - **Chunks are coalesced on `adk_invocation_id`.** A streamed reply arrives as
- *   many whole messages, each with a `messageId` of its own, so delivering them
- *   as they came produced one bubble per word. What relates them is the metadata.
- * - **The final message replaces the streamed one rather than following it.**
- *   It repeats every word already shown, so emitted under a new id it printed the
- *   answer twice.
  * - **An artifact repeating text already shown is dropped.** The reply arrives
  *   both as status text and as a final artifact; an agent that sends only
  *   artifacts still works, because the check is on the text and not on the shape.
@@ -66,6 +59,7 @@ import {
   type TaskStatus,
 } from "@/generated/a2a_pb";
 import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
+import { A2A_METADATA, metadataString } from "./a2aMetadata";
 import {
   HITL_EXTENSION_HEADER,
   HITL_EXTENSION_URI,
@@ -89,9 +83,6 @@ import type {
   SendMessageInput,
 } from "./types";
 
-/** The gateway requires exactly one instance ID header and validates it as a UUID. */
-const INSTANCE_ID_HEADER = "x-kagent-agent-instance-id";
-
 /** The header the controller validates a share token from. */
 const SHARE_HEADER = "X-Share-Token";
 
@@ -105,12 +96,6 @@ const SHARE_HEADER = "X-Share-Token";
  * which would otherwise spin here with the page stuck on a spinner.
  */
 const HISTORY_PAGE_LIMIT = 50;
-
-/*
- * Temporary bridge to A2A's ordered task timeline and artifact generation ranges:
- * https://github.com/a2aproject/A2A/pull/2129
- */
-const TIMELINE_POSITION_METADATA_KEY = "kagent.dev/timeline-position";
 
 /** Ids for the messages the wire did not name. */
 let counter = 0;
@@ -185,7 +170,18 @@ function toPart(part: A2APart): ChatPart | undefined {
       return undefined;
     }
     const data = value as Record<string, unknown>;
-    return { kind: "data", dataKind: dataKindOf(data), data };
+    return {
+      kind: "data",
+      dataKind: dataKindOf(
+        part.mediaType,
+        part.metadata as Record<string, unknown> | undefined,
+      ),
+      data,
+      ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+      ...(part.metadata
+        ? { metadata: part.metadata as Record<string, unknown> }
+        : {}),
+    };
   }
   // A file part, by url or raw bytes. Nothing renders one yet, and inventing a
   // placeholder would put a broken attachment in a transcript that has none.
@@ -195,15 +191,25 @@ function toPart(part: A2APart): ChatPart | undefined {
 /**
  * What a data part represents.
  *
- * Read from the payload's own shape rather than from a `kind` the wire does not
- * carry: the runtime emits a tool call as `{name, args}` and its result as
- * `{name, response}`. Anything else is passed through as `unknown` and rendered
- * as structured data, which is honest — it is data, and this build does not know
- * what kind.
+ * A structured terminal answer has an explicit runtime-owned signature: JSON media
+ * type plus the digest of the schema that was enforced. Tool traffic uses the
+ * shared part-type discriminator. Requiring both
+ * pieces of the output signature avoids relabelling an arbitrary JSON tool payload
+ * as the agent's final answer.
  */
-function dataKindOf(data: Record<string, unknown>): ChatDataPart["dataKind"] {
-  if ("args" in data) return "tool_call";
-  if ("response" in data || "result" in data) return "tool_result";
+function dataKindOf(
+  mediaType: string,
+  metadata: Record<string, unknown> | undefined,
+): ChatDataPart["dataKind"] {
+  if (
+    mediaType.split(";", 1)[0]?.trim().toLowerCase() === "application/json" &&
+    typeof metadata?.[A2A_METADATA.outputSchemaSha256] === "string"
+  ) {
+    return "structured_output";
+  }
+  const partType = metadataString(metadata, A2A_METADATA.partType);
+  if (partType === "function_call") return "tool_call";
+  if (partType === "function_response") return "tool_result";
   return "unknown";
 }
 
@@ -243,7 +249,9 @@ function visibleParts(
       visible.push(part);
       continue;
     }
-    if (part.data.name === "ask_user") continue;
+    if (part.dataKind !== "structured_output" && part.data.name === "ask_user") {
+      continue;
+    }
 
     const control = controlFlowResult(part);
     if (control === "confirmation_required") continue;
@@ -299,38 +307,15 @@ function statusTime(status: TaskStatus | undefined): string {
   return new Date(Number(seconds) * 1000).toISOString();
 }
 
-/** Whether a message is a chunk of a reply still being written. */
-function isPartial(message: A2AMessage | undefined): boolean {
-  return message?.metadata?.adk_partial === true;
-}
-
-/**
- * What relates the chunks of one reply.
- *
- * Every chunk is a whole message with a `messageId` of its own, so the ids cannot
- * group them; `adk_invocation_id` is the same across all of them and is the only
- * thing that can. Keyed on the invocation rather than the task, because one task
- * can hold several replies with tool calls between them.
- */
-function invocationOf(message: A2AMessage | undefined, taskId: string): string {
-  const invocation = message?.metadata?.adk_invocation_id;
-  return typeof invocation === "string" && invocation !== "" ? invocation : taskId;
-}
-
 export class A2AGrpcChatClient implements ChatClient {
   /** What the controller's agent cards advertise. */
   readonly protocolVersion = "A2A 1.0 over gRPC-Web";
 
   /**
-   * The call metadata addressing one conversation.
-   *
-   * Every RPC on this client carries it — there is no other way to say which
-   * agent is meant, and a call without it is refused by the gateway rather than
-   * defaulting to anything.
+   * Carry the conversation share token and human-in-the-loop extension metadata.
    */
   private callOptions(conversation: ChatConversationRef, signal?: AbortSignal) {
     const headers: Record<string, string> = {
-      [INSTANCE_ID_HEADER]: conversation.id,
       /*
        * Activate the human-in-the-loop extension, on every call.
        *
@@ -379,8 +364,8 @@ export class A2AGrpcChatClient implements ChatClient {
       for (let page = 0; page < HISTORY_PAGE_LIMIT; page += 1) {
         const response = await client.listTasks(
           {
-            // History is scoped by the instance header; context is an optional filter.
-            contextId: conversation.contextId,
+            tenant: conversation.agent,
+            contextId: conversation.id,
             pageToken,
             // Artifacts carry the final text of a reply, which for a completed turn
             // may be the only place it exists.
@@ -430,6 +415,7 @@ export class A2AGrpcChatClient implements ChatClient {
     const client = serviceClient(A2AService);
 
     const request = {
+      tenant: conversation.agent,
       message: create(MessageSchema, {
         // The caller's id when it has one. It has already put this message on
         // screen under that id, and the gateway files it in the task's history
@@ -439,8 +425,8 @@ export class A2AGrpcChatClient implements ChatClient {
         messageId: input.messageId || nextId("msg"),
         role: Role.USER,
         parts: [{ content: { case: "text" as const, value: text } }],
-        // An omitted context resolves to the routed instance's bound context.
-        contextId: conversation.contextId,
+        // Select the existing Session rather than opening a new conversation.
+        contextId: conversation.id,
         /*
          * An answer declares the extension on the message itself.
          *
@@ -491,19 +477,6 @@ export class A2AGrpcChatClient implements ChatClient {
      */
     const artifacts = new Map<string, string>();
 
-    let runId: string | undefined;
-    let streamedId: string | undefined;
-    /*
-     * What has been shown of the reply being streamed.
-     *
-     * A local, not a field and not a module-level map: it belongs to this turn and
-     * must not outlive it. The artifact that closes the turn repeats the whole
-     * answer, so it is the accumulation that has to be recorded in `statusReply`,
-     * not each chunk — recording only chunks let the artifact through and printed
-     * the answer a second time.
-     */
-    let streamedText = "";
-
     let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
     try {
       stream = client.sendStreamingMessage(
@@ -549,72 +522,9 @@ export class A2AGrpcChatClient implements ChatClient {
             (awaiting === undefined || awaiting.kind === "unknown")
           ) {
             const role = message.role === Role.AGENT ? "agent" : "user";
-            const isTextOnly = parts.every((part) => part.kind === "text");
-            const invocation = invocationOf(message, event.taskId);
             const createdAt = statusTime(status);
 
-            // A chunk of a reply still being written.
-            if (role === "agent" && isPartial(message) && isTextOnly) {
-              const chunk = textOf(parts);
-
-              if (streamedId === undefined || runId !== invocation) {
-                runId = invocation;
-                streamedId = message.messageId || nextId("message");
-                streamedText = chunk;
-                statusReply = streamedText;
-                yield {
-                  type: "message",
-                  message: {
-                    id: streamedId,
-                    role: "agent",
-                    parts,
-                    createdAt,
-                    taskId: event.taskId,
-                  },
-                };
-              } else if (chunk !== "") {
-                streamedText += chunk;
-                statusReply = streamedText;
-                yield { type: "delta", messageId: streamedId, text: chunk };
-              }
-
-              yield { type: "status", state, taskId: event.taskId, awaiting };
-              continue;
-            }
-
-            // The complete reply that closes a run of partials. Emitted under the
-            // streamed id, which makes it a replacement rather than an addition:
-            // `useChat` upserts by id, so the server's canonical text takes the place
-            // of the text assembled from chunks.
-            const closesRun =
-              role === "agent" &&
-              isTextOnly &&
-              streamedId !== undefined &&
-              runId === invocation;
-
-            const id = closesRun
-              ? (streamedId as string)
-              : message.messageId || nextId("message");
-
-            if (closesRun) {
-              const body = textOf(parts);
-              statusReply = body;
-              yield {
-                type: "message",
-                message: { id, role: "agent", parts, createdAt, taskId: event.taskId },
-              };
-              yield { type: "status", state, taskId: event.taskId, awaiting };
-              runId = undefined;
-              streamedId = undefined;
-              streamedText = "";
-              continue;
-            }
-
-            // A tool call, or the user's own message: its own message, and it ends
-            // any run of prose that was open.
-            runId = undefined;
-            streamedId = undefined;
-            streamedText = "";
+            const id = message.messageId || nextId("message");
 
             if (!delivered.has(id)) {
               delivered.add(id);
@@ -767,7 +677,7 @@ export class A2AGrpcChatClient implements ChatClient {
   async cancel(conversation: ChatConversationRef, taskId: string): Promise<void> {
     try {
       await serviceClient(A2AService).cancelTask(
-        { id: taskId },
+        { tenant: conversation.agent, id: taskId },
         this.callOptions(conversation),
       );
     } catch (error) {
@@ -965,8 +875,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
 }
 
 function timelinePosition(metadata: JsonObject | undefined): string | undefined {
-  const value = metadata?.[TIMELINE_POSITION_METADATA_KEY];
-  return typeof value === "string" ? value : undefined;
+  return metadataString(metadata, A2A_METADATA.timelinePosition);
 }
 
 /** Whether a reader's turn is answering an `ask_user` rather than opening a task. */

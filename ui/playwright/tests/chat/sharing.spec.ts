@@ -59,6 +59,14 @@ test("chat sharing: a link is created, shown once, listed and revoked", async ({
     await expect(fresh).toContainText("/shared/agent/");
   });
 
+  await test.step("3b. copying says whether it worked", async () => {
+    // The token is shown once, so a copy that quietly does nothing loses it. The
+    // button reports the outcome rather than implying one.
+    await page.getByTestId("share-copy-fresh-link").click();
+    await expect(page.getByTestId("share-copy-fresh-link")).toHaveText("Copied");
+    await expect(page.getByTestId("share-copy-failed")).toHaveCount(0);
+  });
+
   await test.step("4. the list shows the share, and never the token", async () => {
     const list = page.getByTestId("share-list");
     // Two: the one just created and the one seeded as "issued before this tab

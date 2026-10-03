@@ -30,6 +30,9 @@ type activeTool struct {
 }
 
 func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) (runtime.Outcome, bool, error) {
+	if other, err := t.isOtherThreadNotification(message); err != nil || other {
+		return runtime.Outcome{}, false, err
+	}
 	switch message.Method {
 	case "item/agentMessage/delta":
 		var params struct{ ThreadID, TurnID, ItemID, Delta string }
@@ -193,7 +196,22 @@ func (t *eventTranslator) approvalTool(server, toolName string, arguments map[st
 	return matchedID, matched.name, nil
 }
 
-func rejectBufferedPostTerminalActivity(frames <-chan rpcFrame) error {
+// App Server multiplexes native Shared agents onto the parent's stream. Their
+// text, tools, and completion belong to their own threads; the parent's Agent
+// tool items already represent delegation in the public task.
+func (t *eventTranslator) isOtherThreadNotification(message rpcMessage) (bool, error) {
+	if len(message.ID) != 0 || (!strings.HasPrefix(message.Method, "item/") && !strings.HasPrefix(message.Method, "turn/")) {
+		return false, nil
+	}
+	var params struct{ ThreadID string }
+	if err := json.Unmarshal(message.Params, &params); err != nil {
+		return false, fmt.Errorf("decode Codex notification identity: %w", err)
+	}
+	// A missing identity must still reach the normal validation below.
+	return params.ThreadID != "" && params.ThreadID != t.threadID, nil
+}
+
+func (t *eventTranslator) rejectBufferedPostTerminalActivity(frames <-chan rpcFrame) error {
 	for {
 		select {
 		case frame, ok := <-frames:
@@ -202,6 +220,11 @@ func rejectBufferedPostTerminalActivity(frames <-chan rpcFrame) error {
 			}
 			if frame.err != nil {
 				return frame.err
+			}
+			if other, err := t.isOtherThreadNotification(frame.message); err != nil {
+				return err
+			} else if other {
+				continue
 			}
 			if frame.message.Method == "turn/completed" {
 				return fmt.Errorf("codex emitted duplicate terminal event")

@@ -24,10 +24,11 @@ import type {
 } from "@/api/domain/agentInstances";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
-import { admitsLabels } from "@/api/domain/harnesses";
+import type { Agent } from "@/api/domain/agents";
 import {
   mockAgentInstances,
   mockAgentTemplates,
+  mockAgents,
   mockHarnesses,
   mockMcpServers,
   mockModels,
@@ -37,6 +38,7 @@ import {
 
 /** What has been written during this browsing session. */
 const created = {
+  agents: [] as Agent[],
   models: [] as ModelConfig[],
   mcpServers: [] as ToolServerResponse[],
   prompts: [] as PromptTemplateDetail[],
@@ -107,7 +109,7 @@ export function saveToolServer(
 ): ToolServerResponse {
   const server: ToolServerResponse = {
     ref: `${metadata?.namespace ?? "kagent"}/${metadata?.name ?? "unnamed"}`,
-    groupKind: `${type}.kagent.dev`,
+    groupKind: type === "RemoteMCPServer" ? "RemoteMCPServer.api.kagent.dev" : "MCPServer.kagent.dev",
     // Empty until the controller has handshaken with the server, which is the
     // honest state immediately after a create. Claiming otherwise would put tools
     // on screen that nothing has confirmed exist.
@@ -207,84 +209,19 @@ export function allAgentTemplates(): AgentTemplate[] {
   ).filter((row) => isLive(agentTemplateRef(row)));
 }
 
-/**
- * Records a written template, recomputing which harnesses admit it.
- *
- * Admission is derived rather than stored, because on a cluster it *is* derived:
- * the controller matches each Harness's label selector against the template's
- * labels and writes the result into status. A fixture that let a caller assert
- * `admittingHarnesses` directly would happily accept a template whose labels admit
- * nothing while reporting that a harness would run it — which is the exact
- * confusion this form exists to prevent.
- */
 export function saveAgentTemplate(row: AgentTemplate): AgentTemplate {
-  const labels = row.resource.metadata.labels ?? {};
-  const admitting = mockHarnesses
-    // Admission never crosses a namespace: a Harness selects templates beside it,
-    // so a fixture that matched on labels alone would admit a template the
-    // controller never would — and the agents page reads admission to decide what
-    // exists at all.
-    .filter((harness) => harness.namespace === row.namespace)
-    // A harness with no selector admits none — `admitsLabels` is the one place
-    // that rule lives, shared with the form's preview so the two cannot disagree.
-    .filter((harness) => admitsLabels(harness, labels))
-    .map((harness) => harness.name);
+  const at = created.agentTemplates.findIndex(existing => existing.ref === row.ref);
+  if (at === -1) created.agentTemplates.push(row); else created.agentTemplates[at] = row;
+  return row;
+}
 
-  const stored: AgentTemplate = {
-    ...row,
-    admittingHarnesses: admitting.map((harness) => harness),
-    resource: {
-      ...row.resource,
-      /*
-       * The status the controller would write, written here too.
-       *
-       * `admittingHarnesses` is *derived from* this on a cluster — the service reads
-       * `status.harnesses[].harness` — so a fixture that filled one and not the
-       * other would let the two disagree, and the agents page reads the status half
-       * because it carries the revision as well as the name. Whichever half a test
-       * looked at would then be the half that was right.
-       *
-       * A ready harness gets a successful revision; one the controller has not
-       * observed gets only a desired one, which is the "preparing" state a
-       * freshly-labelled template really passes through.
-       */
-      status: {
-        ...row.resource.status,
-        harnesses: admitting.map((harnessName) => {
-          const harness = mockHarnesses.find(
-            (candidate) =>
-              candidate.namespace === row.namespace && candidate.name === harnessName,
-          );
-          const revision = `rev-${row.name}-${harnessName}`;
-          return harness?.ready
-            ? {
-                harness: harnessName,
-                desiredRevision: revision,
-                latestSuccessfulRevision: revision,
-              }
-            : {
-                harness: harnessName,
-                desiredRevision: revision,
-                conditions: [
-                  {
-                    type: "Ready",
-                    status: "False",
-                    reason: "HarnessNotReady",
-                    message: `The ${harnessName} harness has not reported ready, so no revision has been built yet.`,
-                  },
-                ],
-              };
-        }),
-      },
-    },
-  };
-  const ref = agentTemplateRef(stored);
-  const at = created.agentTemplates.findIndex(
-    (existing) => agentTemplateRef(existing) === ref,
-  );
-  if (at === -1) created.agentTemplates.push(stored);
-  else created.agentTemplates[at] = stored;
-  return stored;
+export function allAgents(): Agent[] {
+  return dedupeByRef([...mockAgents, ...created.agents], row => row.ref).filter(row => isLive(`Agent:${row.ref}`));
+}
+export function saveAgent(row: Agent): Agent {
+  const at = created.agents.findIndex(existing => existing.ref === row.ref);
+  if (at === -1) created.agents.push(row); else created.agents[at] = row;
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -445,8 +382,23 @@ export function saveAgentInstance(row: AgentInstance): AgentInstance {
 export interface MockCheckpoint {
   id: string;
   agentInstanceId: string;
+  /** Never empty, as the controller's column is not. See `generatedCheckpointName`. */
+  name: string;
   headTaskId: string;
   createdAt: string;
+}
+
+/**
+ * What the controller calls a boundary nobody has named.
+ *
+ * Its shape matters, not just its uniqueness: it is what a fork of an unnamed boundary
+ * is titled, so a fixture inventing something friendlier would show a conversation list
+ * this backend never produces. Mirrors `defaultCheckpointName` in the controller.
+ */
+export function generatedCheckpointName(
+  row: Pick<MockCheckpoint, "agentInstanceId" | "headTaskId">,
+): string {
+  return `${row.agentInstanceId}-${row.headTaskId}`;
 }
 
 /**
@@ -458,6 +410,7 @@ export interface MockCheckpoint {
 export const SEEDED_CHECKPOINT: MockCheckpoint = {
   id: "3f5b1c88-91d2-4a0e-b7c6-5d1f0a2e9b34",
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  name: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44-seed-task-1",
   headTaskId: "seed-task-1",
   createdAt: "2025-01-04T10:15:00Z",
 };
@@ -471,6 +424,7 @@ export const SEEDED_CHECKPOINT: MockCheckpoint = {
 export const DISPOSABLE_CHECKPOINT: MockCheckpoint = {
   id: "8c2d9f14-6b03-4e77-90a5-1c7e3b8d2f60",
   agentInstanceId: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
+  name: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0-seed-task-2",
   headTaskId: "seed-task-2",
   createdAt: "2025-01-04T10:20:00Z",
 };
@@ -515,6 +469,21 @@ export function checkpointById(id: string): MockCheckpoint | undefined {
 export function saveCheckpoint(row: MockCheckpoint): MockCheckpoint {
   writeAll([...readAll(), row]);
   return row;
+}
+
+/**
+ * Retitles one. An empty name restores the generated default, as the controller does.
+ *
+ * Answers the stored row rather than nothing, because after an empty name that row is
+ * the only place the new title exists.
+ */
+export function renameCheckpoint(id: string, name: string): MockCheckpoint | undefined {
+  const rows = readAll();
+  const row = rows.find((saved) => saved.id === id);
+  if (!row) return undefined;
+  const renamed = { ...row, name: name || generatedCheckpointName(row) };
+  writeAll(rows.map((saved) => (saved.id === id ? renamed : saved)));
+  return renamed;
 }
 
 /** Removes one, the way `DeleteCheckpoint` releases the snapshot it was holding. */

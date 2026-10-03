@@ -33,8 +33,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
-	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
-	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
+	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
 	revision := &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
 	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
@@ -42,32 +41,30 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := PairReconciliation{
-		Pair:     AgentTemplateHarnessPair{AgentTemplate: template, Harness: harness},
-		Revision: revision, RevisionID: revisionID, DesiredActorTemplate: desiredActor,
+	state := AgentReconciliation{
+		Agent:  template,
+		Target: &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: desiredActor},
 	}
-	reconciliations := krt.NewStaticCollection(nil, []PairReconciliation{state}, opts.WithName("Reconciliations")...)
-	status := kagentv1alpha3.AgentTemplateStatus{ObservedGeneration: 1, Harnesses: []kagentv1alpha3.AgentTemplateHarnessStatus{{
-		Harness: "kagent", Conditions: []metav1.Condition{{Type: kagentv1alpha3.AgentTemplateConditionReady, Status: metav1.ConditionFalse}},
-	}}}
+	reconciliations := krt.NewStaticCollection(nil, []AgentReconciliation{state}, opts.WithName("Reconciliations")...)
+	status := kagentv1alpha3.AgentStatus{ObservedGeneration: 1, Conditions: []metav1.Condition{{Type: kagentv1alpha3.AgentConditionReady, Status: metav1.ConditionFalse}}}
 	mock := krttest.NewMock(t, []any{
 		template,
-		krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]{Obj: template, Status: status},
+		krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]{Obj: template, Status: status},
 	})
-	statuses := krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]](mock)
+	statuses := krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]](mock)
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
 	reconciler := &Reconciler{
 		collections: Collections{
-			AgentTemplates:          krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-			PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
-			Reconciliations:         reconciliations, AgentTemplateStatuses: statuses,
+			Agents:                   krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
+			AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
+			Reconciliations:          reconciliations, AgentStatuses: statuses,
 		},
 		templates: templates, store: store, status: statusClient,
 	}
 
-	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
+	if err := reconciler.reconcileAgent(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
 	if store.pair == nil {
@@ -84,51 +81,53 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.True(t, proto.Equal(revision.AgentCard, store.revision.AgentCard))
 
 	templates.template = proto.CloneOf(created)
-	templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	writeErr := errors.New("database unavailable")
 	store.revisionErr = writeErr
-	require.ErrorIs(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), writeErr)
-	pending := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
+	require.ErrorIs(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()), writeErr)
+	pending := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
 	require.NotNil(t, pending)
-	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot(),
+	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag(),
 		"Ready must not be published before the database write succeeds")
 	store.revisionErr = nil
-	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
+	if err := reconciler.reconcileAgent(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
 	if store.revision == nil || !store.markedSuccessful {
 		t.Fatal("ready revision was not stored and marked successful")
 	}
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
-	observed := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
-	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot())
+	observed := reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName())
+	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag())
 
-	if err := reconciler.reconcileAgentTemplateStatus(context.Background(), "team-a/assistant"); err != nil {
+	if err := reconciler.reconcileAgentStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
 	}
-	statusWrite, err := statusClient.AgentTemplates(template.Namespace).Get(context.Background(), template.Name, metav1.GetOptions{})
-	if err != nil || statusWrite.Status.Harnesses[0].Conditions[0].LastTransitionTime.IsZero() {
+	statusWrite, err := statusClient.Agents(template.Namespace).Get(context.Background(), template.Name, metav1.GetOptions{})
+	if err != nil || statusWrite.Status.Conditions[0].LastTransitionTime.IsZero() {
 		t.Fatal("desired status was not written with a transition time")
 	}
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
 	reconciler = &Reconciler{collections: reconciler.collections, templates: templates, store: store, status: statusClient}
-	state.DesiredActorTemplate = proto.CloneOf(state.DesiredActorTemplate)
-	state.DesiredActorTemplate.Metadata.Name = "assistant-next-revision"
-	state.Revision = &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
-	state.RevisionID, err = state.Revision.Digest()
+	nextTarget := *state.Target
+	state.Target = &nextTarget
+	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
+	state.Target.ActorTemplate.Metadata.Name = "assistant-next-revision"
+	state.Target.Revision = v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
+	state.Target.RevisionID, err = state.Target.Revision.Digest()
 	require.NoError(t, err)
 	templates.template = nil
 	reconciliations.UpdateObject(state)
-	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
-	require.Equal(t, state.RevisionID, reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName()).RevisionID, "a new revision must replace the previous observation without waiting for GC")
-	require.Len(t, reconciler.collections.PairRuntimeObservations.List(), 1)
+	require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))
+	require.Equal(t, state.Target.RevisionID, reconciler.collections.AgentRuntimeObservations.GetKey(state.ResourceName()).RevisionID, "a new revision must replace the previous observation without waiting for GC")
+	require.Len(t, reconciler.collections.AgentRuntimeObservations.List(), 1)
 
 	reconciliations.DeleteObject(state.ResourceName())
-	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
+	if err := reconciler.reconcileAgent(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
-	require.Empty(t, reconciler.collections.PairRuntimeObservations.List(), "pair retirement must release its observation without waiting for GC")
+	require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "pair retirement must release its observation without waiting for GC")
 	if store.retired != state.ResourceName() {
 		t.Fatalf("retired pair = %q, want %q", store.retired, state.ResourceName())
 	}
@@ -156,12 +155,12 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			t.Cleanup(pool.Close)
 			store := database.NewClient(pool)
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
-			states := krt.NewStaticCollection[PairReconciliation](nil, nil, opts.WithName("Reconciliations")...)
+			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
 			reconciler := &Reconciler{
 				collections: Collections{
-					PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
-					Reconciliations:         states,
+					AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
+					Reconciliations:          states,
 				},
 				templates: templates, store: store,
 			}
@@ -175,38 +174,41 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			}}
 			templates.template = proto.CloneOf(desired)
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-				GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
+				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			state := PairReconciliation{
-				Pair: AgentTemplateHarnessPair{
-					AgentTemplate: &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}},
-					Harness:       &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}},
-				},
-				Revision: revision, RevisionID: id, DesiredActorTemplate: desired,
+			state := AgentReconciliation{
+				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
+				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
 			}
 			states.UpdateObject(state)
-			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
 			// Compile failures preserve the current UID's last successful runtime.
-			state.Revision = nil
+			state.Target = nil
 			states.UpdateObject(state)
-			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
-			require.Empty(t, reconciler.collections.PairRuntimeObservations.List(), "invalid preparation must release its observation before GC")
-			request := &apiv1alpha1.AgentInstance{
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
+			request := &apiv1alpha1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
-				Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
+				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}
-			instance, _, err := store.CreateAgentInstance(ctx, request, "instance")
+			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
-			require.Equal(t, id.String(), instance.GetPreparedRevision())
-			require.NoError(t, store.DeleteAgentInstance(ctx, instance.GetId()))
+			require.Equal(t, id.String(), session.GetPreparedRevision())
+			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+			require.NoError(t, err)
+			executor := uuid.New()
+			claimed, err := store.ClaimSessionOperation(ctx, session.Id, operation.ID, executor)
+			require.NoError(t, err)
+			require.True(t, claimed)
+			_, err = store.FinishSessionOperation(ctx, session.Id, operation.ID, executor, "", "", "")
+			require.NoError(t, err)
 			require.NotNil(t, templates.template)
 
 			// An invalid replacement UID still revokes the old identity. Failed or
 			// ambiguous network deletion must leave the claim available to retry.
-			state.Pair.AgentTemplate = state.Pair.AgentTemplate.DeepCopy()
-			state.Pair.AgentTemplate.UID = "replacement-uid"
+			state.Agent = state.Agent.DeepCopy()
+			state.Agent.UID = "replacement-uid"
 			states.UpdateObject(state)
 			deleteErr := errors.New("deletion interrupted")
 			gcStore := &failingFinalizationStore{Client: store}
@@ -215,7 +217,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			} else {
 				templates.deleteErr, templates.deletedBeforeError = deleteErr, test.deletedBeforeError
 			}
-			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
 			collector := NewRuntimeRevisionGC(gcStore, templates)
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
 			if test.finalizeFailure || test.deletedBeforeError {
@@ -226,13 +228,13 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.Len(t, pending, 1, "failed cleanup must remain discoverable after restart")
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.NoError(t, err)
-			_, _, err = store.CreateAgentInstance(ctx, request, "replacement-instance")
+			_, _, err = store.CreateSession(ctx, request, "replacement-session")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			templates.deleteErr = nil
 			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)
 			restarted.sweep(ctx)
 			require.Nil(t, templates.template)
-			require.Empty(t, reconciler.collections.PairRuntimeObservations.List())
+			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.ErrorIs(t, err, database.ErrNotFound)
 			restarted.sweep(ctx)
@@ -254,13 +256,19 @@ func (s *failingFinalizationStore) DeleteRuntimeRevision(ctx context.Context, re
 
 type fakeActorTemplates struct {
 	template           *ateapipb.ActorTemplate
+	ensureErr          error
+	getErr             error
+	createErr          error
 	deleteErr          error
 	deletedBeforeError bool
 }
 
-func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return nil }
+func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return f.ensureErr }
 
 func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	if f.template == nil {
 		return nil, status.Error(codes.NotFound, "not found")
 	}
@@ -268,12 +276,15 @@ func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (
 }
 
 func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
-	f.template = template
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	f.template = proto.CloneOf(template)
 	f.template.Metadata.Uid = "actor-uid"
 	return f.template, nil
 }
 
-func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string, string) error {
+func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string) error {
 	if f.deleteErr != nil {
 		if f.deletedBeforeError {
 			f.template = nil
@@ -285,15 +296,17 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 }
 
 type fakeRuntimeRevisionStore struct {
-	pair             *database.AgentTemplateHarnessPair
+	pair             *database.AgentDefinition
 	revision         *database.RuntimeRevision
 	markedSuccessful bool
 	retired          string
 	revisionErr      error
 	pairErr          error
+	pairCalls        int
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair database.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
+	s.pairCalls++
 	s.pair = &pair
 	return s.pairErr
 }
@@ -307,9 +320,9 @@ func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revi
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RetirePairIdentities(_ context.Context, namespace, template, harness string, except *database.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string, except *database.AgentDefinition) error {
 	if except == nil {
-		s.retired = namespace + "/" + template + "/" + harness
+		s.retired = namespace + "/" + template
 	}
 	return nil
 }
@@ -339,14 +352,14 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 
 	collections := Collections{
-		ModelConfigs:          modelConfigs,
-		Secrets:               secrets,
-		ConfigMaps:            configMaps,
-		ModelConfigStatuses:   modelConfigStatuses,
-		ResolvedModelConfigs:  resolvedModelConfigs,
-		AgentTemplates:        krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-		Reconciliations:       krttest.GetMockCollection[PairReconciliation](mock),
-		AgentTemplateStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]](mock),
+		ModelConfigs:         modelConfigs,
+		Secrets:              secrets,
+		ConfigMaps:           configMaps,
+		ModelConfigStatuses:  modelConfigStatuses,
+		ResolvedModelConfigs: resolvedModelConfigs,
+		Agents:               krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
+		Reconciliations:      krttest.GetMockCollection[AgentReconciliation](mock),
+		AgentStatuses:        krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]](mock),
 	}
 
 	statusClient := kagentfake.NewSimpleClientset(modelConfig.DeepCopy()).ApiV1alpha3()
@@ -408,13 +421,14 @@ func TestReconciliationQueueRetriesWithBackoff(t *testing.T) {
 		require.EqualValues(t, 2, attempts.Load())
 		time.Sleep(3 * time.Minute)
 		synctest.Wait()
-		require.EqualValues(t, 10, attempts.Load(), "persistent failures must exhaust a finite budget")
+		require.Greater(t, attempts.Load(), int32(10), "persistent failures must outlive the old retry budget")
+		before := attempts.Load()
 		time.Sleep(time.Minute)
 		synctest.Wait()
-		require.EqualValues(t, 10, attempts.Load())
+		require.Equal(t, before+2, attempts.Load(), "backoff must stay capped at thirty seconds")
 		queue.Add("team-a/assistant/kagent")
 		synctest.Wait()
-		require.EqualValues(t, 11, attempts.Load(), "new graph events must still enqueue work")
+		require.Equal(t, before+3, attempts.Load(), "new graph events must still enqueue work")
 		cancel()
 		require.NoError(t, queue.WaitForClose(time.Second))
 	})

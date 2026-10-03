@@ -18,6 +18,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
         checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -28,10 +29,7 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.ui.podLabels | default dict) (include "kagent.ui.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" .) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.ui.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -66,25 +64,15 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.ui.image.registry | default .Values.registry  }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
-          {{- /* The UI is a static bundle; these are read by init.sh, which
-                 renders them into the config.json the browser fetches at
-                 startup. Nothing here is consumed by a server process. */}}
+          image: {{ include "kagent.uiImage" . | quote }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.ui.image.pullPolicy) }}
+          {{- with .Values.ui.env }}
           env:
-            - name: KAGENT_API_BASE_URL
-              value: {{ .Values.ui.publicBackendUrl | default "/api" | quote }}
-            {{- if .Values.ui.auth }}
-            - name: SSO_REDIRECT_PATH
-              value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
-            {{- end }}
-            {{- if .Values.ui.streamTimeoutSeconds }}
-            - name: KAGENT_STREAM_TIMEOUT_MS
-              value: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
-            {{- end }}
-            {{- with .Values.ui.env }}
-              {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kagent.fullname" . }}-ui
           ports:
             - name: http
               containerPort: {{ .Values.ui.service.ports.targetPort }}

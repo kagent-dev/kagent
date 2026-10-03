@@ -10,7 +10,7 @@
  * this build talking to". This one answers "what did the operator configure".
  */
 
-import { ENV_DEFAULTS, env } from "@/env";
+import { ENV_DEFAULTS, env, withBasePath } from "@/env";
 
 export interface RuntimeConfig {
   /** Where "Sign in with SSO" sends the browser. */
@@ -34,7 +34,7 @@ export const RUNTIME_CONFIG_DEFAULTS: RuntimeConfig = {
  */
 export function runtimeConfig(): RuntimeConfig {
   return {
-    ssoRedirectPath: env("SSO_REDIRECT_PATH"),
+    ssoRedirectPath: withBasePath(env("SSO_REDIRECT_PATH")),
     streamTimeoutMs: streamTimeoutMs(),
   };
 }

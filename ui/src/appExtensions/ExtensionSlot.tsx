@@ -4,6 +4,7 @@ import type { ComponentType, ReactElement } from "react";
 import { EXTENSION_POINT_RENDER_MODE } from "./extensionPoints";
 import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import { useExtensionSlotComponents } from "./hooks";
+import { SlotErrorBoundary } from "./SlotErrorBoundary";
 
 /**
  * Props for a slot. Points that declare a context contract require `context`;
@@ -42,12 +43,11 @@ function ExtensionSlotImpl<Id extends ExtensionPointId>({
           Keyed by position, which is stable here because the install order is
           fixed for the life of the document — nothing reorders or filters this
           list at runtime. */}
-      {components.map((Component, index) =>
-        createElement(Component as ComponentType<object>, {
-          key: index,
-          ...(context ?? {}),
-        }),
-      )}
+      {components.map((Component, index) => (
+        <SlotErrorBoundary key={index}>
+          {createElement(Component as ComponentType<object>, context ?? {})}
+        </SlotErrorBoundary>
+      ))}
     </div>
   );
 

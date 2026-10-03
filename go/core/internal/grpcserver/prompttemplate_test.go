@@ -9,7 +9,6 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -41,8 +40,7 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener:              listener,
-		Registerer:            prometheus.NewRegistry(),
-		Authenticator:         &authimpl.UnsecureAuthenticator{},
+		Authenticator:         &authimpl.InsecureAuthenticator{},
 		SystemService:         testSystemService(),
 		PromptTemplateService: service,
 	})

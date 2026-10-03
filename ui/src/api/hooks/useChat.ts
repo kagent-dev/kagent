@@ -41,6 +41,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getChatClient } from "../chat";
 import { runtimeConfig } from "../runtimeConfig";
+import { randomId } from "../randomId";
 import { conversationKey } from "../chat/types";
 import {
   IDLE_TURN,
@@ -285,7 +286,7 @@ export function useChat(
 
       // Minted here so the transport can send it and the optimistic message can be
       // filed under it — see this file's header for why that matters.
-      const messageId = newMessageId();
+      const messageId = randomId();
 
       /*
        * The question this message answers, if the conversation is holding one.
@@ -608,23 +609,6 @@ export function useChat(
       retry,
     ],
   );
-}
-
-/**
- * An id for a message this client is about to send.
- *
- * `crypto.randomUUID` where it exists, which is every browser this app supports
- * over HTTPS or localhost — and a counter where it does not, because an id that
- * throws would take the whole send with it. Uniqueness is all that is asked of
- * it: the gateway accepts any string as a `message_id`.
- */
-let fallbackCounter = 0;
-function newMessageId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  fallbackCounter += 1;
-  return `local-${Date.now()}-${fallbackCounter}`;
 }
 
 /** Applies an update to the transcript, but only if it is still the right one. */

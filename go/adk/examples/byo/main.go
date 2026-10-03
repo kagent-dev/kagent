@@ -11,23 +11,19 @@
 //
 //   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
 //     scoping. Falls back to the agent card name.
-//   - PORT: the port to listen on (default "8080").
+//   - KAGENT_PORT: the port to listen on (default "8080").
 //
 // Required environment variables:
 //
 //   - OPENAI_API_KEY: your OpenAI API key.
+//   - KAGENT_API_URL: the kagent API endpoint, supplied by the Harness compiler.
 //
 // Optional environment variables:
 //
 //   - MODEL_NAME: the OpenAI model to use (default "gpt-4o-mini").
 //
-// Run locally (standalone, no kagent):
-//
-//	OPENAI_API_KEY=sk-... go run ./examples/byo/
-//
-// Test with curl:
-//
-//	curl -s http://localhost:8082/.well-known/agent.json | jq .
+// Deploy through a BYO Harness so the runtime receives its API endpoint and
+// projected actor identity. The app requires the central TaskStore for A2A work.
 package main
 
 import (
@@ -51,7 +47,7 @@ func main() {
 	logger, _ := logging.New(os.Stderr, "info")
 	slog.SetDefault(logger)
 
-	modelName := os.Getenv("MODEL_NAME")
+	modelName := os.Getenv("MODEL_NAME") //nolint:forbidigo // Application-specific setting in this standalone BYO example.
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}

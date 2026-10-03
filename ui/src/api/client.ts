@@ -1,3 +1,4 @@
+import type { Agent, AgentResource } from "./domain/agents";
 /**
  * The typed API surface the rest of the app calls.
  *
@@ -13,6 +14,7 @@
  */
 
 import { type ResourceRefInput, invoke } from "./operations";
+import { randomId } from "./randomId";
 import { sortedByFields, sortedByRef } from "./order";
 import type {
   CreateModelConfigRequest,
@@ -122,6 +124,12 @@ export interface SubstrateApi {
 
 /** The two halves an AgentInstance is created from. */
 export interface AgentBuildingBlocksApi {
+ agents(namespace?: string, options?: ReadOptions): Promise<Agent[]>;
+ agent(namespace: string, name: string, options?: ReadOptions): Promise<Agent>;
+ createAgent(input: {namespace: string; name: string; resource: AgentResource}): Promise<Agent>;
+ updateAgent(input: {namespace: string; name: string; resource: AgentResource}): Promise<Agent>;
+ removeAgent(namespace: string, name: string): Promise<void>;
+
   /**
    * Every `Harness` — the runtime half — in one namespace, or in all of them.
    *
@@ -140,7 +148,7 @@ export interface AgentBuildingBlocksApi {
     name: string;
     resource: HarnessResource;
   }): Promise<Harness>;
-  /** Deletes a harness. Templates admitted only by it then run nowhere. */
+
   removeHarness(namespace: string, name: string): Promise<void>;
   /** Every `AgentTemplate` — the behaviour half — in one namespace, or in all of them. */
   agentTemplates(namespace?: string, options?: ReadOptions): Promise<AgentTemplate[]>;
@@ -179,8 +187,7 @@ export interface AgentInstancesApi {
   list(
     options?: ReadOptions & {
       allCreators?: boolean;
-      agentTemplate?: ResourceRefInput;
-      harness?: ResourceRefInput;
+      agent?: ResourceRefInput;
     },
   ): Promise<AgentInstance[]>;
   get(id: string, options?: ReadOptions): Promise<AgentInstance>;
@@ -199,8 +206,7 @@ export interface AgentInstancesApi {
   resume(id: string): Promise<AgentInstance>;
 
   create(input: {
-    harness: ResourceRefInput;
-    agentTemplate: ResourceRefInput;
+    agent: ResourceRefInput;
     /**
      * The controller's idempotency key. Required — blank is `InvalidArgument`.
      *
@@ -240,8 +246,15 @@ export interface AgentInstancesApi {
    */
   checkpoints: {
     list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
-    create(id: string): Promise<Checkpoint>;
+    create(id: string, expectedHeadTaskId: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+    /**
+     * Names a boundary, which is what a fork of it is called too.
+     *
+     * An empty name clears the reader's title and restores the generated one, so the
+     * record that comes back is what it is now called rather than what was sent.
+     */
+    rename(checkpointId: string, name: string): Promise<Checkpoint>;
     /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
     remove(checkpointId: string): Promise<void>;
   };
@@ -325,6 +338,11 @@ export function createApiClient(): KagentApiClient {
     },
 
     agentBuildingBlocks: {
+      agents: (namespace, options) => invoke("agents.list", {namespace}, options).then(sortedByRef),
+      agent: (namespace, name, options) => invoke("agents.get", {namespace, name}, options),
+      createAgent: input => invoke("agents.create", input),
+      updateAgent: input => invoke("agents.update", input),
+      removeAgent: (namespace, name) => invoke("agents.delete", {namespace, name}),
       harnesses: (namespace, options) =>
         invoke("harnesses.list", { namespace }, options).then(sortedByRef),
       createHarness: (input) => invoke("harnesses.create", input),
@@ -346,8 +364,7 @@ export function createApiClient(): KagentApiClient {
           "agentInstances.list",
           {
             allCreators: options?.allCreators,
-            agentTemplate: options?.agentTemplate,
-            harness: options?.harness,
+            agent: options?.agent,
           },
           options,
         ).then((rows) => rows.sort((a, b) => a.id.localeCompare(b.id))),
@@ -360,21 +377,24 @@ export function createApiClient(): KagentApiClient {
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>
-        invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
+        invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {
         list: (id, options) =>
           invoke("agentInstances.checkpoints.list", { id }, options),
-        create: (id) =>
+        create: (id, expectedHeadTaskId) =>
           invoke("agentInstances.checkpoints.create", {
             id,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
+            expectedHeadTaskId,
           }),
         fork: (checkpointId, name) =>
           invoke("agentInstances.checkpoints.fork", {
             checkpointId,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
             name,
           }),
+        rename: (checkpointId, name) =>
+          invoke("agentInstances.checkpoints.rename", { checkpointId, name }),
         remove: (checkpointId) =>
           invoke("agentInstances.checkpoints.delete", { checkpointId }),
       },

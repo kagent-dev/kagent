@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -150,6 +151,44 @@ func TestHarnessServiceFiltersList(t *testing.T) {
 	}
 }
 
+func TestSandboxTemplateAuthorization(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{
+		Kind: apiauthorization.ScopeAnyOf,
+		AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{
+			Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team"},
+		}}}},
+	}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "b"}},
+		&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "denied"}},
+		&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "a"}},
+	).Build()
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind)
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+	listed, err := service.List(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	require.Equal(t, "a", listed[0].Name)
+	require.Equal(t, "b", listed[1].Name)
+	require.Equal(t, auth.VerbList, authorizer.scopeVerb)
+	require.Equal(t, v1alpha3.SandboxTemplateKind, authorizer.scopeType)
+	created, err := service.Create(ctx, &v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "created"}})
+	require.NoError(t, err)
+	require.NoError(t, service.Delete(ctx, types.NamespacedName{Namespace: created.Namespace, Name: created.Name}))
+	require.Equal(t, []authorizationCall{
+		{verb: auth.VerbCreate, resource: auth.Resource{Type: v1alpha3.SandboxTemplateKind, Namespace: "team", Name: "created"}},
+		{verb: auth.VerbDelete, resource: auth.Resource{Type: v1alpha3.SandboxTemplateKind, Namespace: "team", Name: "created"}},
+	}, authorizer.checkCalls)
+	authorizer.checkErr = errors.New("denied")
+	require.Error(t, service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "a"}))
+	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "a"}, &v1alpha3.SandboxTemplate{}))
+	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
+	_, err = service.List(ctx, "")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
+}
+
 func TestServiceRejectsInvalidScope(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
@@ -275,6 +314,80 @@ func TestListOrdersAcrossNamespaces(t *testing.T) {
 		}
 		if !slices.Equal(got, want) {
 			t.Fatalf("List() attempt %d = %v, want %v", attempt, got, want)
+		}
+	}
+}
+func TestAgentServiceFiltersAndAuthorizesStoredObjects(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{
+		Kind: apiauthorization.ScopeAnyOf,
+		AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{
+			Attribute: apiauthorization.AttributeName,
+			Operator:  apiauthorization.ScopeIn,
+			Values:    []string{"a", "b"},
+		}}}},
+	}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "b"}},
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "denied"}},
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "a"}},
+		&v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "mutable"}},
+	).Build()
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.Agent{}, &v1alpha3.AgentList{}, "Agent")
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+	listed, err := service.List(ctx, "team")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(listed) != 2 || listed[0].Name != "a" || listed[1].Name != "b" {
+		t.Fatalf("List() names = %v, want [a b]", []string{listed[0].Name, listed[1].Name})
+	}
+	if authorizer.scopeVerb != auth.VerbList || authorizer.scopeType != "Agent" {
+		t.Fatalf("Scope() = (%q, %q), want (list, Agent)", authorizer.scopeVerb, authorizer.scopeType)
+	}
+
+	if _, err := service.Get(ctx, types.NamespacedName{Namespace: "team", Name: "a"}); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if _, err := service.Create(ctx, &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "created"}}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	mutableRef := types.NamespacedName{Namespace: "team", Name: "mutable"}
+	mutable, err := service.Get(ctx, mutableRef)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	mutable.Spec.Template = &v1alpha3.AgentTemplateSpec{Description: "updated"}
+	if _, err := service.Update(ctx, mutable); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if err := service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "b"}); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
+	if _, err := service.List(ctx, "team"); !serviceerrors.IsCode(err, serviceerrors.CodeInternal) {
+		t.Fatalf("malformed Agent scope must fail closed: %v", err)
+	}
+
+	wantVerbs := []auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbGet, auth.VerbUpdate, auth.VerbDelete}
+	wantNames := []string{"a", "created", "mutable", "mutable", "b"}
+	if len(authorizer.checkCalls) != len(wantVerbs) {
+		t.Fatalf("Check() calls = %d, want %d", len(authorizer.checkCalls), len(wantVerbs))
+	}
+	for index, call := range authorizer.checkCalls {
+		if call.verb != wantVerbs[index] {
+			t.Errorf("Check() call %d verb = %q, want %q", index, call.verb, wantVerbs[index])
+		}
+		if call.resource.Type != "Agent" || call.resource.Namespace != "team" {
+			t.Errorf("Check() call %d resource = %+v", index, call.resource)
+		}
+		if got := call.resource.Name; got != wantNames[index] {
+			t.Errorf("Check() call %d name = %v, want %q", index, got, wantNames[index])
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -22,7 +23,7 @@ import (
 
 const credentialValue = "credential-must-not-be-serialized"
 
-func TestCompileSupportedProviders(t *testing.T) {
+func TestCompileProviderCredentials(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	tests := []struct {
 		name        string
@@ -31,28 +32,35 @@ func TestCompileSupportedProviders(t *testing.T) {
 		provider    string
 		environment map[string]string
 		egress      []string
+		wantErr     string
 	}{
 		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: credentialValue}, egress: []string{"api.openai.com"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
 		},
 		{
 			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: credentialValue}, egress: []string{"gateway.example.com"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://gateway.example.com:443"},
 		},
 		{
 			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: credentialValue}, egress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
+			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: v2translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-east-1.amazonaws.com:443"},
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
-			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-west-2", awsAccessKeyEnv: "access", awsSecretKeyEnv: credentialValue, awsSessionTokenEnv: "session"}, egress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
+			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, wantErr: "cannot use gateway header injection",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input, reader := testInput(t, test.model, test.secret)
 			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("expected unsupported credential error, got %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,11 +98,11 @@ func TestCompileSupportedProviders(t *testing.T) {
 }
 
 func TestCompileTracing(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
 	responses := v1alpha3.OpenAIAPIFormatResponses
@@ -115,7 +123,7 @@ func TestCompileTracing(t *testing.T) {
 	if cfg.Telemetry == nil || cfg.Telemetry.Traces == nil || cfg.Telemetry.Traces.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Traces.Protocol != "http/protobuf" || cfg.Telemetry.Logs == nil || cfg.Telemetry.Logs.Endpoint != "http://logs:4317" || cfg.Telemetry.Logs.Protocol != "grpc" || cfg.Telemetry.CaptureContent {
 		t.Fatalf("telemetry = %#v", cfg.Telemetry)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector", "logs"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://collector:4318", "http://kagent-controller.kagent:8083", "http://logs:4317", "https://api.openai.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -123,20 +131,21 @@ func TestCompileTracing(t *testing.T) {
 		environment[variable.Name] = variable.Value
 	}
 	for name, value := range map[string]string{
-		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
-		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf",
-		"OTEL_LOGGING_ENABLED":               "true",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT":   "http://logs:4317",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL":   "grpc",
-		"KAGENT_NAME":                        "assistant-codex",
-		"KAGENT_NAMESPACE":                   "test", preResponseTraceFlushEnv: "true",
+		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "otlp",
+		"OTEL_EXPORTER_OTLP_ENDPOINT":      "http://collector:4318",
+		"OTEL_EXPORTER_OTLP_PROTOCOL":      "http/protobuf",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4317",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "grpc",
+		"OTEL_SERVICE_NAME":                "runnable-agent",
+		"KAGENT_NAME":                      "runnable-agent",
+		"KAGENT_NAMESPACE":                 "test",
 	} {
 		if environment[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
 		}
 	}
 
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
 	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +167,7 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
@@ -176,7 +185,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "x-tenant=team-a"
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -216,7 +225,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	childModel := model
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []v2translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
+		Template: &v2translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
 		ResolvedModelConfig: &v2translator.ResolvedModelConfig{
 			Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childModel},
 		},
@@ -239,7 +248,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
 		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools"].Headers)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "mcp.example.com"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 }
@@ -293,11 +302,11 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 
 func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
 	t.Helper()
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test", UID: "harness"}, Spec: v1alpha3.HarnessSpec{
+	harness := &v2translator.HarnessConfiguration{Name: "codex", Namespace: "test", Source: &metav1.ObjectMeta{Name: "codex", Namespace: "test", UID: "harness"}, Spec: v1alpha3.HarnessSpec{
 		Codex: &v1alpha3.CodexHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/codex@sha256:" + strings.Repeat("a", 64)},
-		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
+	template := &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret"}, Data: secretData}
 	mock := krttest.NewMock(t, []any{secret})
@@ -305,7 +314,75 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{
+	return &v2translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &v2translator.AgentInput{
 		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
 	}}, collections
+}
+
+func TestCompileRuntimeTelemetry(t *testing.T) {
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Name = "fast"
+
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := codexconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Changing the Harness name must not change the Agent runtime identity.
+	want := tracing.RuntimeTelemetry{
+		Runtime: tracing.RuntimeCodex, AgentName: "runnable-agent", AgentNamespace: "test",
+		Provider: "openai", Model: "gpt-5.2-codex",
+	}
+	if config.RuntimeTelemetry != want {
+		t.Fatalf("runtime telemetry = %#v, want %#v", config.RuntimeTelemetry, want)
+	}
+	if config.RuntimeTelemetry.CaptureLimit() != 0 {
+		t.Fatal("content capture is not disabled by default")
+	}
+
+	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedConfig, err := codexconfig.Parse(captured.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capturedConfig.RuntimeTelemetry.CaptureContent {
+		t.Fatalf("captured runtime telemetry = %#v", capturedConfig.RuntimeTelemetry)
+	}
+	// The native exporter settings stay separate from the Go wrapper contract.
+	if capturedConfig.Telemetry == nil || !capturedConfig.Telemetry.CaptureContent {
+		t.Fatalf("native telemetry = %#v", capturedConfig.Telemetry)
+	}
+	// A telemetry change lives only in the compiled configuration, which the
+	// revision digest covers. Provenance records Kubernetes inputs, none of
+	// which changed.
+	if !bytes.Equal(revision.Provenance, captured.Provenance) {
+		t.Fatal("changing the capture policy changed revision provenance")
+	}
+	before, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := captured.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("changing the capture policy did not change the revision digest")
+	}
 }

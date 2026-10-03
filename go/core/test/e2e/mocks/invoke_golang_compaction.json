@@ -1,0 +1,152 @@
+{
+  "openai": [
+    {
+      "name": "summarizer",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Summarize the conversation for the compaction test.",
+          "role": "user"
+        },
+        "headers": [
+          {
+            "name": "X-Kagent-E2E-Model",
+            "value": "summarizer"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-compaction-summary",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "Compacted summary: the codeword is ALPHA and the port is 8443.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 40,
+          "completion_tokens": 14,
+          "total_tokens": 54
+        }
+      }
+    },
+    {
+      "name": "turn_one",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Turn one:",
+          "role": "user"
+        },
+        "headers": [
+          {
+            "name": "X-Kagent-E2E-Model",
+            "value": "agent"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-compaction-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "Noted: the codeword is ALPHA.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 7,
+          "total_tokens": 27
+        }
+      }
+    },
+    {
+      "name": "turn_two",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Turn two:",
+          "role": "user"
+        },
+        "headers": [
+          {
+            "name": "X-Kagent-E2E-Model",
+            "value": "agent"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-compaction-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "Noted: the port is 8443.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 40,
+          "completion_tokens": 7,
+          "total_tokens": 47
+        }
+      }
+    },
+    {
+      "name": "turn_three",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Turn three:",
+          "role": "user"
+        },
+        "headers": [
+          {
+            "name": "X-Kagent-E2E-Model",
+            "value": "agent"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-compaction-3",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "The codeword is ALPHA and the port is 8443.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 10,
+          "total_tokens": 40
+        }
+      }
+    }
+  ]
+}

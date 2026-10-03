@@ -47,13 +47,15 @@ spec:
       app.kubernetes.io/component: database
   template:
     metadata:
+      annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/postgresql-configmap.yaml") . | sha256sum }}
       labels:
         {{- /* extra pod labels: component merged over global, selector labels
              applied last so they can never be overridden */}}
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) ($pg.podLabels | default dict) (include "kagent.selectorLabels" . | fromYaml) (dict "app.kubernetes.io/component" "database") }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" $) }}{{- . | nindent 6 }}{{- end }}
       serviceAccountName: {{ $fullname }}
       {{- with $pg.podSecurityContext }}
       securityContext:
@@ -74,7 +76,7 @@ spec:
       containers:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
-          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" $ "local" $pg.image.pullPolicy) }}
           {{- with $pg.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -84,17 +86,14 @@ spec:
               containerPort: 5432
               protocol: TCP
           env:
-            - name: POSTGRES_DB
-              value: "kagent"
-            - name: POSTGRES_USER
-              value: "kagent"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+          envFrom:
+            - configMapRef:
+                name: {{ $fullname }}
           livenessProbe:
             exec:
               command:

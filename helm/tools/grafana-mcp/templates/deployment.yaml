@@ -19,6 +19,7 @@ spec:
         {{- include "grafana-mcp.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "grafana-mcp.serviceAccountName" . }}
+      {{- with include "grafana-mcp.imagePullSecrets" . }}{{- . | nindent 6 }}{{- end }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -36,7 +37,7 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: {{ include "grafana-mcp.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          imagePullPolicy: {{ include "grafana-mcp.imagePullPolicy" . }}
           args:
             - --transport
             - streamable-http

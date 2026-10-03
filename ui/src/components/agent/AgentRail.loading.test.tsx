@@ -33,7 +33,7 @@ function renderLoadingRail() {
   return render(
     <ThemeProvider theme={themeFor("dark")}>
       <MemoryRouter initialEntries={["/agents/abc123/chat"]}>
-        <AgentRail agentRef={{ id: "abc123" }} instances={loadingList} />
+        <AgentRail instanceRef={{ id: "abc123" }} instances={loadingList} />
       </MemoryRouter>
     </ThemeProvider>,
   );

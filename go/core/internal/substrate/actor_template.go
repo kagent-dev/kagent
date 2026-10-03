@@ -4,11 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,7 +24,20 @@ const (
 	defaultContainerName = "kagent"
 	durableDataVolume    = "data"
 	durableDataMount     = "/data"
+	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
+	maxEnvironmentValueRunes = 32768
 )
+
+const egressTrustVolume = "egress-trust"
+const egressTrustMount = "/run/kagent/egress"
+
+const actorIdentityVolume = "actor-identity"
+const actorIdentityMount = "/run/kagent/identity"
+
+var egressTrustEnvironment = map[string]struct{}{
+	"SSL_CERT_FILE": {}, "SSL_CERT_DIR": {}, "REQUESTS_CA_BUNDLE": {}, "AWS_CA_BUNDLE": {},
+	"NODE_EXTRA_CA_CERTS": {}, "CURL_CA_BUNDLE": {}, "GIT_SSL_CAINFO": {},
+}
 
 // ActorTemplateForRevision constructs the immutable ate-api resource for a
 // compiled revision. It performs no reads or writes, which makes it safe to use
@@ -29,9 +47,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
-	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
-	// Config is passed inline because Substrate ActorTemplates support only
-	// literal environment variables. Render the typed card only at this boundary.
+	name := revisionActorTemplateName(spec.AgentName, revisionID)
+	// Config and SDK placeholders contain no Secret values. Render the typed
+	// card only at this boundary.
 	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
 	if err != nil {
 		return nil, fmt.Errorf("convert runtime Agent Card: %w", err)
@@ -40,7 +58,19 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if err != nil {
 		return nil, fmt.Errorf("render runtime Agent Card: %w", err)
 	}
-	environment := append([]corev1.EnvVar(nil), spec.Environment...)
+	environment := withServiceVersion(append([]corev1.EnvVar(nil), spec.Environment...), revisionID.Short())
+	// The systemInfo trustBundle volume below projects the gateway CA. These
+	// variables tell each TLS client to trust it; mounting the file alone does
+	// not configure trust. The gateway intercepts HTTPS even without credentials.
+	for _, variable := range environment {
+		if _, owned := egressTrustEnvironment[variable.Name]; owned {
+			return nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)
+		}
+	}
+	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"} {
+		environment = append(environment, corev1.EnvVar{Name: name, Value: egressTrustMount + "/trust-bundle.pem"})
+	}
+	environment = append(environment, corev1.EnvVar{Name: "SSL_CERT_DIR", Value: egressTrustMount})
 	environment = append(environment,
 		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
 		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(cardJSON)},
@@ -52,34 +82,52 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
+	sandboxConfig, err := sandboxConfigForClass(spec.SandboxClass)
+	if err != nil {
+		return nil, err
+	}
 
 	template := &ateapipb.ActorTemplate{
-		Metadata: &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
-		// The v2 API intentionally has one default sandbox policy for now.
-		SandboxConfig: &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
-			ConfigName:   "gvisor-default",
-		},
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		SandboxConfig: sandboxConfig,
 		Containers: []*ateapipb.Container{{
 			Name:    defaultContainerName,
 			Image:   spec.Image,
 			Command: append([]string(nil), spec.Command...),
 			Args:    append([]string(nil), spec.Args...),
 			Env:     actorEnv,
-			Readyz: &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
-			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}},
+			VolumeMounts: []*ateapipb.VolumeMount{
+				{Name: durableDataVolume, MountPath: durableDataMount},
+				{Name: egressTrustVolume, MountPath: egressTrustMount},
+				{Name: actorIdentityVolume, MountPath: actorIdentityMount},
+			},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
-		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
 			OnResume:        &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN},
 		},
-		Volumes: []*ateapipb.Volume{{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}}},
+		Volumes: []*ateapipb.Volume{
+			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
+			// Substrate regenerates this projection on Run and Restore. A fork
+			// therefore routes storage calls as its own actor, never its source.
+			{Name: actorIdentityVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
+				{ActorMetadata: &ateapipb.ActorMetadataDataSource{Items: []*ateapipb.ActorMetadataItem{
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME, Path: "name"},
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_ATESPACE, Path: "atespace"},
+					{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID, Path: "uid"},
+				}}},
+			}}},
+			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{
+				{TrustBundle: &ateapipb.TrustBundleDataSource{Name: "egress-mitm.ate.dev", Path: "trust-bundle.pem"}},
+			}}},
+		},
 	}
 	return template, nil
 }
@@ -99,19 +147,30 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 			Atespace: template.GetMetadata().GetAtespace(),
 			Name:     template.GetMetadata().GetName(),
 		},
-		WorkerSelector:  template.GetWorkerSelector(),
-		Containers:      template.GetContainers(),
-		Volumes:         template.GetVolumes(),
-		SnapshotsConfig: template.GetSnapshotsConfig(),
-		SandboxConfig:   template.GetSandboxConfig(),
-		Resources:       template.GetResources(),
+		WorkerSelector: template.GetWorkerSelector(),
+		Containers:     template.GetContainers(),
+		Volumes:        template.GetVolumes(),
+		SnapshotConfig: template.GetSnapshotConfig(),
+		SandboxConfig:  template.GetSandboxConfig(),
+		Resources:      template.GetResources(),
 	}
 }
 
-func revisionActorTemplateName(agentTemplate, harness string, revision translator.RevisionID) string {
+// withServiceVersion stamps the revision on the runtime resource. The revision
+// digests the environment, so the compiler cannot render it.
+func withServiceVersion(environment []corev1.EnvVar, version string) []corev1.EnvVar {
+	for index, variable := range environment {
+		if variable.Name == tracing.ResourceEnvironmentVariable && variable.ValueFrom == nil {
+			environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+		}
+	}
+	return environment
+}
+
+func revisionActorTemplateName(agentName string, revision translator.RevisionID) string {
 	// Twelve digest characters keep names readable while the full digest remains
 	// the database identity and immutable-content check.
-	base := truncateDNS1123(agentTemplate + "-" + harness)
+	base := truncateDNS1123(agentName)
 	base = truncateDNS1123To(base, 50)
 	return base + "-" + revision.Short()
 }
@@ -133,8 +192,7 @@ func truncateDNS1123To(value string, limit int) string {
 }
 
 func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar, error) {
-	// Substrate ActorTemplates accept only literal values. The compiler resolves
-	// Secret references before revisions reach this boundary.
+	// Only non-secret literals and SDK placeholders may cross this boundary.
 	result := make([]*ateapipb.EnvVar, 0, len(environment))
 	seen := make(map[string]struct{}, len(environment))
 	for _, value := range environment {
@@ -147,8 +205,28 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 		if _, exists := seen[value.Name]; exists {
 			continue
 		}
+		if size := utf8.RuneCountInString(value.Value); size > maxEnvironmentValueRunes {
+			return nil, fmt.Errorf("environment variable %q is %d characters; Substrate supports at most %d", value.Name, size, maxEnvironmentValueRunes)
+		}
 		seen[value.Name] = struct{}{}
 		result = append(result, &ateapipb.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return result, nil
+}
+
+func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxConfig, error) {
+	switch class {
+	case "", atev1alpha1.SandboxClassGvisor:
+		return &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			ConfigName:   "gvisor-default",
+		}, nil
+	case atev1alpha1.SandboxClassMicroVM:
+		return &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM,
+			ConfigName:   "microvm",
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported sandbox class %q", class)
+	}
 }

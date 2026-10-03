@@ -10,6 +10,8 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { iconControlStyles } from "@/components/agent/controlStyles";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
+import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
+import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
@@ -23,6 +25,7 @@ import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
+import type { Checkpoint } from "@/api";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
@@ -49,7 +52,7 @@ const LIFECYCLE_POLL_MS = 1_000;
  *
  * That is also why "New chat" in the rail *creates* rather than navigates: another
  * conversation with the same agent is another instance of the same
- * `(Harness, AgentTemplate)` pair, and the siblings of this instance are the other
+ * Agent definition, and the siblings of this instance are the other
  * conversations you have had with it.
  *
  * ## Sharing
@@ -95,9 +98,11 @@ export function AgentChatPage() {
    */
   const instances = useAgentInstances();
 
+  const agent = instance.data?.agent;
+  const contextId = instance.data?.contextId;
   const conversation = useMemo(
-    () => (id ? { id, contextId: instance.data?.contextId } : undefined),
-    [id, instance.data?.contextId],
+    () => (id && agent ? { id, agent, contextId } : undefined),
+    [id, agent, contextId],
   );
   /**
    * Resume a suspended conversation before any turn begins.
@@ -179,10 +184,39 @@ export function AgentChatPage() {
   const [savedHere, setSavedHere] = useState<SavedMarks>(NO_MARKS);
   const marksHere = savedHere.conversation === id ? savedHere.marks : NO_MARKS.marks;
   const [isCheckpointing, setCheckpointing] = useState(false);
+  /*
+   * Which snapshot's details are open, as the record rather than as an id into the list.
+   *
+   * An id would make the modal's existence depend on a read that is refreshed under it:
+   * a rename re-reads the boundaries, and a `find` over the list mid-refresh is a modal
+   * that unmounts and takes the reader's half-typed name with it. A rename hands the
+   * renamed record straight back here instead, so what is on screen never waits on a
+   * list to agree with it.
+   */
+  const [openCheckpoint, setOpenCheckpoint] = useState<Checkpoint>();
+  const openSnapshot = useCallback(
+    (checkpointId: string) =>
+      setOpenCheckpoint(checkpoints.data?.find((row) => row.id === checkpointId)),
+    [checkpoints.data],
+  );
+  /* The rename box, reachable from the line as well as from the record — held as its
+     own record for the reason `openCheckpoint` is. */
+  const [renamingCheckpoint, setRenamingCheckpoint] = useState<Checkpoint>();
+  const renameSnapshot = useCallback(
+    (checkpointId: string) =>
+      setRenamingCheckpoint(checkpoints.data?.find((row) => row.id === checkpointId)),
+    [checkpoints.data],
+  );
 
   const checkpointByMessage = useMemo(
     () => checkpointsByMessage(chat.messages, checkpoints.data, marksHere),
     [chat.messages, checkpoints.data, marksHere],
+  );
+  /* The same list keyed by id, so a line can name itself without the transcript
+     searching the list once per boundary it draws. */
+  const checkpointsById = useMemo(
+    () => new Map((checkpoints.data ?? []).map((saved) => [saved.id, saved])),
+    [checkpoints.data],
   );
   /*
    * Whether there is a boundary to save.
@@ -192,7 +226,7 @@ export function AgentChatPage() {
    * which is a way of filling the list rather than a thing anyone wants.
    */
   const latest = chat.messages[chat.messages.length - 1];
-  const canCheckpoint = Boolean(latest) && !checkpointByMessage.has(latest.id);
+  const canCheckpoint = Boolean(latest?.taskId) && !checkpointByMessage.has(latest.id);
 
   /*
    * Saves the conversation's current turn boundary.
@@ -202,11 +236,11 @@ export function AgentChatPage() {
    * `checkpointsByMessage` for why the message alone cannot say which turn it is in.
    */
   const checkpointChat = useCallback(async () => {
-    if (!id) return;
+    if (!id || !latest?.taskId) return;
     const anchor = [...chat.messages].reverse().find((m) => m.role === "user")?.id;
     setCheckpointing(true);
     try {
-      const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
+      const checkpoint = await apiClient.agentInstances.checkpoints.create(id, latest.taskId);
       if (anchor) {
         setSavedHere((current) => {
           const marks = new Map(current.conversation === id ? current.marks : []);
@@ -215,15 +249,15 @@ export function AgentChatPage() {
         });
       }
       await checkpoints.refresh();
-      toast.success("Checkpoint saved");
+      toast.success("Snapshot saved");
     } catch (cause: unknown) {
       const reason = cause instanceof Error ? cause.message : String(cause);
       console.error("Could not checkpoint the conversation:", cause);
-      toast.error(`Could not checkpoint: ${reason}`);
+      toast.error(`Could not save the snapshot: ${reason}`);
     } finally {
       setCheckpointing(false);
     }
-  }, [id, chat.messages, checkpoints]);
+  }, [id, chat.messages, checkpoints, latest]);
 
   /*
    * Removes a saved boundary.
@@ -240,7 +274,7 @@ export function AgentChatPage() {
           conversation: current.conversation,
           marks: new Map([...current.marks].filter(([, saved]) => saved !== checkpointId)),
         }));
-        toast.success("Checkpoint deleted");
+        toast.success("Snapshot deleted");
       } catch (cause: unknown) {
         const reason = cause instanceof Error ? cause.message : String(cause);
         console.error("Could not delete the checkpoint:", cause);
@@ -262,14 +296,14 @@ export function AgentChatPage() {
    */
   const forkCheckpoint = useCallback(
     async (checkpointId: string) => {
-      const title = instance.data?.name || autoTitle;
       try {
-        const forked = await apiClient.agentInstances.checkpoints.fork(
-          checkpointId,
-          title ? `${title} (fork)` : undefined,
-        );
+        // No name passed: `ForkAgentInstance` titles the fork after the snapshot's
+        // own name, so sending one here would be a second rename overwriting it.
+        const forked = await apiClient.agentInstances.checkpoints.fork(checkpointId);
         await invalidateConversations();
-        toast.success(title ? `Forked "${title}"` : "Forked the conversation");
+        // Named for what was made, not what it came from: the fork carries the
+        // snapshot's name, so naming the source here reports the wrong conversation.
+        toast.success(forked.name ? `Forked into “${forked.name}”` : "Forked the conversation");
         navigate(links?.chat?.({ id: forked.id }) ?? agentUrl.chat({ id: forked.id }));
       } catch (cause: unknown) {
         const reason = cause instanceof Error ? cause.message : String(cause);
@@ -277,20 +311,14 @@ export function AgentChatPage() {
         toast.error(`Could not fork: ${reason}`);
       }
     },
-    [
-      instance.data?.name,
-      autoTitle,
-      invalidateConversations,
-      links,
-      navigate,
-    ],
+    [invalidateConversations, links, navigate],
   );
 
   /**
    * Starts another conversation with this agent.
    *
-   * A new instance of the same pair — which is what a second conversation *is* — so
-   * this needs the current instance loaded to copy the pair from. The rail's button
+   * A new instance of the same Agent — which is what a second conversation *is* — so
+   * this needs the current instance loaded to copy the Agent reference from. The rail's button
    * is disabled until then rather than creating something from a half-read record.
    */
 
@@ -538,7 +566,7 @@ export function AgentChatPage() {
         }}>
         {id ? (
           <AgentRail
-            agentRef={{ id }}
+            instanceRef={{ id }}
             instance={instance.data}
             instances={instances}
             autoTitle={autoTitle}
@@ -680,8 +708,11 @@ export function AgentChatPage() {
           <ChatTranscript
             chat={chat}
             sessionId={id}
+            onOpenCheckpoint={openSnapshot}
+            onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}
             onDeleteCheckpoint={deleteCheckpoint}
+            checkpointsById={checkpointsById}
             checkpointByMessage={checkpointByMessage}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
@@ -807,7 +838,7 @@ export function AgentChatPage() {
               data-testid="chat-context-aside"
               css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
             >
-              <AgentContextPanel agent={instance.data} />
+              <AgentContextPanel instance={instance.data} />
             </div>
           ) : null}
         </div>
@@ -818,6 +849,38 @@ export function AgentChatPage() {
         open={isShowingDetails}
         onClose={() => setShowingDetails(false)}
       />
+
+      {/* Mounted only while a snapshot is open, so the rename box inside it seeds from
+          the record rather than from whichever snapshot was opened first. */}
+      {openCheckpoint && id ? (
+        <SnapshotDetailsModal
+          checkpoint={openCheckpoint}
+          instanceId={id}
+          onClose={() => setOpenCheckpoint(undefined)}
+          onFork={forkCheckpoint}
+          onDelete={deleteCheckpoint}
+          onRenamed={(renamed) => {
+            setOpenCheckpoint(renamed);
+            // The line on the transcript and anything else reading the list, which
+            // this modal no longer waits on.
+            return checkpoints.refresh();
+          }}
+        />
+      ) : null}
+
+      {/* Mounted only while open, so the box seeds from the record it is for. */}
+      {renamingCheckpoint ? (
+        <SnapshotRenameDialog
+          checkpoint={renamingCheckpoint}
+          onClose={() => setRenamingCheckpoint(undefined)}
+          onRenamed={() => {
+            setRenamingCheckpoint(undefined);
+            // The line on the transcript reads the list, so it is the list that has to
+            // hear about the new name.
+            return checkpoints.refresh();
+          }}
+        />
+      ) : null}
 
       {conversation ? (
         <ShareDialog

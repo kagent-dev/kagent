@@ -40,6 +40,36 @@ export default tseslint.config(
   },
 
   /*
+   * Two web APIs that only exist in a secure context, and the helpers that stand
+   * in for them.
+   *
+   * Both were called bare once already: `crypto.randomUUID` threw on every page
+   * that minted an id over plain http, and `navigator.clipboard?.writeText` was a
+   * silent no-op there. The first was fixed in #1868 and lost again when the
+   * interface was rewritten, which is the argument for a rule rather than a note:
+   * the knowledge has to survive the next rewrite of the file that holds it.
+   */
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/api/randomId.ts", "src/components/common/copyText.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[property.name='randomUUID']",
+          message:
+            "crypto.randomUUID is undefined outside a secure context — over plain http from anything but localhost it throws. Use randomId() from @/api/randomId.",
+        },
+        {
+          selector: "MemberExpression[property.name='clipboard']",
+          message:
+            "navigator.clipboard is undefined outside a secure context, so a copy there does nothing and says nothing. Use copyText() from @/components/common/copyText.",
+        },
+      ],
+    },
+  },
+
+  /*
    * The browser suite's conventions, enforced rather than only written down.
    *
    * `playwright/README.md` states these; a convention nothing checks is one that
