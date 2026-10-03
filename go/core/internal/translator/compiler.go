@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -126,6 +128,10 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, err
 	}
 	result.AgentUID = string(agent.UID)
+	result.EgressDestinations, err = withAgentEgress(result.EgressDestinations, agent.Spec.Egress)
+	if err != nil {
+		return nil, err
+	}
 	result.Provenance, err = json.Marshal(struct {
 		AgentName string             `json:"agentName"`
 		AgentUID  string             `json:"agentUID"`
@@ -136,6 +142,26 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, fmt.Errorf("encode Agent provenance: %w", err)
 	}
 	return result, nil
+}
+
+// withAgentEgress adds the Agent's declared origins to the destinations its
+// runtime compiled, in canonical form and once each. Every runtime gets the
+// same treatment, so no runtime compiler reads the Agent's egress.
+func withAgentEgress(compiled, declared []string) ([]string, error) {
+	if len(declared) == 0 {
+		return compiled, nil
+	}
+	destinations := slices.Clone(compiled)
+	for _, value := range declared {
+		origin, err := egress.ParseOrigin(value)
+		if err != nil {
+			return nil, NewValidationError("Agent egress: %v", err)
+		}
+		if !slices.Contains(destinations, origin) {
+			destinations = append(destinations, origin)
+		}
+	}
+	return destinations, nil
 }
 
 // compileConfiguration compiles resolved configuration for the named Agent.

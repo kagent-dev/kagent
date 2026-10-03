@@ -978,3 +978,70 @@ func TestResolveModelConfigMistral(t *testing.T) {
 	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
 	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
 }
+
+func TestCompileAgentAddsTheAgentEgress(t *testing.T) {
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "go-coder", Namespace: "test"},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+	}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		},
+	}
+	declared := []string{"https://proxy.golang.org", "https://*.githubusercontent.com", "https://Proxy.Golang.org.", "https://git.internal:8443"}
+	want := []string{"https://proxy.golang.org:443", "https://*.githubusercontent.com:443", "https://git.internal:8443"}
+	c := compiler(t, modelConfig(), template, harness)
+
+	referenced := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: "test"}, Spec: v1alpha3.AgentSpec{
+		TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name}, Egress: declared,
+	}}
+	inline := inlineAgent(harness, template)
+	inline.Spec.Egress = declared
+	for name, agent := range map[string]*v1alpha3.Agent{"references": referenced, "inline": inline} {
+		t.Run(name, func(t *testing.T) {
+			result, err := c.CompileAgent(t.Context(), agent)
+			require.NoError(t, err)
+			require.Subset(t, result.EgressDestinations, want)
+			require.Equal(t, 1, countOf(result.EgressDestinations, "https://proxy.golang.org:443"), "an origin is listed once")
+			policy, err := substrate.ActorEgressPolicy("test", result.EgressDestinations, result.Credentials)
+			require.NoError(t, err)
+			var hostnames []string
+			for _, rule := range policy.Rules {
+				hostnames = append(hostnames, rule.GetHttps().GetHostnames()...)
+			}
+			require.Subset(t, hostnames, []string{"proxy.golang.org", "*.githubusercontent.com", "git.internal"})
+		})
+	}
+
+	withEgress, err := c.CompileAgent(t.Context(), referenced)
+	require.NoError(t, err)
+	plain := referenced.DeepCopy()
+	plain.Spec.Egress = nil
+	withoutEgress, err := c.CompileAgent(t.Context(), plain)
+	require.NoError(t, err)
+	// The destinations are a digest input, so the revision identity follows them.
+	require.Subset(t, withEgress.EgressDestinations, want)
+	for _, origin := range want {
+		require.NotContains(t, withoutEgress.EgressDestinations, origin)
+	}
+
+	invalid := referenced.DeepCopy()
+	invalid.Spec.Egress = []string{"https://proxy.golang.org/path"}
+	_, err = c.CompileAgent(t.Context(), invalid)
+	var validation *v2translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+}
+
+func countOf(values []string, want string) int {
+	n := 0
+	for _, value := range values {
+		if value == want {
+			n++
+		}
+	}
+	return n
+}
