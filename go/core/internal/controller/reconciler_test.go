@@ -367,7 +367,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		collections,
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
-		statusClient, time.Second,
+		statusClient,
 	)
 
 	go reconciler.Run(stop)

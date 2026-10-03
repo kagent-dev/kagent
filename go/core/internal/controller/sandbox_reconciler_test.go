@@ -126,7 +126,6 @@ func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconcil
 	reconciler := &SandboxReconciler{
 		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
 		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
-		pollInterval: time.Second,
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
 	return reconciler, templates, pools

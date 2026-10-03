@@ -20,14 +20,20 @@ values use the defaults below. Changes require restarting the controller.
 | `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | `1s` | Delays reserving cron firings. Occurrences more than 30 seconds late are skipped. |
 | `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | `1s` | Delays dispatch, status updates, deadline enforcement, and execution cleanup, including manually triggered runs. |
 | `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | `1m` | Retains unreferenced runtime revisions and their external resources longer. |
-| `KAGENT_AGENT_PREPARATION_POLL_INTERVAL` | `1s` | Delays observing completion of pending agent runtime preparation. |
-| `KAGENT_SANDBOX_PREPARATION_POLL_INTERVAL` | `1s` | Delays pending sandbox-template preparation, cleanup, and retry checks. |
 | `KAGENT_MCP_TOOL_REFRESH_INTERVAL` | `5m` | Delays refreshing MCPServer and RemoteMCPServer tool catalogs. Each refresh writes to PostgreSQL. |
 | `KAGENT_MCP_READINESS_POLL_INTERVAL` | `10s` | Delays checking unready MCPServers and updating their database catalogs. |
 
 These settings preserve background processing. The existing
 `KAGENT_SESSION_IDLE_TTL=0` option still disables session expiration specifically.
 All other workers continue running independently of that setting.
+
+Agent and sandbox-template preparation checks remain fixed at one second. They
+scan cached state and only enqueue reconciliation for pending work; once
+preparation and cleanup are settled, these ticks do not query PostgreSQL.
+Slowing them would delay availability of newly prepared runtimes without helping
+the database become idle in that settled state. MCP readiness checks differ:
+each check of an unready MCPServer writes its database catalog, so that interval
+is configurable.
 
 ## Connection pool
 
@@ -78,10 +84,6 @@ controller:
     - name: KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL
       value: "20m"
     - name: KAGENT_RUNTIME_REVISION_GC_INTERVAL
-      value: "20m"
-    - name: KAGENT_AGENT_PREPARATION_POLL_INTERVAL
-      value: "20m"
-    - name: KAGENT_SANDBOX_PREPARATION_POLL_INTERVAL
       value: "20m"
     - name: KAGENT_MCP_TOOL_REFRESH_INTERVAL
       value: "20m"

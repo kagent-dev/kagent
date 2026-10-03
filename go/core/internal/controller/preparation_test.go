@@ -276,7 +276,7 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 				initial := collections.Reconciliations.List()[0]
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
 				backend := &preparationTestBackend{templates: &test.templates, store: &test.store}
-				r := newReconciler(collections, backend, backend, statusClient, time.Second)
+				r := newReconciler(collections, backend, backend, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -403,7 +403,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 		initial := collections.Reconciliations.List()[0]
 		templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "missing config")}
 		store := &fakeRuntimeRevisionStore{}
-		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), time.Second)
+		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go r.Run(ctx.Done())
@@ -457,7 +457,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-				r := newReconciler(collections, templates, store, statusClient, time.Second)
+				r := newReconciler(collections, templates, store, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())

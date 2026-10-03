@@ -61,7 +61,7 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 		runtime := &Runtime{Client: runtimeClient, Options: options, Collections: Collections{
 			SandboxTemplates: typedCollection[*kagentv1alpha3.SandboxTemplate](runtimeClient, []string{"team-a"}, "SandboxTemplates", options), WorkerPools: pools,
 		}}
-		reconciler, err := NewSandboxReconciler(config, runtime, store, actors, substrate.SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}, time.Second)
+		reconciler, err := NewSandboxReconciler(config, runtime, store, actors, substrate.SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"})
 		require.NoError(t, err)
 		results := make(chan error, 2)
 		go func() { results <- runtime.Start(ctx) }()

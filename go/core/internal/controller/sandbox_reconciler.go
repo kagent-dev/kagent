@@ -38,21 +38,20 @@ type sandboxRevisionStore interface {
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
 // Sandbox instance lifecycle remains owned by the PostgreSQL-backed worker.
 type SandboxReconciler struct {
-	collections  sandboxCollections
-	store        sandboxRevisionStore
-	actors       actorTemplateClient
-	client       kagentclient.ApiV1alpha3Interface
-	pollInterval time.Duration
+	collections sandboxCollections
+	store       sandboxRevisionStore
+	actors      actorTemplateClient
+	client      kagentclient.ApiV1alpha3Interface
 }
 
 var _ manager.LeaderElectionRunnable = (*SandboxReconciler)(nil)
 
-func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy, pollInterval time.Duration) (*SandboxReconciler, error) {
+func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy) (*SandboxReconciler, error) {
 	client, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create SandboxTemplate client: %w", err)
 	}
-	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, pollInterval: pollInterval}, nil
+	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client}, nil
 }
 
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
@@ -85,7 +84,7 @@ func (s *SandboxReconciler) Start(ctx context.Context) error {
 // Kubernetes changes arrive through KRT. Poll only incomplete external work;
 // this also recovers transient failures after the queue's retry budget expires.
 func (s *SandboxReconciler) pollPending(ctx context.Context, preparations, statuses controllers.Queue) {
-	ticker := time.NewTicker(s.pollInterval)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		select {

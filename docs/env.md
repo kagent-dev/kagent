@@ -111,7 +111,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `DB_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Maximum idle PostgreSQL connection duration before pool cleanup. Unset uses the connection URL or pgx default. Must be positive. |
 | `DB_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Maximum PostgreSQL connection lifetime. Unset uses the connection URL or pgx default. Must be positive. |
 | `DB_MIN_CONNS` | Integer | `0` | Minimum PostgreSQL pool connections. Unset uses the connection URL or pgx default. Use zero for serverless databases. |
-| `KAGENT_AGENT_PREPARATION_POLL_INTERVAL` | Duration | `1s` | Interval between checks of pending agent runtime preparation. Must be positive. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
@@ -142,7 +141,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
 | `KAGENT_SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
-| `KAGENT_SANDBOX_PREPARATION_POLL_INTERVAL` | Duration | `1s` | Interval between checks of pending sandbox template preparation and cleanup. Must be positive. |
 | `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
 | `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
 | `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |

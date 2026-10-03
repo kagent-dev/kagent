@@ -10,7 +10,6 @@ import (
 type pollingConfig struct {
 	sessionQuiescence, sessionExpiration, sandboxExpiration time.Duration
 	scheduledRun, scheduledRunExecution, runtimeRevisionGC  time.Duration
-	agentPreparation, sandboxPreparation                    time.Duration
 	mcpToolRefresh, mcpReadiness                            time.Duration
 }
 
@@ -28,8 +27,6 @@ func pollingConfigFromEnv() (pollingConfig, error) {
 		{kagentenv.ScheduledRunPollInterval, &config.scheduledRun},
 		{kagentenv.ScheduledRunExecutionPollInterval, &config.scheduledRunExecution},
 		{kagentenv.RuntimeRevisionGCInterval, &config.runtimeRevisionGC},
-		{kagentenv.AgentPreparationPollInterval, &config.agentPreparation},
-		{kagentenv.SandboxPreparationPollInterval, &config.sandboxPreparation},
 		{kagentenv.MCPToolRefreshInterval, &config.mcpToolRefresh},
 		{kagentenv.MCPReadinessPollInterval, &config.mcpReadiness},
 	} {

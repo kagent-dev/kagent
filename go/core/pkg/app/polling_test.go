@@ -13,7 +13,6 @@ func TestPollingConfigFromEnv(t *testing.T) {
 		kagentenv.SessionQuiescencePollInterval, kagentenv.SessionExpirationPollInterval,
 		kagentenv.SandboxExpirationPollInterval, kagentenv.ScheduledRunPollInterval,
 		kagentenv.ScheduledRunExecutionPollInterval, kagentenv.RuntimeRevisionGCInterval,
-		kagentenv.AgentPreparationPollInterval, kagentenv.SandboxPreparationPollInterval,
 		kagentenv.MCPToolRefreshInterval, kagentenv.MCPReadinessPollInterval,
 	}
 	for _, variable := range variables {
@@ -24,7 +23,6 @@ func TestPollingConfigFromEnv(t *testing.T) {
 	require.Equal(t, pollingConfig{
 		sessionQuiescence: time.Second, sessionExpiration: time.Minute, sandboxExpiration: time.Second,
 		scheduledRun: time.Second, scheduledRunExecution: time.Second, runtimeRevisionGC: time.Minute,
-		agentPreparation: time.Second, sandboxPreparation: time.Second,
 		mcpToolRefresh: 5 * time.Minute, mcpReadiness: 10 * time.Second,
 	}, config)
 
@@ -47,7 +45,6 @@ func TestPollingConfigFromEnv(t *testing.T) {
 	require.Equal(t, pollingConfig{
 		sessionQuiescence: time.Minute, sessionExpiration: 2 * time.Minute, sandboxExpiration: 3 * time.Minute,
 		scheduledRun: 4 * time.Minute, scheduledRunExecution: 5 * time.Minute, runtimeRevisionGC: 6 * time.Minute,
-		agentPreparation: 7 * time.Minute, sandboxPreparation: 8 * time.Minute,
-		mcpToolRefresh: 9 * time.Minute, mcpReadiness: 10 * time.Minute,
+		mcpToolRefresh: 7 * time.Minute, mcpReadiness: 8 * time.Minute,
 	}, config)
 }

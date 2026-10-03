@@ -283,7 +283,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer actors.Close()
-	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store, actors, polling.agentPreparation)
+	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		return err
 	}
@@ -362,7 +362,7 @@ func Run(ctx context.Context, opts Options) error {
 		CPU:        kagentenv.SandboxCPU.Get(),
 		Memory:     kagentenv.SandboxMemory.Get(),
 	}
-	preparation, err := v2controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy, polling.sandboxPreparation)
+	preparation, err := v2controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
 	if err != nil {
 		return err
 	}
