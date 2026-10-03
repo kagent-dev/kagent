@@ -2,9 +2,11 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"iter"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,15 +16,19 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
@@ -338,6 +344,161 @@ func TestStructuredOutputPartConverterDropsOnlyRootPartials(t *testing.T) {
 	got, err = converter(context.Background(), partial, genai.NewPartFromText("tool progress"))
 	if err != nil || got == nil || got.Text() != "tool progress" {
 		t.Fatalf("non-root partial conversion = %#v, error %v", got, err)
+	}
+}
+
+func TestStructuredOutputPartConverterHidesOnlyRootInternalToolExchange(t *testing.T) {
+	call := genai.NewPartFromFunctionCall("set_model_response", map[string]any{"secret": "hidden"})
+	response := genai.NewPartFromFunctionResponse("set_model_response", map[string]any{"secret": "hidden"})
+	ordinaryCall := genai.NewPartFromFunctionCall("lookup", map[string]any{"query": "visible"})
+	for _, test := range []struct {
+		name   string
+		output *structuredOutput
+		author string
+		part   *genai.Part
+		hidden bool
+	}{
+		{name: "root internal call", output: &structuredOutput{}, author: "root", part: call, hidden: true},
+		{name: "root internal response", output: &structuredOutput{}, author: "root", part: response, hidden: true},
+		{name: "root ordinary tool", output: &structuredOutput{}, author: "root", part: ordinaryCall},
+		{name: "sub-agent tool", output: &structuredOutput{}, author: "child", part: call},
+		{name: "unstructured root", author: "root", part: call},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			converted, err := structuredOutputPartConverter(test.output, "root")(
+				t.Context(), &adksession.Event{Author: test.author}, test.part)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (converted == nil) != test.hidden {
+				t.Fatalf("converted part = %#v, want hidden = %v", converted, test.hidden)
+			}
+		})
+	}
+}
+
+type structuredOutputReproModel struct {
+	backend     genai.Backend
+	explanation string
+	calls       int
+	offered     bool
+}
+
+func (m *structuredOutputReproModel) Name() string { return "gemini-2.5-flash" }
+
+func (m *structuredOutputReproModel) GetGoogleLLMVariant() genai.Backend { return m.backend }
+
+func (m *structuredOutputReproModel) GenerateContent(_ context.Context, req *model.LLMRequest, _ bool) iter.Seq2[*model.LLMResponse, error] {
+	return func(yield func(*model.LLMResponse, error) bool) {
+		m.calls++
+		if req.Config != nil {
+			for _, candidate := range req.Config.Tools {
+				for _, declaration := range candidate.FunctionDeclarations {
+					if declaration.Name == "set_model_response" {
+						m.offered = true
+					}
+				}
+			}
+		}
+		content := genai.NewContentFromText(`{"answer":8,"explanation":"`+m.explanation+`"}`, genai.RoleModel)
+		if m.offered && m.calls == 1 {
+			content = &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{
+				genai.NewPartFromFunctionCall("set_model_response", map[string]any{
+					// ADK receives tool arguments after JSON decoding.
+					"answer": float64(8), "explanation": m.explanation,
+				}),
+			}}
+		}
+		yield(&model.LLMResponse{Content: content, FinishReason: genai.FinishReasonStop}, nil)
+	}
+}
+
+func TestKAgentExecutorPublishesOnlyValidatedGeminiStructuredOutput(t *testing.T) {
+	const schema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string","const":"exactly this"}},"required":["answer","explanation"],"additionalProperties":false}`
+	for _, test := range []struct {
+		name        string
+		backend     genai.Backend
+		explanation string
+		wantValid   bool
+	}{
+		{name: "Gemini API rejected", backend: genai.BackendGeminiAPI, explanation: "REJECTED-ANSWER"},
+		{name: "Gemini API accepted", backend: genai.BackendGeminiAPI, explanation: "exactly this", wantValid: true},
+		{name: "Vertex AI rejected", backend: genai.BackendVertexAI, explanation: "REJECTED-ANSWER"},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(test.name+"/stream="+strconv.FormatBool(stream), func(t *testing.T) {
+				projectedSchema, err := outputschema.ToGenAISchema([]byte(schema))
+				if err != nil {
+					t.Fatal(err)
+				}
+				type noArgs struct{}
+				askUser, err := functiontool.New(functiontool.Config{Name: "ask_user", Description: "stand-in"},
+					func(adkagent.Context, noArgs) (map[string]any, error) { return map[string]any{}, nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+				fake := &structuredOutputReproModel{backend: test.backend, explanation: test.explanation}
+				root, err := llmagent.New(llmagent.Config{
+					Name: "root", Model: fake, Instruction: "Answer with JSON.", OutputSchema: projectedSchema,
+					Tools: []tool.Tool{askUser},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				executor, err := NewKAgentExecutor(KAgentExecutorConfig{
+					AppName: "repro", SessionService: adksession.InMemoryService(),
+					Logger: slog.New(slog.DiscardHandler), Stream: stream,
+					RunnerConfig: runner.Config{AppName: "repro", Agent: root},
+					Output:       &apiadk.OutputConfig{JSONSchema: []byte(schema), SHA256: "digest"},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				request := &a2asrv.ExecutorContext{
+					TaskID: "task-1", ContextID: "context-1",
+					Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 3 plus 5?")),
+				}
+				var terminal *a2atype.TaskStatusUpdateEvent
+				structuredResults := 0
+				for event, err := range executor.Execute(t.Context(), request) {
+					if err != nil {
+						t.Fatal(err)
+					}
+					encoded, err := json.Marshal(event)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if strings.Contains(string(encoded), "REJECTED-ANSWER") {
+						t.Errorf("rejected structured output was published: %s", encoded)
+					}
+					if strings.Contains(string(encoded), "set_model_response") {
+						t.Errorf("internal structured-output tool was published: %s", encoded)
+					}
+					if update, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && update.Artifact != nil {
+						for _, part := range update.Artifact.Parts {
+							if apia2a.IsStructuredOutputPart(part) {
+								structuredResults++
+							}
+						}
+					}
+					if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State.Terminal() {
+						terminal = update
+					}
+				}
+				wantState := a2atype.TaskStateFailed
+				wantResults := 0
+				if test.wantValid {
+					wantState = a2atype.TaskStateCompleted
+					wantResults = 1
+				}
+				if terminal == nil || terminal.Status.State != wantState || structuredResults != wantResults {
+					t.Fatalf("terminal status = %#v, structured results = %d; want %s and %d", terminal, structuredResults, wantState, wantResults)
+				}
+				if fake.offered != (test.backend == genai.BackendGeminiAPI) {
+					t.Fatalf("set_model_response offered = %v for %s", fake.offered, test.name)
+				}
+			})
+		}
 	}
 }
 
