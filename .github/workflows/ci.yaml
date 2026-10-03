@@ -58,7 +58,7 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.3.0-alpha3
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
-      # Keep concurrency fixed when comparing runner sizes and Go caches.
+      # Keep concurrency fixed when comparing runner sizes.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
@@ -71,15 +71,16 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
-          # Blacksmith supplies GOCACHEPROG for shared Go build caching.
           cache: false
-      - name: Cache E2E Go modules
+      - name: Cache E2E Go dependencies and build
         uses: actions/cache@v6
         with:
-          path: ~/go/pkg/mod
-          key: e2e-go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
           restore-keys: |
-            e2e-go-mod-${{ runner.os }}-${{ runner.arch }}-
+            e2e-go-${{ runner.os }}-${{ runner.arch }}-
       - name: Allow unprivileged user namespaces
         # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
