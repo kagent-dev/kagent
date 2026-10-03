@@ -13,17 +13,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def main():
-    """Main entry point to run the KAgent CrewAI server."""
+def build_app():
+    """Build the research crew ASGI application."""
     # 1. Load the agent card or define it inline
     with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
         agent_card = json.load(f)
 
     # 2. Load the Crew, then create the kagent app
-    app = KAgentApp(crew=ResearchCrew().crew(), agent_card=agent_card)
+    return KAgentApp(crew=ResearchCrew().crew(), agent_card=agent_card).build()
 
-    # 3. Build the FastAPI app and run the server
-    server = app.build()
+
+def main():
+    """Main entry point to run the KAgent CrewAI server."""
+    server = build_app()
+
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
     logger.info(f"Starting server on {host}:{port}")

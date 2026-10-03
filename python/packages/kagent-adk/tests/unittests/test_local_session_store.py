@@ -1,5 +1,4 @@
-"""Tests for durable-dir session storage: AgentConfig.session_db_url selects the local
-DatabaseSessionService instead of controller-backed session storage."""
+"""Tests for durable-dir and in-memory ADK session storage."""
 
 from a2a.types import AgentCard
 from google.protobuf.json_format import ParseDict
@@ -29,7 +28,7 @@ def make_kagent_app(agent_config: AgentConfig | None = None) -> KAgentApp:
     return KAgentApp(
         root_agent_factory=lambda: None,
         agent_card=card,
-        kagent_api_url="http://kagent-controller:8083",
+        kagent_api_url="http://localhost:8083",
         app_name=APP_NAME,
         agent_config=agent_config,
     )
@@ -57,7 +56,7 @@ def test_config_session_db_url_selects_local_store(monkeypatch):
     assert constructed == {"db_url": "sqlite+aiosqlite:////data/sessions.db"}
 
 
-def test_no_url_selects_kagent_session_service(monkeypatch):
+def test_no_url_keeps_in_memory_sessions(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("DatabaseSessionService must not be constructed without a session DB URL")
 

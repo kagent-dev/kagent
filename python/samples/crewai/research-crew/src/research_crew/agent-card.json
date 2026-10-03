@@ -12,7 +12,7 @@
       "id": "research-crew",
       "name": "Research Crew",
       "description": "Can conduct research and analysis by providing a topic as input",
-      "example": "{\"input\": \"Latest advancements in AI\"}",
+      "examples": ["{\"input\": \"Latest advancements in AI\"}"],
       "tags": ["research", "analysis"]
     }
   ]
