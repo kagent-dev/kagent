@@ -19,7 +19,7 @@ on:
       e2e_parallel:
         description: Concurrent E2E scenarios (compare on the same revision)
         type: choice
-        default: "4"
+        default: "8"
         options:
           - "4"
           - "8"
@@ -58,8 +58,8 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.3.0-alpha3
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
-      # Keep concurrency fixed when comparing runner sizes.
-      E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
+      # Use the eight-vCPU runner with multiple actors per Substrate worker.
+      E2E_PARALLEL: ${{ inputs.e2e_parallel || '8' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
