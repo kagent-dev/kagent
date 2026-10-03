@@ -101,6 +101,21 @@ export function AgentTemplateForm({
   const servers = useMcpServers();
   const tools = useTools();
 
+  const namespaceModels = (models.data ?? []).filter((model) =>
+    model.ref.startsWith(`${namespace}/`),
+  );
+  let modelHint = "A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO).";
+  if (!readOnly && !models.isLoading && namespaceModels.length === 0) {
+    if (models.error) {
+      modelHint = `Could not load model configurations for namespace "${namespace}". Try again later.`;
+    } else if (models.data !== undefined) {
+      const nextStep = isCreate
+        ? "Create one or choose another namespace."
+        : "Create one.";
+      modelHint = `No model configurations found in namespace "${namespace}". ${nextStep} If one should be listed, check your access.`;
+    }
+  }
+
   const set = <K extends keyof AgentTemplateDraft>(
     field: K,
     value: AgentTemplateDraft[K],
@@ -182,7 +197,7 @@ export function AgentTemplateForm({
 
         <Form.Item
           label="Model configuration"
-          extra="A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO)."
+          extra={<span data-testid="template-form-model-availability">{modelHint}</span>}
         >
           <div data-testid="template-form-model">
             <Select
@@ -192,26 +207,24 @@ export function AgentTemplateForm({
               placeholder={placeholder("Choose a model configuration")}
               popupMatchSelectWidth={false}
               onChange={(value: string) => set("modelConfig", value)}
-              options={(models.data ?? [])
-                .filter((model) => model.ref.startsWith(`${namespace}/`))
-                .map((model) => {
-                  const name = model.ref.slice(namespace.length + 1);
-                  return {
-                    value: name,
-                    // `title` carries the label verbatim, which is what a spec
-                    // locates an option by — `getByRole("option")` matches
-                    // rc-select's hidden screen-reader listbox instead.
-                    title: name,
-                    label: (
-                      <Space size={8}>
-                        <span>{name}</span>
-                        <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                          {model.spec.model}
-                        </Text>
-                      </Space>
-                    ),
-                  };
-                })}
+              options={namespaceModels.map((model) => {
+                const name = model.ref.slice(namespace.length + 1);
+                return {
+                  value: name,
+                  // `title` carries the label verbatim, which is what a spec
+                  // locates an option by — `getByRole("option")` matches
+                  // rc-select's hidden screen-reader listbox instead.
+                  title: name,
+                  label: (
+                    <Space size={8}>
+                      <span>{name}</span>
+                      <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                        {model.spec.model}
+                      </Text>
+                    </Space>
+                  ),
+                };
+              })}
               {...readOnlySelect}
             />
           </div>
