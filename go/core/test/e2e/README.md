@@ -113,11 +113,11 @@ to one minute for transport readiness, including retries of failed dials after
 controller rollouts. Subsequent calls keep their normal failure and retry behavior;
 fixture setup does not retry mutations or suppress errors returned by the server.
 
-CI runs four concurrent scenarios on four Substrate worker pods. Substrate
+CI runs eight concurrent scenarios on four Substrate worker pods. Substrate
 v0.3.0-alpha3 enables multiple actors per worker by default (`--max-actors=1000`),
 so test concurrency is no longer limited to the worker count. A scenario may need
-multiple actors for subagents or template preparation; four scenarios is not a
-four-actor cap. Parallel harness subtests share the same `-parallel` budget as
+multiple actors for subagents or template preparation; eight scenarios is not an
+eight-actor cap. Parallel harness subtests share the same `-parallel` budget as
 other scenarios; they do not multiply it. Go still isolates controller restart
 tests from parallel scenarios.
 
@@ -137,7 +137,7 @@ the downloaded assets under `.cache/substrate/microvm-assets/`.
 To compare four versus eight on the same revision and runner, manually dispatch
 the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
 step duration and failures over repeated runs; doubling concurrency does not
-guarantee a speedup on the four-vCPU runner. Locally, use
+guarantee a speedup on the eight-vCPU runner. Locally, use
 `make -C go e2e E2E_PARALLEL=8` (the local default remains two).
 
 CI uploads a log artifact per runtime with test output, the final controller's logs,
