@@ -154,6 +154,31 @@ func TestGenaiContentsToOrchTemplate_ToolCall(t *testing.T) {
 	}
 }
 
+func TestGenaiContentsToOrchTemplate_NoArgToolCall(t *testing.T) {
+	contents := []*genai.Content{{
+		Role: "model",
+		Parts: []*genai.Part{{
+			FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "list_skills"},
+		}},
+	}}
+
+	messages, _ := genaiContentsToOrchTemplate(contents, nil)
+	if len(messages) == 0 {
+		t.Fatalf("messages = %#v, want one assistant message", messages)
+	}
+	toolCalls, ok := messages[0]["tool_calls"].([]map[string]any)
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("tool_calls = %#v, want one tool call", messages[0]["tool_calls"])
+	}
+	function, ok := toolCalls[0]["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("function = %#v, want object", toolCalls[0]["function"])
+	}
+	if got := function["arguments"]; got != "{}" {
+		t.Fatalf("arguments = %q, want empty JSON object", got)
+	}
+}
+
 func TestGenaiContentsToOrchTemplate_FunctionResponse(t *testing.T) {
 	fc := genai.NewPartFromFunctionCall("get_weather", map[string]any{"city": "Berlin"})
 	fc.FunctionCall.ID = "call_1"

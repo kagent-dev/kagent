@@ -178,6 +178,15 @@ func parametersJsonSchemaToMap(v any) map[string]any {
 	return m
 }
 
+// functionCallArgsOrEmpty preserves the JSON object required by model provider
+// APIs after persistence has turned a zero-argument call's empty map into nil.
+func functionCallArgsOrEmpty(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
 // extractFunctionResponseContent converts a tool/function response value to a plain string:
 //   - string: returned as-is
 //   - map with "content" []any: all text items joined by newline (e.g. MCP tool responses)

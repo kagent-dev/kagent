@@ -291,6 +291,24 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 	})
 }
 
+func TestGenaiContentsToOpenAIMessagesNoArgToolCall(t *testing.T) {
+	contents := []*genai.Content{{
+		Role: "model",
+		Parts: []*genai.Part{{
+			FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "list_skills"},
+		}},
+	}}
+
+	messages, _ := genaiContentsToOpenAIMessages(contents, nil)
+	if len(messages) == 0 || messages[0].OfAssistant == nil || len(messages[0].OfAssistant.ToolCalls) != 1 {
+		t.Fatalf("messages = %#v, want one assistant tool call", messages)
+	}
+	got := messages[0].OfAssistant.ToolCalls[0].OfFunction.Function.Arguments
+	if got != "{}" {
+		t.Fatalf("arguments = %q, want empty JSON object", got)
+	}
+}
+
 func TestApplyOpenAIConfig(t *testing.T) {
 	t.Run("nil config no panic", func(t *testing.T) {
 		var params openai.ChatCompletionNewParams
