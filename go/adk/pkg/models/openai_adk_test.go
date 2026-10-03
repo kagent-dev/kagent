@@ -289,6 +289,19 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			t.Errorf("len(messages) = %d, want 1", len(msgs))
 		}
 	})
+
+	t.Run("nil args (replay regression) encode as empty object", func(t *testing.T) {
+		contents := []*genai.Content{
+			{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "ping", Args: nil}}}},
+		}
+		msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+		if len(msgs) == 0 || msgs[0].OfAssistant == nil || len(msgs[0].OfAssistant.ToolCalls) != 1 {
+			t.Fatalf("messages = %#v, want first message to be assistant with 1 tool call", msgs)
+		}
+		if got := msgs[0].OfAssistant.ToolCalls[0].GetFunction().Arguments; got != `{}` {
+			t.Errorf("arguments = %q, want {}", got)
+		}
+	})
 }
 
 func TestApplyOpenAIConfig(t *testing.T) {
