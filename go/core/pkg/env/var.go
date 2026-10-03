@@ -319,6 +319,22 @@ func (d DurationVar) Lookup() (time.Duration, bool) {
 	return parsed, true
 }
 
+// LookupWithError distinguishes malformed durations from unset or empty values.
+// Unset, empty, and invalid values return the registered default; invalid input
+// additionally returns set=true and an error.
+func (d DurationVar) LookupWithError() (value time.Duration, set bool, err error) {
+	val, ok := os.LookupEnv(d.v.Name)
+	val = strings.TrimSpace(val)
+	if !ok || val == "" {
+		return d.defaultValue, false, nil
+	}
+	parsed, err := time.ParseDuration(val)
+	if err != nil {
+		return d.defaultValue, true, fmt.Errorf("failed to parse %s as a duration: %w", d.v.Name, err)
+	}
+	return parsed, true, nil
+}
+
 // Name returns the environment variable name.
 func (d DurationVar) Name() string { return d.v.Name }
 

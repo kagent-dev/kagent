@@ -218,7 +218,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				templates.deleteErr, templates.deletedBeforeError = deleteErr, test.deletedBeforeError
 			}
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
-			collector := NewRuntimeRevisionGC(gcStore, templates)
+			collector := NewRuntimeRevisionGC(gcStore, templates, time.Minute)
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
 			if test.finalizeFailure || test.deletedBeforeError {
 				require.Nil(t, templates.template)
@@ -231,7 +231,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			_, _, err = store.CreateSession(ctx, request, "replacement-session")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			templates.deleteErr = nil
-			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)
+			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates, time.Minute)
 			restarted.sweep(ctx)
 			require.Nil(t, templates.template)
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List())
@@ -367,7 +367,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		collections,
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
-		statusClient,
+		statusClient, time.Second,
 	)
 
 	go reconciler.Run(stop)

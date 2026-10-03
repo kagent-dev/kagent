@@ -172,10 +172,11 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections Collections
-	templates   actorTemplateClient
-	store       runtimeRevisionStore
-	status      kagentclient.ApiV1alpha3Interface
+	collections  Collections
+	templates    actorTemplateClient
+	store        runtimeRevisionStore
+	status       kagentclient.ApiV1alpha3Interface
+	pollInterval time.Duration
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -187,12 +188,12 @@ type Reconciler struct {
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
 // its queues after the registered KRT handlers have received initial state.
-func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient) (*Reconciler, error) {
+func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient, pollInterval time.Duration) (*Reconciler, error) {
 	statusClient, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
-	return newReconciler(collections, templates, store, statusClient), nil
+	return newReconciler(collections, templates, store, statusClient, pollInterval), nil
 }
 
 func newReconciler(
@@ -200,12 +201,14 @@ func newReconciler(
 	templates actorTemplateClient,
 	store runtimeRevisionStore,
 	status kagentclient.ApiV1alpha3Interface,
+	pollInterval time.Duration,
 ) *Reconciler {
 	r := &Reconciler{
-		collections: collections,
-		templates:   templates,
-		store:       store,
-		status:      status,
+		collections:  collections,
+		pollInterval: pollInterval,
+		templates:    templates,
+		store:        store,
+		status:       status,
 	}
 	r.agents = newReconciliationQueue("v2-agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
@@ -269,7 +272,7 @@ func (r *Reconciler) Run(stop <-chan struct{}) {
 }
 
 func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 	for {
 		select {

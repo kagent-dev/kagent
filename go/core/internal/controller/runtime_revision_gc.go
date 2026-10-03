@@ -13,8 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-const runtimeRevisionGCInterval = time.Minute
-
 type runtimeRevisionGCStore interface {
 	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeArtifact, error)
 	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeArtifact, error)
@@ -28,8 +26,9 @@ type runtimeRevisionGCClient interface {
 
 // RuntimeRevisionGC retries durable runtime deletions independently of preparation.
 type RuntimeRevisionGC struct {
-	store     runtimeRevisionGCStore
-	templates runtimeRevisionGCClient
+	store        runtimeRevisionGCStore
+	templates    runtimeRevisionGCClient
+	pollInterval time.Duration
 }
 
 var (
@@ -37,14 +36,14 @@ var (
 	_ manager.LeaderElectionRunnable = (*RuntimeRevisionGC)(nil)
 )
 
-func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient) *RuntimeRevisionGC {
-	return &RuntimeRevisionGC{store: store, templates: templates}
+func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient, pollInterval time.Duration) *RuntimeRevisionGC {
+	return &RuntimeRevisionGC{store: store, templates: templates, pollInterval: pollInterval}
 }
 
 func (r *RuntimeRevisionGC) NeedLeaderElection() bool { return true }
 
 func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
-	ticker := time.NewTicker(runtimeRevisionGCInterval)
+	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
 		r.sweep(ctx)

@@ -10,6 +10,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDurationLookupWithError(t *testing.T) {
+	v := RegisterDurationVar("TEST_DURATION_LOOKUP_ERROR", time.Minute, "test", ComponentTesting)
+	for _, test := range []struct {
+		name, input         string
+		unset, set, wantErr bool
+		want                time.Duration
+	}{
+		{name: "unset", unset: true, want: time.Minute},
+		{name: "empty", want: time.Minute},
+		{name: "whitespace", input: " \t", want: time.Minute},
+		{name: "duration", input: " 30s ", set: true, want: 30 * time.Second},
+		{name: "zero", input: "0", set: true},
+		{name: "negative", input: "-1m", set: true, want: -time.Minute},
+		{name: "malformed", input: "30seconds", set: true, want: time.Minute, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(v.Name(), test.input)
+			if test.unset {
+				require.NoError(t, os.Unsetenv(v.Name()))
+			}
+			got, set, err := v.LookupWithError()
+			require.Equal(t, test.want, got)
+			require.Equal(t, test.set, set)
+			if test.wantErr {
+				require.ErrorContains(t, err, v.Name())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestRegisterStringVar(t *testing.T) {
 	allVars = make(map[string]Var)
 

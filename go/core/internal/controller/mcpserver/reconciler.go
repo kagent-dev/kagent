@@ -45,9 +45,7 @@ import (
 )
 
 const (
-	mcpServerGroupKind    = "MCPServer.kagent.dev"
-	refreshInterval       = 5 * time.Minute
-	readinessPollInterval = 10 * time.Second
+	mcpServerGroupKind = "MCPServer.kagent.dev"
 )
 
 var mcpServerGK = schema.GroupKind{Group: kmcp.GroupVersion.Group, Kind: "MCPServer"}
@@ -66,13 +64,15 @@ type CatalogStore interface {
 // Reconciler keeps the catalog projection of KMCP-owned MCPServers current. It
 // deliberately does not write MCPServer status, which is owned by KMCP.
 type Reconciler struct {
-	client     client.Client
-	discoverer ToolDiscoverer
-	catalog    CatalogStore
+	client                client.Client
+	discoverer            ToolDiscoverer
+	catalog               CatalogStore
+	refreshInterval       time.Duration
+	readinessPollInterval time.Duration
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog}
+func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore, refreshInterval time.Duration, readinessPollInterval time.Duration) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog, refreshInterval: refreshInterval, readinessPollInterval: readinessPollInterval}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
@@ -150,7 +150,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if err := r.updateCatalog(ctx, server, nil, false); err != nil {
 			return reconcile.Result{}, fmt.Errorf("clear unready MCPServer catalog: %w", err)
 		}
-		return reconcile.Result{RequeueAfter: readinessPollInterval}, nil
+		return reconcile.Result{RequeueAfter: r.readinessPollInterval}, nil
 	}
 
 	tools, err := r.discoverer.ListTools(ctx, toolservice.MCPServerRef{
@@ -175,7 +175,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	if err := r.updateCatalog(ctx, server, discovered, true); err != nil {
 		return reconcile.Result{}, fmt.Errorf("update MCPServer tool catalog: %w", err)
 	}
-	return reconcile.Result{RequeueAfter: refreshInterval}, nil
+	return reconcile.Result{RequeueAfter: r.refreshInterval}, nil
 }
 
 func isReady(server *kmcp.MCPServer) bool {

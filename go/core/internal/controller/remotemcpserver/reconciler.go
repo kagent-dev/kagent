@@ -45,7 +45,6 @@ import (
 
 const (
 	conditionAccepted = "Accepted"
-	refreshInterval   = 5 * time.Minute
 
 	// discoveryDisabledMessage explains an Accepted RemoteMCPServer that publishes
 	// no discovered tools because its operator opted out of discovery.
@@ -70,13 +69,14 @@ type CatalogStore interface {
 
 // Reconciler publishes RemoteMCPServer discovery results to its status.
 type Reconciler struct {
-	client     client.Client
-	discoverer ToolDiscoverer
-	catalog    CatalogStore
+	client          client.Client
+	discoverer      ToolDiscoverer
+	catalog         CatalogStore
+	refreshInterval time.Duration
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog}
+func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore, refreshInterval time.Duration) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog, refreshInterval: refreshInterval}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
@@ -112,7 +112,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if err := r.updateCatalog(ctx, server, nil, false); err != nil {
 			return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer tool catalog: %w", err)
 		}
-		return reconcile.Result{RequeueAfter: refreshInterval}, nil
+		return reconcile.Result{RequeueAfter: r.refreshInterval}, nil
 	}
 
 	tools, err := r.discoverer.ListTools(ctx, toolservice.MCPServerRef{
@@ -145,7 +145,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	if err := r.updateCatalog(ctx, server, discovered, true); err != nil {
 		return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer tool catalog: %w", err)
 	}
-	return reconcile.Result{RequeueAfter: refreshInterval}, nil
+	return reconcile.Result{RequeueAfter: r.refreshInterval}, nil
 }
 
 // discoveryDisabled reports whether the operator opted the server out of tool

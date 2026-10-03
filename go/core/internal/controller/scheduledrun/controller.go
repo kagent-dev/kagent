@@ -34,23 +34,24 @@ type controllerWorkflow interface {
 // Controller reconciles executions on every replica. SQL leases fence status
 // writes; a durable dispatch claim prevents resending after an uncertain result.
 type Controller struct {
-	store    controllerStore
-	workflow controllerWorkflow
-	gateway  a2asrv.RequestHandler
+	store        controllerStore
+	workflow     controllerWorkflow
+	gateway      a2asrv.RequestHandler
+	pollInterval time.Duration
 }
 
 var _ manager.LeaderElectionRunnable = (*Controller)(nil)
 var _ manager.Runnable = (*Controller)(nil)
 
-func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler) *Controller {
-	return &Controller{store: store, workflow: workflow, gateway: gateway}
+func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, pollInterval time.Duration) *Controller {
+	return &Controller{store: store, workflow: workflow, gateway: gateway, pollInterval: pollInterval}
 }
 
 func (*Controller) NeedLeaderElection() bool { return false }
 
 func (c *Controller) Start(ctx context.Context) error {
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 	for {
 		if err := c.tick(ctx); err != nil && ctx.Err() == nil {

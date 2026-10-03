@@ -90,7 +90,7 @@ func (s *Service) NeedLeaderElection() bool { return false }
 // Start only deletes expired sandboxes. Ordinary pending lifecycle operations
 // are client-driven. Database claims coordinate expiration with inline callers.
 func (s *Service) Start(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(s.config.ExpirationPollInterval)
 	defer ticker.Stop()
 	var afterID string
 	for {

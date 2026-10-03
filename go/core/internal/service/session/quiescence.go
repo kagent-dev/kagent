@@ -25,7 +25,7 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
 	for range 4 {
 		workers.Go(func() {
-			timer := time.NewTicker(time.Second)
+			timer := time.NewTicker(w.pollInterval)
 			defer timer.Stop()
 			for ctx.Err() == nil {
 				work, err := w.store.ClaimSessionQuiescence(ctx)

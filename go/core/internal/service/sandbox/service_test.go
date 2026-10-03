@@ -135,7 +135,7 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	}).Build()
 	actors := &testActors{}
 	service, err := NewService(Config{Store: store, Kube: kube, Authorizer: auth.NoopAuthorizer{}, Actors: actors,
-		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour})
+		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour, ExpirationPollInterval: time.Second})
 	require.NoError(t, err)
 	return service, auth.AuthSessionTo(t.Context(), testSession("alice")), actors
 }

@@ -22,6 +22,12 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
+#### Serverless PostgreSQL
+
+Configure background polling through `controller.env` and idle connections through
+`database.postgres.pool`. See [Serverless PostgreSQL](../docs/serverless-postgres.md)
+for all intervals, their latency tradeoffs, and an example.
+
 #### OIDC authentication
 
 Set `controller.auth.mode: trusted-proxy` together with

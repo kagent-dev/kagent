@@ -107,6 +107,11 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
+| `DB_MAX_CONNS` | Integer | `0` | Maximum PostgreSQL pool connections. Unset uses the connection URL or pgx default; an explicit value must be positive. |
+| `DB_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Maximum idle PostgreSQL connection duration before pool cleanup. Unset uses the connection URL or pgx default. Must be positive. |
+| `DB_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Maximum PostgreSQL connection lifetime. Unset uses the connection URL or pgx default. Must be positive. |
+| `DB_MIN_CONNS` | Integer | `0` | Minimum PostgreSQL pool connections. Unset uses the connection URL or pgx default. Use zero for serverless databases. |
+| `KAGENT_AGENT_PREPARATION_POLL_INTERVAL` | Duration | `1s` | Interval between checks of pending agent runtime preparation. Must be positive. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
@@ -116,6 +121,8 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
 | `KAGENT_LEADER_ELECT` | Boolean | `true` | Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination. |
 | `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
+| `KAGENT_MCP_READINESS_POLL_INTERVAL` | Duration | `10s` | Interval between unready MCPServer checks and catalog updates. Must be positive. |
+| `KAGENT_MCP_TOOL_REFRESH_INTERVAL` | Duration | `5m0s` | Interval between MCPServer and RemoteMCPServer tool discovery and database catalog refreshes. Must be positive. |
 | `KAGENT_METRICS_BIND_ADDRESS` | String | `0` | Address the controller-runtime metrics server binds to, e.g. :8080. "0" (the default) serves no metrics, so an installation that does not set this is unchanged. The Helm chart renders this variable, and its ServiceMonitor, from controller.metrics. |
 | `KAGENT_METRICS_SECURE` | Boolean | `false` | Serve the metrics endpoint over HTTPS with authentication and authorization. A scraper then needs a token bound to the metrics-reader ClusterRole. |
 | `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |
@@ -128,13 +135,19 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
 | `KAGENT_POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over KAGENT_POSTGRES_DATABASE_URL in the controller. |
+| `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | Duration | `1m0s` | Interval between unreferenced runtime revision cleanup sweeps. Must be positive. |
 | `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
 | `KAGENT_SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |
+| `KAGENT_SANDBOX_EXPIRATION_POLL_INTERVAL` | Duration | `1s` | Interval between expired sandbox cleanup batches. Must be positive; longer intervals delay deletion after TTL expiry. |
 | `KAGENT_SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
 | `KAGENT_SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
+| `KAGENT_SANDBOX_PREPARATION_POLL_INTERVAL` | Duration | `1s` | Interval between checks of pending sandbox template preparation and cleanup. Must be positive. |
+| `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
+| `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
 | `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
 | `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
+| `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1s` | Interval between idle session quiescence scans. Must be positive; longer intervals delay pausing and suspending settled sessions. |
 | `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
