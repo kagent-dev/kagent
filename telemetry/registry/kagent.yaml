@@ -1,5 +1,19 @@
 file_format: definition/2
 attributes:
+  - key: kagent.gc.stage
+    brief: The stage of a runtime revision garbage collection attempt.
+    stability: development
+    type:
+      members:
+        - id: discovery
+          value: discovery
+          brief: Discovering cleanup-eligible persisted revisions.
+          stability: development
+        - id: collection
+          value: collection
+          brief: Claiming, deleting compute for, or finalizing a revision.
+          stability: development
+
   - key: kagent.runtime
     brief: The runtime that produces the model and tool spans of an agent.
     note: >
