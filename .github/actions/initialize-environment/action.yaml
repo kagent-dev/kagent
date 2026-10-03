@@ -2,6 +2,12 @@ name: Initialize Environment
 
 description: Initialization steps for kagent actions
 
+inputs:
+  free-disk-space:
+    description: Remove preinstalled packages and tools to free disk space
+    required: false
+    default: "true"
+
 runs:
   using: "composite"
   steps:
@@ -10,6 +16,7 @@ runs:
       with:
         access_token: ${{ github.token }}
     - name: Free disk space
+      if: inputs.free-disk-space == 'true'
       shell: bash
       run: |
         echo "Before clearing disk space:"
