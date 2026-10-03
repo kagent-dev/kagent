@@ -2,6 +2,7 @@ package scheduledrun
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -28,6 +29,9 @@ func NewScheduler(store schedulerStore, pollInterval time.Duration) *Scheduler {
 func (*Scheduler) NeedLeaderElection() bool { return true }
 
 func (s *Scheduler) Start(ctx context.Context) error {
+	if s.pollInterval <= 0 {
+		return fmt.Errorf("scheduled run poll interval must be positive")
+	}
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 	for {

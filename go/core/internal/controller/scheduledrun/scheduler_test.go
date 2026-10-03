@@ -33,6 +33,15 @@ func (s *pollingStore) LeaseScheduledRunExecutions(context.Context, int) ([]data
 	return nil, s.err
 }
 
+func TestScheduledRunWorkersRejectInvalidIntervals(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			require.ErrorContains(t, NewScheduler(nil, interval).Start(t.Context()), "interval must be positive")
+			require.ErrorContains(t, NewController(nil, nil, nil, interval).Start(t.Context()), "interval must be positive")
+		})
+	}
+}
+
 func TestConfiguredScheduledRunIntervals(t *testing.T) {
 	for _, test := range []struct {
 		name string

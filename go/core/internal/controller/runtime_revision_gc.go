@@ -43,6 +43,9 @@ func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisio
 func (r *RuntimeRevisionGC) NeedLeaderElection() bool { return true }
 
 func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
+	if r.pollInterval <= 0 {
+		return fmt.Errorf("runtime revision GC interval must be positive")
+	}
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 	for ctx.Err() == nil {

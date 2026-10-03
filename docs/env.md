@@ -107,10 +107,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DB_MAX_CONNS` | Integer | `0` | Maximum PostgreSQL pool connections. Unset uses the connection URL or pgx default; an explicit value must be positive. |
-| `DB_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Maximum idle PostgreSQL connection duration before pool cleanup. Unset uses the connection URL or pgx default. Must be positive. |
-| `DB_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Maximum PostgreSQL connection lifetime. Unset uses the connection URL or pgx default. Must be positive. |
-| `DB_MIN_CONNS` | Integer | `0` | Minimum PostgreSQL pool connections. Unset uses the connection URL or pgx default. Use zero for serverless databases. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
@@ -120,8 +116,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
 | `KAGENT_LEADER_ELECT` | Boolean | `true` | Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination. |
 | `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `KAGENT_MCP_READINESS_POLL_INTERVAL` | Duration | `10s` | Interval between unready MCPServer checks and catalog updates. Must be positive. |
-| `KAGENT_MCP_TOOL_REFRESH_INTERVAL` | Duration | `5m0s` | Interval between MCPServer and RemoteMCPServer tool discovery and database catalog refreshes. Must be positive. |
 | `KAGENT_METRICS_BIND_ADDRESS` | String | `0` | Address the controller-runtime metrics server binds to, e.g. :8080. "0" (the default) serves no metrics, so an installation that does not set this is unchanged. The Helm chart renders this variable, and its ServiceMonitor, from controller.metrics. |
 | `KAGENT_METRICS_SECURE` | Boolean | `false` | Serve the metrics endpoint over HTTPS with authentication and authorization. A scraper then needs a token bound to the metrics-reader ClusterRole. |
 | `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |

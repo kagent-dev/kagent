@@ -6,13 +6,6 @@ import (
 )
 
 var (
-	DBMaxConns        = RegisterIntVar("DB_MAX_CONNS", 0, "Maximum PostgreSQL pool connections. Unset uses the connection URL or pgx default; an explicit value must be positive.", ComponentController)
-	DBMinConns        = RegisterIntVar("DB_MIN_CONNS", 0, "Minimum PostgreSQL pool connections. Unset uses the connection URL or pgx default. Use zero for serverless databases.", ComponentController)
-	DBMaxConnIdleTime = RegisterDurationVar("DB_MAX_CONN_IDLE_TIME", 30*time.Minute, "Maximum idle PostgreSQL connection duration before pool cleanup. Unset uses the connection URL or pgx default. Must be positive.", ComponentController)
-	DBMaxConnLifetime = RegisterDurationVar("DB_MAX_CONN_LIFETIME", time.Hour, "Maximum PostgreSQL connection lifetime. Unset uses the connection URL or pgx default. Must be positive.", ComponentController)
-)
-
-var (
 	PostgresDatabaseURL = RegisterStringVar(
 		"KAGENT_POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres",
 		"PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL.", ComponentDatabase, ComponentController, ComponentCLI,

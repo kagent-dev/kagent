@@ -12,6 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRuntimeRevisionGCRejectsInvalidInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			require.ErrorContains(t, NewRuntimeRevisionGC(nil, nil, interval).Start(t.Context()), "interval must be positive")
+		})
+	}
+}
+
 func TestRuntimeRevisionGCStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())

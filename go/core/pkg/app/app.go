@@ -160,10 +160,6 @@ func Run(ctx context.Context, opts Options) error {
 	if err := SetupLogger(); err != nil {
 		return err
 	}
-	polling, err := pollingConfigFromEnv()
-	if err != nil {
-		return err
-	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
 	_, telemetryWarnings := v2translator.TelemetryConfigFromProcess()
@@ -290,7 +286,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors, polling.runtimeRevisionGC)); err != nil {
+	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get())); err != nil {
 		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {
@@ -299,11 +295,11 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	mcpClient := toolservice.NewRuntimeMCPClient(manager.GetClient())
-	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store, polling.mcpToolRefresh)
+	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store, polling.mcpToolRefresh, polling.mcpReadiness)
+	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
 	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up MCPServer discovery: %w", err)
 	}
@@ -315,12 +311,12 @@ func Run(ctx context.Context, opts Options) error {
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, polling.sessionQuiescence)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, kagentenv.SessionQuiescencePollInterval.Get())
 	runtimeTasks := taskstore.NewService(store)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
-	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, kagentenv.SessionIdleTTL.Get(), polling.sessionExpiration)
+	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, kagentenv.SessionIdleTTL.Get(), kagentenv.SessionExpirationPollInterval.Get())
 	if err != nil {
 		return err
 	}
@@ -344,11 +340,11 @@ func Run(ctx context.Context, opts Options) error {
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions)
 	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
-	if err := manager.Add(scheduledruncontroller.NewScheduler(store, polling.scheduledRun)); err != nil {
+	if err := manager.Add(scheduledruncontroller.NewScheduler(store, kagentenv.ScheduledRunPollInterval.Get())); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
 	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
-		gateway, polling.scheduledRunExecution)); err != nil {
+		gateway, kagentenv.ScheduledRunExecutionPollInterval.Get())); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
@@ -370,7 +366,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	sandboxes, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: manager.GetClient(), Authorizer: authorizer, Actors: actors, Guests: guests,
-		DefaultTTL: kagentenv.SandboxDefaultTTL.Get(), MaxTTL: kagentenv.SandboxMaxTTL.Get(), ExpirationPollInterval: polling.sandboxExpiration})
+		DefaultTTL: kagentenv.SandboxDefaultTTL.Get(), MaxTTL: kagentenv.SandboxMaxTTL.Get(), ExpirationPollInterval: kagentenv.SandboxExpirationPollInterval.Get()})
 	if err != nil {
 		return err
 	}

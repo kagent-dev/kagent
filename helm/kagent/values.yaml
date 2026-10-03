@@ -120,8 +120,6 @@ database:
     skipMigrations: false
     # -- Optional pgxpool settings. Leave unset/null to keep pgx library defaults
     # (MaxConns≈max(4,NumCPU), MinConns=0, MaxConnIdleTime=30m, MaxConnLifetime=1h).
-    # For serverless PostgreSQL, use minConns: 0 and a short maxConnIdleTime,
-    # and tune controller.env polling intervals; see docs/serverless-postgres.md.
     pool:
       maxConns: null
       minConns: null
@@ -413,7 +411,6 @@ controller:
 
   # Extra controller environment variables, applied after ConfigMap defaults.
   # Kept in the Deployment to support valueFrom and $(VAR_NAME) expansion.
-  # Background polling intervals are documented in docs/serverless-postgres.md.
   env: []
 
   # Session idle retention. Running tasks and turns waiting for input do not expire.

@@ -30,6 +30,14 @@ func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database
 	return nil, database.ErrNotFound
 }
 
+func TestQuiescenceRejectsInvalidInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			require.ErrorContains(t, NewActorWorkflow(nil, nil, interval).Start(t.Context()), "interval must be positive")
+		})
+	}
+}
+
 func TestConfiguredQuiescenceInterval(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())

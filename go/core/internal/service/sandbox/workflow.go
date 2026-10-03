@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -90,6 +91,9 @@ func (s *Service) NeedLeaderElection() bool { return false }
 // Start only deletes expired sandboxes. Ordinary pending lifecycle operations
 // are client-driven. Database claims coordinate expiration with inline callers.
 func (s *Service) Start(ctx context.Context) error {
+	if s.config.ExpirationPollInterval <= 0 {
+		return fmt.Errorf("sandbox expiration poll interval must be positive")
+	}
 	ticker := time.NewTicker(s.config.ExpirationPollInterval)
 	defer ticker.Stop()
 	var afterID string

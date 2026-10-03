@@ -50,6 +50,9 @@ func NewController(store controllerStore, workflow controllerWorkflow, gateway a
 func (*Controller) NeedLeaderElection() bool { return false }
 
 func (c *Controller) Start(ctx context.Context) error {
+	if c.pollInterval <= 0 {
+		return fmt.Errorf("scheduled run execution poll interval must be positive")
+	}
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
 	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()

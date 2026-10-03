@@ -25,6 +25,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func TestSandboxExpirationRejectsInvalidInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			service := &Service{config: Config{ExpirationPollInterval: interval}}
+			require.ErrorContains(t, service.Start(t.Context()), "interval must be positive")
+		})
+	}
+}
+
 type testSession string
 
 func (s testSession) Principal() auth.Principal {

@@ -24,9 +24,11 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"github.com/stretchr/testify/require"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -52,12 +54,14 @@ func (f *fakeDiscoverer) ListTools(_ context.Context, ref toolservice.MCPServerR
 }
 
 type fakeCatalog struct {
+	writes  int
 	server  *database.ToolServer
 	tools   []*v1alpha3.MCPTool
 	deleted string
 }
 
 func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
+	f.writes++
 	f.server = server
 	f.tools = tools
 	return nil
@@ -76,14 +80,15 @@ func TestReconcileDiscoversReadyMCPServer(t *testing.T) {
 	}}
 	catalog := &fakeCatalog{}
 
-	result, err := New(testClient(t, server), discoverer, catalog, 20*time.Minute, 2*time.Minute).Reconcile(t.Context(), ctrl.Request{
+	reconciler := New(testClient(t, server), discoverer, catalog)
+	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{
 		NamespacedName: client.ObjectKeyFromObject(server),
 	})
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if result.RequeueAfter != 20*time.Minute {
-		t.Fatalf("Reconcile() requeue = %s, want 20m", result.RequeueAfter)
+	if result.RequeueAfter != 5*time.Minute {
+		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
 	}
 	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != mcpServerGroupKind {
 		t.Fatalf("discovery ref = %#v", discoverer.ref)
@@ -94,6 +99,43 @@ func TestReconcileDiscoversReadyMCPServer(t *testing.T) {
 	if len(catalog.tools) != 2 || catalog.tools[0].Name != "alpha" || catalog.tools[1].Name != "zeta" {
 		t.Fatalf("catalog tools = %#v", catalog.tools)
 	}
+	discoverer.tools[0], discoverer.tools[1] = discoverer.tools[1], discoverer.tools[0]
+	_, err = reconciler.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil || discoverer.calls != 2 || catalog.writes != 1 {
+		t.Fatalf("unchanged discovery: error = %v, discovery calls = %d, catalog writes = %d", err, discoverer.calls, catalog.writes)
+	}
+}
+
+func TestReconcileUnchangedCatalogWithoutDatabaseConnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	t.Cleanup(cancel)
+	dsn := dbtest.StartT(ctx, t)
+	dbtest.MigrateT(t, dsn, false)
+	pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	store := database.NewClient(pool)
+	server := readyServer()
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "tool", Description: "original"}}}
+	reconciler := New(testClient(t, server), discoverer, store)
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)}
+	_, err = reconciler.Reconcile(ctx, request)
+	require.NoError(t, err)
+	tools, err := store.ListTools(ctx)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.Equal(t, "original", tools[0].Description)
+
+	pool.Close()
+	_, err = reconciler.Reconcile(ctx, request)
+	require.NoError(t, err, "unchanged discovery must work without a database connection")
+	require.Equal(t, 2, discoverer.calls, "tool discovery must continue")
+	discoverer.tools[0].Description = "changed"
+	_, err = reconciler.Reconcile(ctx, request)
+	require.Error(t, err, "changed discovery must attempt persistence")
 }
 
 func TestReconcileWaitsForCurrentReadyCondition(t *testing.T) {
@@ -114,13 +156,13 @@ func TestReconcileWaitsForCurrentReadyCondition(t *testing.T) {
 			discoverer := &fakeDiscoverer{}
 			catalog := &fakeCatalog{tools: []*v1alpha3.MCPTool{{Name: "stale"}}}
 
-			result, err := New(testClient(t, server), discoverer, catalog, 20*time.Minute, 2*time.Minute).Reconcile(t.Context(), ctrl.Request{
+			result, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
 				NamespacedName: client.ObjectKeyFromObject(server),
 			})
 			if err != nil {
 				t.Fatalf("Reconcile() error = %v", err)
 			}
-			if result.RequeueAfter != 2*time.Minute || discoverer.calls != 0 {
+			if result.RequeueAfter != readinessPollInterval || discoverer.calls != 0 {
 				t.Fatalf("Reconcile() = %#v, discovery calls = %d", result, discoverer.calls)
 			}
 			if catalog.server == nil || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
@@ -135,7 +177,7 @@ func TestReconcileClearsCatalogAfterDiscoveryFailure(t *testing.T) {
 	discoverer := &fakeDiscoverer{err: errors.New("unavailable")}
 	catalog := &fakeCatalog{tools: []*v1alpha3.MCPTool{{Name: "stale"}}}
 
-	_, err := New(testClient(t, server), discoverer, catalog, 20*time.Minute, 2*time.Minute).Reconcile(t.Context(), ctrl.Request{
+	_, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
 		NamespacedName: client.ObjectKeyFromObject(server),
 	})
 	if err == nil {
@@ -152,7 +194,7 @@ func TestReconcileKeepsDisconnectedCatalogWhenDiscoveryDisabled(t *testing.T) {
 	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
 	catalog := &fakeCatalog{}
 
-	result, err := New(testClient(t, server), discoverer, catalog, 20*time.Minute, 2*time.Minute).Reconcile(t.Context(), ctrl.Request{
+	result, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
 		NamespacedName: client.ObjectKeyFromObject(server),
 	})
 	if err != nil {
@@ -196,7 +238,7 @@ func TestReconcileDiscoversWhenDiscoveryLabelIsNotDisabled(t *testing.T) {
 	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "alpha", Description: "first"}}}
 	catalog := &fakeCatalog{}
 
-	if _, err := New(testClient(t, server), discoverer, catalog, 20*time.Minute, 2*time.Minute).Reconcile(t.Context(), ctrl.Request{
+	if _, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
 		NamespacedName: client.ObjectKeyFromObject(server),
 	}); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -210,7 +252,7 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 	catalog := &fakeCatalog{}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "test", Name: "gone"}}
 
-	if _, err := New(testClient(t), &fakeDiscoverer{}, catalog, 20*time.Minute, 2*time.Minute).Reconcile(t.Context(), request); err != nil {
+	if _, err := New(testClient(t), &fakeDiscoverer{}, catalog).Reconcile(t.Context(), request); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	want := "test/gone|" + mcpServerGroupKind

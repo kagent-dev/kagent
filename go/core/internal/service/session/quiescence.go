@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -22,6 +23,9 @@ func (*ActorWorkflow) NeedLeaderElection() bool { return false }
 // A periodic scan discovers settled work across API replicas and restarts.
 // Workers are bounded; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
+	if w.pollInterval <= 0 {
+		return fmt.Errorf("session quiescence poll interval must be positive")
+	}
 	var workers sync.WaitGroup
 	for range 4 {
 		workers.Go(func() {

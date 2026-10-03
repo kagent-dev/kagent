@@ -44,12 +44,14 @@ type fakeDiscoverer struct {
 }
 
 type fakeCatalog struct {
+	writes  int
 	server  *database.ToolServer
 	tools   []*v1alpha3.MCPTool
 	deleted string
 }
 
 func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
+	f.writes++
 	f.server = server
 	f.tools = tools
 	return nil
@@ -74,14 +76,14 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 		{Name: "alpha", Description: "first"},
 	}}
 	catalog := &fakeCatalog{}
-	reconciler := New(kube, discoverer, catalog, 20*time.Minute)
+	reconciler := New(kube, discoverer, catalog)
 
 	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if result.RequeueAfter != 20*time.Minute {
-		t.Fatalf("Reconcile() requeue = %s, want 20m", result.RequeueAfter)
+	if result.RequeueAfter != 5*time.Minute {
+		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
 	}
 	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.api.kagent.dev" {
 		t.Fatalf("discovery ref = %#v", discoverer.ref)
@@ -104,6 +106,11 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 	if len(catalog.tools) != 2 || catalog.tools[0].Name != "alpha" || catalog.tools[1].Name != "zeta" {
 		t.Fatalf("catalog tools = %#v", catalog.tools)
 	}
+	discoverer.tools[0], discoverer.tools[1] = discoverer.tools[1], discoverer.tools[0]
+	_, err = reconciler.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil || discoverer.calls != 2 || catalog.writes != 1 {
+		t.Fatalf("unchanged discovery: error = %v, discovery calls = %d, catalog writes = %d", err, discoverer.calls, catalog.writes)
+	}
 }
 
 func TestReconcilePublishesFailureAndClearsStaleTools(t *testing.T) {
@@ -113,7 +120,7 @@ func TestReconcilePublishesFailureAndClearsStaleTools(t *testing.T) {
 	discoverer := &fakeDiscoverer{err: errors.New("upstream unavailable")}
 	catalog := &fakeCatalog{}
 
-	_, err := New(kube, discoverer, catalog, 20*time.Minute).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	_, err := New(kube, discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
 	if err == nil {
 		t.Fatal("Reconcile() error = nil, want discovery failure")
 	}
@@ -138,12 +145,12 @@ func TestReconcileAcceptsWithoutDiscoveryWhenDisabled(t *testing.T) {
 	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
 	catalog := &fakeCatalog{}
 
-	result, err := New(kube, discoverer, catalog, 20*time.Minute).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	result, err := New(kube, discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if result.RequeueAfter != 20*time.Minute {
-		t.Fatalf("Reconcile() requeue = %s, want 20m", result.RequeueAfter)
+	if result.RequeueAfter != 5*time.Minute {
+		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
 	}
 	if discoverer.calls != 0 {
 		t.Fatalf("discovery calls = %d, want 0", discoverer.calls)
@@ -166,7 +173,7 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 	catalog := &fakeCatalog{}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "test", Name: "gone"}}
 
-	if _, err := New(testClient(t), &fakeDiscoverer{}, catalog, 20*time.Minute).Reconcile(t.Context(), request); err != nil {
+	if _, err := New(testClient(t), &fakeDiscoverer{}, catalog).Reconcile(t.Context(), request); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	want := "test/gone|" + remoteGroupKind
