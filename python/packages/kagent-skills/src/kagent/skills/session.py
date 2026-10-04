@@ -40,8 +40,8 @@ def initialize_session_path(session_id: str, skills_directory: str) -> Path:
     (session_path / "uploads").mkdir(parents=True, exist_ok=True)
     (session_path / "outputs").mkdir(parents=True, exist_ok=True)
 
-    # Create symlink to skills directory
-    skills_mount = Path(skills_directory)
+    # Symlink targets are relative to the link's parent, not the caller's working directory.
+    skills_mount = Path(skills_directory).absolute()
     skills_link = session_path / "skills"
     if skills_mount.exists() and not skills_link.exists():
         try:
