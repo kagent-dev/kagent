@@ -102,7 +102,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			return err
 		}},
 		{name: "push create", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			_, err := s.CreateTaskPushConfig(ctx, agent, &a2atype.PushConfig{TaskID: "task", ID: "callback", URL: "https://receiver.example/callback", Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: "secret"}})
+			_, err := s.CreateTaskPushConfig(ctx, agent, &a2atype.PushConfig{TaskID: "task", ID: "callback", URL: "https://receiver.example/callback", Auth: &a2atype.PushAuthInfo{Scheme: "Bearer"}})
 			return err
 		}},
 		{name: "push get", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {

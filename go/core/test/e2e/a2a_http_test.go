@@ -205,7 +205,7 @@ func TestSessionHTTPPushNotifications(t *testing.T) {
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		for _, streaming := range []bool{false, true} {
 			t.Run(fmt.Sprintf("stream=%t", streaming), func(t *testing.T) {
-				exerciseHTTPPush(t, harness, interactionTarget(t), streaming, nil)
+				exerciseHTTPPush(t, harness, interactionTarget(t), streaming, "", nil)
 			})
 		}
 	})
@@ -215,6 +215,14 @@ func TestSessionHTTPPushNotifications(t *testing.T) {
 // the leader. The configured API endpoint must survive pod replacement.
 func TestSessionHTTPPushFromNonleader(t *testing.T) {
 	target := interactionTarget(t)
+	followerTarget, replaceLeader := preparePushLeaderHandoff(t)
+	exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, followerTarget, replaceLeader)
+}
+
+// preparePushLeaderHandoff leaves the test with a ready follower to receive
+// registration and a hook that replaces the current leader after disconnect.
+func preparePushLeaderHandoff(t *testing.T) (string, func()) {
+	t.Helper()
 	kube := interactionKubeClient(t)
 	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
 	require.NoError(t, coordinationv1.AddToScheme(kube.Scheme()))
@@ -239,40 +247,62 @@ func TestSessionHTTPPushFromNonleader(t *testing.T) {
 		}))
 	}
 	t.Cleanup(func() { scale(replicas) })
-	scale(new(int32(2)))
+	twoReplicas := int32(2)
+	scale(&twoReplicas)
 	lease := &coordinationv1.Lease{}
 	leaseKey := ctrlclient.ObjectKey{Namespace: "kagent", Name: "0e9f6799.kagent.dev"}
-	require.NoError(t, kube.Get(t.Context(), leaseKey, lease))
-	require.NotNil(t, lease.Spec.HolderIdentity, "leader election must be enabled")
-	leader := *lease.Spec.HolderIdentity
 	pods := &corev1.PodList{}
-	require.NoError(t, kube.List(t.Context(), pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
 	var follower, leaderPod *corev1.Pod
-	for i := range pods.Items {
-		pod := &pods.Items[i]
-		if pod.DeletionTimestamp != nil {
-			continue
+	var leader string
+	// Deployment readiness can precede Lease renewal after a Pod replacement.
+	// Wait until the Lease holder names a current, ready controller Pod.
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Get(ctx, leaseKey, lease); err != nil {
+			return false, err
 		}
-		if strings.HasPrefix(leader, pod.Name+"_") {
-			leaderPod = pod
-		} else {
-			follower = pod
+		if lease.Spec.HolderIdentity == nil || *lease.Spec.HolderIdentity == "" {
+			return false, nil
 		}
-	}
-	require.NotNil(t, leaderPod)
-	require.NotNil(t, follower)
+		leader = *lease.Spec.HolderIdentity
+		if err := kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
+			return false, err
+		}
+		leaderPod, follower = nil, nil
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.DeletionTimestamp != nil {
+				continue
+			}
+			ready := false
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+					ready = true
+					break
+				}
+			}
+			if !ready {
+				continue
+			}
+			if strings.HasPrefix(leader, pod.Name+"_") {
+				leaderPod = pod
+			} else {
+				follower = pod
+			}
+		}
+		return leaderPod != nil && follower != nil, nil
+	})
+	require.NoError(t, err, "Lease holder %q did not match a ready controller Pod", leader)
 	followerTarget := forwardPushController(t, follower)
-	// Preparation uses the stable API; the actual send is pinned to the follower.
-	exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, func(fixture *interactionFixture) string {
-		return followerTarget
-	}, func() {
+	return followerTarget, func() {
 		require.NoError(t, kube.Get(t.Context(), leaseKey, lease))
 		require.Equal(t, leader, *lease.Spec.HolderIdentity, "registration must have been accepted by a nonleader")
 		require.NoError(t, kube.Delete(t.Context(), leaderPod))
 		require.Eventually(t, func() bool {
 			return kube.Get(t.Context(), leaseKey, lease) == nil && lease.Spec.HolderIdentity != nil && *lease.Spec.HolderIdentity != leader
 		}, 90*time.Second, time.Second, "replacement leader did not acquire the lease")
-	})
+	}
 }
 
 func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
@@ -297,7 +327,7 @@ func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
 
 // exerciseHTTPPush keeps the model blocked until the observation connection is
 // gone. The optional hook replaces the leader before allowing task completion.
-func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget func(*interactionFixture) string, afterDisconnect ...func()) {
+func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget string, afterDisconnect func()) {
 	t.Helper()
 	modelURL, started, unblock, _ := startScheduledRecoveryModel(t)
 	fixture := newInteractionFixture(t, harness, target, modelURL)
@@ -342,8 +372,8 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 	t.Cleanup(receiver.Close)
 	callbackURL = reachableServerURL(t, receiver.URL, "/callback")
 	client, ctx := discoverHTTPAgent(t, fixture)
-	if sendTarget != nil {
-		pinned, err := a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{a2atype.NewAgentInterface("http://"+sendTarget(fixture)+"/agents/"+fixture.tenant, a2atype.TransportProtocolJSONRPC)}, a2aclient.WithJSONRPCTransport(&http.Client{}))
+	if sendTarget != "" {
+		pinned, err := a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{a2atype.NewAgentInterface("http://"+sendTarget+"/agents/"+fixture.tenant, a2atype.TransportProtocolJSONRPC)}, a2aclient.WithJSONRPCTransport(&http.Client{}))
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, pinned.Destroy()) })
 		client = pinned
@@ -379,8 +409,8 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 	case <-ctx.Done():
 		t.Fatal("model did not receive initial task")
 	}
-	for _, hook := range afterDisconnect {
-		hook()
+	if afterDisconnect != nil {
+		afterDisconnect()
 	}
 	unblock()
 	select {
