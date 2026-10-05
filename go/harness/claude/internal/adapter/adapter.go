@@ -5,7 +5,9 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -103,8 +105,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("remove the generated Claude tree: %w", err)
 		}
 		for _, tree := range claudeTrees {
-			if err := utils.ReclaimTree(tree); err != nil {
-				return nil, fmt.Errorf("reclaim %s from the unprivileged user: %w", tree, err)
+			if err := reclaimTreeRoot(tree); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -341,15 +343,28 @@ func materializeGoogleCredentials(environment []string, files harnessFiles) ([]s
 	return setEnvironment(filtered, config.GoogleApplicationCredentialsEnvName, path), nil
 }
 
-// handOver gives Claude's trees to the image's unprivileged user, which Claude
-// Code runs as when the harness runs as root, so the harness process and the
-// turn's credential in its memory are out of reach of Claude and its tools.
-// The directories above a tree, up to the durable directory, stay the
-// harness's and only gain search permission: Claude can reach its trees but
-// cannot replace the harness's own state beside them.
+// reclaimTreeRoot takes the root directory of one of Claude's trees back, so
+// that the harness can prepare it whatever mode Claude left it in. Nothing
+// under it is touched: its contents are Claude's, and only a walk as root
+// would let Claude's links, setuid bits or depth reach the harness.
+func reclaimTreeRoot(tree string) error {
+	if err := os.Lchown(tree, 0, 0); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("reclaim %s from the unprivileged user: %w", tree, err)
+	}
+	return nil
+}
+
+// handOver gives the roots of Claude's trees to the image's unprivileged
+// user, which Claude Code runs as when the harness runs as root, so the
+// harness process and the turn's credential in its memory are out of reach of
+// Claude and its tools. Everything under a root already is that user's: the
+// harness writes nothing there. The directories above a tree, up to the
+// durable directory, stay the harness's and only gain search permission:
+// Claude can reach its trees but cannot replace the harness's own state beside
+// them.
 func handOver(durableDir string, trees []string) error {
 	for _, tree := range trees {
-		if err := utils.ChownTree(tree, config.UnprivilegedUID, config.UnprivilegedGID); err != nil {
+		if err := os.Lchown(tree, config.UnprivilegedUID, config.UnprivilegedGID); err != nil {
 			return fmt.Errorf("hand %s to the unprivileged user: %w", tree, err)
 		}
 		for dir := filepath.Dir(tree); dir == durableDir || strings.HasPrefix(dir, durableDir+string(filepath.Separator)); dir = filepath.Dir(dir) {

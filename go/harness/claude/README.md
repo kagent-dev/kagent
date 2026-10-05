@@ -61,7 +61,10 @@ A start trusts nothing Claude could have written before it. The harness first ta
 `/data` and everything in it other than Claude's two trees back, removing every link
 and clearing group and other write, which also covers a volume an earlier image ran as
 uid 65532. It then rebuilds `/data/generated` (the skill and plugin packages and the
-skills Claude loads) as root and leaves it readable by the `kagent` group only.
+skills Claude loads) as root and leaves it readable by the `kagent` group only. Of
+Claude's trees it touches only the two root directories and never walks their
+contents, so links, setuid bits or depth Claude leaves there neither reach the harness
+nor fail a start, and Claude's files stay as Claude left them.
 
 What the harness writes for Claude to obey is root-owned and readable by the `kagent`
 group only (`0640` in a `0750` directory), so Claude can read it but neither edit,

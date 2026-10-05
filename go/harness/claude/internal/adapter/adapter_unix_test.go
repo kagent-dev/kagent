@@ -4,6 +4,7 @@ package adapter
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,15 +61,44 @@ func TestNewHandsClaudesTreesToTheUnprivilegedUserOnEveryStart(t *testing.T) {
 	output := asClaude(t, input.Workspace, `set -e
 id -G
 mkdir -p repo/.git && echo ref > repo/.git/HEAD && chmod 600 repo/.git/HEAD && chmod 000 repo
-if mv "$1" "$1.moved" 2>/dev/null; then echo "renamed the harness state"; exit 1; fi`, harnessState)
+if mv "$1" "$1.moved" 2>/dev/null; then echo "renamed the harness state"; exit 1; fi
+chmod 000 .`, harnessState)
 	if groups := strings.Fields(output); len(groups) != 1 || groups[0] != "65532" {
 		t.Fatalf("Claude runs with groups %v, want only its own", groups)
 	}
 
 	start()
 	asClaude(t, input.Workspace, `set -e
-test -O repo/.git/HEAD || { echo "a file Claude wrote is no longer Claude's"; exit 1; }
-test -r repo -a -w repo -a -x repo || { echo "a directory Claude locked is not reopened"; exit 1; }`)
+test -r . -a -w . -a -x . || { echo "the workspace Claude locked is not reopened"; exit 1; }
+chmod 700 repo
+test -O repo/.git/HEAD || { echo "a file Claude wrote is no longer Claude's"; exit 1; }`)
+}
+
+// A start touches only the roots of Claude's trees, so nothing Claude makes
+// under them, however it links, marks or nests it, changes hands or stops the
+// next start.
+func TestNewLeavesWhatClaudeMadeOfItsTreesAlone(t *testing.T) {
+	input := rootInput(t, []byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`))
+	_, err := New(t.Context(), input)
+	require.NoError(t, err)
+	claudeDir := filepath.Join(input.DurableDir, "claude")
+	for _, tree := range []string{input.Workspace, claudeDir} {
+		asClaude(t, tree, `set -e
+echo a > linked && chmod 600 linked && ln linked link
+cp /bin/true setuid && chmod 4755 setuid && ln setuid pinned
+touch setgid && chmod 2644 setgid
+mkdir shared && chmod 2775 shared
+perl -e 'for (1..600) { mkdir "deep" or die $!; chdir "deep" or die $! }'`)
+	}
+
+	_, err = New(t.Context(), input)
+	require.NoError(t, err)
+	for _, tree := range []string{input.Workspace, claudeDir} {
+		asClaude(t, tree, `set -e
+for name in linked setuid setgid shared; do test -O "$name" || { echo "$name is no longer Claude's"; exit 1; }; done
+cat link > /dev/null && : >> link
+test -u setuid -a -g setgid -a -g shared`)
+	}
 }
 
 func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
@@ -168,7 +198,7 @@ func TestNewRebuildsTheGeneratedTreeClaudeCouldWrite(t *testing.T) {
 		require.NoError(t, os.MkdirAll(dir, 0o755))
 	}
 	for _, tree := range []string{input.Workspace, filepath.Join(input.DurableDir, "claude"), generated} {
-		require.NoError(t, utils.ChownTree(tree, config.UnprivilegedUID, config.UnprivilegedGID))
+		chownTree(t, tree)
 	}
 	require.NoError(t, os.Chmod(input.DurableDir, 0o755))
 	outside := filepath.Join(filepath.Dir(input.DurableDir), "outside")
@@ -209,7 +239,7 @@ func TestNewSecuresTheHarnessStateOfAnUpgradedVolume(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(state, "state.json"), []byte("{}"), 0o666))
 	require.NoError(t, os.Symlink("/etc/passwd", filepath.Join(state, "link")))
 	require.NoError(t, os.Chmod(state, 0o777))
-	require.NoError(t, utils.ChownTree(input.DurableDir, config.UnprivilegedUID, config.UnprivilegedGID))
+	chownTree(t, input.DurableDir)
 
 	_, err := New(t.Context(), input)
 	require.NoError(t, err)
@@ -249,13 +279,19 @@ func rootInput(t *testing.T, configJSON []byte) Input {
 		t.Skip("the harness splits Claude off only when it runs as root")
 	}
 	base := t.TempDir()
-	t.Cleanup(func() { _ = utils.ReclaimTree(base) })
+	durableDir := filepath.Join(base, "data")
+	// Root cannot read what Claude locked; Claude empties its own trees.
+	t.Cleanup(func() {
+		claude := exec.Command("/bin/sh", "-c", `chmod -R u+rwx "$@"; find "$@" -mindepth 1 -delete`, "sh",
+			filepath.Join(durableDir, "workspace"), filepath.Join(durableDir, "claude"))
+		utils.RunAs(claude, config.UnprivilegedUID, config.UnprivilegedGID)
+		_ = claude.Run()
+	})
 	for _, dir := range []string{filepath.Dir(base), base} {
 		if err := os.Chmod(dir, 0o711); err != nil {
 			t.Fatal(err)
 		}
 	}
-	durableDir := filepath.Join(base, "data")
 	return Input{
 		ConfigJSON: configJSON, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: filepath.Join(base, "ephemeral"), Environment: []string{"PATH=/bin:/usr/bin"},
@@ -274,6 +310,18 @@ func asClaude(t *testing.T, dir, script string, args ...string) string {
 		t.Fatalf("Claude's turn: %v: %s", err, output)
 	}
 	return string(output)
+}
+
+// chownTree hands a tree the test built as root to the unprivileged user, as
+// an earlier image running as that user would have left it.
+func chownTree(t *testing.T, root string) {
+	t.Helper()
+	require.NoError(t, filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, config.UnprivilegedUID, config.UnprivilegedGID)
+	}))
 }
 
 func owner(t *testing.T, path string) int {

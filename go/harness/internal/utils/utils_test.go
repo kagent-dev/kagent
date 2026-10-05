@@ -40,22 +40,3 @@ func TestReplacePrivateFileAtomicallyReplacesPrivateContents(t *testing.T) {
 		t.Fatalf("directory permissions = %v, %v", info, err)
 	}
 }
-
-func TestChownTreeWalksWithoutFollowingSymlinks(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "state")
-	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "nested", "file"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/etc/passwd", filepath.Join(root, "link")); err != nil {
-		t.Fatal(err)
-	}
-	if err := ChownTree(root, os.Getuid(), os.Getgid()); err != nil {
-		t.Fatalf("ChownTree() = %v", err)
-	}
-	if err := ChownTree(filepath.Join(root, "missing"), os.Getuid(), os.Getgid()); err != nil {
-		t.Fatalf("a missing root is left alone: %v", err)
-	}
-}

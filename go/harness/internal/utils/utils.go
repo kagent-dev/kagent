@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 )
 
@@ -171,73 +170,6 @@ func replaceFile(path string, contents []byte, mode os.FileMode, gid int) (retur
 		return fmt.Errorf("replace file %q: %w", path, err)
 	}
 	renamed = true
-	return nil
-}
-
-// ReclaimTree gives root and everything under it back to the calling root
-// process, directory before contents, so each directory is the caller's to
-// list by the time the walk reads it. Directories also regain owner rwx. It
-// needs CAP_CHOWN but neither CAP_DAC_OVERRIDE nor CAP_DAC_READ_SEARCH, and
-// follows no symlink. A missing root is left alone.
-func ReclaimTree(root string) error {
-	if _, err := os.Lstat(root); errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err := os.Lchown(path, 0, 0); err != nil {
-			return err
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			return err
-		}
-		if info.Mode().Perm()&0o700 == 0o700 {
-			return nil
-		}
-		return os.Chmod(path, info.Mode().Perm()|0o700)
-	})
-}
-
-// ChownTree hands root and everything under it to uid:gid without following
-// symlinks, contents before their directory, so the caller never needs to read
-// a directory it has already handed over. A regular file with more than one
-// link stays the caller's: another of its names may be a file the caller
-// keeps. A missing root is left alone.
-func ChownTree(root string, uid, gid int) error {
-	var paths []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Type().IsRegular() {
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if linkCount(info) > 1 {
-				return nil
-			}
-		}
-		paths = append(paths, path)
-		return nil
-	})
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, path := range slices.Backward(paths) {
-		if err := os.Lchown(path, uid, gid); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
