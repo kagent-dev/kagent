@@ -108,6 +108,37 @@ func thoughtSignaturesByToolCallID(contents []*genai.Content) map[string][]byte 
 	return thoughtSignatures
 }
 
+// functionCallArgs decodes tool call arguments. Blank arguments mean none,
+// unless the response was cut off at the token limit.
+func functionCallArgs(name, id, arguments, finishReason string) (map[string]any, error) {
+	var args map[string]any
+	if strings.TrimSpace(arguments) == "" {
+		if finishReason == openAIFinishLength {
+			return nil, fmt.Errorf("tool call %q (id %q) was cut off before its arguments", name, id)
+		}
+		return args, nil
+	}
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return nil, fmt.Errorf("failed to decode arguments of tool call %q (id %q): %w", name, id, err)
+	}
+	return args, nil
+}
+
+// rejectMalformedFunctionCalls fails the turn and drops all of its tool calls,
+// not only the malformed ones.
+func rejectMalformedFunctionCalls(resp *model.LLMResponse, errs []error, finishReason string) {
+	resp.Content.Parts = slices.DeleteFunc(resp.Content.Parts, func(p *genai.Part) bool { return p.FunctionCall != nil })
+	msgs := make([]string, len(errs))
+	for i, err := range errs {
+		msgs[i] = err.Error()
+	}
+	resp.ErrorCode = string(genai.FinishReasonMalformedFunctionCall)
+	resp.ErrorMessage = strings.Join(msgs, "; ")
+	if finishReason != "" {
+		resp.ErrorMessage += fmt.Sprintf(" (finish reason %q)", finishReason)
+	}
+}
+
 func newFunctionCallPart(name string, args map[string]any, id string, thoughtSignature []byte) *genai.Part {
 	part := genai.NewPartFromFunctionCall(name, args)
 	if part.FunctionCall != nil {
@@ -454,16 +485,18 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	if text != "" {
 		finalParts = append(finalParts, &genai.Part{Text: text})
 	}
+	var callErrs []error
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]
 		argsStr, _ := tc["arguments"].(string)
-		var args map[string]any
-		if argsStr != "" {
-			_ = json.Unmarshal([]byte(argsStr), &args)
-		}
 		name, _ := tc["name"].(string)
 		id, _ := tc["id"].(string)
 		if name != "" || id != "" {
+			args, err := functionCallArgs(name, id, argsStr, finishReason)
+			if err != nil {
+				callErrs = append(callErrs, err)
+				continue
+			}
 			thoughtSignature, _ := tc["thought_signature"].([]byte)
 			p := newFunctionCallPart(name, args, id, thoughtSignature)
 			finalParts = append(finalParts, p)
@@ -484,6 +517,9 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		FinishReason:  openAIFinishReasonToGenai(finishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
+	}
+	if len(callErrs) > 0 {
+		rejectMalformedFunctionCalls(resp, callErrs, finishReason)
 	}
 	_ = yield(resp, nil)
 }
@@ -514,11 +550,13 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 	if msg.Content != "" {
 		parts = append(parts, &genai.Part{Text: msg.Content})
 	}
+	var callErrs []error
 	for _, tc := range msg.ToolCalls {
 		if tc.Type == openAIToolTypeFunction && tc.Function.Name != "" {
-			var args map[string]any
-			if tc.Function.Arguments != "" {
-				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			args, err := functionCallArgs(tc.Function.Name, tc.ID, tc.Function.Arguments, choice.FinishReason)
+			if err != nil {
+				callErrs = append(callErrs, err)
+				continue
 			}
 			functionToolCall := tc.AsFunction()
 			p := newFunctionCallPart(
@@ -538,11 +576,15 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 			TotalTokenCount:      int32(completion.Usage.TotalTokens),
 		}
 	}
-	return &model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(choice.FinishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}
+	if len(callErrs) > 0 {
+		rejectMalformedFunctionCalls(resp, callErrs, choice.FinishReason)
+	}
+	return resp
 }
