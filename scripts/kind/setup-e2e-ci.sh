@@ -30,7 +30,10 @@ REG_PORT="${REG_PORT:-5001}"
 WORK_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/kagent-e2e-setup.XXXXXX")"
 TIMINGS_FILE="${TIMINGS_FILE:-${WORK_DIR}/timings.log}"
 KUBECTL_ATE="${WORK_DIR}/kubectl-ate"
-export SUBSTRATE_VERSION VERSION KIND_SANDBOX_CLASS KIND_CLUSTER_NAME
+# The kind scripts prefer podman when installed (as on CI runners); the
+# registry, buildx, and Kind must all share docker.
+CONTAINER_RUNTIME=docker
+export SUBSTRATE_VERSION VERSION KIND_SANDBOX_CLASS KIND_CLUSTER_NAME CONTAINER_RUNTIME
 : >"${TIMINGS_FILE}"
 
 run_step() {
@@ -136,7 +139,9 @@ step_install_microvm() {
 step_build_images() {
   # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
   # otherwise selects a fresh local builder, discarding that cache.
-  BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+  # Read all output: exiting awk early can kill docker with SIGPIPE, which
+  # pipefail turns into a silent exit 255.
+  BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" && !found { print $2; found = 1 }')
   test -n "${BUILDX_BUILDER_NAME}"
   export BUILDX_BUILDER_NAME
   make buildx-create
