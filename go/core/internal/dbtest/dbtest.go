@@ -3,6 +3,7 @@ package dbtest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -28,17 +29,18 @@ func Start(ctx context.Context) (connStr string, cleanup func(), err error) {
 		),
 	)
 	if err != nil {
-		return "", nil, fmt.Errorf("starting postgres container: %w", err)
+		// Run returns the created container when it fails to start.
+		return "", nil, errors.Join(fmt.Errorf("starting postgres container: %w", err), testcontainers.TerminateContainer(pgContainer))
 	}
 
 	connStr, err = pgContainer.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		_ = pgContainer.Terminate(ctx)
-		return "", nil, fmt.Errorf("getting connection string: %w", err)
+		return "", nil, errors.Join(fmt.Errorf("getting connection string: %w", err), testcontainers.TerminateContainer(pgContainer))
 	}
 
 	cleanup = func() {
-		if err := pgContainer.Terminate(ctx); err != nil {
+		// Not ctx: a test context is canceled before cleanup runs.
+		if err := testcontainers.TerminateContainer(pgContainer); err != nil {
 			fmt.Printf("warning: failed to terminate postgres container: %v\n", err)
 		}
 	}
