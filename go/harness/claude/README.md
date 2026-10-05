@@ -50,18 +50,30 @@ and trace propagation use reach the server (`Accept`, `Content-Type`, `Mcp-Sessi
 
 ## Users
 
-The image runs the harness as root. On every start the harness hands the workspace,
-`/data/claude` and the skills tree to the image's `kagent` user (uid 65532) and starts
-Claude Code as that user with no supplementary groups, so Claude and every process it
-starts can read neither the harness process, which holds the turn's credential, nor
-anything the harness keeps beside those trees. The claude translator asks Substrate for
-`CHOWN`, `SETGID` and `SETUID` on top of its defaults; no `DAC_*` capability is needed.
+The image runs the harness as root. On every start the harness hands the workspace and
+`/data/claude` to the image's `kagent` user (uid 65532) and starts Claude Code as that
+user with no supplementary groups, so Claude and every process it starts can read
+neither the harness process, which holds the turn's credential, nor the harness's own
+state. The claude translator asks Substrate for `CHOWN`, `SETGID` and `SETUID` on top of
+its defaults; no `DAC_*` capability is needed.
+
+A start trusts nothing Claude could have written before it. The harness first takes
+`/data` and everything in it other than Claude's two trees back, removing every link
+and clearing group and other write, which also covers a volume an earlier image ran as
+uid 65532. It then rebuilds `/data/generated` (the skill and plugin packages and the
+skills Claude loads) as root and leaves it readable by the `kagent` group only.
 
 What the harness writes for Claude to obey is root-owned and readable by the `kagent`
 group only (`0640` in a `0750` directory), so Claude can read it but neither edit,
 replace nor add to it: the permission rules in Claude Code's managed settings
-(`/etc/claude-code/managed-settings.json`), and `mcp.json` and the Google credentials
-in `/run/kagent-claude`.
+(`/etc/claude-code/managed-settings.json`, which the harness owns: an operator file
+mounted there is replaced), and `mcp.json` and the Google credentials in
+`/run/kagent-claude`.
+
+This does not make approval a boundary against Claude. `mcp.json` must be readable for
+Claude to reach its servers, so a process Claude starts can call the forwarder or the
+approval broker with the same loopback token, and a hook in Claude's own settings can
+answer a permission prompt. Approval of a protected tool is enforced by the MCP server.
 
 `KAGENT_PROPAGATE_TOKEN=true` with MCP servers requires the root harness: a harness
 that runs as another user would start Claude Code as itself, and it refuses to start.

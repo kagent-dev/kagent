@@ -64,9 +64,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace, durable, and ephemeral directories must be absolute paths")
 	}
 	claudeDir := filepath.Join(input.DurableDir, "claude")
+	generatedDir := filepath.Join(input.DurableDir, "generated")
 	var skillRoot string
 	if cfg.SkillResources != nil {
-		skillRoot = filepath.Join(input.DurableDir, "generated", "claude")
+		skillRoot = filepath.Join(generatedDir, "claude")
 	}
 	holdsCallerCredential := propagateCallerToken(input.Environment) && len(cfg.MCPServers) != 0
 	if holdsCallerCredential {
@@ -92,10 +93,15 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	} else {
 		claudeTrees = append(claudeTrees, input.EphemeralDir)
 	}
-	if skillRoot != "" {
-		claudeTrees = append(claudeTrees, skillRoot)
-	}
 	if runsAsRoot {
+		// Claude may have left links or its own files anywhere it could write
+		// before this start; none of it is trusted.
+		if err := secureDurableDir(input.DurableDir, claudeTrees); err != nil {
+			return nil, err
+		}
+		if err := os.RemoveAll(generatedDir); err != nil {
+			return nil, fmt.Errorf("remove the generated Claude tree: %w", err)
+		}
 		for _, tree := range claudeTrees {
 			if err := utils.ReclaimTree(tree); err != nil {
 				return nil, fmt.Errorf("reclaim %s from the unprivileged user: %w", tree, err)
@@ -117,13 +123,18 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
 		}
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
-			Packages: filepath.Join(claudeDir, "packages"),
+			Packages: filepath.Join(generatedDir, "packages"),
 			Skills:   skillsDir,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
 		pluginDirs = materialized.ClaudeFormatPluginRoots()
+		if runsAsRoot {
+			if err := utils.ShareTreeReadOnly(generatedDir, config.UnprivilegedGID); err != nil {
+				return nil, fmt.Errorf("share the generated Claude tree read-only: %w", err)
+			}
+		}
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The native runtime inherits the compiled identity through the standard
@@ -341,13 +352,50 @@ func handOver(durableDir string, trees []string) error {
 		if err := utils.ChownTree(tree, config.UnprivilegedUID, config.UnprivilegedGID); err != nil {
 			return fmt.Errorf("hand %s to the unprivileged user: %w", tree, err)
 		}
-		for dir := filepath.Dir(tree); strings.HasPrefix(dir, durableDir); dir = filepath.Dir(dir) {
+		for dir := filepath.Dir(tree); dir == durableDir || strings.HasPrefix(dir, durableDir+string(filepath.Separator)); dir = filepath.Dir(dir) {
 			if err := searchableByAll(dir); err != nil {
 				return fmt.Errorf("let the unprivileged user traverse %s: %w", dir, err)
 			}
 			if dir == durableDir {
 				break
 			}
+		}
+	}
+	return nil
+}
+
+// secureDurableDir makes the durable directory and everything in it other than
+// Claude's trees the harness's alone before the harness reads or writes any of
+// it: a volume an earlier image ran as the unprivileged user, or a tree Claude
+// wrote into, may hold links and files Claude planted.
+func secureDurableDir(durableDir string, claudeTrees []string) error {
+	if err := os.MkdirAll(durableDir, 0o700); err != nil {
+		return fmt.Errorf("create the durable directory: %w", err)
+	}
+	info, err := os.Lstat(durableDir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("the durable directory %s is not a directory", durableDir)
+	}
+	if err := os.Lchown(durableDir, 0, 0); err != nil {
+		return err
+	}
+	if err := os.Chmod(durableDir, info.Mode().Perm()&^0o022|0o700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(durableDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(durableDir, entry.Name())
+		if slices.Contains(claudeTrees, path) && entry.IsDir() {
+			continue
+		}
+		if err := utils.SecureTree(path); err != nil {
+			return fmt.Errorf("secure %s: %w", path, err)
 		}
 	}
 	return nil

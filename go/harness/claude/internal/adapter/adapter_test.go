@@ -47,9 +47,8 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	skipAsRoot(t)
 	durableDir := filepath.Join(t.TempDir(), "data")
-	claudeDir := filepath.Join(durableDir, "claude")
 	skillRoot := filepath.Join(durableDir, "generated", "claude")
-	packageRoot := filepath.Join(claudeDir, "packages", "standalone-0")
+	packageRoot := filepath.Join(durableDir, "generated", "packages", "standalone-0")
 	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}

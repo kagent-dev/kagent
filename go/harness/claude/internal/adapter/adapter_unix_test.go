@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -147,6 +148,97 @@ for f in "$@"; do
 	if mv "$f" "$f.moved" 2>/dev/null; then echo "replaced $f"; exit 1; fi
 	if touch "$(dirname "$f")/planted" 2>/dev/null; then echo "added beside $f"; exit 1; fi
 done`, policy...)
+}
+
+// A start trusts nothing Claude could write before it: a link or a package it
+// planted in the generated tree, or one an earlier image let it plant there,
+// neither redirects root's writes nor feeds the skills Claude gets.
+func TestNewRebuildsTheGeneratedTreeClaudeCouldWrite(t *testing.T) {
+	repo, commit := skillRepository(t, "# Review")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
+		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "file://" + repo, Commit: commit}},
+	}}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	input := rootInput(t, raw)
+	generated := filepath.Join(input.DurableDir, "generated")
+	for _, dir := range []string{input.Workspace, filepath.Join(input.DurableDir, "claude", "packages", "standalone-0"), filepath.Join(generated, "claude")} {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+	}
+	for _, tree := range []string{input.Workspace, filepath.Join(input.DurableDir, "claude"), generated} {
+		require.NoError(t, utils.ChownTree(tree, config.UnprivilegedUID, config.UnprivilegedGID))
+	}
+	require.NoError(t, os.Chmod(input.DurableDir, 0o755))
+	outside := filepath.Join(filepath.Dir(input.DurableDir), "outside")
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "standalone-0"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "standalone-0", "SKILL.md"), []byte("root only"), 0o600))
+	asClaude(t, input.Workspace, `set -e
+echo planted > "$1/claude/packages/standalone-0/SKILL.md"
+ln -s "$2" "$1/generated/claude/.claude"
+ln -s "$2" "$1/generated/packages"`, input.DurableDir, outside)
+
+	runner, err := New(t.Context(), input)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = runner.Close() })
+
+	entries, err := os.ReadDir(outside)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "root wrote outside the generated tree")
+	skill := filepath.Join(generated, "claude", ".claude", "skills", "review", "SKILL.md")
+	contents, err := os.ReadFile(skill)
+	require.NoError(t, err)
+	require.Equal(t, "# Review", string(contents))
+	info, err := os.Lstat(skill)
+	require.NoError(t, err)
+	stat := info.Sys().(*syscall.Stat_t)
+	require.Equal(t, [3]uint32{0, config.UnprivilegedGID, 0o640}, [3]uint32{stat.Uid, stat.Gid, uint32(info.Mode().Perm())})
+	asClaude(t, input.Workspace, `set -e
+cat "$1" > /dev/null
+if (: >> "$1") 2>/dev/null; then echo "wrote a skill"; exit 1; fi
+if touch "$(dirname "$1")/planted" 2>/dev/null; then echo "added a skill file"; exit 1; fi`, skill)
+}
+
+// A volume an earlier image ran as the unprivileged user leaves the harness's
+// own state Claude's; the first root start takes it back and drops the links.
+func TestNewSecuresTheHarnessStateOfAnUpgradedVolume(t *testing.T) {
+	input := rootInput(t, []byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`))
+	state := filepath.Join(input.DurableDir, "adapter")
+	require.NoError(t, os.MkdirAll(state, 0o777))
+	require.NoError(t, os.WriteFile(filepath.Join(state, "state.json"), []byte("{}"), 0o666))
+	require.NoError(t, os.Symlink("/etc/passwd", filepath.Join(state, "link")))
+	require.NoError(t, os.Chmod(state, 0o777))
+	require.NoError(t, utils.ChownTree(input.DurableDir, config.UnprivilegedUID, config.UnprivilegedGID))
+
+	_, err := New(t.Context(), input)
+	require.NoError(t, err)
+
+	require.NoFileExists(t, filepath.Join(state, "link"))
+	require.Zero(t, owner(t, state))
+	require.Zero(t, owner(t, filepath.Join(state, "state.json")))
+	asClaude(t, input.Workspace, `if (: >> "$1/state.json") 2>/dev/null; then echo "wrote the harness state"; exit 1; fi
+if touch "$1/planted" 2>/dev/null; then echo "added to the harness state"; exit 1; fi`, state)
+}
+
+// skillRepository is a local git repository holding one skill, fetchable by
+// commit.
+func skillRepository(t *testing.T, skill string) (string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.com"}, args...)...)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+		return strings.TrimSpace(string(output))
+	}
+	run("init", "-q")
+	run("config", "uploadpack.allowAnySHA1InWant", "true")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "SKILL.md"), []byte(skill), 0o644))
+	run("add", "SKILL.md")
+	run("commit", "-q", "-m", "skill")
+	return repo, run("rev-parse", "HEAD")
 }
 
 // rootInput is the adapter input of a root harness under a fresh directory the

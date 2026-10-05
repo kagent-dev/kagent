@@ -177,10 +177,13 @@ func replaceFile(path string, contents []byte, mode os.FileMode, gid int) (retur
 // ReclaimTree gives root and everything under it back to the calling root
 // process, directory before contents, so each directory is the caller's to
 // list by the time the walk reads it. Directories also regain owner rwx. It
-// needs CAP_CHOWN but neither CAP_DAC_OVERRIDE nor CAP_DAC_READ_SEARCH. A
-// missing root is left alone.
+// needs CAP_CHOWN but neither CAP_DAC_OVERRIDE nor CAP_DAC_READ_SEARCH, and
+// follows no symlink. A missing root is left alone.
 func ReclaimTree(root string) error {
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	if _, err := os.Lstat(root); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -199,20 +202,27 @@ func ReclaimTree(root string) error {
 		}
 		return os.Chmod(path, info.Mode().Perm()|0o700)
 	})
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	return err
 }
 
 // ChownTree hands root and everything under it to uid:gid without following
 // symlinks, contents before their directory, so the caller never needs to read
-// a directory it has already handed over. A missing root is left alone.
+// a directory it has already handed over. A regular file with more than one
+// link stays the caller's: another of its names may be a file the caller
+// keeps. A missing root is left alone.
 func ChownTree(root string, uid, gid int) error {
 	var paths []string
-	err := filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if entry.Type().IsRegular() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if linkCount(info) > 1 {
+				return nil
+			}
 		}
 		paths = append(paths, path)
 		return nil
@@ -229,4 +239,74 @@ func ChownTree(root string, uid, gid int) error {
 		}
 	}
 	return nil
+}
+
+// ShareTreeReadOnly leaves root and everything under it owned by the calling
+// root process and readable by group gid only: directories 0750, regular files
+// 0640, or 0750 when their owner may execute them. Symlinks keep their target
+// and only change owner; no symlink is followed. Members of gid can read the
+// tree but not change it.
+func ShareTreeReadOnly(root string, gid int) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := os.Lchown(path, 0, gid); err != nil {
+			return err
+		}
+		switch {
+		case entry.Type()&fs.ModeSymlink != 0:
+			return nil
+		case entry.IsDir():
+			return os.Chmod(path, 0o750)
+		case entry.Type().IsRegular():
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if info.Mode().Perm()&0o100 != 0 {
+				return os.Chmod(path, 0o750)
+			}
+			return os.Chmod(path, 0o640)
+		default:
+			return fmt.Errorf("%s is neither a directory, a regular file nor a symlink", path)
+		}
+	})
+}
+
+// SecureTree makes root and everything under it the calling root process's
+// alone, for state another user may have owned: it removes every symlink,
+// takes ownership and clears group and other write. A missing root is left
+// alone; a root that is a symlink is removed.
+func SecureTree(root string) error {
+	info, err := os.Lstat(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return os.Remove(root)
+	}
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return os.Remove(path)
+		}
+		if err := os.Lchown(path, 0, 0); err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm() &^ 0o022
+		if entry.IsDir() {
+			mode |= 0o700
+		}
+		return os.Chmod(path, mode)
+	})
 }
