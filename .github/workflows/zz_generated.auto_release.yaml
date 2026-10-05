@@ -112,6 +112,7 @@ jobs:
             base=$(git merge-base "$line" HEAD)
             git tag --force "$line" "$base" >/dev/null
             echo "::notice title=Re-pinned line::${line} is not on ${GITHUB_REF_NAME} since a re-pin; the release counts from $(git log -1 --format='%h %s' "$base"), the commit the branch shares with it."
+            echo "LINE_REPINNED=true" >> "$GITHUB_ENV"
           fi
           major=${line%%.*}
           echo "line baseline: ${line}, tags ${major}.x"
@@ -285,10 +286,18 @@ jobs:
             # followed by rc.10 rather than rc.2. `--merged HEAD` scopes the
             # search the way the describe baseline above is scoped: a candidate
             # for the same target cut on another branch must not shift the
-            # numbering on this one.
+            # numbering on this one. A re-pinned fork line is the exception:
+            # its earlier candidates for the same target are on the history
+            # the rebase left behind, unreachable but this branch's own, and
+            # their tags still exist, so the count takes every tag of the
+            # target or the push would try to cut a tag that already exists.
             # `|| true`: grep exits 1 on the first candidate of a series,
             # when no ${NEXT}-rc.* tag exists yet, and pipefail would abort.
-            n=$(git tag --list --merged HEAD "${NEXT}-rc.*" | sed 's/.*-rc\.//' | { grep -E '^[0-9]+$' || true; } | sort -n | tail -1)
+            scope=(--merged HEAD)
+            if [ "${LINE_REPINNED:-}" = true ]; then
+              scope=()
+            fi
+            n=$(git tag --list ${scope[@]+"${scope[@]}"} "${NEXT}-rc.*" | sed 's/.*-rc\.//' | { grep -E '^[0-9]+$' || true; } | sort -n | tail -1)
 
             # `NEXT` stays ahead of `last` until the stable release, so the
             # comparison above cannot stop a push that carries only commits
