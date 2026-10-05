@@ -45,7 +45,9 @@ RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc
 COPY --from=builder /kagent-codex /usr/local/bin/kagent-codex
 
 USER 65532:65532
-WORKDIR /data/workspace
+# The harness sets Codex's working directory itself; /data is a volume that is
+# empty on first start.
+WORKDIR /
 EXPOSE 80 8081
 
 LABEL org.opencontainers.image.source="https://github.com/kagent-dev/kagent"

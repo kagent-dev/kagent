@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -19,12 +20,8 @@ func TestApprovalBrokerAllowsAndDeniesProtectedCalls(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 
-	settings, err := broker.SettingsJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := string(settings), `{"permissions":{"ask":["mcp__production_db__*"]}}`; got != want {
-		t.Fatalf("settings = %s, want %s", got, want)
+	if got, want := broker.AskRules(), []string{"mcp__production_db__*"}; !slices.Equal(got, want) {
+		t.Fatalf("ask rules = %v, want %v", got, want)
 	}
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "approval-test", Version: "1"}, nil)

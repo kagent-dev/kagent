@@ -421,6 +421,15 @@ jobs:
           export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
           go test -race -skip 'TestE2E.*' -v ./...
 
+      # Fork: the claude harness splits Claude Code off only when it runs as root,
+      # so its root-only tests run again as root, with no capability beyond the
+      # CHOWN, SETUID and SETGID the claude translator asks Substrate for.
+      - name: Run the claude harness tests as root
+        working-directory: go
+        run: |
+          go test -c -o "$RUNNER_TEMP/claude-adapter.test" ./harness/claude/internal/adapter/
+          sudo setpriv --bounding-set=-all,+chown,+setuid,+setgid -- "$RUNNER_TEMP/claude-adapter.test" -test.count=1 -test.v
+
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test

@@ -140,13 +140,13 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--strict-mcp-config",
 		"--dangerously-skip-permissions",
 	}
-	if d.config.ApprovalBroker != nil {
+	if d.config.SettingsPath != "" {
 		// No --setting-sources: skills under --add-dir belong to the project
 		// source, so closing the sources drops the compiled skills.
-		args = append(args,
-			"--settings", d.config.SettingsPath,
-			"--permission-prompt-tool", d.config.PermissionPromptTool,
-		)
+		args = append(args, "--settings", d.config.SettingsPath)
+	}
+	if d.config.ApprovalBroker != nil {
+		args = append(args, "--permission-prompt-tool", d.config.PermissionPromptTool)
 	}
 	if d.config.Model != "" {
 		args = append(args, "--model", d.config.Model)

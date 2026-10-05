@@ -112,26 +112,16 @@ func (b *ApprovalBroker) Headers() map[string]string {
 	return map[string]string{"Authorization": "Bearer " + b.token}
 }
 
-// SettingsJSON asks only for tools belonging to protected MCP servers. Claude
+// AskRules ask only for tools belonging to protected MCP servers. Claude
 // resolves those asks through the permission-prompt tool; bypass mode handles
 // every other tool without a static allowlist.
-func (b *ApprovalBroker) SettingsJSON() ([]byte, error) {
+func (b *ApprovalBroker) AskRules() []string {
 	ask := make([]string, 0, len(b.protected))
 	for name := range b.protected {
 		ask = append(ask, "mcp__"+name+"__*")
 	}
 	slices.Sort(ask)
-	settings := struct {
-		Permissions struct {
-			Ask []string `json:"ask"`
-		} `json:"permissions"`
-	}{}
-	settings.Permissions.Ask = ask
-	raw, err := json.Marshal(settings)
-	if err != nil {
-		return nil, fmt.Errorf("encode Claude approval settings: %w", err)
-	}
-	return raw, nil
+	return ask
 }
 
 // Close stops the private listener. Pending process ownership is retained by

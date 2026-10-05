@@ -64,11 +64,74 @@ func EnsurePrivateDir(path string) error {
 
 // ReplacePrivateFile atomically replaces path with owner-only contents. The
 // temporary file is created beside path so the rename stays on one filesystem.
-func ReplacePrivateFile(path string, contents []byte) (returnErr error) {
-	directory := filepath.Dir(path)
-	if err := EnsurePrivateDir(directory); err != nil {
+func ReplacePrivateFile(path string, contents []byte) error {
+	if err := EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return err
 	}
+	return replaceFile(path, contents, 0o600, -1)
+}
+
+// EnsureGroupReadableDir creates path when necessary, rejects symlinks and
+// non-directories, and leaves it owned by the caller and group gid with mode
+// 0750: members of gid can list and traverse it but not change its entries.
+// Missing parents are created 0755 so that the group can reach it.
+func EnsureGroupReadableDir(path string, gid int) error {
+	if err := mkdirParents(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("create parents of group-readable directory %q: %w", path, err)
+	}
+	if err := os.Mkdir(path, 0o750); err != nil && !errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("create group-readable directory %q: %w", path, err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect group-readable directory %q: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("group-readable path %q is not a directory", path)
+	}
+	if err := os.Lchown(path, os.Geteuid(), gid); err != nil {
+		return fmt.Errorf("set group of %q: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o750); err != nil {
+		return fmt.Errorf("secure group-readable directory %q: %w", path, err)
+	}
+	return nil
+}
+
+// mkdirParents creates path and its missing parents with mode 0755 whatever
+// the umask, leaving existing directories as they are.
+func mkdirParents(path string) error {
+	if info, err := os.Stat(path); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%q is not a directory", path)
+		}
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := mkdirParents(filepath.Dir(path)); err != nil {
+		return err
+	}
+	if err := os.Mkdir(path, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	return os.Chmod(path, 0o755)
+}
+
+// ReplaceGroupReadableFile atomically replaces path with contents that the
+// caller owns and group gid can read but not write, in a directory prepared by
+// EnsureGroupReadableDir, so members of gid can neither edit nor replace it.
+func ReplaceGroupReadableFile(path string, contents []byte, gid int) error {
+	if err := EnsureGroupReadableDir(filepath.Dir(path), gid); err != nil {
+		return err
+	}
+	return replaceFile(path, contents, 0o640, gid)
+}
+
+// replaceFile writes contents to a temporary file beside path with mode and,
+// when gid is not negative, group gid, then renames it over path.
+func replaceFile(path string, contents []byte, mode os.FileMode, gid int) (returnErr error) {
+	directory := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+"-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary file for %q: %w", path, err)
@@ -85,7 +148,12 @@ func ReplacePrivateFile(path string, contents []byte) (returnErr error) {
 			}
 		}
 	}()
-	if err := temporary.Chmod(0o600); err != nil {
+	if gid >= 0 {
+		if err := temporary.Chown(os.Geteuid(), gid); err != nil {
+			return fmt.Errorf("set group of temporary file for %q: %w", path, err)
+		}
+	}
+	if err := temporary.Chmod(mode); err != nil {
 		return fmt.Errorf("secure temporary file for %q: %w", path, err)
 	}
 	if _, err := temporary.Write(contents); err != nil {
@@ -100,7 +168,7 @@ func ReplacePrivateFile(path string, contents []byte) (returnErr error) {
 	}
 	closed = true
 	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace private file %q: %w", path, err)
+		return fmt.Errorf("replace file %q: %w", path, err)
 	}
 	renamed = true
 	return nil

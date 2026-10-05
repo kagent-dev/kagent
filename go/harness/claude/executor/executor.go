@@ -32,8 +32,10 @@ func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, io.Closer, erro
 	runner, err := adapter.New(ctx, adapter.Input{
 		ConfigJSON: cfg.ConfigJSON,
 		Workspace:  cfg.DataDir + "/workspace", DurableDir: cfg.DataDir,
-		EphemeralDir: "/tmp/kagent-claude",
-		Environment:  cfg.Environment,
+		EphemeralDir:        "/tmp/kagent-claude",
+		Environment:         cfg.Environment,
+		PolicyDir:           "/run/kagent-claude",
+		ManagedSettingsPath: "/etc/claude-code/managed-settings.json",
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure Claude Harness: %w", err)

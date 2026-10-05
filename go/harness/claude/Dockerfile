@@ -44,8 +44,11 @@ RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc
 
 COPY --from=builder /kagent-claude /usr/local/bin/kagent-claude
 
-USER 65532:65532
-WORKDIR /data/workspace
+# The harness runs as root and starts Claude Code as the kagent user, so that
+# Claude and its tools cannot read the harness process or change the policy it
+# writes. The harness sets Claude's working directory itself.
+USER 0:0
+WORKDIR /
 EXPOSE 80 8081
 
 LABEL org.opencontainers.image.source="https://github.com/kagent-dev/kagent"

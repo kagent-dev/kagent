@@ -22,6 +22,18 @@ import (
 
 const approvalMCPServerName = "kagent_hitl"
 
+// claudeSettings is the permission rules the adapter renders. A harness that
+// runs as root renders them as Claude Code's managed settings, where only
+// managed permission rules apply.
+type claudeSettings struct {
+	Permissions                     claudePermissions `json:"permissions"`
+	AllowManagedPermissionRulesOnly bool              `json:"allowManagedPermissionRulesOnly,omitempty"`
+}
+
+type claudePermissions struct {
+	Ask []string `json:"ask,omitempty"`
+}
+
 // Input contains compiler output and Actor-owned locations used to construct
 // the Claude driver.
 type Input struct {
@@ -30,6 +42,12 @@ type Input struct {
 	DurableDir   string
 	EphemeralDir string
 	Environment  []string
+	// PolicyDir holds what a root harness writes for Claude Code to read but
+	// not change: the MCP configuration and the Google credentials.
+	PolicyDir string
+	// ManagedSettingsPath is Claude Code's managed settings file, where a root
+	// harness renders the permission rules.
+	ManagedSettingsPath string
 }
 
 // New validates and materializes Claude-owned state, then constructs its driver.
@@ -50,8 +68,30 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if cfg.SkillResources != nil {
 		skillRoot = filepath.Join(input.DurableDir, "generated", "claude")
 	}
+	holdsCallerCredential := propagateCallerToken(input.Environment) && len(cfg.MCPServers) != 0
+	if holdsCallerCredential {
+		if err := validateForwardedServers(cfg.MCPServers); err != nil {
+			return nil, err
+		}
+	}
 	runsAsRoot := os.Geteuid() == 0
-	claudeTrees := []string{input.Workspace, claudeDir, input.EphemeralDir}
+	if runsAsRoot && (!filepath.IsAbs(input.PolicyDir) || !filepath.IsAbs(input.ManagedSettingsPath)) {
+		return nil, fmt.Errorf("a harness that runs as root needs absolute policy and managed settings paths")
+	}
+	if holdsCallerCredential {
+		if !runsAsRoot {
+			// Claude Code would run as the harness's own user and could read the
+			// caller's credential out of the harness process.
+			return nil, fmt.Errorf("%s requires the harness to run as root, so that Claude Code runs as another user", config.PropagateTokenEnvName)
+		}
+	}
+	files := harnessFiles{dir: input.EphemeralDir}
+	claudeTrees := []string{input.Workspace, claudeDir}
+	if runsAsRoot {
+		files = harnessFiles{dir: input.PolicyDir, groupReadable: true}
+	} else {
+		claudeTrees = append(claudeTrees, input.EphemeralDir)
+	}
 	if skillRoot != "" {
 		claudeTrees = append(claudeTrees, skillRoot)
 	}
@@ -92,7 +132,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
-	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
+	environment, err = materializeGoogleCredentials(environment, files)
 	if err != nil {
 		return nil, err
 	}
@@ -109,35 +149,22 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			_ = approvalBroker.Close()
 		}
 	}
-	if propagateCallerToken(input.Environment) && len(cfg.MCPServers) != 0 {
+	if holdsCallerCredential {
 		forwarder, err = frontMCPServers(&cfg)
 		if err != nil {
 			return nil, err
 		}
 	}
 	protectedServers := approvalServerNames(cfg.MCPServers)
-	var settingsPath string
+	settings := claudeSettings{AllowManagedPermissionRulesOnly: runsAsRoot}
 	var permissionPromptTool string
 	if len(protectedServers) != 0 {
-		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			closeListeners()
-			return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
-		}
 		approvalBroker, err = driver.NewApprovalBroker(protectedServers, cfg.MaxEventBytes)
 		if err != nil {
 			closeListeners()
 			return nil, fmt.Errorf("start Claude approval broker: %w", err)
 		}
-		settingsJSON, settingsErr := approvalBroker.SettingsJSON()
-		if settingsErr != nil {
-			closeListeners()
-			return nil, settingsErr
-		}
-		settingsPath = filepath.Join(input.EphemeralDir, "settings.json")
-		if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
-			closeListeners()
-			return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
-		}
+		settings.Permissions.Ask = approvalBroker.AskRules()
 		permissionPromptTool = "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
 		mcpServers := make(map[string]config.MCPServer, len(cfg.MCPServers)+1)
 		maps.Copy(mcpServers, cfg.MCPServers)
@@ -146,6 +173,23 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 		cfg.MCPServers = mcpServers
 	}
+	var settingsPath string
+	if runsAsRoot || len(settings.Permissions.Ask) != 0 {
+		settingsJSON, err := json.Marshal(settings)
+		if err != nil {
+			closeListeners()
+			return nil, fmt.Errorf("encode Claude settings: %w", err)
+		}
+		if runsAsRoot {
+			err = utils.ReplaceGroupReadableFile(input.ManagedSettingsPath, settingsJSON, config.UnprivilegedGID)
+		} else {
+			settingsPath, err = files.write("settings.json", settingsJSON)
+		}
+		if err != nil {
+			closeListeners()
+			return nil, fmt.Errorf("materialize Claude settings: %w", err)
+		}
+	}
 	mcpJSON, err := cfg.MCPConfigJSON()
 	if err != nil {
 		closeListeners()
@@ -153,12 +197,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	var mcpConfigPath string
 	if len(mcpJSON) != 0 {
-		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			closeListeners()
-			return nil, fmt.Errorf("prepare ephemeral MCP directory: %w", err)
-		}
-		mcpConfigPath = filepath.Join(input.EphemeralDir, "mcp.json")
-		if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
+		if mcpConfigPath, err = files.write("mcp.json", mcpJSON); err != nil {
 			closeListeners()
 			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 		}
@@ -199,9 +238,6 @@ func propagateCallerToken(environment []string) bool {
 func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
 	upstream := make(map[string]driver.UpstreamMCPServer, len(cfg.MCPServers))
 	for name, server := range cfg.MCPServers {
-		if server.Type != "http" {
-			return nil, fmt.Errorf("caller credential forwarding requires streamable HTTP MCP servers; %q uses %q", name, server.Type)
-		}
 		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: server.Headers}
 	}
 	forwarder, err := driver.NewCredentialForwarder(upstream, cfg.MaxEventBytes)
@@ -217,6 +253,33 @@ func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
 	}
 	cfg.MCPServers = fronted
 	return forwarder, nil
+}
+
+// validateForwardedServers refuses the servers the credential forwarder cannot
+// front.
+func validateForwardedServers(servers map[string]config.MCPServer) error {
+	for name, server := range servers {
+		if server.Type != "http" {
+			return fmt.Errorf("caller credential forwarding requires streamable HTTP MCP servers; %q uses %q", name, server.Type)
+		}
+	}
+	return nil
+}
+
+// harnessFiles is where the adapter writes the files Claude Code reads. A root
+// harness writes them group-readable for the unprivileged user, which can read
+// but neither edit nor replace them; otherwise they are owner-only.
+type harnessFiles struct {
+	dir           string
+	groupReadable bool
+}
+
+func (f harnessFiles) write(name string, contents []byte) (string, error) {
+	path := filepath.Join(f.dir, name)
+	if f.groupReadable {
+		return path, utils.ReplaceGroupReadableFile(path, contents, config.UnprivilegedGID)
+	}
+	return path, utils.ReplacePrivateFile(path, contents)
 }
 
 func environmentValue(environment []string, name string) string {
@@ -237,10 +300,10 @@ func approvalServerNames(servers map[string]config.MCPServer) (protected []strin
 	return protected
 }
 
-func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {
+func materializeGoogleCredentials(environment []string, files harnessFiles) ([]string, error) {
 	// The compiler injects the Secret value as JSON, while Google ADC expects a
-	// file path. Keep the credential in ephemeral Actor storage rather than the
-	// well-known path under /data, which is durable and may be snapshotted.
+	// file path. Keep the credential out of the well-known path under /data,
+	// which is durable and may be snapshotted.
 	prefix := config.GoogleCredentialsJSONEnvName + "="
 	var credentials string
 	filtered := make([]string, 0, len(environment))
@@ -260,11 +323,8 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 	if !json.Valid([]byte(credentials)) {
 		return nil, fmt.Errorf("%s must contain valid JSON", config.GoogleCredentialsJSONEnvName)
 	}
-	if err := utils.EnsurePrivateDir(directory); err != nil {
-		return nil, fmt.Errorf("prepare ephemeral credentials directory: %w", err)
-	}
-	path := filepath.Join(directory, "google-credentials.json")
-	if err := utils.ReplacePrivateFile(path, []byte(credentials)); err != nil {
+	path, err := files.write("google-credentials.json", []byte(credentials))
+	if err != nil {
 		return nil, fmt.Errorf("materialize Google credentials: %w", err)
 	}
 	return setEnvironment(filtered, config.GoogleApplicationCredentialsEnvName, path), nil
