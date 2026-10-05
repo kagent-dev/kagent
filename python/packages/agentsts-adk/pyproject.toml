@@ -27,7 +27,7 @@ agentsts-core = {workspace = true}
 test = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
-  "pytest-mock>=3.0.0",
+  "pytest-mock>=3.16.0",
 ]
 
 [tool.hatch.build.targets.wheel]

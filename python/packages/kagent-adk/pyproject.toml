@@ -36,7 +36,7 @@ dependencies = [
   "grpcio-health-checking>=1.74.0,<1.75.0",
   # Security: pin minimum versions for CVE fixes in transitive dependencies
   "urllib3>=2.6.3",  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: unbounded decompression DoS
-  "filelock>=4.0.3",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
+  "filelock>=4.0.9",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
   "python-multipart>=0.0.22",  # CVE-2026-24486: Arbitrary file write via path traversal
   "httpx-sse>=0.4.3",  # U+2028/U+2029 SSE line terminator fix (0.4.2) + performance regression fix (0.4.3)
   "boto3>=1.28.57",
