@@ -166,6 +166,33 @@ tests:
       - failedTemplate:
           errorPattern: 'harnesses\[0\].snapshotLocation is required'
 
+  - it: should render the turn limits of a claude entry
+    set:
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+          limits:
+            budgetUSD: "2.50"
+            maxTurns: 40
+    asserts:
+      - equal:
+          path: spec.claude.limits
+          value:
+            budgetUSD: "2.50"
+            maxTurns: 40
+
+  - it: should fail on limits for a kagent entry
+    set:
+      harnesses:
+        - name: adk
+          runtime: kagent
+          snapshotLocation: s3://snapshots/adk
+          limits:
+            maxTurns: 40
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\].limits: the kagent runtime has no turn limits'
+
   - it: should fail on compaction for a claude entry
     set:
       harnesses:

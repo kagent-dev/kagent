@@ -23,6 +23,9 @@ Harness must be distinct, and the render fails on a repeat.
 {{- if not (has $runtime (list "claude" "kagent")) }}
 {{- fail (printf "%s.runtime %q: claude or kagent" $key $runtime) }}
 {{- end }}
+{{- if and (eq $runtime "kagent") $entry.limits }}
+{{- fail (printf "%s.limits: the kagent runtime has no turn limits (Harness.spec.claude.limits is the Claude harness's)" $key) }}
+{{- end }}
 {{- if and (eq $runtime "claude") $entry.compaction }}
 {{- fail (printf "%s.compaction: the claude runtime has no compaction setting (Harness.spec.kagent.compaction is the Go ADK's)" $key) }}
 {{- end }}
@@ -49,7 +52,13 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   {{- if eq $runtime "claude" }}
+  {{- with $entry.limits }}
+  claude:
+    limits:
+      {{- toYaml . | nindent 6 }}
+  {{- else }}
   claude: {}
+  {{- end }}
   {{- else }}
   {{- with $entry.compaction }}
   kagent:
