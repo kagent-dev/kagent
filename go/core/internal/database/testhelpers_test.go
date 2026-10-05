@@ -21,25 +21,30 @@ func TestMain(m *testing.M) {
 	if testing.Short() {
 		os.Exit(m.Run())
 	}
+	os.Exit(runWithDatabase(m))
+}
 
-	connStr, _, err := dbtest.Start(context.Background())
+// runWithDatabase returns the exit code so deferred cleanup runs before os.Exit.
+func runWithDatabase(m *testing.M) int {
+	connStr, cleanup, err := dbtest.Start(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to start postgres container: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	defer cleanup()
 	sharedConnStr = connStr
 
 	if err := dbtest.Migrate(connStr, true); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to migrate test database: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	db, err := Connect(context.Background(), &PostgresConfig{URL: connStr, VectorEnabled: true})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to test database: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	sharedDB = db
 
-	os.Exit(m.Run())
+	return m.Run()
 }
