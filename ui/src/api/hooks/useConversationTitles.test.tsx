@@ -7,12 +7,7 @@ import { resetChatClient, setChatClientFactory } from "../chat";
 import type { ChatClient, ChatMessage } from "../chat/types";
 import { useConversationTitles } from "./useConversationTitles";
 
-/**
- * A conversation listed before its first message, the way the new-chat page lists it.
- *
- * The rail used to read its title once, find no message, and never read it again —
- * so the row showed `Untitled · <id>` as soon as the reader left it.
- */
+/** An unnamed conversation, as the rail lists it. */
 
 function conversation(id: string): AgentInstance {
   return {
@@ -44,10 +39,7 @@ function client(histories: Map<string, ChatMessage[]>, reads: string[]): ChatCli
   };
 }
 
-/**
- * A cache of the test's own, so no read leaks between tests — shared by every mount
- * within one, the way every page of the app shares one.
- */
+/** One cache per test, shared by every mount in it, as the app's pages share one. */
 function sharedCache() {
   const cache = new Map();
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -82,12 +74,7 @@ describe("useConversationTitles", () => {
     expect(result.current).toEqual({ named: "An older question" });
   });
 
-  /*
-   * The open conversation is titled from the page's own transcript, which has the
-   * reader's message the moment it is sent. The rail's read of it was made before that,
-   * so leaving the conversation — to another one, mid-reply or not — used to leave the
-   * row with nothing to be called by.
-   */
+  // The open row is titled from its transcript; the rail's read of it came before that.
   it("keeps the open conversation's title once another is opened", async () => {
     const histories = new Map<string, ChatMessage[]>();
     const reads: string[] = [];
@@ -129,11 +116,33 @@ describe("useConversationTitles", () => {
     expect(result.current).toEqual({});
   });
 
-  /*
-   * Each page's rail lists its own set of conversations, and each set is its own read.
-   * The one the new-chat page cached was made before anything had been said, so a page
-   * that lists that set again must not take it as the last word.
-   */
+  it("takes the title back even after a read that ran while it was remembered", async () => {
+    const histories = new Map<string, ChatMessage[]>();
+    const reads: string[] = [];
+    setChatClientFactory(() => client(histories, reads));
+    const two = [conversation("fresh"), conversation("other")];
+    const three = [...two, conversation("third")];
+
+    const { result, rerender } = renderHook<
+      Record<string, string>,
+      { listed: AgentInstance[]; open: Open }
+    >(({ listed, open }) => useConversationTitles(listed, open), {
+      wrapper: sharedCache(),
+      initialProps: { listed: two, open: { id: "fresh", title: "This is twin B." } },
+    });
+    await waitFor(() => expect(reads.sort()).toEqual(["fresh", "other"]));
+
+    // The list grows while the title is remembered, so a new read is cached.
+    reads.length = 0;
+    rerender({ listed: three, open: { id: "fresh", title: "This is twin B." } });
+    await waitFor(() => expect(reads.sort()).toEqual(["other", "third"]));
+
+    rerender({ listed: three, open: { id: "fresh" } });
+    rerender({ listed: three, open: { id: "other" } });
+    expect(result.current).toEqual({});
+  });
+
+  // Each page's rail is its own read; one cached before the first message is not final.
   it("re-reads a cached read that left a row untitled when another page mounts it", async () => {
     const histories = new Map<string, ChatMessage[]>();
     const reads: string[] = [];

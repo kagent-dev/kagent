@@ -312,20 +312,8 @@ test("chat agent rail: conversations are named", async ({ page }) => {
 });
 
 /**
- * A conversation started here keeps its title once you leave it.
- *
- * The new-chat page creates the conversation and refreshes the list before the first
- * message is sent, so the rail read the new row's title from an empty history — and
- * never again, because nothing about the set of conversations changed afterwards. The
- * open row hid it, being titled from the page's own transcript; leaving the chat left
- * `Untitled · <id>` behind until a reload.
- *
- * The Agent Details hop is the one the fixtures can fail on their own: its rail lists
- * the same set of conversations the new-chat page cached a read for. The sibling hop
- * passes here even without the fix, because the fixture list changes shape around the
- * turn and that is a new read. Against a cluster nothing need change it, so that hop —
- * mid-reply or not — is covered where no new read can happen, in
- * `useConversationTitles.test.tsx`.
+ * A new conversation keeps its title once you leave it. Only the Agent Details hop fails
+ * without the fix here; the mock re-reads on the sibling hop, so the unit tests cover it.
  */
 test("chat agent rail: a new conversation keeps its title once you leave it", async ({
   page,

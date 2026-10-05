@@ -35,13 +35,8 @@ const TITLE_BUDGET = 30;
  * already identifies the row, so a conversation whose read fails keeps its id rather
  * than turning a cosmetic problem into an error the reader must act on.
  *
- * A conversation can be listed before anything has been said in it: the new-chat page
- * creates it and refreshes the list, and only the chat page it navigates to sends the
- * first message. So a read that found no title is not final. The open conversation's
- * title, which the page derives from its own transcript, is remembered as that
- * conversation's, so leaving it — mid-reply or not — does not lose it. Past that,
- * every mount whose set has a row still untitled re-reads on arrival. A title found
- * once is final, so a re-read costs a request only per row still untitled.
+ * A conversation can be listed before its first message, so an untitled row is re-read
+ * on mount, and the open conversation keeps its transcript's title once it is left.
  */
 export function useConversationTitles(
   instances: readonly AgentInstance[] | undefined,
@@ -61,14 +56,7 @@ export function useConversationTitles(
 
   const derived = derivedTitles(useSWRConfig().cache);
 
-  /*
-   * The open conversation's title, from the transcript on screen.
-   *
-   * Taken back if the transcript takes it back: a first message the server refuses
-   * outright is removed from it, and a title naming a message nothing kept would last
-   * only until the next reload. Only a title remembered here is taken back, and only
-   * while its conversation is still the open one — one derived from a read is final.
-   */
+  // Open conversation's title, kept after leaving; dropped if its first message is refused.
   const openId = open?.id;
   const openTitle = open?.title;
   const remembered = useRef<string | undefined>(undefined);
@@ -90,8 +78,7 @@ export function useConversationTitles(
     async () => {
       const entries = await Promise.all(
         targets.map(async (instance) => {
-          const known = derived.get(instance.id);
-          if (known) return [instance.id, known] as const;
+          if (derived.has(instance.id)) return undefined;
           try {
             if (!instance.agent) return undefined;
             const history = await getChatClient().history({
@@ -119,18 +106,13 @@ export function useConversationTitles(
       // stale. Re-reading on focus would spend a request per row for a value that is
       // the same every time.
       revalidateOnFocus: false,
-      // A cached read can predate a conversation's first message, so it is trusted
-      // only when every row in it already has a title.
+      // Re-read on mount while a row is untitled; a read can predate a first message.
       revalidateIfStale: targets.some((instance) => !derived.has(instance.id)),
       keepPreviousData: true,
     },
   );
 
-  /*
-   * From `derived`, not from `data` alone: the cached read for this set of ids can
-   * predate a title found since under another set. `data` is still read, because a
-   * read landing is what re-renders this.
-   */
+  // Titles come from `derived`; `data` is read so that a landed read re-renders this.
   const titles: Record<string, string> = { ...data };
   for (const instance of targets) {
     const title = derived.get(instance.id);
@@ -139,14 +121,7 @@ export function useConversationTitles(
   return titles;
 }
 
-/**
- * Titles already derived, shared by every mount reading through one SWR cache.
- *
- * Per conversation rather than per set of ids, because that is what a title belongs
- * to — the rail on each page lists a different set, and a title found under one is
- * as true under the next. Held against the cache so an isolated cache, as in a test,
- * starts with none.
- */
+/** Titles per conversation, shared by every mount on one SWR cache. */
 const derivedByCache = new WeakMap<object, Map<string, string>>();
 
 function derivedTitles(cache: object): Map<string, string> {
