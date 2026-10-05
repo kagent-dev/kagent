@@ -39,6 +39,7 @@ test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 test("extension points: configured components mount where the point promises", async ({
   page,
 }) => {
+  test.setTimeout(LIFECYCLE_TIMEOUT);
   await test.step("1. shell points mount on every in-app page", async () => {
     await loadPage(page, routes.agents, { title: "Agents" });
     await expectShell(page);
