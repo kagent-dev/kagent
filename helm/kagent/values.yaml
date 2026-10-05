@@ -453,7 +453,10 @@ substrateWorkerPool:
   # do not select its workers.
   labels: {}
   # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
-  # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
+  # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources /
+  # serviceAccountName. Without serviceAccountName, the chart creates a
+  # "<name>-worker" ServiceAccount and the worker pods run as it. A
+  # serviceAccountName that you set must exist in the release namespace.
   template: {}
 
 # ==============================================================================
