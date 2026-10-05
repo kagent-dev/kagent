@@ -325,6 +325,9 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, 
 		return nil, err
 	}
 	session, err = s.workflow.Resume(ctx, session)
+	if errors.Is(err, ErrRuntimeLost) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
+	}
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}

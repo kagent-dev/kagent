@@ -483,3 +483,54 @@ func TestRuntimeLost(t *testing.T) {
 		})
 	}
 }
+
+// snapshotLossActors answers every resume the way Substrate does when the
+// Actor's snapshot is gone from the store: DataLoss, the Actor left as state.
+type snapshotLossActors struct {
+	*lifecycleTestActors
+	state ateapipb.ActorState
+}
+
+func (a *snapshotLossActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.actors[actorKey(atespace, name)].Status.State = a.state
+	return nil, status.Error(codes.DataLoss, "external snapshot not found")
+}
+
+func TestResumeAfterSnapshotLossFailsTheSessionAndDeleteProceeds(t *testing.T) {
+	for _, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_SUSPENDED} {
+		t.Run(state.String(), func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			setup := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
+			session, err := setup.Create(t.Context(), session)
+			require.NoError(t, err)
+			session, err = setup.Suspend(t.Context(), session)
+			require.NoError(t, err)
+
+			workflow := NewActorWorkflow(store, &snapshotLossActors{lifecycleTestActors: base, state: state}, make(chan struct{}, 1), time.Second)
+			_, err = workflow.Resume(t.Context(), session)
+			require.ErrorIs(t, err, ErrRuntimeLost)
+			require.ErrorContains(t, err, "external snapshot not found")
+
+			failed, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, failed.State)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, failed.Operation)
+			require.Equal(t, "RuntimeLost", failed.GetFailure().GetReason())
+			require.Contains(t, failed.GetFailure().GetMessage(), "external snapshot not found")
+
+			_, err = workflow.Resume(t.Context(), failed)
+			require.ErrorIs(t, err, database.ErrConflict, "a failed session cannot be resumed again")
+
+			deleted, err := workflow.Delete(t.Context(), failed)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
+			_, err = store.GetSession(t.Context(), session.Id, session.Creator)
+			require.ErrorIs(t, err, database.ErrNotFound)
+			_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+			require.Equal(t, codes.NotFound, status.Code(err), "Delete must remove the Actor")
+		})
+	}
+}

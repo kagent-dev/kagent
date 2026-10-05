@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -27,6 +28,7 @@ type workflowStore interface {
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1alpha1.Session, error)
+	FailSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, *apiv1alpha1.Failure) (*apiv1alpha1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
 }
 
@@ -168,6 +170,10 @@ func (w *ActorWorkflow) PauseNodeLost(ctx context.Context, session *apiv1alpha1.
 	}
 	return true, nil
 }
+
+// ErrRuntimeLost reports a lifecycle operation that Substrate answered can
+// never succeed: the session records the loss as FAILED and stays deletable.
+var ErrRuntimeLost = errors.New("session runtime is lost")
 
 // RuntimeLost reports whether the session's runtime can no longer take a turn:
 // Substrate reports its Actor CRASHED, or the Actor is gone. Substrate crashes
@@ -312,6 +318,21 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		err = errors.Join(err, w.store.ReleaseRuntimeOperation(finishCtx, sessionID, operation.ID, executorID))
 	}()
 	if err := substrate.ApplyActorTransition(ctx, w.actors, transition); err != nil {
+		if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME && status.Code(err) == codes.DataLoss {
+			// Substrate answers DataLoss when the Actor's snapshot cannot be
+			// restored, its own or the golden one it builds on: no retry can
+			// resume it, so the outcome is known and the operation must not stay
+			// pending, which would refuse every later resume and delete.
+			message := fmt.Sprintf("%sresume Actor %s/%s: %v", apia2a.RuntimeLostMessagePrefix, binding.Atespace, binding.Name, status.Convert(err).Message())
+			finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			failed, failErr := w.store.FailSessionOperation(finishCtx, sessionID, operation.ID, executorID,
+				&apiv1alpha1.Failure{Reason: apia2a.FailureReasonRuntimeLost, Message: message})
+			if failErr != nil {
+				return nil, errors.Join(fmt.Errorf("resume Actor %s/%s: %w", binding.Atespace, binding.Name, err), failErr)
+			}
+			return failed, fmt.Errorf("%s: %w", message, ErrRuntimeLost)
+		}
 		return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
 	}
 	var authority string

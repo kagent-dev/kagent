@@ -194,6 +194,60 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 	return result, nil
 }
 
+// FailSessionOperation publishes a known failure of issued work for the
+// claiming executor: the runtime answered that the operation cannot succeed, so
+// nothing about it is uncertain. The session leaves the operation FAILED with
+// the failure recorded, readable and deletable. Stale completion returns
+// ErrConflict.
+func (c *Client) FailSessionOperation(ctx context.Context, sessionID string, id, executorID uuid.UUID, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
+	if failure.GetReason() == "" {
+		return nil, fmt.Errorf("fail Session operation: a failure reason is required")
+	}
+	var result *apiv1alpha1.Session
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, sessionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		_, operation, err := row.lifecycle()
+		if err != nil {
+			return err
+		}
+		if id == uuid.Nil || executorID == uuid.Nil || row.OperationID == nil || *row.OperationID != id ||
+			row.ExecutorID == nil || *row.ExecutorID != executorID || operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+			return fmt.Errorf("lifecycle operation no longer belongs to this executor: %w", ErrConflict)
+		}
+		next := row.runtimeInstanceRow
+		next.State, next.Operation = apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED.String(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
+		next.OperationID, next.ExecutorID = nil, nil
+		result, err = toSession(row)
+		if err != nil {
+			return err
+		}
+		result.State, result.Operation, err = next.lifecycle()
+		if err != nil {
+			return err
+		}
+		result.Failure = failure
+		result.UpdatedAt = timestamppb.Now()
+		row.Data, err = marshalSession(result)
+		if err != nil {
+			return err
+		}
+		if err := saveRuntimeLifecycle(ctx, tx, next, runtimeKindAgent); err != nil {
+			return err
+		}
+		return execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, row.Data)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fail Session operation: %w", err)
+	}
+	return result, nil
+}
+
 // GetSessionOperation observes this generation only while it remains current,
 // including its deletion tombstone. A superseded or missing generation returns
 // ErrConflict. Callers must have authorized the session at admission. It never
