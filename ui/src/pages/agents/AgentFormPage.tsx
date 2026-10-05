@@ -137,6 +137,8 @@ function AgentForm({ agent }: { agent?: Agent }) {
       ...(harnessSource === "reference"
         ? { harnessRef: { name: harnessRef! } }
         : { harness: harnessSpecFromDraft(harnessDraft, spec?.harness) }),
+      // The form does not author egress; an edit keeps what the Agent declares.
+      ...(spec?.egress ? { egress: spec.egress } : {}),
     } as AgentSpec;
     const input = {
       namespace,

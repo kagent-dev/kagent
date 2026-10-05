@@ -332,3 +332,12 @@ navigation had just reset. What actually removes the coupling is a second `test`
 same file — one recording for the lifecycle, one for the states, neither able to abort
 the other. That costs `conventions.test.ts` its "one spec, one test" rule, so it is an
 amendment to the convention rather than a reshuffle, and belongs in its own change.
+
+## An Agent edit keeps the egress the form does not show
+
+`AgentFormPage` does not author `spec.egress`, and the update sends the whole spec, so
+the save carries the Agent's existing `egress` over. Nothing asserts it: no spec opens
+an Agent that declares egress, saves it, and reads the request back. The case it guards
+is silent — a save that dropped the line would widen nothing and narrow the Agent's
+egress to what its revision compiles, with no message on the page. It belongs in the
+agent lifecycle spec, with a fixture Agent whose `egress` matches the CRD shape.

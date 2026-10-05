@@ -22,3 +22,31 @@ func TestOrigin(t *testing.T) {
 		})
 	}
 }
+
+func TestParseOrigin(t *testing.T) {
+	for _, tt := range []struct{ raw, want string }{
+		{"https://proxy.golang.org", "https://proxy.golang.org:443"},
+		{"https://Proxy.Golang.org.", "https://proxy.golang.org:443"},
+		{"http://mirror.internal", "http://mirror.internal:80"},
+		{"https://git.internal:8443", "https://git.internal:8443"},
+		{"https://*.githubusercontent.com", "https://*.githubusercontent.com:443"},
+	} {
+		t.Run(tt.raw, func(t *testing.T) {
+			got, err := ParseOrigin(tt.raw)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+	for _, raw := range []string{
+		"proxy.golang.org", "ftp://proxy.golang.org", "https://", "https://*", "https://*.",
+		"https://a.*.example.com", "https://*.*.example.com", "https://*github.com", "https://*.com", "https://-bad.example.com",
+		"https://192.0.2.1", "https://[2001:db8::1]", "https://proxy.golang.org/", "https://proxy.golang.org/path",
+		"https://proxy.golang.org?x=1", "https://proxy.golang.org?", "https://proxy.golang.org#f",
+		"https://user@proxy.golang.org", "https://proxy.golang.org:0", "https://proxy.golang.org:70000",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			_, err := ParseOrigin(raw)
+			require.Error(t, err)
+		})
+	}
+}

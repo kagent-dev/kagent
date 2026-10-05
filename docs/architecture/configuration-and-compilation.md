@@ -20,6 +20,18 @@ with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness
 Each subagent requires `templateRef` and shares the parent's runtime and Harness.
 Dedicated `agentRef` bindings are deferred and are not part of the served API.
 
+`Agent.spec.egress` lists HTTP(S) origins the Agent may reach besides the
+destinations its revision compiles, such as `https://proxy.golang.org`. A host
+may have `*` as its leftmost label (`https://*.githubusercontent.com` matches
+one label), with at least two labels under it, so nothing opens a top-level
+domain or every host. The field is on the Agent, not the
+template or the Harness: the hosts are a property of the workload in the place
+where it runs (an internal git host, a registry mirror), so a template stays
+portable and a Harness stays about the runtime. The compiler adds the origins,
+in canonical form, after the runtime compiler has run, so every runtime and
+every Shared subagent treats them the same, and they are part of the revision
+identity.
+
 All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
 API.
