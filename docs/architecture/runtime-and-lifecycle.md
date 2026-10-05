@@ -11,7 +11,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.3.0-alpha3 requires protocol-specific egress policies. Kagent allows
+Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
 protocols on the same host and port are rejected before Actor creation. Literal
@@ -192,6 +192,11 @@ Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
+
+Templates capture Full snapshots when paused and Data snapshots when suspended.
+Substrate v0.4.0-alpha1 resumes a Data snapshot by starting fresh containers from
+the OCI image with the saved durable directories. Data restores no longer combine
+Golden memory with the Actor's saved data.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest

@@ -56,7 +56,7 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.3.0-alpha3
+      SUBSTRATE_VERSION: 0.4.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}

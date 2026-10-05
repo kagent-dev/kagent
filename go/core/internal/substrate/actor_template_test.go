@@ -86,9 +86,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
-		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotConfig().GetOnResume())
-	}
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, template.GetSnapshotConfig().GetOnCommit())
 	if template.GetSnapshotConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
 		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotConfig().GetOnPause())
 	}
@@ -102,7 +100,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 		}
 	}
 	trust := template.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
-	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
+	if !slices.Equal(trust.GetNames(), []string{"egress-mitm.ate.dev"}) || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
 		t.Fatal("gateway trust bundle was not projected")
 	}
 	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()

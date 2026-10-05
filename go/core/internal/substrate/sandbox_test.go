@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +24,11 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	require.Equal(t, []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"}, actor.Containers[0].Command)
 	require.Equal(t, policy.GuestImage, actor.Volumes[1].Image.Reference)
 	require.Equal(t, "1Gi", actor.Resources.Limits[1].Quantity)
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, actor.GetSnapshotConfig().GetOnPause())
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actor.GetSnapshotConfig().GetOnCommit())
+	trust := actor.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
+	require.Equal(t, []string{"egress-mitm.ate.dev"}, trust.GetNames())
+	require.Equal(t, "trust-bundle.pem", trust.GetPath())
 	_, same, _, err := SandboxActorTemplate(template, atev1alpha1.SandboxClassGvisor, policy)
 	require.NoError(t, err)
 	require.Equal(t, digest, same)

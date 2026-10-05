@@ -158,7 +158,7 @@ the ActorTemplate's sandbox configuration:
 | Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
 | `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
 
-These names follow Substrate v0.3.0-alpha3's standard gVisor installation and
+These names follow Substrate v0.4.0-alpha1's standard gVisor installation and
 MicroVM setup/E2E convention. They are not API-level defaults or discovery:
 Substrate requires an explicit name and rejects a missing SandboxConfig or a
 class mismatch. Operators must install the corresponding cluster-scoped
