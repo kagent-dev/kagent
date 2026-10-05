@@ -67,6 +67,14 @@ func TestCompileProviderCredentials(t *testing.T) {
 			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
 		},
 		{
+			name: "Bedrock API key with the shared prompt caching options",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2", PromptCaching: true, CacheTTL: "5m"}},
+			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
+			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: translator.CredentialPlaceholder},
+			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
+		},
+		{
 			name: "Anthropic Vertex AI",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
@@ -243,6 +251,21 @@ func TestCompileLogging(t *testing.T) {
 	}
 }
 
+func TestCompileAcceptsTheSharedPromptCachingModelConfig(t *testing.T) {
+	// The platform's default ModelConfig carries the Go ADK runtime's prompt
+	// caching options; Claude Code caches on its own, so the same ModelConfig
+	// serves both runtimes.
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-6",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err != nil {
+		t.Fatalf("Compile() error = %v; promptCaching with the default cacheTTL is accepted", err)
+	}
+}
+
 func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -252,11 +275,10 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeyPassthrough: true}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
-		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
 		{name: "Anthropic cache TTL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{CacheTTL: "1h"}}},
 		{name: "Anthropic relative base URL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "/v1"}}},
 		{name: "Anthropic base URL credentials", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://user:password@example.com"}}},
-		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}}},
+		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true, CacheTTL: "1h"}}},
 		{name: "Vertex options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global", Temperature: "0.5"}}}},
 	}
 	for _, tt := range tests {

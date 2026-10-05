@@ -8,11 +8,8 @@ import (
 	"io"
 	"maps"
 	"regexp"
-<<<<<<< ours
 	"slices"
-=======
 	"strconv"
->>>>>>> theirs
 	"strings"
 	"time"
 
