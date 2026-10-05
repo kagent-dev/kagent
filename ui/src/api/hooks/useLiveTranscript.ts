@@ -4,12 +4,10 @@ import { useEffect, useRef } from "react";
 const POLL_MS = 4000;
 
 /**
- * Keeps a two-sided conversation up to date while it is on screen.
+ * Keeps persisted conversation state up to date while it is on screen.
  *
- * A share link that allows replies makes a conversation something two people write to,
- * and nothing tells either of them when the other has said something: the transcript is
- * read once on mount, so the other side's messages only appeared on a reload. This
- * re-reads it while the tab is being looked at.
+ * A recovered turn and work started in another tab have no local stream. Re-read
+ * their task state and transcript until they finish or need human input.
  *
  * Polled rather than streamed. The A2A gateway can stream a *task* — that is how a turn
  * in flight is followed — but a message somebody else sends starts a task this page has
@@ -34,9 +32,13 @@ export function useLiveTranscript(
 
   useEffect(() => {
     if (!enabled || isBusy) return;
+    let reading = false;
     const tick = () => {
-      if (document.visibilityState !== "visible") return;
-      void latest.current();
+      if (reading || document.visibilityState !== "visible") return;
+      // A slow read must finish before the next poll begins. Otherwise a backend
+      // taking longer than POLL_MS would continually supersede its own results.
+      reading = true;
+      void latest.current().finally(() => { reading = false; });
     };
     const timer = window.setInterval(tick, POLL_MS);
     // And once on becoming visible again, so returning to the tab does not wait out

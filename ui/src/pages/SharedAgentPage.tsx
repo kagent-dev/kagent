@@ -7,7 +7,6 @@ import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { useAgentInstanceShareToken } from "@/api/shareToken";
 import { useAgentInstance } from "@/api";
 import { useChat } from "@/api/hooks/useChat";
-import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { shortInstanceId } from "@/components/agent-instances/instanceLabels";
 
 const { Text } = Typography;
@@ -66,18 +65,6 @@ export function SharedAgentPage() {
   const chat = useChat(conversation);
   const error = instance.error ?? chat.historyError;
 
-  /*
-   * The owner is writing to this conversation too, so it has to keep up.
-   *
-   * A visitor sending through a share and the owner sending from their own page are two
-   * people in one conversation, and neither was told about the other: each side read the
-   * transcript once and then showed it unchanged until a reload.
-   */
-  useLiveTranscript(chat.refreshTranscript, {
-    enabled: Boolean(conversation),
-    isBusy: chat.phase === "streaming",
-  });
-
   return (
     <PageFrame
       title={id ? `Conversation ${shortInstanceId(id)}` : "Shared conversation"}
@@ -130,6 +117,7 @@ export function SharedAgentPage() {
             <div css={{ marginTop: theme.space(4), display: "grid", gap: theme.space(1) }}>
               <ChatComposer
                 send={chat.send}
+                disabled={chat.isCheckingTask}
                 isStreaming={chat.phase === "streaming"}
                 onCancel={chat.cancel}
               />

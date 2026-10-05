@@ -790,6 +790,31 @@ describe("A2AGrpcChatClient.history", () => {
     });
   }
 
+  it.each([
+    [TaskState.SUBMITTED, "submitted"], [TaskState.WORKING, "working"],
+    [TaskState.UNSPECIFIED, "working"], [TaskState.COMPLETED, "completed"],
+    [TaskState.CANCELED, "canceled"], [TaskState.FAILED, "failed"],
+    [TaskState.REJECTED, "failed"], [TaskState.AUTH_REQUIRED, "input_required"],
+    [TaskState.INPUT_REQUIRED, "input_required"],
+  ] as const)("restores task state %s as %s", async (state, expected) => {
+    serveTasks([{ id: "task-1", contextId: CONVERSATION.id, status: { state }, history: [], artifacts: [] }]);
+    const history = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(history.turn).toMatchObject({ taskId: "task-1", state: expected });
+    if (expected === "input_required") expect(history.awaitingReply?.taskId).toBe("task-1");
+    if (expected === "failed") expect(history.turn?.error?.message).toBe("The agent task failed.");
+  });
+
+  it("keeps active admission state across pages instead of replacing it with terminal history", async () => {
+    serve(({ service }) => service(A2AService, {
+      listTasks: (request) => ({
+        tasks: [{ id: request.pageToken ? "later" : "active", contextId: CONVERSATION.id,
+          status: { state: request.pageToken ? TaskState.COMPLETED : TaskState.WORKING } }],
+        nextPageToken: request.pageToken ? "" : "next",
+      }),
+    }));
+    expect((await new A2AGrpcChatClient().history(CONVERSATION)).turn).toMatchObject({ taskId: "active", state: "working" });
+  });
+
   it("replays a completed approval as one structured record without protocol text", async () => {
     serveTasks([
       {

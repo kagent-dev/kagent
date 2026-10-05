@@ -38,6 +38,8 @@
  * flight when the reader pressed stop.
  */
 
+import { ApiError } from "../ApiError";
+import { useLiveTranscript } from "./useLiveTranscript";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getChatClient } from "../chat";
 import { runtimeConfig } from "../runtimeConfig";
@@ -61,6 +63,7 @@ import {
   type ToolApprovalDecision,
 } from "../chat/hitl";
 import type {
+  ChatHistory,
   ChatConversationRef,
   ChatMessage,
   ChatPart,
@@ -77,19 +80,8 @@ export interface ChatController {
   /** The transcript could not be loaded at all. */
   historyError?: Error;
   /**
-   * Re-reads the transcript and merges anything new into it.
-   *
-   * For a conversation that two people can write to: a share link that allows replies
-   * means the other side's messages arrive with nothing on this side asking for them,
-   * and until something does, the page shows a conversation that has moved on without
-   * it. Merged rather than assigned, so a read landing while this reader is part-way
-   * through their own turn cannot take their message off the screen.
-   *
-   * Deliberately not the effect that loads the transcript on mount. That one aborts
-   * whatever the shared controller is doing, which is right when the conversation
-   * changes underneath it and fatal if it runs while a send is in flight — the message
-   * is abandoned and nothing says so. This owns a controller of its own and touches
-   * nothing else.
+   * Reads persisted messages and task state without interrupting a local stream.
+   * Stale reads are discarded after a send, cancellation or navigation.
    */
   refreshTranscript: () => Promise<void>;
   /** The last turn failed. Cleared when a new turn starts. */
@@ -113,7 +105,11 @@ export interface ChatController {
    * turned away for a reason nothing on screen explains.
    */
   pendingQuestion?: PendingRequest;
-  send: (text: string) => Promise<void>;
+  /** False means admission was refused; keep the draft and never replay it. */
+  send: (text: string) => Promise<boolean>;
+  /** Admission is being checked, or could not yet be confirmed. */
+  isCheckingTask: boolean;
+  sessionNotice?: string;
   cancel: () => Promise<void>;
   /**
    * Gives up a pending question without answering it.
@@ -135,7 +131,8 @@ export interface ChatController {
   /** Approves or rejects every tool invocation in the pending request. */
   answerToolApproval: (decisions: readonly ToolApprovalDecision[]) => Promise<void>;
   /** Re-sends the message whose turn failed. */
-  retry: () => Promise<void>;
+  retry: () => Promise<boolean>;
+  canRetry: boolean;
 }
 
 /**
@@ -205,7 +202,7 @@ export function useChat(
   // Refs, not state: cancelling and cleanup read these outside a render, and a
   // stale closure over them would abort the wrong turn.
   const abortRef = useRef<AbortController | null>(null);
-  const lastSentRef = useRef<string>("");
+  const [lastAttempt, setLastAttempt] = useState<{ key: string; text: string; taskId?: string } | null>(null);
   /*
    * The task the turn in flight is filed under, for cancelling it.
    *
@@ -217,61 +214,122 @@ export function useChat(
    */
   const taskRef = useRef<string | undefined>(undefined);
 
-  useEffect(() => {
-    if (!conversation || !key) return;
+  const [observed, setObserved] = useState<{ key: string; history: ChatHistory } | null>(null);
+  const [checking, setChecking] = useState<{ key: string; error?: Error } | null>(null);
+  const [notice, setNotice] = useState<{ key: string; text: string } | null>(null);
+  const [localStream, setLocalStream] = useState<string>();
+  const keyRef = useRef(key);
+  // Invalidate reads that began before a send, cancellation or navigation. A slow
+  // poll must never restore an old task over a newer local turn.
+  const revision = useRef(0);
+  const cancelling = useRef<AbortController | null>(null);
 
-    // A conversation switch mid-turn must not let the old turn keep writing.
-    abortRef.current?.abort();
-    abortRef.current = null;
-
-    const controller = new AbortController();
-
-    getChatClient()
-      .history(conversation, { signal: controller.signal })
-      .then((history) => {
-        if (controller.signal.aborted) return;
-        // Merged rather than assigned. A read that lands *after* the reader has
-        // already sent something — a slow history behind a fast composer — would
-        // otherwise replace the transcript with the server's older copy and take
-        // their message off the screen again, which is the very bug this file
-        // exists to fix, arriving by a different door.
-        setTranscript((current) => mergeHistory(current, key, history.messages));
-        setPending(
-          history.awaitingReply ? { key, request: history.awaitingReply } : null,
-        );
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) {
-          setTranscript({ key, error: asError(cause) });
-        }
-      });
-
-    return () => controller.abort();
-    // Keyed on the address rather than on the ref object, which is rebuilt every
-    // render: depending on the object would re-read the transcript continuously.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const applyHistory = useCallback((history: ChatHistory) => {
+    if (!key || keyRef.current !== key) return;
+    setTranscript((current) => mergeHistory(current, key, history.messages));
+    setObserved({ key, history });
+    const parked = history.awaitingReply ? { key, request: history.awaitingReply } : null;
+    pendingRef.current = parked;
+    setPending(parked);
+    setChecking(null);
+    if (!history.turn || !["submitted", "working"].includes(history.turn.state)) setNotice(null);
+    taskRef.current = history.turn?.taskId;
   }, [key]);
 
-  // Abort an in-flight turn when the page goes away, so a stream cannot set
-  // state on an unmounted component.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  const refreshTranscript = useCallback(async () => {
+    if (!conversation || !key || abortRef.current) return;
+    const version = ++revision.current;
+    try {
+      const history = await getChatClient().history(conversation);
+      if (keyRef.current !== key || revision.current !== version || abortRef.current) return;
+      applyHistory(history);
+    } catch (cause: unknown) {
+      if (keyRef.current !== key || revision.current !== version || abortRef.current) return;
+      // Keep known activity and history visible, but do not admit another turn
+      // until the next poll confirms the server's state.
+      setChecking({ key, error: asError(cause) });
+    }
+    // The address is keyed independently of the ref object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, applyHistory]);
+
+  useEffect(() => {
+    keyRef.current = key;
+    if (!conversation || !key) return;
+    revision.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    const controller = new AbortController();
+    const version = revision.current;
+    getChatClient().history(conversation, { signal: controller.signal })
+      .then((history) => {
+        if (!controller.signal.aborted && revision.current === version) {
+          setLocalStream(undefined);
+          applyHistory(history);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted && revision.current === version) {
+          setTranscript({ key, error: asError(cause) });
+          setChecking({ key, error: asError(cause) });
+        }
+      });
+    return () => {
+      controller.abort();
+      keyRef.current = undefined;
+      revision.current += 1;
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, applyHistory]);
+
+  // Poll persisted A2A state while observing a remote turn, including in a second
+  // tab. Only our own live stream pauses polling; "working" on reload does not.
+  useLiveTranscript(refreshTranscript, { enabled: Boolean(key), isBusy: Boolean(key && localStream === key) });
 
   const run = useCallback(
     async (text: string, hitl?: Record<string, unknown>, displayParts?: ChatPart[]) => {
-      if (!conversation || !key || !text.trim()) return;
+      if (!conversation || !key || !text.trim() || abortRef.current) return false;
 
-      // Before anything is dispatched: a failure here means the turn never began,
-      // and half-starting one would leave the transcript showing a message that was
-      // never sent.
-      //
-      // Through the ref, because `run` is memoised on `key` alone — a callback closed
-      // over here would be whichever one the first render supplied, and this one is
-      // supplied by a page reading a state that changes.
-      if (beforeSendRef.current) await beforeSendRef.current();
-
+      // Lock synchronously before the first await, including preflight. Two clicks
+      // in one render must not start two submissions.
       const controller = new AbortController();
       abortRef.current = controller;
-      lastSentRef.current = text;
+      const sendRevision = ++revision.current;
+      setLocalStream(key);
+      setNotice(null);
+      const previousQuestion = pendingRef.current?.key === key ? pendingRef.current : null;
+      let admitted = false;
+      let fresh: ChatHistory;
+      try {
+        fresh = await getChatClient().history(conversation, { signal: controller.signal });
+        if (controller.signal.aborted || keyRef.current !== key) return false;
+        applyHistory(fresh);
+        const busy = fresh.turn && ["submitted", "working"].includes(fresh.turn.state);
+        const staleAnswer = JSON.stringify(previousQuestion?.request) !== JSON.stringify(fresh.awaitingReply);
+        if (busy || staleAnswer) {
+          setNotice({ key, text: busy
+            ? "Session busy. Following the active turn; your message has not been sent."
+            : "The pending question changed. Review the conversation before sending your answer." });
+          return false;
+        }
+        if (beforeSendRef.current) await beforeSendRef.current();
+        if (controller.signal.aborted || keyRef.current !== key) return false;
+        admitted = true;
+      } catch (cause: unknown) {
+        if (!controller.signal.aborted && keyRef.current === key) setChecking({ key, error: asError(cause) });
+        return false;
+      } finally {
+        // Once admitted below the same controller will own the stream.
+        if (!admitted) {
+          if (abortRef.current === controller) abortRef.current = null;
+          setLocalStream((current) => current === key ? undefined : current);
+        }
+      }
+
+      setObserved({ key, history: { ...fresh, turn: undefined } });
+      setLastAttempt({ key, text });
 
       /*
        * Every event goes through the machine, and only through the machine.
@@ -281,8 +339,10 @@ export function useChat(
        * guard is inside the dispatcher rather than at each call site because
        * there are six of them and one missing check is a bug nobody sees.
        */
-      const dispatch = (event: TurnEvent) =>
-        setTurn((current) => (current.key === key ? nextTurn(current, event) : current));
+      const dispatch = (event: TurnEvent) => {
+        if (revision.current !== sendRevision || keyRef.current !== key) return;
+        setTurn((current) => current.key === key ? nextTurn(current, event) : current);
+      };
 
       // Minted here so the transport can send it and the optimistic message can be
       // filed under it — see this file's header for why that matters.
@@ -330,6 +390,9 @@ export function useChat(
        * *after* starting is a different thing and keeps its message: it happened.
        */
       let refused = false;
+      let terminalSeen = false;
+      let conflict = false;
+      let accepted = false;
 
       const { streamTimeoutMs } = runtimeConfig();
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -378,7 +441,13 @@ export function useChat(
               dispatch({ type: "content" });
               break;
             case "status":
-              if (event.taskId) taskRef.current = event.taskId;
+              terminalSeen = !["submitted", "working"].includes(event.state);
+              if (event.taskId) {
+                taskRef.current = event.taskId;
+                accepted = true;
+                const taskId = event.taskId;
+                setLastAttempt((current) => current?.key === key ? { ...current, taskId } : current);
+              }
               // A turn that parks leaves a question behind it. Recorded here rather
               // than derived from the turn's phase, because the turn ends and the
               // question does not.
@@ -393,7 +462,8 @@ export function useChat(
               dispatch({ type: "status", state: event.state, taskId: event.taskId });
               break;
             case "error":
-              dispatch({ type: "error", error: event.error });
+              conflict = !accepted && event.error instanceof ApiError && event.error.status === 409;
+              if (!conflict) dispatch({ type: "error", error: event.error });
               refused = true;
               break;
           }
@@ -402,7 +472,8 @@ export function useChat(
         // A transport that throws rather than yielding an error event is still
         // a failed turn, not a crashed page.
         if (!controller.signal.aborted) {
-          dispatch({ type: "error", error: asError(cause) });
+          conflict = !accepted && cause instanceof ApiError && cause.status === 409;
+          if (!conflict) dispatch({ type: "error", error: asError(cause) });
           refused = true;
         }
       } finally {
@@ -418,7 +489,8 @@ export function useChat(
             ),
           });
         }
-        if (abortRef.current === controller) abortRef.current = null;
+        const ownsStream = abortRef.current === controller;
+        if (ownsStream) abortRef.current = null;
         // Nothing was ever filed under this message, so it is taken back off screen
         // — see `refused`. `taskRef` is the test for "the server started a turn",
         // because the first status frame is what names the task.
@@ -433,41 +505,51 @@ export function useChat(
           // rather than what this render assumed.
           if (answering) setPending(answering);
         }
-        // A stream that ended without saying how it went has still ended. The
-        // machine leaves an already-finished turn alone, so this cannot overwrite
-        // a failure or a cancellation that arrived first.
+        // Settle the local transport. Without a terminal frame, persisted task
+        // state determines whether the session remains busy.
         dispatch({ type: "settle" });
+        if (ownsStream && keyRef.current === key && cancelling.current !== controller) {
+          if (!terminalSeen || conflict) {
+            // Losing the stream does not cancel the backend task. Hold admission
+            // closed until its persisted state is known, then poll it to completion.
+            setChecking({ key });
+            if (conflict) setNotice({ key, text: "Session busy. Following the active turn; your message has not been sent." });
+            await refreshTranscript();
+          }
+          setLocalStream((current) => current === key ? undefined : current);
+        }
       }
+      return !conflict && (!refused || accepted);
     },
     // Keyed on the address, not the ref object — the ref is rebuilt every render,
     // and depending on it would rebuild `run` (and so the composer's handler) each
     // time. `conversation` is read through that same render's closure, which is
     // correct because a change of address changes the key with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [key],
+    [key, applyHistory, refreshTranscript],
   );
 
   const cancel = useCallback(async () => {
+    if (!conversation || !key) return;
     const controller = abortRef.current;
-    if (!controller) return;
-
-    controller.abort();
+    cancelling.current = controller;
+    controller?.abort();
     abortRef.current = null;
-
-    const taskId = taskRef.current;
-    setTurn((current) => (current.key === key ? nextTurn(current, { type: "cancel" }) : current));
-
-    if (conversation && taskId) {
-      // Best effort: the turn is already stopped locally, so a transport that
-      // cannot confirm the cancellation must not resurface as a page error.
-      try {
-        await getChatClient().cancel(conversation, taskId);
-      } catch {
-        // Intentionally ignored — see above.
-      }
+    revision.current += 1;
+    setChecking({ key });
+    try {
+      const taskId = taskRef.current;
+      if (taskId) await getChatClient().cancel(conversation, taskId);
+      if (keyRef.current !== key) return;
+      setTurn((current) => current.key === key ? nextTurn(current, { type: "cancel" }) : current);
+      await refreshTranscript();
+    } catch (cause: unknown) {
+      if (keyRef.current === key) setChecking({ key, error: asError(cause) });
+    } finally {
+      setLocalStream((current) => current === key ? undefined : current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, refreshTranscript]);
 
   /**
    * Gives up the question the conversation is holding.
@@ -488,10 +570,7 @@ export function useChat(
     try {
       await getChatClient().cancel(conversation, parked.request.taskId);
       const history = await getChatClient().history(conversation);
-      setTranscript((current) => mergeHistory(current, key, history.messages));
-      setPending(
-        history.awaitingReply ? { key, request: history.awaitingReply } : null,
-      );
+      applyHistory(history);
       setTurn((current) => (current.key === key ? IDLE_TURN : current));
     } catch (cause: unknown) {
       setTurn({ key, phase: "failed", error: asError(cause) });
@@ -499,28 +578,23 @@ export function useChat(
       setDismissing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, applyHistory]);
 
   const mine = transcript?.key === key ? transcript : null;
-  const activeTurn = turn.key === key ? turn : IDLE_TURN;
+  const serverTurn = observed && observed.key === key ? observed.history.turn : undefined;
+  const activeTurn = useMemo(() => localStream !== key && serverTurn && key
+    ? { key, taskId: serverTurn.taskId,
+        phase: nextTurn(nextTurn(IDLE_TURN, { type: "start", key }),
+          { type: "status", state: serverTurn.state }).phase,
+        error: serverTurn.error }
+    : turn.key === key ? turn : IDLE_TURN, [localStream, key, serverTurn, turn]);
+  const isCheckingTask = Boolean(key) && (observed?.key !== key || checking?.key === key);
   const myQuestion = pending?.key === key ? pending : null;
 
-  const retry = useCallback(() => run(lastSentRef.current), [run]);
-
-  const refreshTranscript = useCallback(async () => {
-    if (!conversation || !key) return;
-    try {
-      const history = await getChatClient().history(conversation);
-      setTranscript((current) => mergeHistory(current, key, history.messages));
-      setPending(history.awaitingReply ? { key, request: history.awaitingReply } : null);
-    } catch {
-      // Silent on purpose: this is a background re-read of something already on
-      // screen. A failed poll must not replace a readable transcript with an error,
-      // and the next one will either succeed or the reader will notice the
-      // conversation has stopped moving.
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  const canRetry = Boolean(lastAttempt && lastAttempt.key === key &&
+    lastAttempt.taskId === activeTurn.taskId && !isCheckingTask && activeTurn.phase === "failed");
+  const retry = useCallback(() => canRetry && lastAttempt
+    ? run(lastAttempt.text) : Promise.resolve(false), [canRetry, lastAttempt, run]);
 
   /**
    * Sends a structured answer to the question this conversation is holding.
@@ -579,6 +653,14 @@ export function useChat(
       isLoadingHistory: Boolean(key) && mine === null,
       refreshTranscript,
       historyError: mine && "error" in mine ? mine.error : undefined,
+      isCheckingTask,
+      sessionNotice: checking && checking.key === key
+        ? checking.error
+          ? `Could not confirm session state. Retrying before allowing another message: ${checking.error.message}`
+          : "Checking the active turn…"
+        : isActive(activeTurn.phase) && localStream !== key
+          ? "Session busy. Following the active turn."
+          : notice && notice.key === key ? notice.text : undefined,
       turnError: activeTurn.error,
       turnState: turnStateOf(activeTurn.phase),
       turnPhase: activeTurn.phase,
@@ -594,10 +676,16 @@ export function useChat(
       answerQuestion,
       answerToolApproval,
       retry,
+      canRetry,
     }),
     [
       mine,
       key,
+      checking,
+      isCheckingTask,
+      notice,
+      localStream,
+      refreshTranscript,
       activeTurn,
       myQuestion,
       isDismissing,
@@ -607,6 +695,7 @@ export function useChat(
       answerQuestion,
       answerToolApproval,
       retry,
+      canRetry,
     ],
   );
 }
@@ -626,11 +715,8 @@ function withMessages(
 /**
  * Adds a message this client wrote itself, even before history has arrived.
  *
- * The one place a transcript is created rather than updated. Sending is possible
- * while the history read is still in flight — the composer does not wait on it —
- * and a message dropped because there was nowhere to put it yet would be the
- * original bug with extra steps. What lands later is merged onto this rather than
- * replacing it; see `mergeHistory`.
+ * Preflight may finish before the initial read. A local message must still have
+ * a transcript to land in; subsequent reads merge it by message id.
  */
 function appendLocal(
   current: Transcript | null,

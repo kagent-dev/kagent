@@ -358,6 +358,7 @@ export class A2AGrpcChatClient implements ChatClient {
      * just saw rather than one from days ago.
      */
     let awaitingReply: PendingRequest | undefined;
+    let turn: ChatHistory["turn"];
     let pageToken = "";
 
     try {
@@ -376,6 +377,20 @@ export class A2AGrpcChatClient implements ChatClient {
 
         for (const task of response.tasks) {
           messages.push(...messagesFromTask(task));
+          const state = turnState(task.status?.state);
+          // ListTasks is ordered by creation position. Keep a non-terminal task
+          // even if a later terminal record follows it: it still owns admission.
+          if (task.id && (!turn || ["completed", "failed", "canceled"].includes(turn.state))) {
+            turn = {
+              taskId: task.id,
+              state,
+              error: state === "failed"
+                ? new Error(task.status?.message?.parts.map(toPart)
+                    .filter((part) => part?.kind === "text")
+                    .map((part) => part?.kind === "text" ? part.text : "").join("\n") || "The agent task failed.")
+                : undefined,
+            };
+          }
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
@@ -389,7 +404,7 @@ export class A2AGrpcChatClient implements ChatClient {
         }
 
         const next = response.nextPageToken;
-        if (!next) return { messages, awaitingReply };
+        if (!next) return { messages, awaitingReply, turn };
         if (next === pageToken) {
           throw new ApiError(
             "The API repeated the same page of conversation history instead of advancing.",

@@ -144,7 +144,11 @@ export interface SendMessageInput {
 /**
  * A conversation as it stands, which is more than the messages in it.
  *
- * A conversation can be *holding a question*: the agent called a tool that asks the
+ * A working task keeps admission closed even when this reader has no stream
+ * connected to it. Its persisted state must travel with history so reopening a
+ * session cannot make it look idle while the agent is still working.
+ *
+ * A conversation can also be *holding a question*: the agent called a tool that asks the
  * reader something, and its turn parked in `input_required` rather than finishing.
  * That turn is non-terminal, so it keeps the instance's single active-task slot, and
  * the controller refuses any further message until it is answered or given up —
@@ -158,6 +162,8 @@ export interface SendMessageInput {
  */
 export interface ChatHistory {
   messages: ChatMessage[];
+  /** Latest task, or the active task if one still owns the session's turn slot. */
+  turn?: { taskId: string; state: ChatTurnState; error?: Error };
   /**
    * The request the parked turn is holding, when the conversation is holding one.
    *

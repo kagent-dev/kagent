@@ -22,7 +22,6 @@ import {
   useChat,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
-import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { Checkpoint } from "@/api";
@@ -126,17 +125,6 @@ export function AgentChatPage() {
   }, [instance.data?.state, id]);
 
   const chat = useChat(conversation, resumeFirst);
-
-  /*
-   * The other side of a share writes here too.
-   *
-   * A read-write share makes this conversation something two people send to, and the
-   * owner sitting on this page was the one who never saw the visitor's messages.
-   */
-  useLiveTranscript(chat.refreshTranscript, {
-    enabled: Boolean(conversation),
-    isBusy: chat.phase === "streaming",
-  });
 
   /**
    * What to call this conversation when nobody has named it.
@@ -414,10 +402,10 @@ export function AgentChatPage() {
    */
   const focusedFor = useRef<string>(undefined);
   useEffect(() => {
-    if (!id || !canSend || focusedFor.current === id) return;
+    if (!id || !canSend || chat.isCheckingTask || focusedFor.current === id) return;
     focusedFor.current = id;
     composerRef.current?.focus();
-  }, [id, canSend]);
+  }, [id, canSend, chat.isCheckingTask]);
 
   /*
    * The message this conversation was created for, sent once on arrival.
@@ -752,7 +740,7 @@ export function AgentChatPage() {
               // itself. A conversation holding a question keeps its composer, because
               // the box is how the question is answered — the answer names the parked
               // turn and resumes it.
-              disabled={!canSend}
+              disabled={!canSend || chat.isCheckingTask}
             />
 
           </div>

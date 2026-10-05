@@ -174,98 +174,37 @@ describe("useChat and the reader's own message", () => {
     ]);
   });
 
-  it("does not lose a message sent while the history read was still in flight", async () => {
-    /*
-     * A slow history behind a fast composer. The read resolves *after* the send,
-     * and assigning its result would replace the transcript with the server's
-     * older copy — taking the reader's message off the screen again, which is the
-     * reported bug arriving by a different door.
-     */
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    setChatClientFactory(() =>
-      client({
-        history: async () => {
+  it("ignores an initial history read that lands after a newer preflight", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let reads = 0;
+    setChatClientFactory(() => client({
+      history: async () => {
+        if (++reads === 1) {
           await held;
-          return [
-            {
-              id: "old-1",
-              role: "user",
-              parts: [{ kind: "text", text: "something asked yesterday" }],
-              createdAt: "2026-08-23T10:00:00Z",
-            },
-          ];
-        },
-        reply: () => [{ type: "status", state: "completed", taskId: "task-1" }],
-      }),
-    );
-
+          return [{ id: "stale", role: "user", parts: [{ kind: "text", text: "stale history" }], createdAt: "2026-08-23T10:00:00Z" }];
+        }
+        return [];
+      },
+      reply: () => [{ type: "status", state: "completed", taskId: "task-1" }],
+    }));
     const { result } = renderHook(() => useChat(CONVERSATION));
-
-    await act(async () => {
-      await result.current.send(QUESTION);
-    });
+    await act(async () => { await result.current.send(QUESTION); });
+    await act(async () => { release(); await held; });
     expect(result.current.messages.map(textOf)).toEqual([QUESTION]);
-
-    await act(async () => {
-      release?.();
-      await held;
-    });
-
-    await waitFor(() => {
-      // History first, because it is older; the local message kept, because
-      // nothing else has it.
-      expect(result.current.messages.map(textOf)).toEqual([
-        "something asked yesterday",
-        QUESTION,
-      ]);
-    });
   });
 
-  it("does not show a message twice when the server's history already carries it", async () => {
-    // The other half of the same merge: the reader sends, the history read lands
-    // afterwards with that very message in it. Same id, so it is recognised as the
-    // one on screen rather than appended beside it.
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+  it("does not show a message twice when a later history read already carries it", async () => {
     const seen: SendMessageInput[] = [];
-
-    setChatClientFactory(() =>
-      client({
-        seen,
-        history: async () => {
-          await held;
-          return [
-            {
-              id: seen[0]?.messageId ?? "unsent",
-              role: "user",
-              parts: [{ kind: "text", text: QUESTION }],
-              createdAt: "2026-08-24T10:00:00Z",
-            },
-          ];
-        },
-        reply: () => [{ type: "status", state: "completed", taskId: "task-1" }],
-      }),
-    );
-
+    setChatClientFactory(() => client({ seen,
+      history: async () => seen.length ? [{ id: seen[0].messageId!, role: "user", parts: [{ kind: "text", text: QUESTION }], createdAt: "2026-08-24T10:00:00Z" }] : [],
+      reply: () => [{ type: "status", state: "completed", taskId: "task-1" }],
+    }));
     const { result } = renderHook(() => useChat(CONVERSATION));
-    await act(async () => {
-      await result.current.send(QUESTION);
-    });
-
-    await act(async () => {
-      release?.();
-      await held;
-    });
-
-    await waitFor(() => {
-      expect(result.current.messages.map(textOf)).toEqual([QUESTION]);
-    });
+    await waitFor(() => expect(result.current.isLoadingHistory).toBe(false));
+    await act(async () => { await result.current.send(QUESTION); });
+    await act(async () => { await result.current.refreshTranscript(); });
+    expect(result.current.messages.map(textOf)).toEqual([QUESTION]);
   });
 
   it("takes a refused message back off the screen", async () => {

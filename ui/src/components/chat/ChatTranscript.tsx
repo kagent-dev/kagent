@@ -413,6 +413,9 @@ export function ChatTranscript({
         />
       ) : null}
 
+      {chat.sessionNotice ? (
+        <Alert type="info" showIcon data-testid="chat-session-notice" title={chat.sessionNotice} />
+      ) : null}
       {chat.turnError && !chat.pendingQuestion ? (
         <Alert
           type="error"
@@ -420,10 +423,10 @@ export function ChatTranscript({
           data-testid="chat-turn-error"
           title="The agent could not finish this turn"
           description={chat.turnError.message}
-          action={
+          action={chat.canRetry ?
             <Button size="small" onClick={() => void chat.retry()}>
               Retry
-            </Button>
+            </Button> : undefined
           }
         />
       ) : null}

@@ -35,7 +35,7 @@ export function ChatComposer({
   autoFocus = false,
   ref,
 }: {
-  send: (text: string) => Promise<void>;
+  send: (text: string) => Promise<void | boolean>;
   isStreaming?: boolean;
   /** Absent before a conversation exists — there is no stream to stop. */
   onCancel?: ChatController["cancel"];
@@ -107,7 +107,12 @@ export function ChatComposer({
     // Cleared before awaiting so the box is ready for the next message
     // immediately, rather than holding text that has already been sent.
     setDraft("");
-    await send(text);
+    try {
+      if (await send(text) === false) setDraft((current) => current && current !== text ? `${text}\n\n${current}` : text);
+    } catch {
+      // Callers display the failure. A refused prompt still belongs to the reader.
+      setDraft((current) => current && current !== text ? `${text}\n\n${current}` : text);
+    }
   }
 
   return (
@@ -192,7 +197,7 @@ export function ChatComposer({
             type="primary"
             data-testid="chat-send"
             icon={<Send size={14} />}
-            disabled={disabled || draft.trim() === ""}
+            disabled={disabled || isStreaming || draft.trim() === ""}
             // Opaque for the same reason as the box: a faded primary button reads as a
             // page still settling rather than a control waiting for input.
             css={{ "&:disabled": { opacity: 1 } }}
