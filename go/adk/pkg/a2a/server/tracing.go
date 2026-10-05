@@ -8,6 +8,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -78,9 +79,7 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 	attributes := make([]attribute.KeyValue, 0, len(i.static)+2)
 	attributes = append(attributes, attribute.String(tracing.AttributeMethod, method))
 	attributes = append(attributes, i.static...)
-	// The gateway authenticates the caller and replaces x-user-id before
-	// forwarding, so this is the only trusted identity on the private path.
-	if userID := auth.UserIDFromContext(ctx); userID != "" {
+	if userID := turnUser(ctx, callCtx); userID != "" {
 		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
 	}
 	ctx, invocation := tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.name, i.flush, attributes...)
@@ -97,6 +96,19 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 		}
 	})
 	return ctx, nil, nil
+}
+
+// turnUser is the end user of the turn: the person the gateway resolved from
+// the caller's validated token and forwards as x-kagent-user. x-user-id names
+// the owner of the session, which on a turn a share authorizes is not the
+// caller, so it names the end user only of a turn without a resolved person.
+func turnUser(ctx context.Context, callCtx *a2asrv.CallContext) string {
+	if meta := callCtx.ServiceParams(); meta != nil {
+		if vals, ok := meta.Get(apiadk.UserHeader); ok && len(vals) > 0 && vals[0] != "" {
+			return vals[0]
+		}
+	}
+	return auth.UserIDFromContext(ctx)
 }
 
 func (i *invocationInterceptor) After(ctx context.Context, callCtx *a2asrv.CallContext, response *a2asrv.Response) error {

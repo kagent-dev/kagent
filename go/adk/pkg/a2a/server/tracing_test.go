@@ -20,6 +20,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -101,6 +102,11 @@ func syncExporter(t *testing.T) *tracetest.InMemoryExporter {
 
 func sendMessage(t *testing.T, server *A2AServer, request *a2atype.SendMessageRequest) {
 	t.Helper()
+	sendMessageWithHeaders(t, server, request, nil)
+}
+
+func sendMessageWithHeaders(t *testing.T, server *A2AServer, request *a2atype.SendMessageRequest, headers map[string]string) {
+	t.Helper()
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": "1", "method": "SendMessage", "params": request,
 	})
@@ -110,6 +116,9 @@ func sendMessage(t *testing.T, server *A2AServer, request *a2atype.SendMessageRe
 	httpRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
+	for key, value := range headers {
+		httpRequest.Header.Set(key, value)
+	}
 	recorder := httptest.NewRecorder()
 	server.httpServer.Handler.ServeHTTP(recorder, httpRequest)
 	if recorder.Code != http.StatusOK {
@@ -250,6 +259,39 @@ func TestInvocationDurationOnlyForNativeHarnesses(t *testing.T) {
 			}
 			if want := attribute.NewSet(test.want...); !points[0].Attributes.Equals(&want) {
 				t.Errorf("attributes = %v, want %v", points[0].Attributes.ToSlice(), test.want)
+			}
+		})
+	}
+}
+
+// On a turn a share authorizes, x-user-id names the session's owner and
+// x-kagent-user the visitor who sent it: the span names the visitor. A turn
+// whose caller the gateway did not resolve carries no x-kagent-user and keeps
+// x-user-id.
+func TestRequestSpanNamesThePersonOfTheTurn(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{name: "shared turn", headers: map[string]string{apiadk.UserHeader: "visitor@example.com"}, want: "visitor@example.com"},
+		{name: "no resolved person", want: "owner@example.com"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			exporter := syncExporter(t)
+			server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
+				ServerConfig{Port: "0", Telemetry: tracing.RuntimeTelemetry{Runtime: tracing.RuntimeCodex, AgentName: "reporter-codex"}},
+				a2asrv.WithCallInterceptors(staticUserInterceptor{userID: "owner@example.com"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			sendMessageWithHeaders(t, server, &a2atype.SendMessageRequest{
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+			}, tt.headers)
+
+			if got := spanAttribute(requestSpan(t, exporter), tracing.AttributeUserID); got != tt.want {
+				t.Errorf("%s = %q, want %q", tracing.AttributeUserID, got, tt.want)
 			}
 		})
 	}
