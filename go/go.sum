@@ -379,8 +379,8 @@ github.com/gabriel-vasile/mimetype v1.4.3/go.mod h1:d8uq/6HKRL6CGdk+aubisF/M5GcP
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
 github.com/ghostiam/protogetter v0.3.20 h1:oW7OPFit2FxZOpmMRPP9FffU4uUpfeE/rEdE1f+MzD0=
 github.com/ghostiam/protogetter v0.3.20/go.mod h1:FjIu5Yfs6FT391m+Fjp3fbAYJ6rkL/J6ySpZBfnODuI=
-github.com/giantswarm/substrate v0.0.0-20261005124806-e27ae953d24b h1:WdcZRbb2cTlsGgnlmQiM//8ZTwSZhXg8qqMmcmbo1KQ=
-github.com/giantswarm/substrate v0.0.0-20261005124806-e27ae953d24b/go.mod h1:0T+elmPJY/TPQtOU9YcgNGuBub8M3nZZNI74z8WNArw=
+github.com/giantswarm/substrate v1.4.0 h1:LyCbHKBqRnN8AMujliB3iXoAD/UbdjfvLBe8opxbvLk=
+github.com/giantswarm/substrate v1.4.0/go.mod h1:0T+elmPJY/TPQtOU9YcgNGuBub8M3nZZNI74z8WNArw=
 github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE=
 github.com/gin-contrib/sse v0.1.0/go.mod h1:RHrZQHXnP2xjPF+u1gW/2HnVO7nvIa9PG3Gm+fLHvGI=
 github.com/gin-gonic/gin v1.6.3/go.mod h1:75u5sXoLsGZoRN5Sgbi1eraJ4GU3++wFwWzhwvtwp4M=
