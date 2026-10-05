@@ -59,3 +59,16 @@ tests:
       - equal:
           path: spec.url
           value: http://staging-control-controller.agents.svc:8083/mcp
+
+  - it: opts out of tool discovery under trusted-proxy auth
+    set:
+      controller.auth.mode: trusted-proxy
+    asserts:
+      - equal:
+          path: metadata.labels["kagent.dev/discovery"]
+          value: disabled
+
+  - it: keeps tool discovery on under insecure auth
+    asserts:
+      - notExists:
+          path: metadata.labels["kagent.dev/discovery"]

@@ -5,6 +5,11 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
+    {{- if eq .Values.controller.auth.mode "trusted-proxy" }}
+    # The controller cannot present a validated bearer to its own MCP endpoint,
+    # so under trusted-proxy auth its tool listing would answer 401 forever.
+    kagent.dev/discovery: disabled
+    {{- end }}
 spec:
   description: "Kagent API tools for Sessions, checkpoints, and sandboxes"
   protocol: STREAMABLE_HTTP
