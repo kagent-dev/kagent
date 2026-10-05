@@ -46,7 +46,7 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 		if shared && !share.AllowsAccess(access) {
 			continue
 		}
-		var matcher *Matcher
+		var matcher, getMatcher *Matcher
 		for i, target := range targets {
 			// Local scope matching does not observe cancellation, so stop between targets.
 			if err := ctx.Err(); err != nil {
@@ -54,22 +54,33 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 			}
 			var allowed bool
 			if target.Name != "" {
-				allowed = r.authorizer.Check(ctx, principal, verb, auth.Resource{
+				resource := auth.Resource{
 					Type: resourceType, Namespace: target.Namespace, Name: target.Name,
-				}) == nil
+				}
+				allowed = r.authorizer.Check(ctx, principal, verb, resource) == nil
+				// Catalog updates require GET to read the object before writing it.
+				if allowed && verb == auth.VerbUpdate {
+					allowed = r.authorizer.Check(ctx, principal, auth.VerbGet, resource) == nil
+				}
 			} else {
 				if matcher == nil {
-					scope, err := r.authorizer.Scope(ctx, principal, verb, resourceType)
+					var err error
+					matcher, err = r.scope(ctx, principal, verb, resourceType)
 					if err != nil {
-						return nil, serviceerrors.NewUnavailable("Failed to read the "+resourceType+" authorization scope", err)
+						return nil, err
 					}
-					compiled, err := CompileScope(scope)
-					if err != nil {
-						return nil, serviceerrors.NewInternal("Failed to apply the "+resourceType+" authorization scope", err)
+					if verb == auth.VerbUpdate {
+						getMatcher, err = r.scope(ctx, principal, auth.VerbGet, resourceType)
+						if err != nil {
+							return nil, err
+						}
 					}
-					matcher = &compiled
 				}
-				allowed = matcher.matchesAnyName(target.Namespace)
+				if verb == auth.VerbUpdate {
+					allowed = matcher.overlapsNamespace(*getMatcher, target.Namespace)
+				} else {
+					allowed = matcher.matchesAnyName(target.Namespace)
+				}
 			}
 			if allowed {
 				results[i].AllowedVerbs = append(results[i].AllowedVerbs, verb)
@@ -81,4 +92,16 @@ func (r *AccessReviewer) Review(ctx context.Context, resourceType string, verbs 
 		return nil, err
 	}
 	return results, nil
+}
+
+func (r *AccessReviewer) scope(ctx context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (*Matcher, error) {
+	scope, err := r.authorizer.Scope(ctx, principal, verb, resourceType)
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to read the "+resourceType+" authorization scope", err)
+	}
+	compiled, err := CompileScope(scope)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to apply the "+resourceType+" authorization scope", err)
+	}
+	return &compiled, nil
 }

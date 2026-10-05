@@ -10,6 +10,7 @@ Authorization decisions use trusted resource identity. Unauthorized resources ar
 
 | Resource type | Operations | Attributes |
 | --- | --- | --- |
+| `Agent` | list, get, create, update, delete | `namespace`, `name` |
 | `AgentTemplate` | list, get, create, update, delete | `namespace`, `name` |
 | `Harness` | list, create, delete | `namespace`, `name` |
 | `ModelConfig` | list, get, create, update, delete | `namespace`, `name` |
@@ -66,6 +67,7 @@ A decision that permits no resources returns an empty collection. An authorizati
 ## Advisory access review
 
 Named reviews use the operation's exact authorization check. GET requires a name.
+UPDATE requires GET and UPDATE permission on the same resource.
 Namespace-only reviews ask whether the complete scope permits any valid name in
 that namespace, not an empty or wildcard name. Incomplete scopes fail the review.
 

@@ -10,6 +10,7 @@ import (
 )
 
 var authorizationResourceTypes = map[apiv1alpha1.AuthorizationResourceType]string{
+	apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT:          auth.ResourceAgent,
 	apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE: auth.ResourceAgentTemplate,
 	apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_HARNESS:        auth.ResourceHarness,
 	apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG:   auth.ResourceModelConfig,

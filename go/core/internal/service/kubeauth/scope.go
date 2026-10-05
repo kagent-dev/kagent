@@ -94,32 +94,68 @@ func matchesClause(clause apiauthorization.ScopeClause, namespace, name string) 
 // matchesAnyName reports whether the scope contains any valid Kubernetes
 // resource name in namespace.
 func (m Matcher) matchesAnyName(namespace string) bool {
-	if m.scope.Kind == apiauthorization.ScopeAll {
+	names, all := m.namesInNamespace(namespace)
+	return all || len(names) != 0
+}
+
+func (m Matcher) overlapsNamespace(other Matcher, namespace string) bool {
+	names, all := m.namesInNamespace(namespace)
+	if all {
+		return other.matchesAnyName(namespace)
+	}
+	if len(names) == 0 {
+		return false
+	}
+	otherNames, otherAll := other.namesInNamespace(namespace)
+	if otherAll {
 		return true
 	}
+	for name := range names {
+		if _, ok := otherNames[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// namesInNamespace returns the permitted names, or true if all names are permitted.
+func (m Matcher) namesInNamespace(namespace string) (map[string]struct{}, bool) {
+	if m.scope.Kind == apiauthorization.ScopeAll {
+		return nil, true
+	}
+	var permitted map[string]struct{}
 clauses:
 	for _, clause := range m.scope.AnyOf {
-		var names []string
 		for _, predicate := range clause.All {
 			if predicate.Attribute == apiauthorization.AttributeNamespace && !slices.Contains(predicate.Values, namespace) {
 				continue clauses
 			}
-			if predicate.Attribute == apiauthorization.AttributeName && names == nil {
-				names = predicate.Values
+		}
+		var names map[string]struct{}
+		for _, predicate := range clause.All {
+			if predicate.Attribute != apiauthorization.AttributeName {
+				continue
 			}
+			intersection := make(map[string]struct{}, len(predicate.Values))
+			for _, name := range predicate.Values {
+				if _, ok := names[name]; names == nil || ok {
+					intersection[name] = struct{}{}
+				}
+			}
+			names = intersection
 		}
 		if names == nil {
-			return true
+			return nil, true
 		}
-		for _, name := range names {
+		for name := range names {
 			if len(utilvalidation.IsDNS1123Subdomain(name)) != 0 {
 				continue
 			}
-			// Check only this clause to avoid rescanning the full scope for each candidate name.
-			if matchesClause(clause, namespace, name) {
-				return true
+			if permitted == nil {
+				permitted = make(map[string]struct{})
 			}
+			permitted[name] = struct{}{}
 		}
 	}
-	return false
+	return permitted, false
 }

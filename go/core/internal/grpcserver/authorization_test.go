@@ -25,9 +25,11 @@ type accessReviewScopeCall struct {
 
 type accessReviewAuthorizer struct {
 	scopeCalls []accessReviewScopeCall
+	checkCalls []pkgauth.Resource
 }
 
-func (*accessReviewAuthorizer) Check(context.Context, pkgauth.Principal, pkgauth.Verb, pkgauth.Resource) error {
+func (a *accessReviewAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, resource pkgauth.Resource) error {
+	a.checkCalls = append(a.checkCalls, resource)
 	return nil
 }
 
@@ -87,7 +89,7 @@ func TestAuthorizationServiceGeneratedClient(t *testing.T) {
 	client := apiv1alpha1.NewAuthorizationServiceClient(connection)
 	name := "assistant"
 
-	response, err := client.CheckAccess(t.Context(), &apiv1alpha1.CheckAccessRequest{
+	request := &apiv1alpha1.CheckAccessRequest{
 		ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE,
 		Verbs: []apiv1alpha1.AuthorizationVerb{
 			apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_UPDATE,
@@ -97,7 +99,8 @@ func TestAuthorizationServiceGeneratedClient(t *testing.T) {
 			{Namespace: "team-a", Name: &name},
 			{Namespace: "team-b"},
 		},
-	})
+	}
+	response, err := client.CheckAccess(t.Context(), request)
 	require.NoError(t, err)
 	want := &apiv1alpha1.CheckAccessResponse{
 		Results: []*apiv1alpha1.ResourceAccess{
@@ -120,6 +123,24 @@ func TestAuthorizationServiceGeneratedClient(t *testing.T) {
 	assert.True(t, proto.Equal(want, response), "response = %v, want %v", response, want)
 	assert.Equal(t, []accessReviewScopeCall{
 		{verb: pkgauth.VerbUpdate, resourceType: pkgauth.ResourceAgentTemplate},
+		{verb: pkgauth.VerbGet, resourceType: pkgauth.ResourceAgentTemplate},
 		{verb: pkgauth.VerbCreate, resourceType: pkgauth.ResourceAgentTemplate},
 	}, authorizer.scopeCalls)
+
+	request.ResourceType = apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT
+	authorizer.scopeCalls = nil
+	authorizer.checkCalls = nil
+	response, err = client.CheckAccess(t.Context(), request)
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(want, response), "response = %v, want %v", response, want)
+	assert.Equal(t, []accessReviewScopeCall{
+		{verb: pkgauth.VerbUpdate, resourceType: pkgauth.ResourceAgent},
+		{verb: pkgauth.VerbGet, resourceType: pkgauth.ResourceAgent},
+		{verb: pkgauth.VerbCreate, resourceType: pkgauth.ResourceAgent},
+	}, authorizer.scopeCalls)
+	assert.Equal(t, []pkgauth.Resource{
+		{Type: pkgauth.ResourceAgent, Namespace: "team-a", Name: name},
+		{Type: pkgauth.ResourceAgent, Namespace: "team-a", Name: name},
+		{Type: pkgauth.ResourceAgent, Namespace: "team-a", Name: name},
+	}, authorizer.checkCalls)
 }

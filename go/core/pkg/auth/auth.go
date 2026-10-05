@@ -19,6 +19,7 @@ const (
 )
 
 const (
+	ResourceAgent         = "Agent"
 	ResourceAgentTemplate = "AgentTemplate"
 	ResourceHarness       = "Harness"
 	ResourceModelConfig   = "ModelConfig"

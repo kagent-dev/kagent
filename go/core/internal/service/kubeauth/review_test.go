@@ -58,6 +58,7 @@ func TestCheckAccessMatrix(t *testing.T) {
 	ctx := auth.AuthSessionTo(t.Context(), testSession{principal: principal})
 	denied := errors.New("denied")
 	authorizer := &testAuthorizer{scopes: map[auth.Verb]apiauthorization.AuthorizationScope{
+		auth.VerbGet: {Kind: apiauthorization.ScopeAll},
 		auth.VerbUpdate: {
 			Kind: apiauthorization.ScopeAnyOf,
 			AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
@@ -98,16 +99,86 @@ func TestCheckAccessMatrix(t *testing.T) {
 	}, results)
 	assert.Equal(t, []scopeCall{
 		{principal: principal, verb: auth.VerbUpdate, resourceType: auth.ResourceAgentTemplate},
+		{principal: principal, verb: auth.VerbGet, resourceType: auth.ResourceAgentTemplate},
 		{principal: principal, verb: auth.VerbCreate, resourceType: auth.ResourceAgentTemplate},
 	}, authorizer.scopeCalls)
 	assert.Equal(t, []checkCall{
 		{principal: principal, verb: auth.VerbUpdate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "assistant"}},
+		{principal: principal, verb: auth.VerbGet, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "assistant"}},
 		{principal: principal, verb: auth.VerbUpdate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-b", Name: "assistant"}},
 		{principal: principal, verb: auth.VerbUpdate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "other"}},
 		{principal: principal, verb: auth.VerbCreate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "assistant"}},
 		{principal: principal, verb: auth.VerbCreate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-b", Name: "assistant"}},
 		{principal: principal, verb: auth.VerbCreate, resource: auth.Resource{Type: auth.ResourceAgentTemplate, Namespace: "team-a", Name: "other"}},
 	}, authorizer.checkCalls)
+}
+
+func TestCheckAccessUpdateRequiresGet(t *testing.T) {
+	for _, resourceType := range []string{auth.ResourceAgent, auth.ResourceAgentTemplate, auth.ResourceModelConfig} {
+		for _, deniedVerb := range []auth.Verb{"", auth.VerbGet, auth.VerbUpdate} {
+			t.Run(resourceType+"/denied="+string(deniedVerb), func(t *testing.T) {
+				target := kubeauth.ReviewTarget{Namespace: "team-a", Name: "assistant"}
+				authorizer := &testAuthorizer{checkErrs: map[checkKey]error{
+					{verb: deniedVerb, resourceType: resourceType, namespace: target.Namespace, name: target.Name}: errors.New("denied"),
+				}}
+				ctx := auth.AuthSessionTo(t.Context(), testSession{})
+				results, err := kubeauth.NewAccessReviewer(authorizer).Review(ctx, resourceType, []auth.Verb{auth.VerbUpdate}, []kubeauth.ReviewTarget{target})
+				require.NoError(t, err)
+				want := kubeauth.ReviewResult{Target: target}
+				if deniedVerb == "" {
+					want.AllowedVerbs = []auth.Verb{auth.VerbUpdate}
+				}
+				assert.Equal(t, []kubeauth.ReviewResult{want}, results)
+				assert.Empty(t, authorizer.scopeCalls)
+			})
+		}
+	}
+}
+
+func TestCheckAccessUpdateRequiresScopeOverlap(t *testing.T) {
+	scope := func(namespace string, names ...string) apiauthorization.AuthorizationScope {
+		predicates := []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{namespace}}}
+		if len(names) != 0 {
+			predicates = append(predicates, apiauthorization.ScopePredicate{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: names})
+		}
+		return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: predicates}}}
+	}
+	all := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}
+	none := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}
+	assistant := scope("team-a", "assistant")
+	for _, test := range []struct {
+		name        string
+		get, update apiauthorization.AuthorizationScope
+		allowed     bool
+	}{
+		{name: "both unrestricted", get: all, update: all, allowed: true},
+		{name: "get unrestricted", get: all, update: assistant, allowed: true},
+		{name: "update unrestricted", get: assistant, update: all, allowed: true},
+		{name: "get denied", get: none, update: assistant},
+		{name: "update denied", get: assistant, update: none},
+		{name: "same name", get: assistant, update: assistant, allowed: true},
+		{name: "disjoint names", get: assistant, update: scope("team-a", "other")},
+		{name: "overlapping names", get: assistant, update: scope("team-a", "other", "assistant"), allowed: true},
+		{name: "different namespaces", get: assistant, update: scope("team-b", "assistant")},
+		{name: "namespace unrestricted", get: scope("team-a"), update: assistant, allowed: true},
+		{name: "invalid common name", get: scope("team-a", "INVALID", "reader"), update: scope("team-a", "INVALID", "writer")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authorizer := &testAuthorizer{scopes: map[auth.Verb]apiauthorization.AuthorizationScope{
+				auth.VerbGet: test.get, auth.VerbUpdate: test.update,
+			}}
+			ctx := auth.AuthSessionTo(t.Context(), testSession{})
+			targets := []kubeauth.ReviewTarget{{Namespace: "team-a"}, {Namespace: "team-b"}}
+			results, err := kubeauth.NewAccessReviewer(authorizer).Review(ctx, auth.ResourceAgent, []auth.Verb{auth.VerbUpdate}, targets)
+			require.NoError(t, err)
+			assert.Equal(t, test.allowed, len(results[0].AllowedVerbs) != 0)
+			assert.Equal(t, []scopeCall{
+				{verb: auth.VerbUpdate, resourceType: auth.ResourceAgent},
+				{verb: auth.VerbGet, resourceType: auth.ResourceAgent},
+			}, authorizer.scopeCalls)
+			assert.Empty(t, authorizer.checkCalls)
+		})
+	}
 }
 
 func TestCheckAccessNamedTargetsDoNotReadScope(t *testing.T) {
@@ -163,21 +234,31 @@ func TestCheckAccessScopeFailures(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			authorizer := &testAuthorizer{
-				scopes:    map[auth.Verb]apiauthorization.AuthorizationScope{auth.VerbCreate: test.scope},
-				scopeErrs: map[auth.Verb]error{auth.VerbCreate: test.scopeError},
-			}
-			ctx := auth.AuthSessionTo(t.Context(), testSession{})
+		for _, scopeVerb := range []auth.Verb{auth.VerbCreate, auth.VerbUpdate, auth.VerbGet} {
+			t.Run(test.name+"/"+string(scopeVerb), func(t *testing.T) {
+				authorizer := &testAuthorizer{
+					scopes: map[auth.Verb]apiauthorization.AuthorizationScope{
+						auth.VerbUpdate: {Kind: apiauthorization.ScopeAll},
+						auth.VerbGet:    {Kind: apiauthorization.ScopeAll},
+					},
+					scopeErrs: map[auth.Verb]error{scopeVerb: test.scopeError},
+				}
+				authorizer.scopes[scopeVerb] = test.scope
+				verb := scopeVerb
+				if verb == auth.VerbGet {
+					verb = auth.VerbUpdate
+				}
+				ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
-			_, err := kubeauth.NewAccessReviewer(authorizer).Review(
-				ctx,
-				auth.ResourceModelConfig,
-				[]auth.Verb{auth.VerbCreate},
-				[]kubeauth.ReviewTarget{{Namespace: "team-a"}},
-			)
-			assert.True(t, serviceerrors.IsCode(err, test.wantCode), "error = %v", err)
-		})
+				_, err := kubeauth.NewAccessReviewer(authorizer).Review(
+					ctx,
+					auth.ResourceModelConfig,
+					[]auth.Verb{verb},
+					[]kubeauth.ReviewTarget{{Namespace: "team-a"}},
+				)
+				assert.True(t, serviceerrors.IsCode(err, test.wantCode), "error = %v", err)
+			})
+		}
 	}
 }
 

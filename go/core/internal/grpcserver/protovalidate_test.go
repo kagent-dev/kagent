@@ -114,6 +114,20 @@ func TestCheckAccessRequestValidation(t *testing.T) {
 			valid: true,
 		},
 		{
+			name: "agent supports all review verbs",
+			request: &apiv1alpha1.CheckAccessRequest{
+				ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT,
+				Verbs: []apiv1alpha1.AuthorizationVerb{
+					apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET,
+					apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_CREATE,
+					apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_UPDATE,
+					apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_DELETE,
+				},
+				Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a", Name: &name}},
+			},
+			valid: true,
+		},
+		{
 			name:    "missing resource type",
 			request: &apiv1alpha1.CheckAccessRequest{Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_CREATE}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}}},
 		},

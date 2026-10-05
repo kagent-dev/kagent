@@ -29,6 +29,7 @@ const (
 	AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE AuthorizationResourceType = 1
 	AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_HARNESS        AuthorizationResourceType = 2
 	AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG   AuthorizationResourceType = 3
+	AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT          AuthorizationResourceType = 4
 )
 
 // Enum value maps for AuthorizationResourceType.
@@ -38,12 +39,14 @@ var (
 		1: "AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE",
 		2: "AUTHORIZATION_RESOURCE_TYPE_HARNESS",
 		3: "AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG",
+		4: "AUTHORIZATION_RESOURCE_TYPE_AGENT",
 	}
 	AuthorizationResourceType_value = map[string]int32{
 		"AUTHORIZATION_RESOURCE_TYPE_UNSPECIFIED":    0,
 		"AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE": 1,
 		"AUTHORIZATION_RESOURCE_TYPE_HARNESS":        2,
 		"AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG":   3,
+		"AUTHORIZATION_RESOURCE_TYPE_AGENT":          4,
 	}
 )
 
@@ -80,8 +83,9 @@ const (
 	AuthorizationVerb_AUTHORIZATION_VERB_UNSPECIFIED AuthorizationVerb = 0
 	AuthorizationVerb_AUTHORIZATION_VERB_GET         AuthorizationVerb = 1
 	AuthorizationVerb_AUTHORIZATION_VERB_CREATE      AuthorizationVerb = 2
-	AuthorizationVerb_AUTHORIZATION_VERB_UPDATE      AuthorizationVerb = 3
-	AuthorizationVerb_AUTHORIZATION_VERB_DELETE      AuthorizationVerb = 4
+	// Requires GET and UPDATE permission on the same resource.
+	AuthorizationVerb_AUTHORIZATION_VERB_UPDATE AuthorizationVerb = 3
+	AuthorizationVerb_AUTHORIZATION_VERB_DELETE AuthorizationVerb = 4
 )
 
 // Enum value maps for AuthorizationVerb.
@@ -360,12 +364,13 @@ const file_kagent_api_v1alpha1_authorization_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2#.kagent.api.v1alpha1.ResourceAccessR\aresults\"\x98\x01\n" +
 	"\x0eResourceAccess\x129\n" +
 	"\x06target\x18\x01 \x01(\v2!.kagent.api.v1alpha1.AccessTargetR\x06target\x12K\n" +
-	"\rallowed_verbs\x18\x02 \x03(\x0e2&.kagent.api.v1alpha1.AuthorizationVerbR\fallowedVerbs*\xcf\x01\n" +
+	"\rallowed_verbs\x18\x02 \x03(\x0e2&.kagent.api.v1alpha1.AuthorizationVerbR\fallowedVerbs*\xf6\x01\n" +
 	"\x19AuthorizationResourceType\x12+\n" +
 	"'AUTHORIZATION_RESOURCE_TYPE_UNSPECIFIED\x10\x00\x12.\n" +
 	"*AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE\x10\x01\x12'\n" +
 	"#AUTHORIZATION_RESOURCE_TYPE_HARNESS\x10\x02\x12,\n" +
-	"(AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG\x10\x03*\xb0\x01\n" +
+	"(AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG\x10\x03\x12%\n" +
+	"!AUTHORIZATION_RESOURCE_TYPE_AGENT\x10\x04*\xb0\x01\n" +
 	"\x11AuthorizationVerb\x12\"\n" +
 	"\x1eAUTHORIZATION_VERB_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16AUTHORIZATION_VERB_GET\x10\x01\x12\x1d\n" +
