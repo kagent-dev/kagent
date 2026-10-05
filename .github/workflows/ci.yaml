@@ -428,7 +428,8 @@ jobs:
         working-directory: go
         run: |
           go test -c -o "$RUNNER_TEMP/claude-adapter.test" ./harness/claude/internal/adapter/
-          sudo setpriv --bounding-set=-all,+chown,+setuid,+setgid -- "$RUNNER_TEMP/claude-adapter.test" -test.count=1 -test.v
+          sudo setpriv --bounding-set=-all,+chown,+setuid,+setgid --inh-caps=-all --ambient-caps=-all -- \
+            sh -c 'grep -E "^Cap(Prm|Eff)" /proc/self/status && exec "$0" -test.count=1 -test.v' "$RUNNER_TEMP/claude-adapter.test"
 
   helm-unit-tests:
     env:
