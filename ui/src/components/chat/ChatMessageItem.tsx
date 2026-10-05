@@ -9,6 +9,7 @@ import { StructuredOutputCard } from "./StructuredOutputCard";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
+import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
 
 const { Text } = Typography;
@@ -152,9 +153,19 @@ function TextPart({ part, role }: ChatPartRendererProps<"text">) {
   );
 }
 
+/** A sent or received file, as a download chip on the message's side. */
+function FilePart({ part, role }: ChatPartRendererProps<"file">) {
+  return (
+    <div css={{ justifySelf: role === "user" ? "end" : "start", maxWidth: "100%" }}>
+      <AttachmentChip file={part} />
+    </div>
+  );
+}
+
 /** What renders each part when no extension replaces it. */
 const CORE_PART_RENDERERS: Required<ExtensionChatPartRenderers> = {
   text: TextPart,
+  file: FilePart,
   tool_call: ToolCallCard,
   tool_result: ToolCallCard,
   tool_not_run: ToolCallCard,
