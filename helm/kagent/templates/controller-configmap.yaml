@@ -9,7 +9,7 @@ data:
   KAGENT_AUTH_MODE: {{ .Values.controller.auth.mode | quote }}
   KAGENT_AUTH_USER_ID_CLAIM: {{ .Values.controller.auth.userIdClaim | quote }}
   KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
-  KAGENT_A2A_PUSH_ISSUER: {{ coalesce .Values.controller.pushSigning.issuer .Values.ui.externalUrl (include "kagent.a2aGatewayUrl" .) | trimSuffix "/" | quote }}
+  KAGENT_A2A_PUSH_ISSUER: {{ coalesce .Values.controller.push.signing.issuer .Values.ui.externalUrl (include "kagent.a2aGatewayUrl" .) | trimSuffix "/" | quote }}
   KAGENT_A2A_PUSH_ALLOW_HTTP: {{ .Values.controller.push.allowHTTP | quote }}
   KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS: {{ .Values.controller.push.allowPrivateNetworks | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}

@@ -86,11 +86,11 @@ attempt has a fresh `jti`. Acknowledge accepted callbacks promptly with 2xx;
 use your own A2A credentials to call `GetTask`.
 
 Helm creates and retains a shared signing Secret. For an existing Secret, set
-`controller.pushSigning.existingSecret` to one with a `seed` key containing a
+`controller.push.signing.existingSecret` to one with a `seed` key containing a
 base64-encoded 32-byte Ed25519 seed; outside Helm, set
 `KAGENT_A2A_PUSH_SIGNING_SEED`. All controller replicas need the same seed.
 Tell receivers the issuer and JWKS URL. Helm chooses the issuer from
-`controller.pushSigning.issuer`, `ui.externalUrl`, then the in-cluster gateway
+`controller.push.signing.issuer`, `ui.externalUrl`, then the in-cluster gateway
 URL; outside Helm, `KAGENT_A2A_PUSH_ISSUER` overrides `KAGENT_GATEWAY_URL`.
 Keep the issuer stable. Seed rotation immediately replaces the published key;
 restart Pods after changing an operator-managed Secret.

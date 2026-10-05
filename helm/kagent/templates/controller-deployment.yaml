@@ -87,7 +87,7 @@ spec:
             - name: KAGENT_A2A_PUSH_SIGNING_SEED
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-push-signing" (include "kagent.fullname" .)) .Values.controller.pushSigning.existingSecret }}
+                  name: {{ default (printf "%s-push-signing" (include "kagent.fullname" .)) .Values.controller.push.signing.existingSecret }}
                   key: seed
             - name: K8S_POD_NAME
               valueFrom:

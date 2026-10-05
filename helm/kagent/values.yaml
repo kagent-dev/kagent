@@ -215,13 +215,13 @@ controller:
     allowHTTP: false
     # -- Allow callbacks to private, loopback, and link-local addresses.
     allowPrivateNetworks: false
-  pushSigning:
-    # Existing Secret containing `seed`, a base64-encoded 32-byte Ed25519 seed.
-    # Empty creates and retains a chart-managed Secret.
-    existingSecret: ""
-    # Stable URL that webhook receivers trust as the JWT issuer.
-    # Empty uses ui.externalUrl, then the in-cluster A2A gateway URL.
-    issuer: ""
+    signing:
+      # Existing Secret containing `seed`, a base64-encoded 32-byte Ed25519 seed.
+      # Empty creates and retains a chart-managed Secret.
+      existingSecret: ""
+      # Stable URL that webhook receivers trust as the JWT issuer.
+      # Empty uses ui.externalUrl, then the in-cluster A2A gateway URL.
+      issuer: ""
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
     # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.

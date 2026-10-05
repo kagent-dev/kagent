@@ -111,6 +111,24 @@ tests:
           path: data.KAGENT_GRPC_REFLECTION
           value: "false"
 
+  - it: uses the push signing Secret configured under controller.push
+    template: controller-deployment.yaml
+    set:
+      controller.push.signing.existingSecret: receiver-signing-key
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: receiver-signing-key
+
+  - it: uses the push issuer configured under controller.push
+    template: controller-configmap.yaml
+    set:
+      controller.push.signing.issuer: https://kagent.example
+    asserts:
+      - equal:
+          path: data.KAGENT_A2A_PUSH_ISSUER
+          value: https://kagent.example
+
   - it: should set global annotations on deployment
     template: controller-deployment.yaml
     set:
