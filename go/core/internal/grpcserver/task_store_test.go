@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -270,7 +271,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	}}
 	callbacks := make(chan *a2a.TaskStatusUpdateEvent, 4)
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer receiver-credential" {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -288,10 +289,12 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	t.Cleanup(receiver.Close)
 	// This fixture exercises private TaskStore publication. Public embedded
 	// registration and validation are covered by the gateway transport tests.
-	require.NoError(t, store.RegisterSessionPush(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL, Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "receiver-credential"}}))
+	require.NoError(t, store.RegisterSessionPushNotification(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL}))
 	workerCtx, stopWorker := context.WithCancel(t.Context())
 	workerDone := make(chan error, 1)
-	worker := sessionsvc.NewPushWorker(database.NewClient(db), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}))
+	pushSigner, err := sessionsvc.NewPushJWTSigner(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))), "https://kagent.example")
+	require.NoError(t, err)
+	worker := sessionsvc.NewPushWorker(database.NewClient(db), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner)
 	go func() { workerDone <- worker.Start(workerCtx) }()
 	t.Cleanup(func() { stopWorker(); require.NoError(t, <-workerDone) })
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
@@ -365,8 +368,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.Equal(t, a2apb.TaskState_TASK_STATE_INPUT_REQUIRED, parked.GetTask().GetStatus().GetState())
 	parkedID := parked.GetTask().GetId()
 	grpcConfig, err := second.CreateTaskPushNotificationConfig(publicCtx, &a2apb.TaskPushNotificationConfig{
-		Tenant: "team-a/assistant", TaskId: parkedID, Id: "managed-grpc", Url: receiver.URL, Token: "notification-secret",
-		Authentication: &a2apb.AuthenticationInfo{Scheme: "Bearer", Credentials: "receiver-credential"},
+		Tenant: "team-a/assistant", TaskId: parkedID, Id: "managed-grpc", Url: receiver.URL,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "managed-grpc", grpcConfig.GetId())
@@ -374,7 +376,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.Nil(t, grpcConfig.GetAuthentication())
 	params := a2aclient.ServiceParams{"x-user-id": {"alice"}}
 	jsonConfig, err := httpTransport.CreateTaskPushConfig(publicCtx, params, &a2a.PushConfig{
-		TaskID: a2a.TaskID(parkedID), ID: "managed-json", URL: receiver.URL, Token: "notification-secret", Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "receiver-credential"},
+		TaskID: a2a.TaskID(parkedID), ID: "managed-json", URL: receiver.URL,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "managed-json", jsonConfig.ID)

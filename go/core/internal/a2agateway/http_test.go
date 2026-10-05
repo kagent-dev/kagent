@@ -440,7 +440,7 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 					tenant = gatewayTestAgent
 				}
 				request := func() *a2atype.SendMessageRequest {
-					return &a2atype.SendMessageRequest{Tenant: tenant, Message: &a2atype.Message{ID: "initial", Role: a2atype.MessageRoleUser, Parts: a2atype.ContentParts{a2atype.NewTextPart("hello")}}, Config: &a2atype.SendMessageConfig{ReturnImmediately: true, HistoryLength: new(0), PushConfig: &a2atype.PushConfig{URL: "https://receiver", Tenant: gatewayTestAgent, Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: "secret"}}}}
+					return &a2atype.SendMessageRequest{Tenant: tenant, Message: &a2atype.Message{ID: "initial", Role: a2atype.MessageRoleUser, Parts: a2atype.ContentParts{a2atype.NewTextPart("hello")}}, Config: &a2atype.SendMessageConfig{ReturnImmediately: true, HistoryLength: new(0), PushConfig: &a2atype.PushConfig{URL: "https://receiver", Tenant: gatewayTestAgent}}}
 				}
 				send := func() error {
 					if streaming {

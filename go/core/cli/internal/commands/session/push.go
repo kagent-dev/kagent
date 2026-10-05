@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -29,14 +28,10 @@ const (
 )
 
 type pushCfg struct {
-	URL              string
-	ID               string
-	Token            string
-	TokenFile        string
-	BearerFile       string
-	BearerCredential string
-	PageSize         int32
-	PageToken        string
+	URL       string
+	ID        string
+	PageSize  int32
+	PageToken string
 }
 
 type taskPushClient interface {
@@ -85,8 +80,6 @@ func newPushCmd() *cobra.Command {
 		if op == pushCreate {
 			command.Flags().StringVar(&cfg.URL, "url", "", "HTTP or HTTPS callback URL")
 			command.Flags().StringVar(&cfg.ID, "id", "", "Callback ID (generated when omitted)")
-			command.Flags().StringVar(&cfg.TokenFile, "token-file", "", "Read the optional notification token from a file")
-			command.Flags().StringVar(&cfg.BearerFile, "bearer-token-file", "", "Read an optional webhook Bearer credential from a file")
 			_ = command.MarkFlagRequired("url")
 		}
 		if op == pushList {
@@ -138,19 +131,6 @@ func runPush(ctx context.Context, options connection.Options, op pushOperation, 
 		if err := validatePushURL(cfg.URL); err != nil {
 			return err
 		}
-		if cfg.TokenFile != "" {
-			token, err := readPushToken(cfg.TokenFile)
-			if err != nil {
-				return err
-			}
-			cfg.Token = token
-		}
-		if cfg.BearerFile != "" {
-			cfg.BearerCredential, err = readPushToken(cfg.BearerFile)
-			if err != nil {
-				return err
-			}
-		}
 	}
 	if op == pushList && (cfg.PageSize < 0 || cfg.PageSize > 100) {
 		return errors.New("page size must be between 1 and 100, or 0 for the server default")
@@ -170,25 +150,10 @@ func runPush(ctx context.Context, options connection.Options, op pushOperation, 
 	return executePush(ctx, client, session.Gateway.A2A, op, sessionID.String(), args[1], args[2:], cfg, format, out)
 }
 
-func readPushToken(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read notification token file: %w", err)
-	}
-	return strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"), nil
-}
-
-func pushBearerAuth(credential string) *a2a.PushAuthInfo {
-	if credential == "" {
-		return nil
-	}
-	return &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
-}
-
 func executePush(ctx context.Context, client taskPushClient, pages pushPageClient, op pushOperation, sessionID, taskID string, extra []string, cfg *pushCfg, format clioutput.Format, out io.Writer) error {
 	switch op {
 	case pushCreate:
-		config, err := client.CreateTaskPushConfig(ctx, &a2a.PushConfig{TaskID: a2a.TaskID(taskID), ID: cfg.ID, URL: cfg.URL, Token: cfg.Token, Auth: pushBearerAuth(cfg.BearerCredential)})
+		config, err := client.CreateTaskPushConfig(ctx, &a2a.PushConfig{TaskID: a2a.TaskID(taskID), ID: cfg.ID, URL: cfg.URL})
 		if err != nil {
 			return fmt.Errorf("create task push callback: %w", err)
 		}

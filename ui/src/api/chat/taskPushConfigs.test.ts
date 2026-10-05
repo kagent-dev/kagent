@@ -60,7 +60,7 @@ describe("task push configurations", () => {
       { id: "second", url: "https://two.example/callback" },
     ]);
     expect(pageTokens).toEqual(["", "next"]);
-    expect(await saveTaskPushConfig(conversation, "task-1", { id: "named", url: "https://new.example/callback", bearerCredential: "secret" }))
+    expect(await saveTaskPushConfig(conversation, "task-1", { id: "named", url: "https://new.example/callback" }))
       .toEqual({ id: "named", url: "https://new.example/callback" });
     await deleteTaskPushConfig(conversation, "task-1", "named");
     expect(writes).toEqual([
@@ -79,22 +79,21 @@ describe("task push configurations", () => {
     await expect(listTaskPushConfigs(conversation, "task-1")).rejects.toThrow("repeated a push configuration page token");
   });
 
-  it("sends credentials on create and omits secrets from list", async () => {
+  it("creates a callback without client secrets", async () => {
     setApiTransport(createRouterTransport(({ service }) => {
       service(A2AService, {
         createTaskPushNotificationConfig: async (request) => {
-          expect(request.token).toBe("receiver-secret");
-          expect(request.authentication?.scheme).toBe("Bearer");
-          expect(request.authentication?.credentials).toBe("webhook-secret");
+          expect(request.token).toBe("");
+          expect(request.authentication).toBeUndefined();
           return request;
         },
         listTaskPushNotificationConfigs: async () => ({
-          configs: [{ id: "named", taskId: "task-1", url: "https://receiver.example/callback", token: "receiver-secret" }],
+          configs: [{ id: "named", taskId: "task-1", url: "https://receiver.example/callback" }],
         }),
       });
     }));
 
-    const config = { id: "named", url: "https://receiver.example/callback", token: "receiver-secret", bearerCredential: "webhook-secret" };
+    const config = { id: "named", url: "https://receiver.example/callback" };
     expect(await saveTaskPushConfig(conversation, "task-1", config)).toEqual({ id: config.id, url: config.url });
     expect(await listTaskPushConfigs(conversation, "task-1")).toEqual([{ id: config.id, url: config.url }]);
   });

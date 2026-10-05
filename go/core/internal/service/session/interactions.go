@@ -22,7 +22,7 @@ import (
 )
 
 type interactionStore interface {
-	RegisterSessionPush(context.Context, string, string, string, *a2atype.PushConfig) error
+	RegisterSessionPushNotification(context.Context, string, string, string, *a2atype.PushConfig) error
 	SaveTaskPushConfig(context.Context, string, string, *a2atype.PushConfig) error
 	GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error)
 	ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error)
@@ -150,7 +150,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		if pushConfig.ID == "" {
 			pushConfig.ID = uuid.NewSHA1(uuid.NameSpaceURL, []byte("a2a/push/"+session.Id+"/"+req.Message.ID)).String()
 		}
-		if err := s.store.RegisterSessionPush(ctx, session.Id, req.Message.ID, string(req.Message.TaskID), pushConfig); err != nil {
+		if err := s.store.RegisterSessionPushNotification(ctx, session.Id, req.Message.ID, string(req.Message.TaskID), pushConfig); err != nil {
 			return nil, interactionStoreError(ctx, err)
 		}
 		config := *req.Config

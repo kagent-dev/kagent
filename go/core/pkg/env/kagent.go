@@ -66,14 +66,26 @@ var (
 
 	A2APushAllowPrivateNetworks = RegisterBoolVar(
 		"KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS",
-		true,
-		"Allow A2A push callbacks to private, loopback, and link-local destinations. Set to false to block these destinations.",
+		false,
+		"Allow A2A push callbacks to private, loopback, and link-local destinations.",
 		ComponentController,
 	)
 	A2APushAllowHTTP = RegisterBoolVar(
 		"KAGENT_A2A_PUSH_ALLOW_HTTP",
-		true,
-		"Allow HTTP A2A push callbacks. Set to false to require HTTPS.",
+		false,
+		"Allow HTTP A2A push callbacks. HTTPS is required by default.",
+		ComponentController,
+	)
+	A2APushSigningSeed = RegisterStringVar(
+		"KAGENT_A2A_PUSH_SIGNING_SEED",
+		"",
+		"Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret.",
+		ComponentController,
+	)
+	A2APushIssuer = RegisterStringVar(
+		"KAGENT_A2A_PUSH_ISSUER",
+		"",
+		"Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL.",
 		ComponentController,
 	)
 

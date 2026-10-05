@@ -17,7 +17,7 @@ tests:
               name: RELEASE-NAME-controller
       - matchRegex:
           path: spec.template.spec.containers[0].env[*].name
-          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|POSTGRES_PASSWORD|KAGENT_POSTGRES_DATABASE_URL)$"
+          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|POSTGRES_PASSWORD|KAGENT_POSTGRES_DATABASE_URL|KAGENT_A2A_PUSH_SIGNING_SEED)$"
       - notExists:
           path: data.KAGENT_POSTGRES_DATABASE_URL
         template: controller-configmap.yaml
@@ -26,6 +26,9 @@ tests:
         template: controller-configmap.yaml
       - notExists:
           path: data.OTEL_RESOURCE_ATTRIBUTES
+        template: controller-configmap.yaml
+      - notExists:
+          path: data.KAGENT_A2A_PUSH_SIGNING_SEED
         template: controller-configmap.yaml
 
   - it: should render controller deployment with default values

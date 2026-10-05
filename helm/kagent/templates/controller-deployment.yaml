@@ -84,6 +84,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: KAGENT_A2A_PUSH_SIGNING_SEED
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-push-signing" (include "kagent.fullname" .)) .Values.controller.pushSigning.existingSecret }}
+                  key: seed
             - name: K8S_POD_NAME
               valueFrom:
                 fieldRef:

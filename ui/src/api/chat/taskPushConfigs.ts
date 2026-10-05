@@ -7,8 +7,6 @@ import type { ChatConversationRef } from "./types";
 export interface TaskPushConfig {
   id: string;
   url: string;
-  token?: string;
-  bearerCredential?: string;
 }
 
 function callOptions(conversation: ChatConversationRef, signal?: AbortSignal) {
@@ -70,7 +68,7 @@ export async function saveTaskPushConfig(
 ): Promise<TaskPushConfig> {
   try {
     const saved = await serviceClient(A2AService).createTaskPushNotificationConfig(
-      { tenant: conversation.agent, taskId, id: config.id, url: config.url, token: config.token ?? "", authentication: config.bearerCredential ? { scheme: "Bearer", credentials: config.bearerCredential } : undefined },
+      { tenant: conversation.agent, taskId, id: config.id, url: config.url },
       callOptions(conversation),
     );
     return fromWire(saved);

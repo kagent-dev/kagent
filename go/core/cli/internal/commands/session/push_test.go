@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -63,13 +61,13 @@ func TestExecutePushOperations(t *testing.T) {
 	var out bytes.Buffer
 
 	require.NoError(t, executePush(ctx, client, pages, pushCreate, "session", "task", nil,
-		&pushCfg{URL: "https://receiver.example/callback", BearerCredential: "receiver-credential"}, clioutput.FormatJSON, &out))
+		&pushCfg{URL: "https://receiver.example/callback"}, clioutput.FormatJSON, &out))
 	require.Equal(t, a2a.TaskID("task"), client.created.TaskID)
-	require.Equal(t, "receiver-credential", client.created.Auth.Credentials)
+	require.Nil(t, client.created.Auth)
 	require.Contains(t, out.String(), `"id":"generated"`)
 	require.NoError(t, executePush(ctx, client, pages, pushCreate, "session", "task", nil,
-		&pushCfg{URL: "https://receiver.example/callback", Token: "secret", BearerCredential: "receiver-credential"}, clioutput.FormatJSON, &out))
-	require.Equal(t, "secret", client.created.Token)
+		&pushCfg{URL: "https://receiver.example/callback"}, clioutput.FormatJSON, &out))
+	require.Empty(t, client.created.Token)
 	require.NoError(t, executePush(ctx, client, pages, pushCreate, "session", "task", nil,
 		&pushCfg{URL: "https://receiver.example/callback"}, clioutput.FormatJSON, &out))
 	require.Nil(t, client.created.Auth)
@@ -96,16 +94,6 @@ func TestExecutePushOperations(t *testing.T) {
 	require.Equal(t, "deleted", deletion["status"])
 }
 
-func TestReadPushToken(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "token")
-	require.NoError(t, os.WriteFile(path, []byte("secret\r\n"), 0o600))
-	token, err := readPushToken(path)
-	require.NoError(t, err)
-	require.Equal(t, "secret", token)
-	_, err = readPushToken(path + "-missing")
-	require.ErrorContains(t, err, "read notification token file")
-}
-
 type fakePushInvoker struct {
 	request *a2a.SendMessageRequest
 	state   a2a.TaskState
@@ -117,15 +105,13 @@ func (f *fakePushInvoker) SendMessage(_ context.Context, request *a2a.SendMessag
 }
 
 func TestInvokeWithPushRegistersImmediateTask(t *testing.T) {
-	credentialFile := filepath.Join(t.TempDir(), "bearer")
-	require.NoError(t, os.WriteFile(credentialFile, []byte("receiver-credential"), 0o600))
 	client := &fakePushInvoker{state: a2a.TaskStateWorking}
 	var out bytes.Buffer
 	require.NoError(t, invokeWithPush(t.Context(), client, newInvokeRequest("hello"),
-		&InvokeCfg{PushURL: "https://receiver.example/callback", PushBearerTokenFile: credentialFile}, clioutput.FormatJSON, &out))
+		&InvokeCfg{PushURL: "https://receiver.example/callback"}, clioutput.FormatJSON, &out))
 	require.True(t, client.request.Config.ReturnImmediately)
 	require.NotEmpty(t, client.request.Config.PushConfig.ID)
-	require.Equal(t, "receiver-credential", client.request.Config.PushConfig.Auth.Credentials)
+	require.Nil(t, client.request.Config.PushConfig.Auth)
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 	require.Contains(t, result, "task")
@@ -141,11 +127,9 @@ func TestInvokeWithPushAllowsURLWithoutBearer(t *testing.T) {
 }
 
 func TestInvokeWithPushEmbedsCallbackBeforeCompletedTask(t *testing.T) {
-	credentialFile := filepath.Join(t.TempDir(), "bearer")
-	require.NoError(t, os.WriteFile(credentialFile, []byte("receiver-credential"), 0o600))
 	client := &fakePushInvoker{state: a2a.TaskStateCompleted}
 	err := invokeWithPush(t.Context(), client, newInvokeRequest("hello"),
-		&InvokeCfg{PushURL: "https://receiver.example/callback", PushBearerTokenFile: credentialFile}, clioutput.FormatTable, &bytes.Buffer{})
+		&InvokeCfg{PushURL: "https://receiver.example/callback"}, clioutput.FormatTable, &bytes.Buffer{})
 	require.NoError(t, err)
 	require.NotNil(t, client.request.Config.PushConfig)
 }

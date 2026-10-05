@@ -72,7 +72,7 @@ type gatewayTestStore struct {
 	created          map[string]*apiv1alpha1.Session
 }
 
-func (s *gatewayTestStore) RegisterSessionPush(_ context.Context, sessionID, messageID, taskID string, config *a2atype.PushConfig) error {
+func (s *gatewayTestStore) RegisterSessionPushNotification(_ context.Context, sessionID, messageID, taskID string, config *a2atype.PushConfig) error {
 	s.pushConfig, s.pushSessionID, s.pushMessageID = config, sessionID, messageID
 	return s.pushErr
 }

@@ -152,6 +152,8 @@ jobs:
             --set kagent-tools.enabled=false
             --set grafana-mcp.enabled=false
             --set controller.substrate.enabled=true
+            --set controller.push.allowHTTP=true
+            --set controller.push.allowPrivateNetworks=true
             --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443
             --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
             --set substrateWorkerPool.create=true

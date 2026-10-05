@@ -107,8 +107,10 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `true` | Allow HTTP A2A push callbacks. Set to false to require HTTPS. |
-| `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `true` | Allow A2A push callbacks to private, loopback, and link-local destinations. Set to false to block these destinations. |
+| `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `false` | Allow HTTP A2A push callbacks. HTTPS is required by default. |
+| `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `false` | Allow A2A push callbacks to private, loopback, and link-local destinations. |
+| `KAGENT_A2A_PUSH_ISSUER` | String | `(none)` | Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL. |
+| `KAGENT_A2A_PUSH_SIGNING_SEED` | String | `(none)` | Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |

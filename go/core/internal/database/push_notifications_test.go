@@ -1,7 +1,6 @@
 package database
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -12,53 +11,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestPushRegistrationPaginationBindingAndDeletion(t *testing.T) {
+func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	session, task := waitingTaskFixture(t, client)
+	session, _ := waitingTaskFixture(t, client)
 	config := &a2a.PushConfig{ID: "default", URL: "http://receiver"}
-	for i := range 205 {
-		require.NoError(t, client.RegisterSessionPush(ctx, session.Id, fmt.Sprintf("message-%03d", i), "", config))
-	}
-	var cursor *PushRegistration
-	var all []PushRegistration
-	for {
-		rows, err := client.ListUnboundPushRegistrations(ctx, cursor, 100)
-		require.NoError(t, err)
-		all = append(all, rows...)
-		if len(rows) < 100 {
-			break
-		}
-		cursor = &rows[len(rows)-1]
-	}
-	require.Len(t, all, 205)
-	require.Equal(t, "message-204", all[204].InitialMessageID)
-	bound, err := client.BindSessionPush(ctx, all[0], string(task.ID))
-	require.NoError(t, err)
-	require.True(t, bound)
-	delivery, err := client.ClaimDuePushDelivery(ctx)
-	require.NoError(t, err)
-	require.Nil(t, delivery, "binding after a published boundary must not replay it")
-	bound, err = client.BindSessionPush(ctx, all[0], "different")
-	require.NoError(t, err)
-	require.False(t, bound)
-	other, otherTask := waitingTaskFixture(t, client)
-	require.NotEqual(t, session.Id, other.Id)
-	_, err = client.BindSessionPush(ctx, all[1], string(otherTask.ID))
-	require.Error(t, err, "foreign key must reject cross-history binding")
-	require.NoError(t, client.CloseUnboundSessionPush(ctx, all[1]))
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, all[1].InitialMessageID, "", config))
-	// Closing cannot race a successful bind and consume that registration.
-	require.NoError(t, client.CloseUnboundSessionPush(ctx, all[0]))
-	rows, err := client.ListUnboundPushRegistrations(ctx, nil, 300)
-	require.NoError(t, err)
-	require.Len(t, rows, 203)
-	require.NoError(t, deleteSession(ctx, client, session.Id))
-	rows, err = client.ListUnboundPushRegistrations(ctx, nil, 300)
-	require.NoError(t, err)
-	require.Empty(t, rows)
-	require.ErrorIs(t, client.RegisterSessionPush(ctx, session.Id, "new", "", config), ErrNotFound)
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", config))
+	require.NoError(t, execSQL(ctx, client.db, `UPDATE session_push_registration SET created_at = clock_timestamp() - interval '11 minutes' WHERE initial_message_id = $1`, "unaccepted"))
+	require.NoError(t, client.ExpireUnboundPushRegistrations(ctx))
+	var closed bool
+	require.NoError(t, client.db.QueryRow(ctx, `SELECT closed_at IS NOT NULL FROM session_push_registration WHERE initial_message_id = $1`, "unaccepted").Scan(&closed))
+	require.True(t, closed)
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", config))
+	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", &a2a.PushConfig{ID: "default", URL: "http://changed"}), ErrIdempotencyConflict)
 }
 
 func TestPushRegistrationConcurrentConfiguration(t *testing.T) {
@@ -69,7 +35,7 @@ func TestPushRegistrationConcurrentConfiguration(t *testing.T) {
 	results := make(chan error, 2)
 	for _, endpoint := range []string{"http://one", "http://two"} {
 		go func() {
-			results <- client.RegisterSessionPush(t.Context(), session.Id, "input", "", &a2a.PushConfig{ID: "default", URL: endpoint})
+			results <- client.RegisterSessionPushNotification(t.Context(), session.Id, "input", "", &a2a.PushConfig{ID: "default", URL: endpoint})
 		}()
 	}
 	first, second := <-results, <-results
@@ -80,9 +46,9 @@ func TestPushRegistrationConcurrentConfiguration(t *testing.T) {
 		require.NoError(t, second)
 	}
 	for _, config := range []*a2a.PushConfig{{URL: "http://one"}, {ID: "default"}} {
-		require.Error(t, client.RegisterSessionPush(t.Context(), session.Id, "invalid", "", config))
+		require.Error(t, client.RegisterSessionPushNotification(t.Context(), session.Id, "invalid", "", config))
 	}
-	require.Error(t, client.RegisterSessionPush(t.Context(), session.Id, "", "", &a2a.PushConfig{ID: "default", URL: "http://one"}))
+	require.Error(t, client.RegisterSessionPushNotification(t.Context(), session.Id, "", "", &a2a.PushConfig{ID: "default", URL: "http://one"}))
 }
 
 func TestTaskPushConfigManagement(t *testing.T) {
@@ -91,8 +57,8 @@ func TestTaskPushConfigManagement(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
 	initial := &a2a.PushConfig{ID: "default", URL: "http://initial"}
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "initial", "", initial))
-	// A management read can resolve the accepted input before the worker binds it.
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "initial", "", initial))
+	// Registration binds an already accepted input in the same transaction.
 	got, err := client.GetTaskPushConfig(ctx, session.Id, string(task.ID), "default")
 	require.NoError(t, err)
 	require.Equal(t, "http://initial", got.URL)
@@ -109,7 +75,7 @@ func TestTaskPushConfigManagement(t *testing.T) {
 	require.Equal(t, "second", page[0].ID)
 	// Replacing the embedded config keeps its initial-send receipt immutable.
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID), &a2a.PushConfig{ID: "default", URL: "http://replacement"}))
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "initial", "", initial))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "initial", "", initial))
 	got, err = client.GetTaskPushConfig(ctx, session.Id, string(task.ID), "default")
 	require.NoError(t, err)
 	require.Equal(t, "http://replacement", got.URL)
@@ -117,7 +83,7 @@ func TestTaskPushConfigManagement(t *testing.T) {
 	require.NoError(t, client.DeleteTaskPushConfig(ctx, session.Id, string(task.ID), "default"))
 	_, err = client.GetTaskPushConfig(ctx, session.Id, string(task.ID), "default")
 	require.ErrorIs(t, err, ErrNotFound)
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "initial", "", initial))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "initial", "", initial))
 	_, err = client.GetTaskPushConfig(ctx, session.Id, string(task.ID), "default")
 	require.ErrorIs(t, err, ErrNotFound, "initial retry must not resurrect deleted configuration")
 	// Explicit Create after Delete may reuse the configuration ID.
@@ -138,14 +104,10 @@ func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
 	original := &a2a.PushConfig{
-		ID: "callback", URL: "http://original", Token: "token",
-		Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "credential"},
+		ID: "callback", URL: "http://original",
 	}
 	taskID := string(task.ID)
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "input", taskID, original))
-	registrations, err := client.ListUnboundPushRegistrations(ctx, nil, 10)
-	require.NoError(t, err)
-	require.Len(t, registrations, 1)
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "input", taskID, original))
 	task.History = append(task.History, &a2a.Message{ID: "input", Role: a2a.MessageRoleUser})
 	task.Status.State = a2a.TaskStateWorking
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
@@ -154,7 +116,7 @@ func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
 	require.Nil(t, delivery, "known-task registration is future-only")
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, taskID,
 		&a2a.PushConfig{ID: "callback", URL: "http://replacement"}))
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "input", taskID, original))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "input", taskID, original))
 	current, err := client.GetTaskPushConfig(ctx, session.Id, taskID, "callback")
 	require.NoError(t, err)
 	require.Equal(t, "http://replacement", current.URL)
@@ -165,13 +127,11 @@ func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
 		config a2a.PushConfig
 	}{
 		{name: "task", taskID: "", config: *original},
-		{name: "id", taskID: taskID, config: a2a.PushConfig{ID: "changed", URL: original.URL, Token: original.Token, Auth: original.Auth}},
-		{name: "url", taskID: taskID, config: a2a.PushConfig{ID: original.ID, URL: "http://changed", Token: original.Token, Auth: original.Auth}},
-		{name: "token", taskID: taskID, config: a2a.PushConfig{ID: original.ID, URL: original.URL, Token: "changed", Auth: original.Auth}},
-		{name: "credentials", taskID: taskID, config: a2a.PushConfig{ID: original.ID, URL: original.URL, Token: original.Token, Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "changed"}}},
+		{name: "id", taskID: taskID, config: a2a.PushConfig{ID: "changed", URL: original.URL}},
+		{name: "url", taskID: taskID, config: a2a.PushConfig{ID: original.ID, URL: "http://changed"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			require.ErrorIs(t, client.RegisterSessionPush(ctx, session.Id, "input", test.taskID, &test.config), ErrIdempotencyConflict)
+			require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "input", test.taskID, &test.config), ErrIdempotencyConflict)
 		})
 	}
 	current, err = client.GetTaskPushConfig(ctx, session.Id, taskID, "callback")
@@ -187,16 +147,16 @@ func TestEmbeddedPushDoesNotReplaceExplicitConfiguration(t *testing.T) {
 	explicit := &a2a.PushConfig{ID: "shared", URL: "http://explicit"}
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID), explicit))
 	embedded := &a2a.PushConfig{ID: "shared", URL: "http://embedded"}
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "later-input", string(task.ID), embedded))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "later-input", string(task.ID), embedded))
 	task.History = append(task.History, &a2a.Message{ID: "later-input", Role: a2a.MessageRoleUser})
 	task.Status.State = a2a.TaskStateWorking
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	got, err := client.GetTaskPushConfig(ctx, session.Id, string(task.ID), "shared")
 	require.NoError(t, err)
 	require.Equal(t, explicit.URL, got.URL)
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "later-input", string(task.ID), embedded))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "later-input", string(task.ID), embedded))
 	require.NoError(t, client.DeleteTaskPushConfig(ctx, session.Id, string(task.ID), "shared"))
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "later-input", string(task.ID), embedded))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "later-input", string(task.ID), embedded))
 	_, err = client.GetTaskPushConfig(ctx, session.Id, string(task.ID), "shared")
 	require.ErrorIs(t, err, ErrNotFound, "retry must not resurrect a deleted explicit config")
 }
@@ -206,12 +166,9 @@ func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
-	config := &a2a.PushConfig{ID: "continuation", URL: "http://receiver", Token: "secret"}
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "follow-up", string(task.ID), config))
-	rows, err := client.ListUnboundPushRegistrations(ctx, nil, 10)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	_, err = client.GetTaskPushConfig(ctx, session.Id, string(task.ID), config.ID)
+	config := &a2a.PushConfig{ID: "continuation", URL: "http://receiver"}
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "follow-up", string(task.ID), config))
+	_, err := client.GetTaskPushConfig(ctx, session.Id, string(task.ID), config.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 	task.History = append(task.History, &a2a.Message{ID: "follow-up", Role: a2a.MessageRoleUser})
 	task.Status.State = a2a.TaskStateWorking
@@ -219,10 +176,7 @@ func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
 
 	got, err := client.GetTaskPushConfig(ctx, session.Id, string(task.ID), config.ID)
 	require.NoError(t, err)
-	require.Equal(t, config.Token, got.Token)
-	rows, err = client.ListUnboundPushRegistrations(ctx, nil, 10)
-	require.NoError(t, err)
-	require.Empty(t, rows, "accepted input no longer needs recovery polling")
+	require.Equal(t, config.URL, got.URL)
 	delivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.Nil(t, delivery, "working state is not a notification boundary")
@@ -235,7 +189,7 @@ func TestUnacceptedContinuationDoesNotSubscribeToTask(t *testing.T) {
 	session, task := waitingTaskFixture(t, client)
 	taskID := string(task.ID)
 	config := &a2a.PushConfig{ID: "unaccepted", URL: "http://receiver"}
-	require.NoError(t, client.RegisterSessionPush(ctx, session.Id, "never-accepted", taskID, config))
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "never-accepted", taskID, config))
 
 	// Another task transition must not notify a callback from an input that
 	// never reached the task write.
@@ -254,13 +208,11 @@ func TestPushOutboxRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	config := &a2a.PushConfig{ID: "callback", URL: "http://receiver", Token: "secret", Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "receiver-credential"}}
+	config := &a2a.PushConfig{ID: "callback", URL: "http://receiver"}
 	session, task := waitingTaskWithPushFixture(t, client, config)
 	first, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, first)
-	require.Equal(t, config.Token, first.Token)
-	require.Equal(t, config.Auth.Credentials, first.AuthCredentials)
 	require.NoError(t, client.FinishPushDelivery(ctx, *first, false))
 	blocked, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
@@ -274,7 +226,6 @@ func TestPushOutboxRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	require.NotNil(t, second)
 	require.Equal(t, first.ID, second.ID)
 	require.Equal(t, first.Payload, second.Payload)
-	require.Equal(t, first.AuthCredentials, second.AuthCredentials)
 	require.NotEqual(t, first.ClaimToken, second.ClaimToken)
 	require.NoError(t, client.FinishPushDelivery(ctx, *first, true))
 	require.NoError(t, client.FinishPushDelivery(ctx, *second, true))
@@ -296,8 +247,8 @@ func TestPushOutboxRetriesAndRejectsTerminalRegistration(t *testing.T) {
 	require.NoError(t, client.FinishPushDelivery(ctx, *terminal, true))
 	late := &a2a.PushConfig{ID: "late", URL: "http://late"}
 	require.ErrorIs(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID), late), ErrFailedPrecondition)
-	require.ErrorIs(t, client.RegisterSessionPush(ctx, session.Id, "late-input", string(task.ID), late), ErrFailedPrecondition)
-	require.ErrorIs(t, client.RegisterSessionPush(ctx, session.Id, "initial", "", late), ErrFailedPrecondition,
+	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "late-input", string(task.ID), late), ErrFailedPrecondition)
+	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "initial", "", late), ErrFailedPrecondition,
 		"an accepted initial send cannot add a callback after completion")
 	lateDelivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
@@ -439,12 +390,12 @@ func TestPushOutboxReplacementAndDeleteCancelOldWork(t *testing.T) {
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client,
-		&a2a.PushConfig{ID: "callback", URL: "http://old", Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "old-secret"}})
+		&a2a.PushConfig{ID: "callback", URL: "http://old"})
 	old, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, old)
 	require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID),
-		&a2a.PushConfig{ID: "callback", URL: "http://new", Auth: &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: "new-secret"}}))
+		&a2a.PushConfig{ID: "callback", URL: "http://new"}))
 	var state string
 	require.NoError(t, client.db.QueryRow(ctx, `SELECT state FROM session_push_outbox WHERE id = $1`, old.ID).Scan(&state))
 	require.Equal(t, "canceled", state)
@@ -462,7 +413,6 @@ func TestPushOutboxReplacementAndDeleteCancelOldWork(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, newDelivery)
 	require.Equal(t, "http://new", newDelivery.URL)
-	require.Equal(t, "new-secret", newDelivery.AuthCredentials)
 	require.NoError(t, client.DeleteTaskPushConfig(ctx, session.Id, string(task.ID), "callback"))
 	require.NoError(t, client.db.QueryRow(ctx, `SELECT state FROM session_push_outbox WHERE id = $1`, newDelivery.ID).Scan(&state))
 	require.Equal(t, "canceled", state)

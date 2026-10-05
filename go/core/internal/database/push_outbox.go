@@ -16,12 +16,11 @@ const pushMaxDeliveryAttempts = 10
 // PushDelivery is an immutable attempt snapshot. The claim token fences a
 // worker whose lease expired while it was sending HTTP.
 type PushDelivery struct {
-	ID              uuid.UUID
-	ClaimToken      uuid.UUID
-	URL             string
-	Token           string
-	AuthCredentials string
-	Payload         []byte
+	ID         uuid.UUID
+	ClaimToken uuid.UUID
+	TaskID     string
+	URL        string
+	Payload    []byte
 }
 
 // enqueuePushBoundary records a task status update for each active push registration.
@@ -30,14 +29,11 @@ func enqueuePushBoundary(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, ta
 		return nil
 	}
 	type destination struct {
-		ID              int64
-		Revision        int64
-		URL             string
-		Token           string
-		AuthCredentials string
+		ID       uuid.UUID
+		Revision int64
 	}
 	configs, err := queryMany(ctx, tx, `
-        SELECT id, revision, url, token, auth_credentials FROM session_push_registration
+        SELECT id, revision FROM session_push_registration
         WHERE history_id = $1 AND task_id = $2 AND closed_at IS NULL
         ORDER BY id
     `, pgx.RowToStructByName[destination], historyID, taskID)
@@ -60,10 +56,10 @@ func enqueuePushBoundary(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, ta
 		if err := execSQL(ctx, tx, `
             INSERT INTO session_push_outbox
                 (id, registration_id, history_id, task_id, config_revision,
-                 source_event_sequence, url, token, auth_credentials, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 source_event_sequence, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (registration_id, config_revision, source_event_sequence) DO NOTHING
-        `, id, config.ID, historyID, taskID, config.Revision, sequence, config.URL, config.Token, config.AuthCredentials, payload); err != nil {
+        `, id, config.ID, historyID, taskID, config.Revision, sequence, payload); err != nil {
 			return err
 		}
 	}
@@ -90,14 +86,13 @@ func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error
 			return err
 		}
 		type row struct {
-			ID              uuid.UUID
-			URL             string
-			Token           string
-			AuthCredentials string
-			Payload         []byte
+			ID      uuid.UUID
+			TaskID  string
+			URL     string
+			Payload []byte
 		}
 		candidate, err := queryOne(ctx, tx, `
-            SELECT o.id, o.url, o.token, o.auth_credentials, o.payload
+            SELECT o.id, o.task_id, p.url, o.payload
             FROM session_push_outbox o
             JOIN session_push_registration p ON p.id = o.registration_id
             JOIN session_record s ON s.history_id = p.history_id
@@ -124,7 +119,7 @@ func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error
         `, candidate.ID, claimToken); err != nil {
 			return err
 		}
-		delivery = &PushDelivery{ID: candidate.ID, ClaimToken: claimToken, URL: candidate.URL, Token: candidate.Token, AuthCredentials: candidate.AuthCredentials, Payload: candidate.Payload}
+		delivery = &PushDelivery{ID: candidate.ID, ClaimToken: claimToken, TaskID: candidate.TaskID, URL: candidate.URL, Payload: candidate.Payload}
 		return nil
 	})
 	return delivery, err
@@ -151,7 +146,7 @@ func (c *Client) FinishPushDelivery(ctx context.Context, delivery PushDelivery, 
     `, delivery.ID, delivery.ClaimToken, pushMaxDeliveryAttempts)
 }
 
-func cancelPushDeliveries(ctx context.Context, tx pgx.Tx, registrationID int64) error {
+func cancelPushDeliveries(ctx context.Context, tx pgx.Tx, registrationID uuid.UUID) error {
 	return execSQL(ctx, tx, `
         UPDATE session_push_outbox SET state = 'canceled', claim_token = NULL,
             lease_until = NULL, delivered_at = NULL

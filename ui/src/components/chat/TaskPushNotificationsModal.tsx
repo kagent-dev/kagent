@@ -34,8 +34,6 @@ export function TaskPushNotificationsModal({
   const [editing, setEditing] = useState<string>();
   const [id, setId] = useState("");
   const [url, setURL] = useState("");
-  const [token, setToken] = useState("");
-  const [bearerCredential, setBearerCredential] = useState("");
   const { data: configs = [], error: readError, isLoading: loading, mutate } = useSWR(
     ["task-push-configs", conversation.id, taskId],
     () => listTaskPushConfigs(conversation, taskId),
@@ -49,8 +47,6 @@ export function TaskPushNotificationsModal({
     setEditing(config.id);
     setId(config.id);
     setURL(config.url);
-    setToken("");
-    setBearerCredential("");
     setError(undefined);
   }
 
@@ -58,8 +54,6 @@ export function TaskPushNotificationsModal({
     setEditing(undefined);
     setId("");
     setURL("");
-    setToken("");
-    setBearerCredential("");
   }
 
   async function save() {
@@ -68,14 +62,10 @@ export function TaskPushNotificationsModal({
       setError("Enter an absolute HTTP or HTTPS callback URL without credentials.");
       return;
     }
-    if (/\s/.test(bearerCredential)) {
-      setError("Bearer credential must not contain whitespace.");
-      return;
-    }
     setSaving(true);
     setError(undefined);
     try {
-      await saveTaskPushConfig(conversation, taskId, { id: id.trim(), url: url.trim(), token, bearerCredential });
+      await saveTaskPushConfig(conversation, taskId, { id: id.trim(), url: url.trim() });
       resetForm();
       await mutate();
     } catch (cause) {
@@ -109,8 +99,7 @@ export function TaskPushNotificationsModal({
           Add a callback while the task is active. New callbacks are rejected after it finishes.
           Only future updates are sent when the task needs input or reaches a final state.
           Failed attempts are retried, so a
-          receiver may see duplicates. Credentials and notification tokens are never shown again;
-          enter new values when editing a callback.
+          receiver may see duplicates. Kagent signs each callback with a short-lived JWT.
         </Typography.Paragraph>
         {editable === false ? (
           <Alert type="info" showIcon title="This task has finished. You can view or remove its callbacks, but cannot add or edit them." />
@@ -167,18 +156,6 @@ export function TaskPushNotificationsModal({
           value={url}
           onChange={(event) => setURL(event.target.value)}
           onPressEnter={() => void save()}
-        />
-        <Input.Password
-          aria-label="Bearer credential"
-          placeholder="Bearer credential (optional; enter again when editing)"
-          value={bearerCredential}
-          onChange={(event) => setBearerCredential(event.target.value)}
-        />
-        <Input.Password
-          aria-label="Notification token"
-          placeholder="Notification token (optional)"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
         />
         <Space>
           <Button type="primary" onClick={() => void save()} loading={saving || stateLoading} disabled={!url.trim() || !editable}>

@@ -19,23 +19,12 @@ import (
 // Binding never queues delivery: SettleSessionTask inserts outbox rows when it
 // publishes a later eligible task state.
 //
-// PushRegistration is the receipt shape used by the recovery worker.
-type PushRegistration struct {
-	ID               int64
-	HistoryID        uuid.UUID
-	InitialMessageID string
-	SessionID        string
-	ConfigID         string
-	URL              string
-	CreatedAt        time.Time
-}
-
-// RegisterSessionPush saves the callback supplied with SendMessage before
+// RegisterSessionPushNotification saves the callback supplied with SendMessage before
 // dispatch. The message may name an existing task, but the receipt remains
 // unbound until a task write proves that task accepted this input. Its original
 // request fingerprint survives later edits or deletion, so retrying the send
 // cannot restore old settings or attach the callback to another task.
-func (c *Client) RegisterSessionPush(ctx context.Context, sessionID, messageID, taskID string, config *a2a.PushConfig) error {
+func (c *Client) RegisterSessionPushNotification(ctx context.Context, sessionID, messageID, taskID string, config *a2a.PushConfig) error {
 	requestHash, err := pushRegistrationHash(taskID, config)
 	if err != nil {
 		return err
@@ -86,63 +75,50 @@ func (c *Client) RegisterSessionPush(ctx context.Context, sessionID, messageID, 
 		}
 		tag, err := tx.Exec(ctx, `
             INSERT INTO session_push_registration
-                (history_id, initial_message_id, initial_request_hash, config_id, url, token, auth_credentials)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, history_id, initial_message_id, initial_request_hash, config_id, url)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (history_id, initial_message_id) WHERE initial_message_id IS NOT NULL
             DO UPDATE SET config_id = session_push_registration.config_id
             WHERE session_push_registration.initial_request_hash = EXCLUDED.initial_request_hash
-        `, session.HistoryID, messageID, requestHash, config.ID, config.URL, config.Token, pushCredentials(config))
+        `, uuid.New(), session.HistoryID, messageID, requestHash, config.ID, config.URL)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return ErrIdempotencyConflict
 		}
-		return nil
+		return bindAcceptedPushMessage(ctx, tx, session.HistoryID, messageID)
 	})
 }
 
-// ListUnboundPushRegistrations pages only unresolved input receipts. Bound
-// callbacks are handled by task writes and never need recovery polling.
-func (c *Client) ListUnboundPushRegistrations(ctx context.Context, after *PushRegistration, limit int) ([]PushRegistration, error) {
-	var afterID int64
-	if after != nil {
-		afterID = after.ID
-	}
-	return queryMany(ctx, c.db, `
-        SELECT p.id, p.history_id, COALESCE(p.initial_message_id, '') AS initial_message_id,
-            s.id::text AS session_id, p.config_id, p.url, p.created_at
-        FROM session_push_registration p JOIN session_record s ON s.history_id = p.history_id
-        WHERE p.closed_at IS NULL AND p.task_id IS NULL
-            AND s.state <> 'RUNTIME_STATE_DELETED' AND p.id > $1
-        ORDER BY p.id LIMIT $2
-    `, pgx.RowToStructByName[PushRegistration], afterID, limit)
-}
-
-// BindSessionPush is the recovery path when a receipt is still unbound after
-// its input was accepted. The normal path binds inside the task-write transaction.
-func (c *Client) BindSessionPush(ctx context.Context, registration PushRegistration, taskID string) (bool, error) {
-	var bound bool
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		session, err := lockSession(ctx, tx, registration.SessionID)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		if session.HistoryID != registration.HistoryID || session.State == "RUNTIME_STATE_DELETED" {
-			return nil
-		}
-		bound, err = bindPushRegistration(ctx, tx, registration.ID, taskID)
+// bindAcceptedPushMessage covers a retry whose task write committed before
+// registration. Both operations hold the Session lock, so they cannot miss each other.
+func bindAcceptedPushMessage(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, messageID string) error {
+	taskIDs, err := queryMany(ctx, tx, `
+        SELECT DISTINCT task_id FROM session_task_event
+        WHERE history_id = $1 AND message_id = $2 LIMIT 2
+    `, pgx.RowTo[string], historyID, messageID)
+	if err != nil || len(taskIDs) == 0 {
 		return err
-	})
-	return err == nil && bound, err
+	}
+	if len(taskIDs) > 1 {
+		return execSQL(ctx, tx, `
+            UPDATE session_push_registration SET closed_at = clock_timestamp()
+            WHERE history_id = $1 AND initial_message_id = $2 AND task_id IS NULL AND closed_at IS NULL
+        `, historyID, messageID)
+	}
+	return bindInitialPushForTask(ctx, tx, historyID, taskIDs[0])
 }
 
-// CloseUnboundSessionPush consumes a receipt whose input never resolved to one task.
-func (c *Client) CloseUnboundSessionPush(ctx context.Context, registration PushRegistration) error {
+// ExpireUnboundPushRegistrations closes receipts whose send never accepted a task.
+func (c *Client) ExpireUnboundPushRegistrations(ctx context.Context) error {
 	return execSQL(ctx, c.db, `
         UPDATE session_push_registration SET closed_at = clock_timestamp()
-        WHERE id = $1 AND task_id IS NULL AND closed_at IS NULL
-    `, registration.ID)
+        WHERE id IN (SELECT id FROM session_push_registration
+            WHERE task_id IS NULL AND closed_at IS NULL
+                AND created_at < clock_timestamp() - interval '10 minutes'
+            ORDER BY created_at, id LIMIT 100)
+    `)
 }
 
 // bindInitialPushForTask runs after the task write records accepted message
@@ -161,7 +137,7 @@ func bindInitialPushForTask(ctx context.Context, tx pgx.Tx, historyID uuid.UUID,
             AND NOT EXISTS (SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
                 AND e.message_id = p.initial_message_id AND e.task_id <> $2)
         ORDER BY p.id
-    `, pgx.RowTo[int64], historyID, taskID)
+    `, pgx.RowTo[uuid.UUID], historyID, taskID)
 	if err != nil {
 		return err
 	}
@@ -174,10 +150,10 @@ func bindInitialPushForTask(ctx context.Context, tx pgx.Tx, historyID uuid.UUID,
 }
 
 // bindPushRegistration performs the association found by the task writer or
-// recovery worker. A closed receipt stays closed. If an explicit Create has
+// registration. A closed receipt stays closed. If an explicit Create has
 // already claimed the same public ID, it wins; closing this embedded row still
 // retains its fingerprint for retries of the original send.
-func bindPushRegistration(ctx context.Context, tx pgx.Tx, id int64, taskID string) (bool, error) {
+func bindPushRegistration(ctx context.Context, tx pgx.Tx, id uuid.UUID, taskID string) (bool, error) {
 	type receipt struct {
 		HistoryID uuid.UUID
 		ConfigID  string
@@ -235,32 +211,25 @@ func (c *Client) SaveTaskPushConfig(ctx context.Context, sessionID, taskID strin
 		if a2a.TaskState(task.State).Terminal() {
 			return fmt.Errorf("cannot register a callback on a terminal task: %w", ErrFailedPrecondition)
 		}
-		// An embedded send might have been registered after the accepting task
-		// write (for example, on a retry). Bind it before checking for this ID.
-		if err := bindInitialPushForTask(ctx, tx, session.HistoryID, taskID); err != nil {
-			return err
-		}
 		type existing struct {
-			ID              int64
-			URL             string
-			Token           string
-			AuthCredentials string
-			Revision        int64
+			ID       uuid.UUID
+			URL      string
+			Revision int64
 		}
 		row, err := queryOne(ctx, tx, `
-            SELECT id, url, token, auth_credentials, revision FROM session_push_registration
+            SELECT id, url, revision FROM session_push_registration
             WHERE history_id = $1 AND task_id = $2 AND config_id = $3 AND closed_at IS NULL
             FOR UPDATE
         `, pgx.RowToStructByName[existing], session.HistoryID, taskID, config.ID)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			err = execSQL(ctx, tx, `
-                INSERT INTO session_push_registration (history_id, task_id, config_id, url, token, auth_credentials)
-                VALUES ($1, $2, $3, $4, $5, $6)
-            `, session.HistoryID, taskID, config.ID, config.URL, config.Token, pushCredentials(config))
+                INSERT INTO session_push_registration (id, history_id, task_id, config_id, url)
+                VALUES ($1, $2, $3, $4, $5)
+            `, uuid.New(), session.HistoryID, taskID, config.ID, config.URL)
 		case err != nil:
 			return err
-		case row.URL == config.URL && row.Token == config.Token && row.AuthCredentials == pushCredentials(config):
+		case row.URL == config.URL:
 			return nil
 		default:
 			// Pending snapshots still target the old destination. Cancel them
@@ -269,26 +238,19 @@ func (c *Client) SaveTaskPushConfig(ctx context.Context, sessionID, taskID strin
 				return err
 			}
 			err = execSQL(ctx, tx, `
-                UPDATE session_push_registration SET url = $2, token = $3, auth_credentials = $4,
+                UPDATE session_push_registration SET url = $2,
                     revision = revision + 1 WHERE id = $1
-            `, row.ID, config.URL, config.Token, pushCredentials(config))
+            `, row.ID, config.URL)
 		}
 		return err
 	})
 }
 
-func pushCredentials(config *a2a.PushConfig) string {
-	if config.Auth == nil {
-		return ""
-	}
-	return config.Auth.Credentials
-}
-
 // The original send must remain distinguishable from later edits to its
 // active callback. JSON encodes the fixed-order tuple without delimiter
-// ambiguity, including the optional task reference and credentials.
+// ambiguity, including the optional task reference.
 func pushRegistrationHash(taskID string, config *a2a.PushConfig) ([]byte, error) {
-	encoded, err := json.Marshal([5]string{taskID, config.ID, config.URL, config.Token, pushCredentials(config)})
+	encoded, err := json.Marshal([3]string{taskID, config.ID, config.URL})
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode initial push configuration: %w", err)
 	}
@@ -298,28 +260,19 @@ func pushRegistrationHash(taskID string, config *a2a.PushConfig) ([]byte, error)
 
 // TaskPushConfig is a stored active configuration; closed receipts are hidden.
 type TaskPushConfig struct {
-	ID    string
-	URL   string
-	Token string
+	ID  string
+	URL string
 }
 
-// GetTaskPushConfig reads one active config, including an embedded registration
-// that has not yet been associated by the polling worker.
+// GetTaskPushConfig reads one active configuration.
 func (c *Client) GetTaskPushConfig(ctx context.Context, sessionID, taskID, configID string) (*TaskPushConfig, error) {
 	session, err := readSession(ctx, c.db, sessionID)
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
 	row, err := queryOne(ctx, c.db, `
-        SELECT config_id AS id, url, token FROM session_push_registration p
-        WHERE p.history_id = $1 AND p.config_id = $3 AND p.closed_at IS NULL
-            AND (p.task_id = $2 OR (p.task_id IS NULL AND EXISTS (
-                SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
-                    AND e.message_id = p.initial_message_id AND e.task_id = $2
-            ) AND NOT EXISTS (
-                SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
-                    AND e.message_id = p.initial_message_id AND e.task_id <> $2
-            )))
+        SELECT config_id AS id, url FROM session_push_registration p
+        WHERE p.history_id = $1 AND p.config_id = $3 AND p.closed_at IS NULL AND p.task_id = $2
     `, pgx.RowToStructByName[TaskPushConfig], session.HistoryID, taskID, configID)
 	return &row, notFoundOr(err)
 }
@@ -331,15 +284,9 @@ func (c *Client) ListTaskPushConfigs(ctx context.Context, sessionID, taskID, aft
 		return nil, notFoundOr(err)
 	}
 	return queryMany(ctx, c.db, `
-        SELECT config_id AS id, url, token FROM session_push_registration p
+        SELECT config_id AS id, url FROM session_push_registration p
         WHERE p.history_id = $1 AND p.closed_at IS NULL AND p.config_id > $3
-            AND (p.task_id = $2 OR (p.task_id IS NULL AND EXISTS (
-                SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
-                    AND e.message_id = p.initial_message_id AND e.task_id = $2
-            ) AND NOT EXISTS (
-                SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
-                    AND e.message_id = p.initial_message_id AND e.task_id <> $2
-            )))
+            AND p.task_id = $2
         ORDER BY p.config_id LIMIT $4
     `, pgx.RowToStructByName[TaskPushConfig], session.HistoryID, taskID, afterID, limit)
 }
@@ -357,16 +304,9 @@ func (c *Client) DeleteTaskPushConfig(ctx context.Context, sessionID, taskID, co
 		}
 		ids, err := queryMany(ctx, tx, `
             UPDATE session_push_registration p SET closed_at = clock_timestamp()
-            WHERE p.history_id = $1 AND p.config_id = $3 AND p.closed_at IS NULL
-                AND (p.task_id = $2 OR (p.task_id IS NULL AND EXISTS (
-                    SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
-                        AND e.message_id = p.initial_message_id AND e.task_id = $2
-                ) AND NOT EXISTS (
-                    SELECT 1 FROM session_task_event e WHERE e.history_id = p.history_id
-                        AND e.message_id = p.initial_message_id AND e.task_id <> $2
-			)))
+            WHERE p.history_id = $1 AND p.config_id = $3 AND p.closed_at IS NULL AND p.task_id = $2
             RETURNING p.id
-        `, pgx.RowTo[int64], session.HistoryID, taskID, configID)
+        `, pgx.RowTo[uuid.UUID], session.HistoryID, taskID, configID)
 		if err != nil {
 			return err
 		}

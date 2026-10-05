@@ -68,8 +68,8 @@ func TestInvokePushFlagsRejectInvalidCombinationsBeforeConnecting(t *testing.T) 
 		want string
 	}{
 		{name: "id without URL", cfg: InvokeCfg{PushID: "callback"}, want: "--push-id requires --push-url"},
-		{name: "stream with push", cfg: InvokeCfg{PushURL: "https://receiver.example", PushBearerTokenFile: "credential", Stream: true}, want: "cannot be combined with --stream"},
-		{name: "invalid URL", cfg: InvokeCfg{PushURL: "not-a-url", PushBearerTokenFile: "credential"}, want: "push URL must be"},
+		{name: "stream with push", cfg: InvokeCfg{PushURL: "https://receiver.example", Stream: true}, want: "cannot be combined with --stream"},
+		{name: "invalid URL", cfg: InvokeCfg{PushURL: "not-a-url"}, want: "push URL must be"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := test.cfg

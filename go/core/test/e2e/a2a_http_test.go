@@ -2,6 +2,8 @@ package e2e_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
@@ -272,16 +275,49 @@ func TestSessionHTTPPushFromNonleader(t *testing.T) {
 	})
 }
 
+func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
+	t.Helper()
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + target + "/.well-known/jwks.json")
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	var set struct {
+		Keys []struct {
+			KID string `json:"kid"`
+			X   string `json:"x"`
+		} `json:"keys"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&set))
+	require.Len(t, set.Keys, 1)
+	public, err := base64.RawURLEncoding.DecodeString(set.Keys[0].X)
+	require.NoError(t, err)
+	require.Len(t, public, ed25519.PublicKeySize)
+	return set.Keys[0].KID, ed25519.PublicKey(public)
+}
+
 // exerciseHTTPPush keeps the model blocked until the observation connection is
 // gone. The optional hook replaces the leader before allowing task completion.
 func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget func(*interactionFixture) string, afterDisconnect ...func()) {
 	t.Helper()
 	modelURL, started, unblock, _ := startScheduledRecoveryModel(t)
 	fixture := newInteractionFixture(t, harness, target, modelURL)
+	keyID, publicKey := pushJWKSKey(t, target)
 	callbacks := make(chan *a2atype.TaskStatusUpdateEvent, 8)
+	var callbackURL string
 	receiver := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer receiver-credential" {
+		credential, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !found {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		verified, err := jwt.Parse(credential, func(token *jwt.Token) (any, error) {
+			if token.Header["kid"] != keyID {
+				return nil, fmt.Errorf("unexpected push signing key")
+			}
+			return publicKey, nil
+		}, jwt.WithValidMethods([]string{"EdDSA"}), jwt.WithAudience(callbackURL))
+		if err != nil || !verified.Valid {
+			http.Error(w, "invalid JWT", http.StatusUnauthorized)
 			return
 		}
 		var envelope struct {
@@ -289,6 +325,10 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 		}
 		if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil || envelope.StatusUpdate == nil {
 			http.Error(w, "invalid A2A callback", http.StatusBadRequest)
+			return
+		}
+		if verified.Claims.(jwt.MapClaims)["taskId"] != string(envelope.StatusUpdate.TaskID) {
+			http.Error(w, "wrong task", http.StatusUnauthorized)
 			return
 		}
 		callbacks <- envelope.StatusUpdate
@@ -300,6 +340,7 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 	require.NoError(t, err)
 	receiver.Start()
 	t.Cleanup(receiver.Close)
+	callbackURL = reachableServerURL(t, receiver.URL, "/callback")
 	client, ctx := discoverHTTPAgent(t, fixture)
 	if sendTarget != nil {
 		pinned, err := a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{a2atype.NewAgentInterface("http://"+sendTarget(fixture)+"/agents/"+fixture.tenant, a2atype.TransportProtocolJSONRPC)}, a2aclient.WithJSONRPCTransport(&http.Client{}))
@@ -307,7 +348,7 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 		t.Cleanup(func() { require.NoError(t, pinned.Destroy()) })
 		client = pinned
 	}
-	request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?")), Config: &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{URL: reachableServerURL(t, receiver.URL, "/callback"), Auth: &a2atype.PushAuthInfo{Scheme: "Bearer", Credentials: "receiver-credential"}}}}
+	request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?")), Config: &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{URL: callbackURL}}}
 	observation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var taskID a2atype.TaskID
