@@ -96,6 +96,20 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "spec.workload.image",
 		},
 		{
+			name:   "Harness accepts Claude turn limits",
+			object: validHarness(namespace, "harness-claude-limits", HarnessSpec{Claude: &ClaudeHarness{Limits: &ClaudeHarnessLimits{BudgetUSD: "2.50", MaxTurns: 40}}}),
+		},
+		{
+			name:       "Harness Claude limits require a bound",
+			object:     validHarness(namespace, "harness-claude-unbounded", HarnessSpec{Claude: &ClaudeHarness{Limits: &ClaudeHarnessLimits{}}}),
+			wantReject: "at least one of budgetUSD or maxTurns must be set",
+		},
+		{
+			name:       "Harness Claude limits reject a budget that is not a decimal",
+			object:     validHarness(namespace, "harness-claude-negative-budget", HarnessSpec{Claude: &ClaudeHarness{Limits: &ClaudeHarnessLimits{BudgetUSD: "-1"}}}),
+			wantReject: "spec.claude.limits.budgetUSD",
+		},
+		{
 			name: "Harness memory requires a model reference",
 			object: validHarness(namespace, "harness-empty-memory-model", HarnessSpec{
 				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{}},

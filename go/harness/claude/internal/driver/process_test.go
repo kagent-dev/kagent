@@ -301,3 +301,38 @@ func TestArgsPassTheSettingsFileOnlyWhenThereIsOne(t *testing.T) {
 	require.NotContains(t, args, "--settings")
 	require.Subset(t, args, []string{"--permission-prompt-tool", "mcp__kagent_hitl__approve"})
 }
+func TestProcessDriverPassesTheTurnLimits(t *testing.T) {
+	args := strings.Join(NewProcessDriver(ProcessConfig{Executable: "claude", Workspace: t.TempDir(), MaxBudgetUSD: "2.50", MaxTurns: 40}).Args(runtime.Turn{Prompt: "go"}), "\n") + "\n"
+	for _, want := range []string{"--max-budget-usd\n2.50\n", "--max-turns\n40\n"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("arguments lack %q: %s", strings.TrimSpace(want), args)
+		}
+	}
+	if args := strings.Join(NewProcessDriver(ProcessConfig{Executable: "claude", Workspace: t.TempDir()}).Args(runtime.Turn{Prompt: "go"}), "\n"); strings.Contains(args, "--max-") {
+		t.Fatalf("no limit configured, yet the arguments bound the turn: %s", args)
+	}
+}
+
+func TestProcessDriverCompletesALimitedTurnDespiteTheExitStatus(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"result\":\"turn limit\",\"total_cost_usd\":0.02,\"num_turns\":3,\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nexit 1\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: dir, MaxTurns: 3, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond})
+	outcome, err := d.Run(t.Context(), runtime.Turn{Prompt: "go"}, &recordingSink{})
+	if err != nil {
+		t.Fatalf("Run() error = %v; a limit is not a crash", err)
+	}
+	if outcome.Failure != nil || outcome.StoppedBy != runtime.LimitTurns || outcome.Usage == nil || outcome.Usage.NumTurns != 3 {
+		t.Fatalf("Run() outcome = %#v", outcome)
+	}
+	script = "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"done\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nexit 1\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Run(t.Context(), runtime.Turn{Prompt: "go"}, &recordingSink{}); err == nil {
+		t.Fatal("a non-zero exit after a successful result is still an error")
+	}
+}

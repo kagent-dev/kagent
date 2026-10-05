@@ -232,6 +232,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry, RunAs: runAs,
+		MaxBudgetUSD: cfg.MaxBudgetUSD, MaxTurns: cfg.MaxTurns,
 	}
 	if forwarder != nil {
 		processConfig.CallerCredentials = forwarder

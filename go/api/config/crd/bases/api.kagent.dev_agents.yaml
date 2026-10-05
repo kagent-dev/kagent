@@ -76,6 +76,31 @@ spec:
                     type: object
                   claude:
                     description: ClaudeHarness selects the Claude runtime adapter.
+                    properties:
+                      limits:
+                        description: |-
+                          Limits bounds every turn of every agent that runs on the Harness
+                          (Claude Code's --max-budget-usd and --max-turns). A turn that reaches a
+                          limit ends completed, with the reason and the usage on the task, and a
+                          follow-up continues the conversation.
+                        properties:
+                          budgetUSD:
+                            description: |-
+                              BudgetUSD is the most one turn may spend, in US dollars, as a decimal
+                              string such as "2.50".
+                            pattern: ^(0|[1-9][0-9]{0,5})(\.[0-9]{1,4})?$
+                            type: string
+                          maxTurns:
+                            description: MaxTurns is the most model round-trips one
+                              turn may take.
+                            format: int32
+                            maximum: 10000
+                            minimum: 1
+                            type: integer
+                        type: object
+                        x-kubernetes-validations:
+                        - message: at least one of budgetUSD or maxTurns must be set
+                          rule: has(self.budgetUSD) || has(self.maxTurns)
                     type: object
                   codex:
                     description: CodexHarness selects the Codex runtime adapter.

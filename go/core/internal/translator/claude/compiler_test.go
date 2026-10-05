@@ -756,3 +756,27 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	}
 	t.Logf("worst-case Claude actor uses %d of 32 environment variables", len(template.GetContainers()[0].GetEnv()))
 }
+
+func TestCompileTurnLimits(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Spec.Claude.Limits = &v1alpha3.ClaudeHarnessLimits{BudgetUSD: "2.50", MaxTurns: 40}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := claudeconfig.Parse(revision.ConfigJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.MaxBudgetUSD != "2.50" || config.MaxTurns != 40 {
+		t.Fatalf("compiled limits = %q, %d", config.MaxBudgetUSD, config.MaxTurns)
+	}
+	input.Harness.Spec.Claude.Limits = &v1alpha3.ClaudeHarnessLimits{BudgetUSD: "0"}
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil {
+		t.Fatal("a zero budget compiled")
+	}
+}

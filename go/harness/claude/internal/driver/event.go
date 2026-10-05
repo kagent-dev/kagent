@@ -1,5 +1,7 @@
 package driver
 
+import "github.com/kagent-dev/kagent/go/harness/runtime"
+
 type EventKind string
 
 const (
@@ -26,4 +28,5 @@ type Event struct {
 	Category    string
 	SafeMessage string
 	Result      string
+	Usage       *runtime.Usage
 }

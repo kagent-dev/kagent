@@ -189,3 +189,29 @@ func TestParseAcceptsConfigWithoutRuntimeTelemetry(t *testing.T) {
 		t.Fatal("capture is enabled without a telemetry section")
 	}
 }
+
+func TestValidateTurnLimits(t *testing.T) {
+	for name, tt := range map[string]struct {
+		budget  string
+		turns   int
+		wantErr bool
+	}{
+		"none":            {},
+		"budget":          {budget: "2.50"},
+		"turns":           {turns: 40},
+		"both":            {budget: "0.05", turns: 1},
+		"zero budget":     {budget: "0", wantErr: true},
+		"negative budget": {budget: "-1", wantErr: true},
+		"words":           {budget: "two", wantErr: true},
+		"too precise":     {budget: "1.00001", wantErr: true},
+		"negative turns":  {turns: -1, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Production("claude-test", "help")
+			cfg.MaxBudgetUSD, cfg.MaxTurns = tt.budget, tt.turns
+			if err := cfg.Validate(); (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
