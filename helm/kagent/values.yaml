@@ -212,6 +212,11 @@ rbac:
 controller:
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
+    # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.
+    create: true
+    # -- Name of the controller ServiceAccount.
+    # @default -- `<fullname>-controller`
+    name: ""
     # -- Annotations to add to the controller ServiceAccount.
     # Useful for GCP Workload Identity, AWS IRSA, or Azure Workload Identity.
     # @default -- {} (no extra annotations)
@@ -411,6 +416,10 @@ controller:
   # Session idle retention. Running tasks and turns waiting for input do not expire.
   # 168h is seven days; 0 disables expiration. Audit history and checkpoints remain.
   sessionIdleTTL: "168h"
+
+  # Longest lifetime a session share may request; shares created without one receive it.
+  # 0 leaves shares valid until revoked or the session is deleted.
+  sessionShareMaxTTL: "0"
 
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
@@ -724,9 +733,6 @@ providers:
     # This same block can be used under any provider.
     # tls:
     #   disableVerify: false
-    #   caCertSecretRef: ""
-    #   caCertSecretKey: ""
-    #   disableSystemCAs: false
   ollama:
     provider: Ollama
     # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
@@ -764,7 +770,7 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.5-flash-lite"
+    model: "gemini-3.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""

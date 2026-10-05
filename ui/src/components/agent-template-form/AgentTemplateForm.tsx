@@ -508,25 +508,10 @@ export function AgentTemplateForm({
                   }}
                   {...readOnlyInput}
                 />
-                <Select
-                  css={{ width: 130 }}
-                  value={tool.refKind}
-                  onChange={(value: "templateRef" | "agentRef") => {
-                    const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], refKind: value };
-                    set("subAgentTools", next);
-                  }}
-                  options={[
-                    { value: "templateRef", title: "Template", label: "Template" },
-                    // The CRD accepts agentRef but the compiler rejects it for now.
-                    { value: "agentRef", title: "Agent (not supported yet)", label: "Agent", disabled: true },
-                  ]}
-                  {...readOnlySelect}
-                />
                 <Input
                   css={{ width: 180 }}
                   value={tool.refName}
-                  placeholder={placeholder(tool.refKind === "agentRef" ? "Agent name" : "Template name")}
+                  placeholder={placeholder("Template name")}
                   onChange={(event) => {
                     const next = [...draft.subAgentTools];
                     next[index] = { ...next[index], refName: event.target.value };
@@ -557,7 +542,7 @@ export function AgentTemplateForm({
                 onClick={() =>
                   set("subAgentTools", [
                     ...draft.subAgentTools,
-                    { name: "", description: "", refKind: "templateRef", refName: "" },
+                    { name: "", description: "", refName: "" },
                   ])
                 }
               >

@@ -24,6 +24,20 @@ tests:
           path: data.KAGENT_SESSION_IDLE_TTL
           value: 720h
 
+  - it: leaves session shares unbounded by default
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_SHARE_MAX_TTL
+          value: "0"
+
+  - it: allows a session share lifetime ceiling
+    set:
+      controller.sessionShareMaxTTL: 72h
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_SHARE_MAX_TTL
+          value: 72h
+
   - it: defaults to insecure controller authentication
     asserts:
       - isSubset:

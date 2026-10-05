@@ -53,13 +53,7 @@ type Result struct {
 func HarnessEnvironment(harness *v2translator.HarnessConfiguration) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
 	for _, value := range harness.Spec.Env {
-		variable := corev1.EnvVar{Name: value.Name}
-		if value.Value != nil {
-			variable.Value = *value.Value
-		} else {
-			variable.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: value.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, variable)
+		environment = append(environment, corev1.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return environment
 }
@@ -95,7 +89,7 @@ func (c *Builder) Build(ctx context.Context, input *v2translator.HarnessInput) (
 }
 
 func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
+	modelRuntime := &modelRuntime{}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
 		modelConfig = input.ResolvedModelConfig.Config
@@ -108,8 +102,11 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 	if modelRuntime.HasUnsupportedVolumes {
 		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
-	stream := true
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
+	stream := new(true)
+	if modelConfig != nil && modelConfig.Spec.Stream != nil {
+		stream = modelConfig.Spec.Stream
+	}
+	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
 	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
@@ -124,13 +121,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
+		if err := c.addRemoteMCPServer(cfg, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
-	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	result := &Result{
 		Config: cfg, Templates: []*v2translator.TemplateConfiguration{input.Template},
@@ -332,9 +326,13 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+	case v1alpha3.ModelProviderMistral:
+		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
+			destinations = append(destinations, "https://api.mistral.ai:443")
+		}
 	case v1alpha3.ModelProviderOllama:
 		// Ollama's endpoint is the provider's own field and is not part of the
-		// serialized model, so the walk above never sees it. Unlike the three
+		// serialized model, so the walk above never sees it. Unlike the
 		// providers above there is no default to fall back on: the host is the
 		// operator's, so it has to be read from the spec.
 		if ollama := modelConfig.Spec.Ollama; ollama != nil {

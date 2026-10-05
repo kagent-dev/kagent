@@ -626,7 +626,7 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Env:    []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &otherCollector}},
+			Env:    []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: otherCollector}},
 			Kagent: &v1alpha3.KagentHarness{},
 
 			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
@@ -790,20 +790,12 @@ func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
 	}{
 		{
 			name:      "missing reference",
-			wantError: "requires exactly one of templateRef or agentRef",
+			wantError: "requires templateRef.name",
 		},
 		{
-			name: "both references",
-			binding: v1alpha3.SubAgentToolBinding{
-				TemplateRef: &corev1.LocalObjectReference{Name: "context"},
-				AgentRef:    &corev1.LocalObjectReference{Name: "reviewer"},
-			},
-			wantError: "requires exactly one of templateRef or agentRef",
-		},
-		{
-			name:      "dedicated execution unsupported",
-			binding:   v1alpha3.SubAgentToolBinding{AgentRef: &corev1.LocalObjectReference{Name: "reviewer"}},
-			wantError: `Dedicated subagent "review" (agentRef) is not supported yet`,
+			name:      "empty reference",
+			binding:   v1alpha3.SubAgentToolBinding{TemplateRef: &corev1.LocalObjectReference{}},
+			wantError: "requires templateRef.name",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -971,4 +963,18 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 func inlineAgent(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) *v1alpha3.Agent {
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: harness.Namespace},
 		Spec: v1alpha3.AgentSpec{Template: &template.Spec, Harness: &harness.Spec}}
+}
+
+func TestResolveModelConfigMistral(t *testing.T) {
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mistral", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{Model: "mistral-large-latest", Provider: v1alpha3.ModelProviderMistral,
+			APIKeySecret: "mistral-auth", APIKeySecretKey: "MISTRAL_API_KEY"},
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "mistral-auth", Namespace: "test"}, Data: map[string][]byte{"MISTRAL_API_KEY": []byte("key")}}
+	resolved := mockCollections(t, model, secret).ResolvedModelConfigs.List()[0]
+	require.True(t, resolved.Usable(), "%+v", resolved.Failure())
+
+	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
+	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
 }

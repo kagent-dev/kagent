@@ -43,10 +43,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
-	harnessAttributes, err := v2translator.HarnessResourceAttributes(harness)
-	if err != nil {
-		return nil, err
-	}
+	harnessAttributes := v2translator.HarnessResourceAttributes(harness)
 	harnessEnvironment := slices.DeleteFunc(adkconfig.HarnessEnvironment(harness), func(variable corev1.EnvVar) bool {
 		return v2translator.OwnsTelemetryEnvironment(variable.Name)
 	})

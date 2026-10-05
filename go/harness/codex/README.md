@@ -34,8 +34,8 @@ harness.
 - Exact native thread resume and bounded cancellation through `turn/interrupt`.
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
-AWS IAM keys and arbitrary Harness `credentialRef` environment values are rejected
-because they cannot be injected as outbound HTTP headers.
+AWS IAM keys are rejected because they cannot be injected as outbound HTTP
+headers. Harness environment entries accept only literal values.
 
 The adapter deliberately fixes the native sandbox to `danger-full-access`; the
 Substrate Actor remains the security boundary. Its granular native approval

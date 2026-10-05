@@ -65,9 +65,31 @@ servers. Use distinct DNS names for
 origins requiring different credentials. IP-address destinations are unsupported
 by alpha3 egress policies.
 
-AWS IAM signing keys, Google service-account keys, OAuth client credentials, and
-arbitrary Harness `credentialRef` environment values require mechanisms beyond
-static header injection and are rejected rather than serialized into runtimes.
+Harness and SandboxTemplate environment entries accept only literal `value`
+strings, including empty strings. Configure Secret-backed credentials on
+ModelConfig or RemoteMCPServer for gateway injection.
+
+AWS IAM signing keys, Google service-account keys, and OAuth client credentials
+require mechanisms beyond static header injection and are rejected rather than
+serialized into runtimes.
 Caller-token passthrough retains its existing behavior. A passthrough model
 cannot share a hostname with static gateway credentials, which would override
 the caller's authentication.
+
+## Deferred API fields
+
+The source retains commented declarations for Harness and SandboxTemplate
+`env[].credentialRef`, ModelConfig `openAI.tokenExchange`, and TLS
+`caCertSecretRef`, `caCertSecretKey`, and `disableSystemCAs`. These fields are
+absent from the served CRDs until their runtime paths are implemented. The
+RemoteMCPServer TLS rotation `status.secretHash` is deferred with custom CAs.
+
+ModelConfig and RemoteMCPServer TLS settings currently expose only
+`disableVerify`, supported by the kagent compiler. Codex and Claude reject model
+TLS settings and warn when ignoring RemoteMCPServer TLS settings. Runtime trust
+for gateway injection is configured by the platform.
+
+`apiKeySecret` remains available for supported gateway credentials. Secret-backed
+AWS IAM signing, Vertex service-account, and SAP OAuth credentials still fail
+compilation; sharing this field with supported providers does not enable those
+credential modes.

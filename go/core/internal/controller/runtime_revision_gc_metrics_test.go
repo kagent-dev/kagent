@@ -402,7 +402,7 @@ func TestRuntimeRevisionGCMetricsShapeAndScrape(t *testing.T) {
 	exporter, err := otelprometheus.New(otelprometheus.WithRegisterer(registry))
 	require.NoError(t, err)
 	provider := newGCTestMeterProvider(t, reader, exporter)
-	collector, err := NewRuntimeRevisionGC(store, templates, provider)
+	collector, err := NewRuntimeRevisionGC(store, templates, time.Minute, provider)
 	require.NoError(t, err)
 	require.NotContains(t, gatherRuntimeRevisionGCMetrics(t, reader).gauges, gcPendingMetric)
 	collector.sweep(t.Context())
@@ -501,7 +501,7 @@ func TestRuntimeRevisionGCFailureLogsRetainIdentity(t *testing.T) {
 
 func TestRuntimeRevisionGCMetricsDisabled(t *testing.T) {
 	store := &fakeGCStore{revisions: []database.RuntimeArtifact{{Revision: "candidate"}}}
-	collector, err := NewRuntimeRevisionGC(store, &fakeGCTemplates{}, noop.NewMeterProvider())
+	collector, err := NewRuntimeRevisionGC(store, &fakeGCTemplates{}, time.Minute, noop.NewMeterProvider())
 	require.NoError(t, err)
 	collector.sweep(t.Context())
 	require.Equal(t, 2, store.lists)

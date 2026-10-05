@@ -3,6 +3,7 @@ syntax = "proto3";
 package kagent.api.v1alpha1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "kagent/api/v1alpha1/common.proto";
 import "kagent/api/v1alpha1/runtime.proto";
@@ -150,6 +151,8 @@ message SessionShare {
   string session_id = 2;
   SessionSharePermission permission = 3;
   google.protobuf.Timestamp created_at = 4;
+  // When the share's token stops granting access. Unset means never.
+  google.protobuf.Timestamp expires_at = 5;
 }
 
 message CreateSessionShareRequest {
@@ -158,6 +161,10 @@ message CreateSessionShareRequest {
     defined_only: true
     not_in: 0
   }];
+  // How long the share's token grants access, from its creation. Unset takes the
+  // controller's maximum share lifetime; without one, the share grants access
+  // until it is revoked or the session deleted.
+  google.protobuf.Duration ttl = 3 [(buf.validate.field).duration.gt = {}];
 }
 
 message CreateSessionShareResponse {

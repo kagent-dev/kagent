@@ -8,7 +8,6 @@ flowchart TB
     PARENT -->|Shared binding compiled into one runtime| LOCAL[Native in-process subagent]
     PARENT -->|remote A2A tool call| REMOTE[Addressable A2A agent]
     REMOTE -->|task + context IDs retained| CONTINUE[input-required continuation]
-    DEDICATED[agentRef: Dedicated binding] -. deferred .-> SEPARATE[separate Session]
     PUBLIC[Public cross-session delegation] -. deferred .-> POLICY[credential and lineage policy]
 ```
 
@@ -35,24 +34,10 @@ Tree resolution detects missing references and cycles before compilation.
 
 ## Dedicated agent tools
 
-Each subagent binding selects exactly one of `templateRef` or `agentRef`, both
-in the parent's namespace. `templateRef` shares the parent's runtime and Harness;
-`agentRef` selects an independently configured Agent with its own Harness and
-Session, invoked over A2A. There is no `isolation` field; the reference
-determines the execution mode.
-
-The API accepts this Dedicated binding, but compilation currently rejects it with
-an explicit unsupported-execution error. It does not create or invoke an
-Session yet:
-
-```yaml
-tools:
-  - subAgent:
-      name: reviewer
-      description: Review proposed changes before applying them.
-      agentRef:
-        name: reviewer
-```
+Dedicated bindings would select an independently configured Agent with its own
+Harness and Session, invoked over A2A. This execution path is deferred. The
+`agentRef` field is commented out in the source and absent from the served API;
+subagent bindings currently require `templateRef`.
 
 ## Runtime remote A2A tools
 

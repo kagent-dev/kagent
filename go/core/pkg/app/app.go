@@ -206,7 +206,14 @@ func Run(ctx context.Context, opts Options) error {
 	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL, VectorEnabled: vectorEnabled})
+	db, err := database.Connect(ctx, &database.PostgresConfig{
+		URL:             dbURL,
+		VectorEnabled:   vectorEnabled,
+		MaxConns:        new(int32(kagentenv.PostgresDatabaseMaxConns.Get())),
+		MinConns:        new(int32(kagentenv.PostgresDatabaseMinConns.Get())),
+		MaxConnIdleTime: new(kagentenv.PostgresDatabaseMaxConnIdleTime.Get()),
+		MaxConnLifetime: new(kagentenv.PostgresDatabaseMaxConnLifetime.Get()),
+	})
 	if err != nil {
 		return err
 	}
@@ -280,7 +287,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	runtimeGC, err := v2controller.NewRuntimeRevisionGC(store, actors, otel.GetMeterProvider())
+	runtimeGC, err := v2controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get(), otel.GetMeterProvider())
 	if err != nil {
 		return fmt.Errorf("create runtime revision GC: %w", err)
 	}
@@ -321,7 +328,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(expiration); err != nil {
 		return fmt.Errorf("register session expiration worker: %w", err)
 	}
-	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow)
+	shareMaxTTL := kagentenv.SessionShareMaxTTL.Get()
+	if shareMaxTTL < 0 {
+		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
+	}
+	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		kagentenv.SubstrateAtenetRouterURL.Get(),
@@ -334,11 +345,11 @@ func Run(ctx context.Context, opts Options) error {
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions)
 	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
-	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
+	if err := manager.Add(scheduledruncontroller.NewScheduler(store, kagentenv.ScheduledRunPollInterval.Get())); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
 	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
-		gateway)); err != nil {
+		gateway, kagentenv.ScheduledRunExecutionPollInterval.Get())); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
@@ -360,7 +371,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	sandboxes, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: manager.GetClient(), Authorizer: authorizer, Actors: actors, Guests: guests,
-		DefaultTTL: kagentenv.SandboxDefaultTTL.Get(), MaxTTL: kagentenv.SandboxMaxTTL.Get()})
+		DefaultTTL: kagentenv.SandboxDefaultTTL.Get(), MaxTTL: kagentenv.SandboxMaxTTL.Get(), ExpirationPollInterval: kagentenv.SandboxExpirationPollInterval.Get()})
 	if err != nil {
 		return err
 	}

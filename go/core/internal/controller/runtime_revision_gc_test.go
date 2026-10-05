@@ -15,6 +15,24 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
+func TestRuntimeRevisionGCRejectsInvalidInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			store := &fakeGCStore{}
+			reader := sdkmetric.NewManualReader()
+			collector, err := NewRuntimeRevisionGC(store, &fakeGCTemplates{}, interval, newGCTestMeterProvider(t, reader))
+			require.NoError(t, err)
+			collector.metrics.recordPending(1)
+			require.ErrorContains(t, collector.Start(t.Context()), "interval must be positive")
+			require.Zero(t, store.lists)
+			require.Empty(t, store.begun)
+			snapshot := gatherRuntimeRevisionGCMetrics(t, reader)
+			require.NotContains(t, snapshot.gauges, gcPendingMetric)
+			require.Empty(t, snapshot.attempts)
+		})
+	}
+}
+
 func TestRuntimeRevisionGCStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
@@ -24,7 +42,9 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 			{Revision: "healthy", ActorTemplateName: "healthy"},
 		}, listErr: errors.New("database unavailable")}
 		templates := &fakeGCTemplates{deleteErr: errors.New("Substrate unavailable")}
-		collector, registry := newTestRuntimeRevisionGC(t, store, templates)
+		registry := sdkmetric.NewManualReader()
+		collector, err := NewRuntimeRevisionGC(store, templates, 20*time.Minute, newGCTestMeterProvider(t, registry))
+		require.NoError(t, err)
 		require.True(t, collector.NeedLeaderElection())
 		done := make(chan error, 1)
 		go func() { done <- collector.Start(ctx) }()
@@ -32,9 +52,15 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		store.mu.Lock()
 		require.Equal(t, 1, store.lists, "startup must sweep immediately")
 
+		store.mu.Unlock()
+		time.Sleep(19 * time.Minute)
+		synctest.Wait()
+		store.mu.Lock()
+		require.Equal(t, 1, store.lists, "must not query before the configured interval")
+
 		store.listErr = nil
 		store.mu.Unlock()
-		time.Sleep(runtimeRevisionGCInterval)
+		time.Sleep(time.Minute)
 		synctest.Wait()
 		store.mu.Lock()
 		require.Equal(t, []string{"healthy"}, store.deleted, "a failed candidate must not block later candidates")
@@ -48,7 +74,7 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		templates.mu.Lock()
 		templates.deleteErr = nil
 		templates.mu.Unlock()
-		time.Sleep(runtimeRevisionGCInterval)
+		time.Sleep(20 * time.Minute)
 		synctest.Wait()
 		store.mu.Lock()
 		require.Equal(t, []string{"healthy", "failed"}, store.deleted, "periodic sweeps must retry without template events")
@@ -136,7 +162,7 @@ type fakeGCStore struct {
 func newTestRuntimeRevisionGC(t *testing.T, store runtimeRevisionGCStore, templates runtimeRevisionGCClient) (*RuntimeRevisionGC, *sdkmetric.ManualReader) {
 	t.Helper()
 	reader := sdkmetric.NewManualReader()
-	collector, err := NewRuntimeRevisionGC(store, templates, newGCTestMeterProvider(t, reader))
+	collector, err := NewRuntimeRevisionGC(store, templates, time.Minute, newGCTestMeterProvider(t, reader))
 	require.NoError(t, err)
 	return collector, reader
 }
