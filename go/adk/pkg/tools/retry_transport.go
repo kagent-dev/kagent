@@ -1,59 +1,49 @@
 package tools
 
 import (
+	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-// defaultRetryMaxAttempts and defaultRetryBaseDelay are the fallback values
-// for env.KagentA2ARetryMaxAttempts and env.KagentA2ARetryBaseDelay. They
-// match the 250ms base backoff already used by this repo's gateway-side
-// retry policies (AgentgatewayPolicy.spec.traffic.retry on
-// humanDoors/federationDoor/federationHub), so operators see consistent
-// retry timing whether a call happens to cross the gateway or not.
+// Fallback values for env.KagentA2ARetryMaxAttempts and
+// env.KagentA2ARetryBaseDelay.
 const (
 	defaultRetryMaxAttempts = 3
 	defaultRetryBaseDelay   = 250 * time.Millisecond
 )
 
-// retryTransport wraps an http.RoundTripper and retries requests that fail
-// with a transport-level error — a connection that is refused, reset, or
-// closed mid-request (net.OpError, io.EOF, io.ErrUnexpectedEOF) — before
-// any HTTP response is received.
+// retryTransport retries outbound A2A HTTP requests only when resending them
+// cannot execute the same input twice:
 //
-// It intentionally never retries based on a received response's status
-// code, even a 5xx one. Status-code-driven retry is agentgateway's job for
-// traffic that passes through it (see AgentgatewayPolicy.spec.traffic.retry
-// on the human doors and federation hub/door). This transport instead
-// covers the traffic that never reaches agentgateway at all: same-cluster,
-// pod-to-pod A2A calls (see argocd/base/applications/kagent/AGENTS.md in
-// the iops-gitops repo — "Inside a cluster, A2A is pod-to-pod on port 8080
-// and never passes the agentgateway"). Those calls have no gateway-side
-// retry to fall back on, and kagent's own A2A client
-// (a2aclient.Client.SendMessage) makes exactly one attempt. When the target
-// pod is evicted or replaced mid-request, the caller sees a bare
-// "failed to send HTTP request: ... EOF" with no automatic recovery.
+//   - any request whose connection was never established (see isDialError):
+//     the remote agent never received a byte, so a resend is the first
+//     delivery;
+//   - bodyless idempotent requests, such as agent card discovery, on any
+//     transport error.
 //
-// Retries only happen when the request body can be safely replayed
-// (req.GetBody != nil, which the standard library populates for the
-// bytes/strings-backed bodies the A2A JSON-RPC client sends), and are
-// bounded by both retryMaxAttempts and the request's own context deadline.
+// A JSON-RPC send that fails after the connection was established (EOF,
+// connection reset) is ambiguous: the agent may already have acted on it.
+// Those failures are returned unchanged and left to the A2A layer, which only
+// resends inputs the server reports as KAGENT_SEND_NOT_ACCEPTED and otherwise
+// recovers through the task (see sendMessageWithRetry and recoverResumedTask).
+//
+// Status codes are never retried; an HTTP response means the request was
+// delivered.
 type retryTransport struct {
-	next        http.RoundTripper
-	maxAttempts int
-	baseDelay   time.Duration
+	next    http.RoundTripper
+	backoff wait.Backoff
 }
 
-// newRetryTransport wraps next with a retry-on-transport-error transport.
-// maxAttempts is clamped to at least 1 (a value of 1 or less disables
-// retrying while still going through this code path) and a non-positive
-// baseDelay falls back to defaultRetryBaseDelay.
+// newRetryTransport wraps next. maxAttempts below 1 is treated as 1 (no
+// retry) and a non-positive baseDelay falls back to defaultRetryBaseDelay.
 func newRetryTransport(next http.RoundTripper, maxAttempts int, baseDelay time.Duration) *retryTransport {
 	if maxAttempts < 1 {
 		maxAttempts = 1
@@ -61,77 +51,103 @@ func newRetryTransport(next http.RoundTripper, maxAttempts int, baseDelay time.D
 	if baseDelay <= 0 {
 		baseDelay = defaultRetryBaseDelay
 	}
-	return &retryTransport{next: next, maxAttempts: maxAttempts, baseDelay: baseDelay}
+	return &retryTransport{
+		next:    next,
+		backoff: wait.Backoff{Duration: baseDelay, Factor: 2, Steps: maxAttempts},
+	}
 }
 
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.GetBody == nil {
-		// No way to safely replay the body on a retry attempt; fall back to
-		// the previous single-attempt behaviour rather than risk sending a
-		// truncated or empty body.
-		return t.next.RoundTrip(req)
-	}
-
-	var lastErr error
-	delay := t.baseDelay
-	for attempt := 1; attempt <= t.maxAttempts; attempt++ {
-		body, err := req.GetBody()
-		if err != nil {
-			return nil, err
+	var (
+		resp    *http.Response
+		lastErr error
+		attempt int
+	)
+	err := wait.ExponentialBackoffWithContext(req.Context(), t.backoff, func(context.Context) (bool, error) {
+		attempt++
+		attemptReq := req
+		if attempt > 1 {
+			// The first attempt owns req.Body; the transport closed it.
+			// Retries send a fresh copy.
+			var err error
+			if attemptReq, err = replayableRequest(req); err != nil {
+				lastErr = err
+				return false, err
+			}
 		}
-		req.Body = body
-
-		resp, err := t.next.RoundTrip(req)
+		var err error
+		resp, err = t.next.RoundTrip(attemptReq)
 		if err == nil {
-			return resp, nil
+			return true, nil
 		}
 		lastErr = err
-
-		if attempt == t.maxAttempts || !isRetryableTransportError(err) {
-			return nil, err
+		if !isSafeToRetry(req, err) {
+			return false, err
 		}
-
-		slog.Warn("Retrying A2A request after transport error",
+		if attempt == t.backoff.Steps {
+			return false, nil
+		}
+		logging.FromContext(req.Context()).WarnContext(req.Context(), "retrying A2A request after transport error",
 			"attempt", attempt,
+			"method", req.Method,
 			"url", req.URL.String(),
 			"error", err,
 		)
-
-		select {
-		case <-req.Context().Done():
-			return nil, err
-		case <-time.After(delay):
-		}
-		delay *= 2
+		return false, nil
+	})
+	if err == nil {
+		return resp, nil
 	}
-	return nil, lastErr
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, err
 }
 
-// isRetryableTransportError reports whether err represents a failure to
-// establish or complete a connection, as opposed to a successfully received
-// HTTP response (http.RoundTripper only returns a non-nil error when no
-// response came back at all). It matches:
-//
-//   - io.EOF / io.ErrUnexpectedEOF: the peer closed the connection without
-//     sending a response — the exact failure a2a-go's JSON-RPC transport
-//     surfaces as "failed to send HTTP request: ... EOF" when a target pod
-//     is evicted or replaced mid-request.
-//   - *net.OpError: dial, read, or write failures (connection refused,
-//     connection reset, no route to host, etc.), covering both "the pod
-//     was gone before we connected" and "the pod died while we were
-//     talking to it".
-//
-// Deliberately excludes anything else, including context cancellation and
-// deadline errors (the caller's context.Context is the source of truth for
-// whether to keep trying — no point burning an attempt once it's already
-// done) and, most importantly, any error type that could only arise after
-// a response was received (there is no such thing from a RoundTripper, but
-// this stays narrow on purpose so it can never accidentally start acting
-// like a status-code-based retry).
-func isRetryableTransportError(err error) bool {
-	if err == nil {
+// replayableRequest returns a copy of req with a fresh body for a retry.
+func replayableRequest(req *http.Request) (*http.Request, error) {
+	retry := req.Clone(req.Context())
+	if isBodyless(req) {
+		retry.Body = req.Body
+		return retry, nil
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, err
+	}
+	retry.Body = body
+	return retry, nil
+}
+
+// isSafeToRetry reports whether resending req after err cannot deliver the
+// same input to the remote agent twice.
+func isSafeToRetry(req *http.Request, err error) bool {
+	if req.Context().Err() != nil {
 		return false
 	}
+	if !isBodyless(req) && req.GetBody == nil {
+		return false
+	}
+	if isDialError(err) {
+		return true
+	}
+	return isBodyless(req) && isIdempotentMethod(req.Method) && isTransportError(err)
+}
+
+// isDialError reports whether err happened while establishing the
+// connection, before any part of the request was written.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
+}
+
+// isTransportError reports whether err is a connection failure rather than,
+// for example, a context cancellation.
+func isTransportError(err error) bool {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
@@ -139,23 +155,23 @@ func isRetryableTransportError(err error) bool {
 	return errors.As(err, &opErr)
 }
 
-// withRetryTransport returns a shallow copy of the client whose transport
-// retries transport-level failures per retryTransport above, or c itself
-// unchanged when the feature is disabled.
+func isBodyless(req *http.Request) bool {
+	return req.Body == nil || req.Body == http.NoBody
+}
+
+func isIdempotentMethod(method string) bool {
+	switch method {
+	case "", http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+// withRetryTransport returns a shallow copy of c whose transport applies
+// retryTransport, or c unchanged when KAGENT_A2A_RETRY_ENABLED is false.
 //
-// The feature is opt-in: it only activates when KAGENT_A2A_RETRY_ENABLED is
-// set to true, since retrying is a behavioural change to every A2A call an
-// agent makes and operators should choose it deliberately rather than
-// inherit it silently on upgrade. When enabled, KAGENT_A2A_RETRY_MAX_ATTEMPTS
-// and KAGENT_A2A_RETRY_BASE_DELAY tune the attempt count and base backoff,
-// defaulting to the values that shipped with the original fix
-// (defaultRetryMaxAttempts, defaultRetryBaseDelay).
-//
-// Composed before withOTelTransport (see NewKAgentRemoteA2ATool) so otel
-// wraps the retrying transport rather than the other way around: a single
-// logical A2A call — including any retries underneath — still produces one
-// span, with retrying an invisible implementation detail rather than N
-// separately traced attempts.
+// Composed before withOTelTransport so one logical A2A call produces one
+// span, whatever retries happen underneath.
 func withRetryTransport(c *http.Client) *http.Client {
 	if !env.KagentA2ARetryEnabled.Get() {
 		return c
