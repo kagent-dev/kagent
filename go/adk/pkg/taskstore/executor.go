@@ -85,6 +85,7 @@ type execution struct {
 	ready      chan struct{}
 	failed     atomic.Bool
 	canceled   atomic.Bool
+	superseded atomic.Bool // abandoned before Execute while another send held the slot
 	boundary   atomic.Int64
 	cleaned    bool // guarded by settledExecutor.mu
 	abandoned  bool // guarded by settledExecutor.mu; its call ended before Execute
@@ -120,13 +121,19 @@ func (e *settledExecutor) Execute(ctx context.Context, input *a2asrv.ExecutorCon
 	e.track(ctx, input.TaskID)
 	return func(yield func(a2a.Event, error) bool) {
 		state, ok := ctx.Value(executionKey{}).(*execution)
+		// The SDK's update manager mutates StoredTask, so copy the waiting status first.
+		var waiting *a2a.TaskStatus
+		if stored := input.StoredTask; stored != nil && (stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) {
+			status := stored.Status
+			waiting = &status
+		}
 		var invocation *tracing.Invocation
 		if e.runtime.NativeHarness() {
 			invocation = tracing.InvocationFromContext(ctx)
 			if !invocation.Adopt() {
 				invocation = nil
 			}
-			resuming := input.StoredTask != nil && (input.StoredTask.Status.State == a2a.TaskStateInputRequired || input.StoredTask.Status.State == a2a.TaskStateAuthRequired)
+			resuming := waiting != nil
 			invocation.SetAttributes(tracing.RequestIdentity(input.ContextID, string(input.TaskID), resuming)...)
 		}
 		// The caller may disconnect while the SDK saves the initial event. Own
@@ -176,6 +183,16 @@ func (e *settledExecutor) Execute(ctx context.Context, input *a2asrv.ExecutorCon
 		if state.canceled.Load() {
 			return
 		}
+		if state.superseded.Load() {
+			// No CancelTask supplies a boundary here: cancel a new task, or return a
+			// reply's task to its waiting state rather than cancel work the user parked.
+			if waiting != nil {
+				yield(a2a.NewStatusUpdateEvent(input, waiting.State, waiting.Message), nil)
+			} else {
+				yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateCanceled, nil), nil)
+			}
+			return
+		}
 		if state.failed.Load() {
 			yield(nil, sdktaskstore.ErrConcurrentModification)
 			return
@@ -213,8 +230,8 @@ func (e *settledExecutor) track(ctx context.Context, taskID a2a.TaskID) {
 			e.admitted = nil
 		} else if state.abandoned && (e.admitted != nil || len(e.pending) != 0) {
 			// The SDK detaches execution, so a disconnected send can arrive after its
-			// slot went to another send. Stop it before native work starts.
-			state.canceled.Store(true)
+			// slot went to another send. Cancel it before native work starts.
+			state.superseded.Store(true)
 		}
 		e.pending[taskID] = append(e.pending[taskID], state)
 		e.mu.Unlock()
