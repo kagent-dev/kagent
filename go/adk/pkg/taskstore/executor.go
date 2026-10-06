@@ -33,6 +33,8 @@ type settledExecutor struct {
 	flush   func(context.Context) error
 	mu      sync.Mutex
 	pending map[a2a.TaskID][]*execution
+	// admitted is a send that passed Before but has not reached Execute yet.
+	admitted *execution
 }
 
 // Before allocates per-call persistence coordination without creating tasks or
@@ -43,14 +45,6 @@ func (e *settledExecutor) Before(ctx context.Context, call *a2asrv.CallContext, 
 		if values, ok := call.ServiceParams().Get(apia2a.DispatchHeader); ok && len(values) == 1 {
 			state.dispatchID = &values[0]
 		}
-		// Give callers a protocol-level busy response for active work. The SDK's
-		// limiter remains authoritative for simultaneous starts before tracking.
-		e.mu.Lock()
-		busy := len(e.pending) != 0
-		e.mu.Unlock()
-		if busy {
-			return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "session already has active work")
-		}
 		if send.Message == nil {
 			return ctx, nil, a2a.ErrInvalidParams
 		}
@@ -59,8 +53,30 @@ func (e *settledExecutor) Before(ctx context.Context, call *a2asrv.CallContext, 
 				return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "native session is waiting for another task")
 			}
 		}
+		// This is the only execution slot: it frees before settlement publishes the
+		// boundary, so a client that saw the task finish can send immediately.
+		e.mu.Lock()
+		busy := len(e.pending) != 0 || e.admitted != nil
+		if !busy {
+			e.admitted = state
+		}
+		e.mu.Unlock()
+		if busy {
+			return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "session already has active work")
+		}
+		// Release the slot if the call ends before the SDK starts execution.
+		context.AfterFunc(ctx, func() { e.release(state) })
 	}
 	return context.WithValue(ctx, executionKey{}, state), nil, nil
+}
+
+func (e *settledExecutor) release(state *execution) {
+	e.mu.Lock()
+	if e.admitted == state {
+		e.admitted = nil
+		state.abandoned = true
+	}
+	e.mu.Unlock()
 }
 
 type executionKey struct{}
@@ -71,6 +87,7 @@ type execution struct {
 	canceled   atomic.Bool
 	boundary   atomic.Int64
 	cleaned    bool // guarded by settledExecutor.mu
+	abandoned  bool // guarded by settledExecutor.mu; its call ended before Execute
 }
 
 func executionFailed(ctx context.Context) bool {
@@ -192,6 +209,13 @@ func (e *settledExecutor) Cancel(ctx context.Context, input *a2asrv.ExecutorCont
 func (e *settledExecutor) track(ctx context.Context, taskID a2a.TaskID) {
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		e.mu.Lock()
+		if e.admitted == state {
+			e.admitted = nil
+		} else if state.abandoned && (e.admitted != nil || len(e.pending) != 0) {
+			// The SDK detaches execution, so a disconnected send can arrive after its
+			// slot went to another send. Stop it before native work starts.
+			state.canceled.Store(true)
+		}
 		e.pending[taskID] = append(e.pending[taskID], state)
 		e.mu.Unlock()
 	}

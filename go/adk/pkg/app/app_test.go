@@ -3,19 +3,31 @@ package app
 import (
 	"context"
 	"iter"
+	"net"
 	"os"
+	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -190,4 +202,93 @@ func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
 	if len(cfg.AgentCard.Capabilities.Extensions) != 0 {
 		t.Errorf("caller extensions = %#v, want the caller's card untouched", cfg.AgentCard.Capabilities.Extensions)
 	}
+}
+
+// admissionServer sends the next message during settlement: the first moment the
+// gateway can report the previous task as terminal.
+type admissionServer struct {
+	apiv1alpha1.UnimplementedTaskStoreServiceServer
+	mu      sync.Mutex
+	tasks   map[string]*apiv1alpha1.StoredTask
+	next    func() error
+	nextErr chan error
+}
+
+func (s *admissionServer) save(task *a2apb.Task) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	version := s.tasks[task.GetId()].GetVersion() + 1
+	s.tasks[task.GetId()] = &apiv1alpha1.StoredTask{Task: task, Version: version}
+	return version
+}
+
+func (s *admissionServer) GetTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stored, ok := s.tasks[request.TaskId]; ok {
+		return &apiv1alpha1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
+	}
+	return nil, status.Error(codes.NotFound, "task not found")
+}
+
+func (s *admissionServer) CreateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
+	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
+}
+
+func (s *admissionServer) UpdateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
+	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
+}
+
+func (s *admissionServer) SettleTask(context.Context, *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
+	if next := s.next; next != nil {
+		s.next = nil
+		s.nextErr <- next()
+	}
+	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+}
+
+func TestSettledTaskAdmitsNextSend(t *testing.T) {
+	api := &admissionServer{tasks: map[string]*apiv1alpha1.StoredTask{}, nextErr: make(chan error, 1)}
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	apiv1alpha1.RegisterTaskStoreServiceServer(server, api)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	client, err := controllerclient.New(controllerclient.Config{
+		APIURL: "http://api.test", DialOptions: []grpc.DialOption{
+			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	dir := t.TempDir()
+	for field, value := range map[string]string{"name": "session-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, field), []byte(value), 0o600))
+	}
+	store := runtimetaskstore.New(client, filepath.Join(dir, "name"))
+	started, release := make(chan struct{}), make(chan struct{})
+	var executions atomic.Int32
+	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+		return func(yield func(a2atype.Event, error) bool) {
+			if executions.Add(1) == 1 {
+				close(started)
+				<-release
+			}
+			yield(a2atype.NewStatusUpdateEvent(input, a2atype.TaskStateCompleted, nil), nil)
+		}
+	}), "", nil)
+	handler := a2asrv.NewHandler(wrapper, handlerOptions(store, wrapper)...)
+	send := func(text string) error {
+		_, err := handler.SendMessage(t.Context(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))})
+		return err
+	}
+	api.next = func() error { return send("second") }
+	first := make(chan error, 1)
+	go func() { first <- send("first") }()
+	<-started
+	require.ErrorIs(t, send("concurrent"), a2atype.ErrUnsupportedOperation, "active work must reject another send")
+	close(release)
+	require.NoError(t, <-first)
+	require.NoError(t, <-api.nextErr, "settlement must not precede the slot becoming free")
+	require.Equal(t, int32(2), executions.Load())
 }

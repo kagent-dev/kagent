@@ -247,3 +247,29 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 		})
 	}
 }
+
+func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
+	wrapper := (&Store{}).WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", nil)
+	before := func(ctx context.Context) (context.Context, error) {
+		ctx, call := a2asrv.NewCallContext(ctx, nil)
+		ctx, _, err := wrapper.Before(ctx, call, &a2asrv.Request{Payload: &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser)}})
+		return ctx, err
+	}
+	first, end := context.WithCancel(t.Context())
+	abandoned, err := before(first)
+	require.NoError(t, err)
+	_, err = before(t.Context())
+	require.ErrorIs(t, err, a2a.ErrUnsupportedOperation, "simultaneous starts must not both be admitted")
+	end()
+	var admitted context.Context
+	require.Eventually(t, func() bool {
+		admitted, err = before(t.Context())
+		return err == nil
+	}, time.Second, time.Millisecond)
+
+	// The SDK may still start the disconnected send; it must not run beside the new one.
+	wrapper.track(abandoned, "abandoned")
+	require.True(t, abandoned.Value(executionKey{}).(*execution).canceled.Load())
+	wrapper.track(admitted, "admitted")
+	require.False(t, admitted.Value(executionKey{}).(*execution).canceled.Load())
+}
