@@ -203,7 +203,8 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 			},
 		}
 	}
-	agentCard.Capabilities.Streaming = stream
+	// A2A task events remain streamable even when LLM responses are not.
+	agentCard.Capabilities.Streaming = true
 
 	// Delegate the actor-local A2A server and task store to app.New.
 	kagentApp, err := app.New(app.AppConfig{

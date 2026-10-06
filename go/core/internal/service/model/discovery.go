@@ -129,10 +129,14 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "gpt-3.5-turbo", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderAnthropic: {
+			{Name: "claude-fable-5-1", FunctionCalling: true},
 			{Name: "claude-fable-5", FunctionCalling: true},
+			{Name: "claude-opus-5-5", FunctionCalling: true},
+			{Name: "claude-opus-5", FunctionCalling: true},
 			{Name: "claude-opus-4-8", FunctionCalling: true},
 			{Name: "claude-opus-4-7", FunctionCalling: true},
 			{Name: "claude-opus-4-6", FunctionCalling: true},
+			{Name: "claude-sonnet-5-5", FunctionCalling: true},
 			{Name: "claude-sonnet-5", FunctionCalling: true},
 			{Name: "claude-sonnet-4-6", FunctionCalling: true},
 			{Name: "claude-haiku-4-5", FunctionCalling: true},
@@ -200,6 +204,7 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 		v1alpha3.ModelProviderGemini: {
 			// Gemini 3 family
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
+			{Name: "gemini-3.5-flash-lite", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
 			{Name: "gemini-3-pro", FunctionCalling: true},
 			{Name: "gemini-3-flash", FunctionCalling: true},
@@ -211,6 +216,7 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 		},
 		v1alpha3.ModelProviderGeminiVertexAI: {
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
+			{Name: "gemini-3.5-flash-lite", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
 			{Name: "gemini-3-pro", FunctionCalling: true},
 			{Name: "gemini-3-flash", FunctionCalling: true},

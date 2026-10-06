@@ -67,34 +67,9 @@ spec:
                     type: object
                   env:
                     items:
-                      description: RuntimeEnvVar configures one runtime environment
+                      description: RuntimeEnvVar configures one literal runtime environment
                         variable.
                       properties:
-                        credentialRef:
-                          description: CredentialRef references a key in a same-namespace
-                            Secret.
-                          properties:
-                            key:
-                              description: The key of the secret to select from.  Must
-                                be a valid secret key.
-                              type: string
-                            name:
-                              default: ""
-                              description: |-
-                                Name of the referent.
-                                This field is effectively required, but due to backwards compatibility is
-                                allowed to be empty. Instances of this type with an empty value here are
-                                almost certainly wrong.
-                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              type: string
-                            optional:
-                              description: Specify whether the Secret or its key must
-                                be defined
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                          x-kubernetes-map-type: atomic
                         name:
                           minLength: 1
                           type: string
@@ -104,13 +79,8 @@ spec:
                           type: string
                       required:
                       - name
+                      - value
                       type: object
-                      x-kubernetes-validations:
-                      - message: exactly one of value or credentialRef must be specified
-                        rule: has(self.value) != has(self.credentialRef)
-                      - message: credentialRef name must not be empty
-                        rule: '!has(self.credentialRef) || self.credentialRef.name.size()
-                          > 0'
                     maxItems: 100
                     type: array
                     x-kubernetes-list-map-keys:
@@ -643,27 +613,8 @@ spec:
                           type: object
                         subAgent:
                           description: SubAgentToolBinding exposes a same-namespace
-                            AgentTemplate or Agent as a logical tool.
+                            AgentTemplate as a logical tool.
                           properties:
-                            agentRef:
-                              description: |-
-                                AgentRef selects a Dedicated subagent with its own Harness and Session, invoked over A2A.
-                                Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
-                              properties:
-                                name:
-                                  default: ""
-                                  description: |-
-                                    Name of the referent.
-                                    This field is effectively required, but due to backwards compatibility is
-                                    allowed to be empty. Instances of this type with an empty value here are
-                                    almost certainly wrong.
-                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  type: string
-                              type: object
-                              x-kubernetes-map-type: atomic
-                              x-kubernetes-validations:
-                              - message: agentRef.name must not be empty
-                                rule: has(self.name) && self.name != ''
                             description:
                               description: Description tells the parent when to route
                                 work to this binding.
@@ -693,11 +644,8 @@ spec:
                           required:
                           - description
                           - name
+                          - templateRef
                           type: object
-                          x-kubernetes-validations:
-                          - message: exactly one of templateRef or agentRef must be
-                              specified
-                            rule: has(self.templateRef) != has(self.agentRef)
                       type: object
                       x-kubernetes-validations:
                       - message: exactly one of mcp or subAgent must be specified

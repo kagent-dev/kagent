@@ -112,7 +112,8 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
 
-			require.NoError(t, NewRuntimeRevisionGC(store, templates).collect(ctx, abandoned.Revision))
+			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
+			require.NoError(t, collector.collect(ctx, abandoned.Revision))
 			require.Nil(t, templates.template)
 			_, err = store.GetRuntimeRevision(ctx, abandoned.Revision)
 			require.ErrorIs(t, err, database.ErrNotFound)
@@ -505,7 +506,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	updated := harnesses.List()[0].DeepCopy()
-	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: new(strings.Repeat("x", 32769))}}
+	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}
 	harnesses.UpdateObject(updated)
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).CompilationFailure != nil

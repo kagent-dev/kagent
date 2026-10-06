@@ -972,3 +972,15 @@ func TestBedrockGuardrailStreamConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestConvertGenaiContentsToBedrockMessages_ImageOnlyUserTurnKeepsNote(t *testing.T) {
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", DisplayName: "cat.png"}}}}}
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
+	if len(msgs) != 1 || msgs[0].Role != types.ConversationRoleUser || len(msgs[0].Content) != 1 {
+		t.Fatalf("messages = %+v, want one user message", msgs)
+	}
+	text, ok := msgs[0].Content[0].(*types.ContentBlockMemberText)
+	if !ok || !strings.Contains(text.Value, `[Image "cat.png" was not sent`) {
+		t.Errorf("content = %+v, want the image note", msgs[0].Content[0])
+	}
+}

@@ -4,6 +4,7 @@ import { apiClient } from "../client";
 import { type AgentTemplate } from "../domain/agentTemplates";
 import type { Harness } from "../domain/harnesses";
 import { type ApiResource, useApiResource } from "./useApiResource";
+import { useAgent } from "./useAgents";
 
 /**
  * The harnesses in one namespace, or in every observed namespace.
@@ -16,6 +17,19 @@ export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
   return useApiResource(["harnesses.list", namespace ?? ""], () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
+}
+
+/** Whether an Agent (`namespace/name`) takes files; undefined until known. Only the kagent harness does. */
+export function useAgentTakesFiles(ref?: string): boolean | undefined {
+  const [namespace, name] = ref?.split("/") ?? [];
+  const spec = useAgent(namespace, name).data?.resource.spec;
+  const refName = spec?.harnessRef?.name;
+  const harnesses = useApiResource(refName ? ["harnesses.list", namespace] : null, () =>
+    apiClient.agentBuildingBlocks.harnesses(namespace),
+  );
+  if (spec?.harness) return Boolean(spec.harness.kagent);
+  const harness = harnesses.data?.find((candidate) => candidate.ref === `${namespace}/${refName}`);
+  return harness && harness.runtime === "kagent";
 }
 
 /** The agent templates in one namespace, or in every observed namespace. */

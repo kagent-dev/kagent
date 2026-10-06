@@ -9,8 +9,9 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { buildPath, paths } from "@/router/routes";
-import { apiClient, useAgentConversations } from "@/api";
+import { apiClient, useAgentConversations, useAgentTakesFiles } from "@/api";
 import { randomId } from "@/api/randomId";
+import { handOffFiles } from "@/api/chat/attachments";
 
 /**
  * A conversation with an agent that has not been created yet.
@@ -48,6 +49,7 @@ export function AgentNewChatPage() {
   const { namespace, name } = useParams();
 
   const conversations = useAgentConversations(namespace, name);
+  const canAttach = useAgentTakesFiles(namespace && name && `${namespace}/${name}`);
   const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
 
   const [isCreating, setCreating] = useState(false);
@@ -60,7 +62,7 @@ export function AgentNewChatPage() {
    * rather than about anything they wrote — and losing their message to it would be
    * the page punishing them for the pool being full.
    */
-  const [lastAttempt, setLastAttempt] = useState<string>();
+  const [lastAttempt, setLastAttempt] = useState<{ text: string; files: File[] }>();
 
   /*
    * One id for this draft, however many times sending is attempted.
@@ -71,11 +73,11 @@ export function AgentNewChatPage() {
    */
   const [requestId] = useState(() => randomId());
 
-  async function startWith(text: string): Promise<void> {
+  async function startWith(text: string, files: File[] = []): Promise<void> {
     if (!namespace || !name) return;
     setCreating(true);
     setError(undefined);
-    setLastAttempt(text);
+    setLastAttempt({ text, files });
     try {
       const created = await apiClient.agentInstances.create({
         agent: { namespace, name },
@@ -84,6 +86,7 @@ export function AgentNewChatPage() {
       // Refreshed before leaving, so the rail on the page being navigated to already
       // lists this conversation rather than filling it in a moment later.
       await conversations.refresh();
+      handOffFiles(created.id, files);
       navigate(
         buildPath(paths.agentChat, { id: created.id }),
         // The message the conversation was created *for*. Sent by the chat page on
@@ -176,7 +179,7 @@ export function AgentNewChatPage() {
                       <Button
                         size="small"
                         loading={isCreating}
-                        onClick={() => void startWith(lastAttempt)}
+                        onClick={() => void startWith(lastAttempt.text, lastAttempt.files)}
                         data-testid="new-chat-retry"
                       >
                         Try again
@@ -302,6 +305,7 @@ export function AgentNewChatPage() {
               send={startWith}
               isStreaming={isCreating}
               variant="inviting"
+              canAttach={canAttach}
               disabled={!namespace || !name}
               // This page is two lines of text and this box. Arriving with the caret
               // already in it is the difference between a page that is ready and one

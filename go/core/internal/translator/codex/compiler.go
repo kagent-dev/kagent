@@ -13,6 +13,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -81,10 +82,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	environment := append(providerEnvironment, mcp.environment...)
-	harnessAttributes, err := v2translator.HarnessResourceAttributes(input.Harness)
-	if err != nil {
-		return nil, err
-	}
+	harnessAttributes := v2translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
 		if v2translator.IsResourceAttributesVariable(variable.Name) {
 			continue
@@ -93,13 +91,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
-		envVar := corev1.EnvVar{Name: variable.Name}
-		if variable.Value != nil {
-			envVar.Value = *variable.Value
-		} else {
-			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: variable.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, envVar)
+		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	environment = append(environment,
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
@@ -148,7 +140,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
+	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
@@ -178,9 +170,9 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 			return codexconfig.Provider{}, nil, nil, err
 		}
 		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL}
-		egress := []string{"api.openai.com"}
+		egress := []string{"https://api.openai.com:443"}
 		if baseURL != "" {
-			host, err := absoluteHTTPHostname(baseURL)
+			host, err := absoluteHTTPOrigin(baseURL)
 			if err != nil {
 				return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex OpenAI baseUrl %v", err)
 			}
@@ -224,7 +216,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
 			}
 		}
-		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"bedrock-runtime." + region + ".amazonaws.com"}, nil
+		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"https://bedrock-runtime." + region + ".amazonaws.com:443"}, nil
 	default:
 		return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -287,12 +279,12 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	}}}
 }
 
-func absoluteHTTPHostname(raw string) (string, error) {
+func absoluteHTTPOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return "", fmt.Errorf("must be an absolute HTTP(S) URL without credentials or fragment")
 	}
-	return parsed.Hostname(), nil
+	return egress.Origin(parsed), nil
 }
 
 type provenanceEntry struct {

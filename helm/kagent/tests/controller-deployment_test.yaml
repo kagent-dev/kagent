@@ -651,13 +651,13 @@ tests:
     template: controller-configmap.yaml
     asserts:
       - notExists:
-          path: data.DB_MAX_CONNS
+          path: data.KAGENT_POSTGRES_DATABASE_MAX_CONNS
       - notExists:
-          path: data.DB_MIN_CONNS
+          path: data.KAGENT_POSTGRES_DATABASE_MIN_CONNS
       - notExists:
-          path: data.DB_MAX_CONN_IDLE_TIME
+          path: data.KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME
       - notExists:
-          path: data.DB_MAX_CONN_LIFETIME
+          path: data.KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME
 
   - it: should set DB pool env vars when pool is configured
     template: controller-configmap.yaml
@@ -671,16 +671,16 @@ tests:
             maxConnLifetime: 10m
     asserts:
       - equal:
-          path: data.DB_MAX_CONNS
+          path: data.KAGENT_POSTGRES_DATABASE_MAX_CONNS
           value: "4"
       - equal:
-          path: data.DB_MIN_CONNS
+          path: data.KAGENT_POSTGRES_DATABASE_MIN_CONNS
           value: "0"
       - equal:
-          path: data.DB_MAX_CONN_IDLE_TIME
+          path: data.KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME
           value: "1m"
       - equal:
-          path: data.DB_MAX_CONN_LIFETIME
+          path: data.KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME
           value: "10m"
 
   - it: should not set KAGENT_POSTGRES_DATABASE_URL in configmap

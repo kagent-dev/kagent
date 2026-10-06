@@ -20,9 +20,11 @@ const (
 	// DefaultAPIURL is the local control-plane API endpoint.
 	DefaultAPIURL = "http://localhost:8083"
 	// DefaultGatewayURL is the local A2A and MCP gateway endpoint.
-	DefaultGatewayURL         = "http://localhost:8083"
-	defaultGRPCTimeout        = 30 * time.Second
-	defaultGRPCMaxMessageSize = 16 << 20
+	DefaultGatewayURL  = "http://localhost:8083"
+	defaultGRPCTimeout = 30 * time.Second
+	// DefaultGRPCMaxMessageSize is the gRPC message limit shared by every kagent client and server,
+	// sized so chat file uploads fit end to end.
+	DefaultGRPCMaxMessageSize = 16 << 20
 )
 
 // GRPCTLSConfig configures server-authenticated TLS for gRPC connections.
@@ -54,7 +56,7 @@ func newGRPCTransport(rawURL string) (*grpcTransport, error) {
 		url:             rawURL,
 		target:          target,
 		timeout:         defaultGRPCTimeout,
-		maxMessageBytes: defaultGRPCMaxMessageSize,
+		maxMessageBytes: DefaultGRPCMaxMessageSize,
 	}
 	if secure {
 		transport.tlsConfig = &GRPCTLSConfig{}

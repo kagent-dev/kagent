@@ -64,7 +64,7 @@ type Revision struct {
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
-	// EgressDestinations is the hostname allowlist required by this revision.
+	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
 }
 

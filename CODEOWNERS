@@ -2,7 +2,7 @@
 .github/ @kagent-dev/maintainers @Charlesthebird
 python/ @kagent-dev/maintainers @kagent-dev/developers
 go/     @kagent-dev/maintainers
-ui/     @peterj @Charlesthebird
+ui/     @Charlesthebird
 helm/   @kagent-dev/maintainers @kagent-dev/developers
 go/adk/ @kagent-dev/maintainers @supreme-gg-gg @dimetron
 go/core/ @kagent-dev/maintainers @kagent-dev/developers

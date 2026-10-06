@@ -18,8 +18,8 @@ func TestEnsureActorEgressPolicyRetriesLostResponse(t *testing.T) {
 	policy := &ateapipb.EgressPolicy{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"},
 		Rules: []*ateapipb.EgressRule{
-			{Hostnames: &ateapipb.HostnameRule{Patterns: []string{"api.example.com"}}},
-			{Cidrs: &ateapipb.CIDRRule{Cidrs: []string{"192.0.2.1/32"}}},
+			{Http: &ateapipb.HTTPRule{Hostnames: []string{"api.example.com"}}},
+			{Https: &ateapipb.HTTPSRule{Hostnames: []string{"api.example.com"}}},
 		},
 	}
 	require.ErrorIs(t, client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", policy), context.DeadlineExceeded)

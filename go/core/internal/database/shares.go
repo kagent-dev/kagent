@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -11,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// toSessionShare decodes a share and rejects disagreement between its payload and
-// indexed identity, session, or permission.
+// toSessionShare decodes a share, rejects disagreement between its payload and
+// indexed identity, session, or permission, and takes its expiry from the column.
 func toSessionShare(row sessionShareRow) (*apiv1alpha1.SessionShare, error) {
 	share := &apiv1alpha1.SessionShare{}
 	if err := proto.Unmarshal(row.Data, share); err != nil {
@@ -22,11 +23,12 @@ func toSessionShare(row sessionShareRow) (*apiv1alpha1.SessionShare, error) {
 		share.GetPermission().String() != row.Permission {
 		return nil, fmt.Errorf("session share %s payload disagrees with indexed columns", row.ID)
 	}
+	share.ExpiresAt = optionalTimestamp(row.ExpiresAt)
 	return share, nil
 }
 
-// CreateSessionShare stores a share with the supplied ID, permission, and token hash
-// for a session owned by userID and sets its creation time. A missing or unowned
+// CreateSessionShare stores a share with the supplied ID, permission, expiry, and token
+// hash for a session owned by userID and sets its creation time. A missing or unowned
 // session returns ErrNotFound. Callers authorize sharing and generate the token;
 // the plaintext token is never stored. Insertion locks the live session so
 // concurrent deletion either revokes this share or prevents its creation.
@@ -36,20 +38,26 @@ func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.Sess
 	}
 	value := proto.Clone(share).(*apiv1alpha1.SessionShare)
 	value.CreatedAt = timestamppb.Now()
+	var expiresAt *time.Time
+	if value.ExpiresAt != nil {
+		at := value.GetExpiresAt().AsTime()
+		expiresAt = &at
+	}
+	value.ExpiresAt = nil
 	data, err := proto.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("encode Session share: %w", err)
 	}
 	row, err := queryOne(ctx, c.db, `
-		INSERT INTO session_share (id, session_id, permission, token_hash, data)
-		SELECT $1, id, $3, $4, $5 FROM session_record
+		INSERT INTO session_share (id, session_id, permission, token_hash, data, expires_at)
+		SELECT $1, id, $3, $4, $5, $7 FROM session_record
 		WHERE id = $2 AND user_id = $6 AND state <> 'RUNTIME_STATE_DELETED'
 		FOR UPDATE
-		RETURNING id, session_id, permission, data
+		RETURNING id, session_id, permission, data, expires_at
 	`,
 		pgx.RowToStructByNameLax[sessionShareRow], value.Id,
 		value.SessionId,
-		value.Permission.String(), tokenHash, data, userID,
+		value.Permission.String(), tokenHash, data, userID, expiresAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create Session share: %w", notFoundOr(err))
@@ -58,13 +66,15 @@ func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.Sess
 }
 
 // GetSessionShareByTokenHash resolves a token digest to its share and the session
-// owner's ID, or ErrNotFound. Callers apply the share's permission when granting access.
+// owner's ID, or ErrNotFound, which an expired share is too. Callers apply the share's
+// permission when granting access.
 func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.SessionShare, string, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT s.id, s.session_id, s.permission, s.data, i.user_id AS owner_user_id
+		SELECT s.id, s.session_id, s.permission, s.data, s.expires_at, i.user_id AS owner_user_id
 		FROM session_share s
 		JOIN session_record i ON i.id = s.session_id
 		WHERE s.token_hash = $1 AND i.state <> 'RUNTIME_STATE_DELETED'
+		  AND (s.expires_at IS NULL OR s.expires_at > now())
 	`, pgx.RowToStructByName[sessionShareRow], tokenHash)
 	if err != nil {
 		return nil, "", fmt.Errorf("get Session share by token: %w", notFoundOr(err))
@@ -81,7 +91,7 @@ func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byt
 // empty page.
 func (c *Client) ListSessionShares(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1alpha1.SessionShare, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT s.id, s.session_id, s.permission, s.data FROM session_share s
+		SELECT s.id, s.session_id, s.permission, s.data, s.expires_at FROM session_share s
 		JOIN session_record i ON i.id = s.session_id
 		WHERE s.session_id = $1 AND i.user_id = $2 AND i.state <> 'RUNTIME_STATE_DELETED'
 		  AND (NULLIF($3::text, '') IS NULL OR s.id > NULLIF($3::text, '')::uuid)
@@ -127,6 +137,7 @@ type sessionShareRow struct {
 	SessionID  uuid.UUID
 	Permission string
 	Data       []byte
+	ExpiresAt  *time.Time
 	// Only token resolution joins the owner; other queries omit this column.
 	OwnerUserID *string
 }

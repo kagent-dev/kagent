@@ -32,7 +32,7 @@ harness.
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
-by the compiler. Arbitrary Harness `credentialRef` environment values are also unsupported.
+by the compiler. Harness environment entries accept only literal values.
 
 ## Telemetry
 

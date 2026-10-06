@@ -28,6 +28,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,8 +36,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -53,22 +57,16 @@ type ToolDiscoverer interface {
 	ListTools(context.Context, toolservice.MCPServerRef) ([]toolservice.MCPAppTool, error)
 }
 
-// CatalogStore persists the ToolService projection of an MCPServer.
-type CatalogStore interface {
-	RefreshToolServer(context.Context, *database.ToolServer, ...*v1alpha3.MCPTool) error
-	DeleteToolServer(context.Context, string, string) error
-}
-
 // Reconciler keeps the catalog projection of KMCP-owned MCPServers current. It
 // deliberately does not write MCPServer status, which is owned by KMCP.
 type Reconciler struct {
 	client     client.Client
 	discoverer ToolDiscoverer
-	catalog    CatalogStore
+	catalog    *toolcatalog.Publisher
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog}
+func New(client client.Client, discoverer ToolDiscoverer, catalog toolcatalog.Store) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: toolcatalog.NewPublisher(catalog)}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
@@ -80,13 +78,35 @@ func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
 		logging.FromLogr(manager.GetLogger()).InfoContext(context.Background(), "catalog discovery disabled because MCPServer CRD was not found")
 		return nil
 	}
-	// Status changes are intentionally observed: KMCP reports deployment
-	// readiness through status without changing the MCPServer generation.
+	// KMCP reports deployment readiness through status without changing the
+	// MCPServer generation, so a readiness flip is watched next to generation
+	// and label changes; every other status write (replicas, observed
+	// generation, timestamps) is ignored.
 	return ctrl.NewControllerManagedBy(manager).
 		WithOptions(controller.Options{NeedLeaderElection: new(true)}).
-		For(&kmcp.MCPServer{}).
+		For(&kmcp.MCPServer{}, builder.WithPredicates(predicate.Or[client.Object](
+			predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}, readinessChangedPredicate{},
+		))).
 		Named("mcpserver-catalog").
 		Complete(r)
+}
+
+// readinessChangedPredicate passes an update that flips the MCPServer's Ready
+// condition, the one status change the catalog depends on.
+type readinessChangedPredicate struct {
+	predicate.Funcs
+}
+
+func (readinessChangedPredicate) Update(e event.UpdateEvent) bool {
+	before, ok := e.ObjectOld.(*kmcp.MCPServer)
+	if !ok {
+		return false
+	}
+	after, ok := e.ObjectNew.(*kmcp.MCPServer)
+	if !ok {
+		return false
+	}
+	return isReady(before) != isReady(after)
 }
 
 func controllerEnabled(mapper apiMeta.RESTMapper) (bool, error) {
@@ -105,7 +125,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, fmt.Errorf("get MCPServer %s: %w", request.String(), err)
 		}
-		return reconcile.Result{}, r.catalog.DeleteToolServer(ctx, request.String(), mcpServerGroupKind)
+		return reconcile.Result{}, r.catalog.Delete(ctx, request.String(), mcpServerGroupKind)
+	}
+
+	if discoveryDisabled(server) {
+		// The operator opted this server out of discovery (for example because
+		// agentgateway fronts it and agents reach it through a RemoteMCPServer).
+		// Do not connect; keep the server in the catalog, disconnected, with no
+		// tools, the same projection a RemoteMCPServer gets. Adding or removing
+		// the label re-enters Reconcile at once; no requeue is needed.
+		if err := r.updateCatalog(ctx, server, nil, false); err != nil {
+			return reconcile.Result{}, fmt.Errorf("clear opted-out MCPServer catalog: %w", err)
+		}
+		return reconcile.Result{}, nil
 	}
 
 	if !isReady(server) {
@@ -145,6 +177,12 @@ func isReady(server *kmcp.MCPServer) bool {
 	return condition != nil && condition.Status == metav1.ConditionTrue && condition.ObservedGeneration == server.Generation
 }
 
+// discoveryDisabled reports whether the operator opted the server out of tool
+// discovery with the kagent.dev/discovery=disabled label.
+func discoveryDisabled(server *kmcp.MCPServer) bool {
+	return server.Labels[consts.DiscoveryLabel] == consts.DiscoveryDisabled
+}
+
 func (r *Reconciler) updateCatalog(ctx context.Context, server *kmcp.MCPServer, tools []*v1alpha3.MCPTool, connected bool) error {
 	name := client.ObjectKeyFromObject(server).String()
 	var lastConnected *time.Time
@@ -152,7 +190,7 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *kmcp.MCPServer, 
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	return r.catalog.RefreshToolServer(ctx, &database.ToolServer{
+	return r.catalog.Refresh(ctx, server.UID, &database.ToolServer{
 		Name: name, GroupKind: mcpServerGroupKind, Description: "N/A", LastConnected: lastConnected,
 	}, tools...)
 }

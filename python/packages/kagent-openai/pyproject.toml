@@ -24,7 +24,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.16.9",
+    "ruff>=0.16.10",
 ]
 
 [tool.uv.sources]

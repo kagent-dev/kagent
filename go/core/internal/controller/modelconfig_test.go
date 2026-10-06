@@ -141,12 +141,7 @@ func TestModelConfigReconciliationValidatesEffectiveProviderReferences(t *testin
 		configMap      *corev1.ConfigMap
 		expectedReason string
 	}{
-		{
-			name: "TLS CA key", spec: kagentv1alpha3.ModelConfigSpec{
-				Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderOpenAI,
-				TLS: &kagentv1alpha3.TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.pem"},
-			}, secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "ca"}}, expectedReason: "TLSSecretKeyNotFound",
-		},
+
 		{
 			name: "SAP credentials", spec: kagentv1alpha3.ModelConfigSpec{
 				Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderSAPAICore,

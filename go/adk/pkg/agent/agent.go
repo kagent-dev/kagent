@@ -9,6 +9,7 @@ import (
 
 	"log/slog"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
@@ -31,7 +32,7 @@ import (
 
 // Default model names used when not specified in configuration
 const (
-	DefaultGeminiModel    = "gemini-2.5-flash"
+	DefaultGeminiModel    = "gemini-3.5-flash"
 	DefaultAnthropicModel = "claude-sonnet-4-20250514"
 	DefaultOllamaModel    = "llama3.2"
 )
@@ -114,6 +115,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
+	llmModel = fileextract.WithFileText(llmModel)
 
 	if agentName == "" {
 		agentName = "agent"
@@ -337,6 +339,8 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Temperature:     m.Temperature,
 			TopP:            m.TopP,
 			TopK:            m.TopK,
+			PromptCaching:   m.PromptCaching,
+			CacheTTL:        m.CacheTTL,
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 

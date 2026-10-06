@@ -1,7 +1,7 @@
 ---
 name: kagent-dev
 description: >
-  Development guide for kagent's v1alpha3 Harness and AgentTemplate CRDs, AgentInstance gRPC control
+  Development guide for kagent's v1alpha3 Harness and AgentTemplate CRDs, Session gRPC control
   plane, upstream A2A integration, Substrate runtime provisioning, tests, generation, and PR workflow.
   Use for any implementation, debugging, review, or CI task in the kagent repository.
 ---
@@ -10,10 +10,14 @@ description: >
 
 Use `docs/architecture` and the current implementation to understand component boundaries. Keep each PR focused on the requested change and its necessary dependencies.
 
+Read the root [AGENTS.md](../../../AGENTS.md) and applicable nested guides before
+editing. Directory-specific validation, persistence, transport, and UI rules live
+there; use this skill for development workflows and the remaining specialized guidance.
+
 ## Architecture
 
 - `Agent`, `Harness`, and `AgentTemplate` are `api.kagent.dev/v1alpha3` CRDs under `go/api/v1alpha3`.
-- `AgentInstance` is stored in PostgreSQL and exposed through gRPC, not Kubernetes.
+- `Session` is stored in PostgreSQL and exposed through gRPC, not Kubernetes.
 - Upstream A2A owns public interaction and history semantics.
 - Substrate Actors are the only runtime compute path.
 - DurableDir owns private runtime state needed across lifecycle operations and snapshots.
@@ -35,7 +39,7 @@ go/core/pkg/migrations/          PostgreSQL migrations
 go/core/internal/controller/     CRD reconciliation and preparation
 go/adk/                          Go runtime
 python/packages/                 Python runtime packages
-ui/                              browser UI and BFF
+ui/                              static Vite browser UI
 helm/                            installation charts
 ```
 
@@ -51,14 +55,13 @@ Useful commands:
 
 ```bash
 make controller-manifests   # deepcopy, CRDs, and Helm CRD copies
-buf lint
-buf generate
+make proto-lint proto-generate proto-breaking
 make -C go test
 make -C go lint
 make -C python lint
 ```
 
-After SQL changes, run `go test ./core/internal/database ./core/pkg/migrations` from `go/`. Keep parameterized SQL beside its owning store operation and use private typed rows with pgx. The store tests prepare every inline statement against the migrated PostgreSQL schema; do not skip this check with `-short`.
+For SQL and store changes, follow [database guidance](../../../go/core/internal/database/AGENTS.md), including the PostgreSQL statement-preparation check.
 
 ## CRD changes
 
@@ -69,13 +72,10 @@ After SQL changes, run `go test ./core/internal/database ./core/pkg/migrations` 
 
 ## Protobuf changes
 
-- Pin upstream A2A definitions; do not maintain an editable copy.
-- Keep lifecycle/catalog APIs separate from A2A interaction APIs.
-- Add generated contracts before registering implementations when the roadmap separates those PRs.
-- Put request-intrinsic API validation in the source `.proto` with `buf.validate` annotations. Prefer standard rules, use message or field CEL for one-off domain rules, and add a predefined rule only when the same rule is reused across schemas.
-- The gRPC Protovalidate interceptor enforces these rules before handlers run. Do not duplicate them in handlers or services; keep authorization and checks requiring database, Kubernetes, or network state in the owning service or workflow.
-- Protovalidate stores rules in protobuf descriptors and does not generate validator files. Regenerate Go protobuf code after changing annotations.
-- Run Buf lint, breaking checks when configured, generation, and generated-output verification.
+Follow [protobuf guidance](../../../proto/AGENTS.md) for validation, upstream schemas,
+generation, and compatibility checks. When implementing an RPC, also read
+[gRPC transport guidance](../../../go/core/internal/grpcserver/AGENTS.md).
+Add generated contracts before registering implementations when the roadmap separates those PRs.
 
 ## Database changes
 

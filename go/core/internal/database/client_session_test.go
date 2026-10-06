@@ -13,6 +13,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
@@ -868,6 +869,39 @@ func TestSessionShareCreationRequiresOwner(t *testing.T) {
 	share.Id = uuid.NewString()
 	_, err = client.CreateSessionShare(ctx, share, []byte("missing-token"), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestSessionShareExpiry(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
+	require.NoError(t, err)
+	newShare := func(expiresAt time.Time) *apiv1alpha1.SessionShare {
+		return &apiv1alpha1.SessionShare{
+			Id: uuid.NewString(), SessionId: session.Id,
+			Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE,
+			ExpiresAt:  timestamppb.New(expiresAt),
+		}
+	}
+
+	live, err := client.CreateSessionShare(ctx, newShare(time.Now().Add(time.Hour)), []byte("live"), "alice")
+	require.NoError(t, err)
+	resolved, owner, err := client.GetSessionShareByTokenHash(ctx, []byte("live"))
+	require.NoError(t, err)
+	require.Equal(t, "alice", owner)
+	require.True(t, proto.Equal(live, resolved), "the expiry survives the round trip")
+
+	expired, err := client.CreateSessionShare(ctx, newShare(time.Now().Add(-time.Second)), []byte("expired"), "alice")
+	require.NoError(t, err)
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("expired"))
+	require.ErrorIs(t, err, ErrNotFound, "an expired share's token grants nothing")
+
+	listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "the owner still sees an expired share, to revoke it")
+	require.ElementsMatch(t, []string{live.GetId(), expired.GetId()}, []string{listed[0].GetId(), listed[1].GetId()})
+	require.NoError(t, client.DeleteSessionShare(ctx, expired.GetId(), "alice"))
 }
 
 func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {

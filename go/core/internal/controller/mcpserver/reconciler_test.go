@@ -24,8 +24,11 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"github.com/stretchr/testify/require"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 type fakeDiscoverer struct {
@@ -50,12 +54,14 @@ func (f *fakeDiscoverer) ListTools(_ context.Context, ref toolservice.MCPServerR
 }
 
 type fakeCatalog struct {
+	writes  int
 	server  *database.ToolServer
 	tools   []*v1alpha3.MCPTool
 	deleted string
 }
 
 func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
+	f.writes++
 	f.server = server
 	f.tools = tools
 	return nil
@@ -74,7 +80,8 @@ func TestReconcileDiscoversReadyMCPServer(t *testing.T) {
 	}}
 	catalog := &fakeCatalog{}
 
-	result, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+	reconciler := New(testClient(t, server), discoverer, catalog)
+	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{
 		NamespacedName: client.ObjectKeyFromObject(server),
 	})
 	if err != nil {
@@ -92,6 +99,43 @@ func TestReconcileDiscoversReadyMCPServer(t *testing.T) {
 	if len(catalog.tools) != 2 || catalog.tools[0].Name != "alpha" || catalog.tools[1].Name != "zeta" {
 		t.Fatalf("catalog tools = %#v", catalog.tools)
 	}
+	discoverer.tools[0], discoverer.tools[1] = discoverer.tools[1], discoverer.tools[0]
+	_, err = reconciler.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil || discoverer.calls != 2 || catalog.writes != 1 {
+		t.Fatalf("unchanged discovery: error = %v, discovery calls = %d, catalog writes = %d", err, discoverer.calls, catalog.writes)
+	}
+}
+
+func TestReconcileUnchangedCatalogWithoutDatabaseConnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	t.Cleanup(cancel)
+	dsn := dbtest.StartT(ctx, t)
+	dbtest.MigrateT(t, dsn, false)
+	pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	store := database.NewClient(pool)
+	server := readyServer()
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "tool", Description: "original"}}}
+	reconciler := New(testClient(t, server), discoverer, store)
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)}
+	_, err = reconciler.Reconcile(ctx, request)
+	require.NoError(t, err)
+	tools, err := store.ListTools(ctx)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.Equal(t, "original", tools[0].Description)
+
+	pool.Close()
+	_, err = reconciler.Reconcile(ctx, request)
+	require.NoError(t, err, "unchanged discovery must work without a database connection")
+	require.Equal(t, 2, discoverer.calls, "tool discovery must continue")
+	discoverer.tools[0].Description = "changed"
+	_, err = reconciler.Reconcile(ctx, request)
+	require.Error(t, err, "changed discovery must attempt persistence")
 }
 
 func TestReconcileWaitsForCurrentReadyCondition(t *testing.T) {
@@ -141,6 +185,66 @@ func TestReconcileClearsCatalogAfterDiscoveryFailure(t *testing.T) {
 	}
 	if catalog.server == nil || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
 		t.Fatalf("failed discovery catalog = server %#v, tools %#v", catalog.server, catalog.tools)
+	}
+}
+
+func TestReconcileKeepsDisconnectedCatalogWhenDiscoveryDisabled(t *testing.T) {
+	server := readyServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
+	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
+	catalog := &fakeCatalog{}
+
+	result, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 0 || discoverer.calls != 0 {
+		t.Fatalf("Reconcile() = %#v, discovery calls = %d; want no requeue and no discovery", result, discoverer.calls)
+	}
+	if catalog.server == nil || catalog.server.Name != "test/tools" || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
+		t.Fatalf("opted-out catalog = server %#v, tools %#v; want the server disconnected with no tools", catalog.server, catalog.tools)
+	}
+}
+
+func TestReadinessChangedPredicate(t *testing.T) {
+	ready, unready := readyServer(), testServer()
+	unready.Status.Conditions = []metav1.Condition{{Type: string(kmcp.MCPServerConditionReady), Status: metav1.ConditionFalse}}
+	observed := readyServer()
+	observed.Status.ObservedGeneration++
+	cases := map[string]struct {
+		old, new *kmcp.MCPServer
+		want     bool
+	}{
+		"becomes ready":   {unready, ready, true},
+		"becomes unready": {ready, unready, true},
+		"status noise":    {ready, observed, false},
+		"unchanged":       {ready, ready, false},
+		"still pending":   {testServer(), unready, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := (readinessChangedPredicate{}).Update(event.UpdateEvent{ObjectOld: tc.old, ObjectNew: tc.new}); got != tc.want {
+				t.Fatalf("Update() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconcileDiscoversWhenDiscoveryLabelIsNotDisabled(t *testing.T) {
+	server := readyServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: "enabled"}
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "alpha", Description: "first"}}}
+	catalog := &fakeCatalog{}
+
+	if _, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if discoverer.calls != 1 || catalog.server == nil || catalog.server.LastConnected == nil || len(catalog.tools) != 1 {
+		t.Fatalf("discovery calls = %d, catalog = server %#v, tools %#v", discoverer.calls, catalog.server, catalog.tools)
 	}
 }
 

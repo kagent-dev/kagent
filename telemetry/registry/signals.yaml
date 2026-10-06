@@ -1,4 +1,42 @@
 file_format: definition/2
+metrics:
+  - name: kagent.runtime_revision.gc.pending
+    requirement_level: recommended
+    instrument: gauge
+    unit: "{revision}"
+    brief: Number of cleanup-eligible runtime revisions in the last successful discovery.
+    note: >
+      An observable integer gauge over a cached count, without collection-time
+      database or network access. Absent before successful discovery and while
+      inactive; zero means a successful empty discovery. Discovery errors retain
+      the previous count while garbage collection is active.
+    stability: development
+    attributes: []
+
+  - name: kagent.runtime_revision.gc.duration
+    requirement_level: recommended
+    instrument: histogram
+    unit: s
+    brief: Duration of a runtime revision garbage collection attempt.
+    note: >
+      Records each discovery and each collection attempt, including the database
+      claim, Substrate read and deletion, and database finalization. A no-op claim
+      is a successful attempt. Parent cancellation is excluded; an operation
+      deadline while the parent remains active is recorded as a failure.
+      Explicit bucket boundaries in seconds are 0.005, 0.01, 0.025, 0.05, 0.1,
+      0.25, 0.5, 1, 2.5, 5, 10, 30, and 60.
+    stability: development
+    attributes:
+      - ref: kagent.gc.stage
+        requirement_level: required
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The attempt failed.
+        note: >
+          The gRPC status code name for Substrate errors, or `_OTHER` for other
+          failures. Absent on success. Never raw error text or revision, template,
+          UID, or namespace identity.
+
 attribute_groups:
   - id: kagent.identity
     visibility: public

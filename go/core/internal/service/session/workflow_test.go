@@ -324,7 +324,7 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.Zero(t, actors.mutations.Load(), "validate the allowlist before issuing Actor creation")
 			require.Equal(t, callsBefore, base.policyCalls)
 
-			store.revision.EgressDestinations = []string{"api.example.com", "192.0.2.1"}
+			store.revision.EgressDestinations = []string{"https://api.example.com:443", "https://other.example.com:8443"}
 			store.revision.Credentials = []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}
 			base.policyErr = context.DeadlineExceeded
 			_, err = workflow.Create(t.Context(), session)
@@ -335,10 +335,10 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.Empty(t, current.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
 			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
-			require.Len(t, base.policy.Rules, 3)
-			require.Equal(t, &ateapipb.CredentialHeaderInjection{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/auth/token"}, base.policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders()[0])
-			require.Equal(t, []string{"api.example.com"}, base.policy.Rules[0].GetHostnames().GetPatterns())
-			require.Equal(t, []string{"192.0.2.1/32"}, base.policy.Rules[2].GetCidrs().GetCidrs())
+			require.Len(t, base.policy.Rules, 2)
+			require.Equal(t, &ateapipb.CredentialHeader{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/auth/token"}, base.policy.Rules[0].GetHttps().GetEffects().GetReplaceHeaders()[0])
+			require.Equal(t, []string{"api.example.com"}, base.policy.Rules[0].GetHttps().GetHostnames())
+			require.Equal(t, []string{"other.example.com"}, base.policy.Rules[1].GetHttps().GetHostnames())
 
 			// Retry completes policy setup for the existing Actor before readiness.
 			base.policyErr = nil
@@ -352,21 +352,29 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 }
 
 func TestActorEgressPolicy(t *testing.T) {
-	policy, err := substrate.ActorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"}, nil)
+	policy, err := substrate.ActorEgressPolicy("team-a", []string{"https://API.Example.com.", "https://api.example.com:443", "https://api.example.com:0443", "http://api.example.com:8080"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, policy.Metadata)
 	require.Len(t, policy.Rules, 2)
-	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
-	require.Equal(t, []string{"192.0.2.1/32", "2001:db8::1/128"}, policy.Rules[1].GetCidrs().GetCidrs())
+	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHttp().GetHostnames())
+	require.Equal(t, []int32{8080}, policy.Rules[0].GetHttp().GetPorts().GetNumbers())
+	require.Equal(t, []string{"api.example.com"}, policy.Rules[1].GetHttps().GetHostnames())
+	require.Equal(t, []int32{443}, policy.Rules[1].GetHttps().GetPorts().GetNumbers())
 	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
-	for _, destination := range []string{"", "*", "https://api.example.com", "api.example.com:443", "192.0.2.0/24", "fe80::1%eth0"} {
+	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value", "http://*.example.com"} {
 		t.Run(destination, func(t *testing.T) {
 			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)
 		})
 	}
+	for _, destination := range []string{"http://192.0.2.1", "http://[2001:db8::1]", "http://[::ffff:192.0.2.1]"} {
+		_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
+		require.ErrorContains(t, err, "requires a DNS name")
+	}
+	_, err = substrate.ActorEgressPolicy("team-a", []string{"http://api.example.com:8443", "https://api.example.com:8443"}, nil)
+	require.ErrorContains(t, err, "both HTTP and HTTPS on the same port")
 }
 
 func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
@@ -374,14 +382,16 @@ func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
 		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
 	}
-	_, err := substrate.ActorEgressPolicy("team", []string{"other.example.com"}, bindings)
+	_, err := substrate.ActorEgressPolicy("team", []string{"https://other.example.com"}, bindings)
 	require.ErrorContains(t, err, "is not allowed")
-	policy, err := substrate.ActorEgressPolicy("team", []string{"api.example.com", "other.example.com"}, bindings)
+	policy, err := substrate.ActorEgressPolicy("team", []string{"http://api.example.com:8080", "https://api.example.com:8443", "https://other.example.com"}, bindings)
 	require.NoError(t, err)
-	require.Len(t, policy.Rules, 2)
-	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
-	require.Len(t, policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders(), 2)
-	require.Nil(t, policy.Rules[1].GetHostnames().GetEffects(), "the broad allow rule must not bypass injection")
+	require.Len(t, policy.Rules, 3)
+	require.Len(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders(), 2, "configured HTTP endpoints also require credential replacement")
+	require.Equal(t, []string{"api.example.com"}, policy.Rules[1].GetHttps().GetHostnames())
+	require.Equal(t, []int32{8443}, policy.Rules[1].GetHttps().GetPorts().GetNumbers())
+	require.Len(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders(), 2)
+	require.Equal(t, []string{"other.example.com"}, policy.Rules[2].GetHttps().GetHostnames(), "no other HTTPS rule may bypass credential replacement")
 }
 
 func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) {

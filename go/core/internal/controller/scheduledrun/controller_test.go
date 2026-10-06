@@ -76,7 +76,7 @@ func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(deadline)}
 			store := controllerTestStore{session: &apiv1alpha1.Session{Id: "original", State: tc.state}}
 			cleanup := &controllerTestCleanup{err: errors.New("Substrate unavailable")}
-			controller := NewController(store, cleanup, cleanup)
+			controller := NewController(store, cleanup, cleanup, time.Second)
 			require.Error(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 			require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
 			cleanup.err = nil
@@ -89,7 +89,7 @@ func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 	// No reserve method is supplied: a missing historical session must never
 	// call it, even when the execution was still PENDING when deletion happened.
 	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
-	require.NoError(t, NewController(controllerTestStore{}, nil, nil).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+	require.NoError(t, NewController(controllerTestStore{}, nil, nil, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, execution.State)
 	require.Equal(t, "deleted", execution.SessionId)
 }
@@ -99,7 +99,7 @@ func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
 	store := controllerTestStore{session: &apiv1alpha1.Session{Id: "original"}}
 	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
-	require.NoError(t, NewController(store, nil, gateway).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+	require.NoError(t, NewController(store, nil, gateway, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
 }
 
@@ -142,7 +142,7 @@ func TestExecutionTaskUsesLinkedIdentity(t *testing.T) {
 			// ListTasks is deliberately absent: linked tasks, including missing
 			// ones, must never fall back to scanning for a different identity.
 			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", TaskId: string(task.ID)}
-			got, err := NewController(nil, nil, gateway).executionTask(t.Context(), execution)
+			got, err := NewController(nil, nil, gateway, time.Second).executionTask(t.Context(), execution)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.task, got)
 			require.Equal(t, 1, calls)
@@ -187,7 +187,7 @@ func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
 				return page, nil
 			}}
 			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution"}
-			got, err := NewController(nil, nil, gateway).executionTask(t.Context(), execution)
+			got, err := NewController(nil, nil, gateway, time.Second).executionTask(t.Context(), execution)
 			require.ErrorIs(t, err, tc.err)
 			require.Equal(t, tc.task, got)
 			require.Equal(t, 2, calls)
@@ -212,7 +212,7 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 	}}
 	// Neither dispatch nor workflow methods are supplied: even an empty history
 	// after a lost response must never trigger another send.
-	controller := NewController(store, nil, gateway)
+	controller := NewController(store, nil, gateway, time.Second)
 	require.NoError(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, 1, reads)
 	require.Empty(t, execution.TaskId)

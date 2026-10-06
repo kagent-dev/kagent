@@ -34,18 +34,27 @@ func TestMCPSessionInteraction(t *testing.T) {
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		endpoint := mcpEndpoint(t)
 
-		listed := mcpCall(t, endpoint, "tools/call", map[string]any{
-			"name": "list_sessions", "arguments": map[string]any{},
-		}, false)
-		sessions := listed["result"].(map[string]any)["structuredContent"].(map[string]any)["sessions"].([]any)
 		found := false
-		for _, item := range sessions {
-			if item.(map[string]any)["id"] == fixture.sessionID {
-				found = true
+		for pageToken := ""; !found; {
+			listed := mcpCall(t, endpoint, "tools/call", map[string]any{
+				"name": "list_sessions", "arguments": map[string]any{"page_token": pageToken},
+			}, false)
+			output := listed["result"].(map[string]any)["structuredContent"].(map[string]any)
+			for _, item := range output["sessions"].([]any) {
+				if item.(map[string]any)["id"] == fixture.sessionID {
+					found = true
+					break
+				}
 			}
-		}
-		if !found {
-			t.Fatalf("list_sessions omitted %s: %#v", fixture.sessionID, sessions)
+			if found {
+				break
+			}
+			// Filtering to ready Sessions can leave an empty page with a next token.
+			next, _ := output["next_page_token"].(string)
+			if next == "" || next == pageToken {
+				t.Fatalf("list_sessions omitted %s after following pagination", fixture.sessionID)
+			}
+			pageToken = next
 		}
 
 		created := mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", true)

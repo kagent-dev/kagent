@@ -693,6 +693,11 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				continue
 			}
 
+			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: unsupportedImageNote(part.InlineData)})
+				continue
+			}
+
 			// Handle function call (tool use in Bedrock terminology).
 			// Use the sanitized name from nameMap so Bedrock can correlate the
 			// tool call with the tool spec sent in the same request.

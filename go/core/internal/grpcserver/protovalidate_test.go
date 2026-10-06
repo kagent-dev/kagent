@@ -3,6 +3,7 @@ package grpcserver
 import (
 	"context"
 	"testing"
+	"time"
 
 	"buf.build/go/protovalidate"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestProtovalidateUnaryInterceptor(t *testing.T) {
@@ -63,6 +65,10 @@ func TestSessionRequestValidation(t *testing.T) {
 		{"checkpoint without selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
 		{"checkpoint selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request", ExpectedHeadTaskId: "task"}, true},
 		{"checkpoint rename control character", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
+		{"share without ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}, true},
+		{"share positive ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(time.Hour)}, true},
+		{"share zero ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(0)}, false},
+		{"share negative ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(-time.Second)}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)

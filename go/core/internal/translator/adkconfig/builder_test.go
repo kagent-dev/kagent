@@ -2,6 +2,7 @@ package adkconfig
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -15,6 +16,39 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestBuildModelStreaming(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stream *bool
+		want   bool
+	}{
+		{name: "default", want: true},
+		{name: "enabled", stream: new(true), want: true},
+		{name: "disabled", stream: new(false), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := openAIModel("agent", "https://agent.example.com/v1")
+			model.Spec.Stream = tc.stream
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &v2translator.HarnessInput{
+				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &v2translator.AgentInput{
+					Template: &v2translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+				},
+			})
+			require.NoError(t, err)
+			// The runtime consumes serialized configuration. In particular, false
+			// must survive omitempty rather than reverting to the runtime default.
+			payload, err := json.Marshal(result.Config)
+			require.NoError(t, err)
+			var config adk.AgentConfig
+			require.NoError(t, json.Unmarshal(payload, &config))
+			require.NotNil(t, config.Stream)
+			require.Equal(t, tc.want, config.GetStream())
+		})
+	}
+}
+
 func TestBuildUsesDurableSessionStore(t *testing.T) {
 	result, err := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{}).Build(context.Background(),
 		&v2translator.HarnessInput{
@@ -24,6 +58,7 @@ func TestBuildUsesDurableSessionStore(t *testing.T) {
 			}}},
 		})
 	require.NoError(t, err)
+	require.True(t, result.Config.GetStream())
 	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDBURL)
 	require.Len(t, result.Config.SubAgents, 1)
 	require.Empty(t, result.Config.SubAgents[0].SessionDBURL)
@@ -86,7 +121,7 @@ func TestBuildCompaction(t *testing.T) {
 		require.Equal(t, "https://summarizer.example.com/v1", summarizer.BaseUrl)
 		require.Len(t, result.Models, 2)
 		require.Equal(t, "summarizer", result.Models[1].Config.Name)
-		require.Contains(t, result.Egress, "summarizer.example.com")
+		require.Contains(t, result.Egress, "https://summarizer.example.com:443")
 		var credentials []string
 		for _, variable := range result.Environment {
 			if variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil {
@@ -116,6 +151,36 @@ func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {
 	}
 }
 
+func TestMistralEgressDestination(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		mistral *v1alpha3.MistralConfig
+		want    string
+	}{
+		{name: "default endpoint", want: "https://api.mistral.ai:443"},
+		{name: "base URL override", mistral: &v1alpha3.MistralConfig{BaseURL: new("https://mistral.example.com/v1")}, want: "https://mistral.example.com:443"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "mistral", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderMistral, Model: "mistral-large-latest", Mistral: test.mistral,
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&v2translator.HarnessInput{
+					Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root: &v2translator.AgentInput{
+						Template:            &v2translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+						ResolvedModelConfig: resolvedModel(t, collections, "mistral"),
+					}})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, result.Egress)
+		})
+	}
+}
+
 // TestOllamaEgressDestination covers the one provider whose endpoint is not
 // reachable through the serialized model: it lives on the ModelConfig's own
 // Ollama field, so the generic walk over the model never sees it. Without an
@@ -140,7 +205,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 						ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 					}})
 			require.NoError(t, err)
-			require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+			require.Equal(t, []string{"http://host.docker.internal:11434"}, result.Egress)
 		})
 	}
 
@@ -184,7 +249,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
-		require.Contains(t, result.Egress, "api.ollama.com")
+		require.Contains(t, result.Egress, "https://api.ollama.com:443")
 	})
 
 	// A local model must never pick up the cloud host, even with a key present:
@@ -207,7 +272,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
 				}})
 		require.NoError(t, err)
-		require.Equal(t, []string{"host.docker.internal"}, result.Egress)
+		require.Equal(t, []string{"http://host.docker.internal:11434"}, result.Egress)
 	})
 }
 
@@ -283,7 +348,7 @@ func TestBuildMemory(t *testing.T) {
 			require.Equal(t, "https://embedding.example.com/v1", result.Config.Memory.Embedding.BaseUrl)
 			require.Len(t, result.Models, 2)
 			require.Equal(t, "embedding", result.Models[1].Config.Name)
-			require.Contains(t, result.Egress, "embedding.example.com")
+			require.Contains(t, result.Egress, "https://embedding.example.com:443")
 			require.Len(t, result.Environment, 2)
 			require.Equal(t, "embedding-auth", result.Environment[1].ValueFrom.SecretKeyRef.Name)
 		})

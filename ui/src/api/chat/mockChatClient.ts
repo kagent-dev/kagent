@@ -24,8 +24,10 @@ import type {
   ChatEvent,
   ChatHistory,
   ChatMessage,
+  ChatPart,
   SendMessageInput,
 } from "./types";
+import { mediaTypeOf } from "./attachments";
 
 const TIMING = {
   ok: { step: 300, word: 45 },
@@ -268,6 +270,17 @@ export class MockChatClient implements ChatClient {
      * backend is a fixture that hides the bug it is for.
      */
     const userMessage = message(input.messageId ?? `${taskId}-user`, "user", text, taskId);
+    // Described, not stored: sessionStorage holds JSON, and a reload shows the chip
+    // without a download link.
+    const files = (input.files ?? []).map(
+      (file): ChatPart => ({
+        kind: "file",
+        name: file.name,
+        mediaType: mediaTypeOf(file),
+        size: file.size,
+      }),
+    );
+    userMessage.parts = [...(text ? userMessage.parts : []), ...files];
     transcript.push(userMessage);
     this.persist(sessionId);
     yield { type: "status", state: "submitted", taskId };
@@ -327,7 +340,10 @@ export class MockChatClient implements ChatClient {
       "- `kagent-ui` — this page",
       "- `kagent-tools` — the tool server",
       "",
-      `You asked: "${text}".`,
+      ...(text ? [`You asked: "${text}".`] : []),
+      ...(input.files?.length
+        ? ["", `You attached: ${input.files.map((file) => file.name).join(", ")}.`]
+        : []),
     ].join("\n");
     for (const chunk of answer.match(/\S+\s*/g) ?? []) {
       if (await stopped(signal, timing.word)) return;
@@ -338,6 +354,28 @@ export class MockChatClient implements ChatClient {
     // Committed once the reply is whole rather than per chunk: a partial answer
     // is not something a backend would have recorded as the turn's result.
     this.persist(sessionId);
+
+    // An agent-sent file, so its chip has something to render.
+    if (input.files?.length) {
+      const report: ChatMessage = {
+        id: `${taskId}-file`,
+        role: "agent",
+        taskId,
+        createdAt: new Date().toISOString(),
+        parts: [
+          {
+            kind: "file",
+            name: "summary.txt",
+            mediaType: "text/plain",
+            size: 12,
+            blob: new Blob(["3 pods ready"], { type: "text/plain" }),
+          },
+        ],
+      };
+      transcript.push(report);
+      this.persist(sessionId);
+      yield { type: "message", message: snapshot(report) };
+    }
 
     if (scenario === "asks" || scenario === "asks-text") {
       /*
@@ -485,7 +523,9 @@ function loadTranscript(sessionId: string): ChatMessage[] | null {
 
 function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
   try {
-    window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, JSON.stringify(messages));
+    // Bytes don't survive JSON, so a reloaded file chip is described only, as with user files.
+    const withoutBytes = JSON.stringify(messages, (_, value) => (value instanceof Blob ? undefined : value));
+    window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, withoutBytes);
   } catch {
     // Not being able to persist costs the transcript a reload, nothing more.
   }

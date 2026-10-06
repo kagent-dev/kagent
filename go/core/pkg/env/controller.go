@@ -1,5 +1,7 @@
 package env
 
+import "time"
+
 const (
 	AuthModeInsecure     = "insecure"
 	AuthModeTrustedProxy = "trusted-proxy"
@@ -25,6 +27,18 @@ var (
 	WatchNamespaces = RegisterStringVar(
 		"KAGENT_WATCH_NAMESPACES", "",
 		"Comma-separated namespaces to watch. Empty watches all namespaces.", ComponentController,
+	)
+	ScheduledRunPollInterval = RegisterDurationVar(
+		"KAGENT_SCHEDULED_RUN_POLL_INTERVAL", time.Second,
+		"Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped.", ComponentController,
+	)
+	ScheduledRunExecutionPollInterval = RegisterDurationVar(
+		"KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL", time.Second,
+		"Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup.", ComponentController,
+	)
+	RuntimeRevisionGCInterval = RegisterDurationVar(
+		"KAGENT_RUNTIME_REVISION_GC_INTERVAL", time.Minute,
+		"Interval between unreferenced runtime revision cleanup sweeps. Must be positive.", ComponentController,
 	)
 )
 

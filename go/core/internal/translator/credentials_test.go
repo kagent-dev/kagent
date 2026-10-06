@@ -22,6 +22,8 @@ func TestCompileCredentialDestinations(t *testing.T) {
 		{"Gemini", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderGemini}, "GOOGLE_API_KEY", "generativelanguage.googleapis.com", "x-goog-api-key", ""},
 		{"Foundry OpenAI", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderFoundry, Foundry: &v1alpha3.FoundryConfig{Endpoint: "https://team.services.ai.azure.com"}}, "FOUNDRY_API_KEY", "team.services.ai.azure.com", "api-key", ""},
 		{"Foundry Anthropic", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderFoundry, Foundry: &v1alpha3.FoundryConfig{Endpoint: "https://team.services.ai.azure.com", APIFormat: v1alpha3.FoundryAPIFormatAnthropic}}, "FOUNDRY_API_KEY", "team.services.ai.azure.com", "x-api-key", ""},
+		{"Mistral", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral}, "MISTRAL_API_KEY", "api.mistral.ai", "authorization", "Bearer "},
+		{"Mistral override", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral, Mistral: &v1alpha3.MistralConfig{BaseURL: new("https://mistral.example.com/v1")}}, "MISTRAL_API_KEY", "mistral.example.com", "authorization", "Bearer "},
 		{"Bedrock bearer", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}, "AWS_BEARER_TOKEN_BEDROCK", "bedrock-runtime.us-east-1.amazonaws.com", "authorization", "Bearer "},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -63,9 +65,6 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
 	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot use gateway header injection")
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "CUSTOM", CredentialRef: credentialEnv("CUSTOM", "auth", "token").ValueFrom.SecretKeyRef}}
-	_, _, err = CompileCredentials(input, nil, nil)
-	require.ErrorContains(t, err, "arbitrary credentialRef")
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {

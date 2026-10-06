@@ -22,13 +22,14 @@ import (
 )
 
 type Config struct {
-	Store      *database.Client
-	Kube       client.Client
-	Authorizer auth.Authorizer
-	Actors     substrate.LifecycleClient
-	Guests     *GuestDialer
-	DefaultTTL time.Duration
-	MaxTTL     time.Duration
+	Store                  *database.Client
+	Kube                   client.Client
+	Authorizer             auth.Authorizer
+	Actors                 substrate.LifecycleClient
+	Guests                 *GuestDialer
+	DefaultTTL             time.Duration
+	MaxTTL                 time.Duration
+	ExpirationPollInterval time.Duration
 }
 
 type Service struct {

@@ -178,6 +178,13 @@ app.kubernetes.io/component: controller
 {{- end }}
 
 {{/*
+Controller ServiceAccount name
+*/}}
+{{- define "kagent.controller.serviceAccountName" -}}
+{{- default (printf "%s-controller" (include "kagent.fullname" .)) .Values.controller.serviceAccount.name }}
+{{- end }}
+
+{{/*
 Engine selector labels
 */}}
 {{- define "kagent.engine.selectorLabels" -}}

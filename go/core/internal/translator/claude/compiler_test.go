@@ -38,17 +38,18 @@ func TestCompileProviderCredentials(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder},
-			wantEgress: []string{"api.anthropic.com", "kagent-controller.kagent"},
+			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"},
 		},
 		{
 			name: "Anthropic gateway",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic"}},
+				// cacheTTL is defaulted to "5m" by the CRD whenever the anthropic block is set.
+				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic", CacheTTL: "5m"}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
-			wantEgress: []string{"host.docker.internal", "kagent-controller.kagent"},
+			wantEgress: []string{"http://host.docker.internal:8090", "http://kagent-controller.kagent:8083"},
 		},
 		{
 			name: "Bedrock IAM",
@@ -63,7 +64,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
 			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
 			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: v2translator.CredentialPlaceholder},
-			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com", "kagent-controller.kagent"},
+			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
 		},
 		{
 			name: "Anthropic Vertex AI",
@@ -142,7 +143,7 @@ func TestCompileTracing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "collector", "kagent-controller.kagent"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://collector:4317", "http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -198,7 +199,7 @@ func TestCompileLogging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "kagent-controller.kagent", "logs"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "http://logs:4318", "https://api.anthropic.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -244,6 +245,8 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeyPassthrough: true}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
+		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
+		{name: "Anthropic cache TTL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{CacheTTL: "1h"}}},
 		{name: "Anthropic relative base URL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "/v1"}}},
 		{name: "Anthropic base URL credentials", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://user:password@example.com"}}},
 		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}}},
@@ -268,7 +271,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
 	if !errors.As(err, &validation) {
@@ -283,7 +286,7 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
@@ -299,7 +302,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "department=engineering"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -344,7 +347,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		len(cfg.SkillResources.Plugins) != 1 || !reflect.DeepEqual(cfg.SkillResources.Plugins[0].Skills, []string{"deploy"}) {
 		t.Fatalf("compiled skills = %#v", cfg.SkillResources)
 	}
-	wantEgress := []string{"api.anthropic.com", "git.example.com", "kagent-controller.kagent", "registry.example.com"}
+	wantEgress := []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://git.example.com:443", "https://registry.example.com:443"}
 	if !reflect.DeepEqual(revision.EgressDestinations, wantEgress) {
 		t.Fatalf("egress = %v, want %v", revision.EgressDestinations, wantEgress)
 	}
@@ -412,7 +415,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	if !foundSecret {
 		t.Fatalf("MCP credential environment missing: %#v", revision.Environment)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "kagent-controller.kagent", "mcp.example.com"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://mcp.example.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	if !bytes.Contains(revision.Provenance, []byte(`"kind":"RemoteMCPServer"`)) {

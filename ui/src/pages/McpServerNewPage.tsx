@@ -10,11 +10,10 @@ import {
   Space,
   Tooltip,
   Typography,
-  Upload,
 } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useNavigate } from "react-router-dom";
-import { Info, Plus, Trash2, Upload as UploadIcon } from "lucide-react";
+import { Info, Plus, Trash2 } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { SubmitError } from "@/components/common/SubmitError";
 import {
@@ -50,10 +49,6 @@ export function McpServerNewPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
-  // The uploaded CA file's name and any problem reading it live here; its
-  // contents live in `values.caCertPem`.
-  const [caCertFileName, setCaCertFileName] = useState<string>();
-  const [caCertError, setCaCertError] = useState<string>();
   const navigate = useNavigate();
   const invalidateServers = useInvalidateMcpServers();
 
@@ -104,36 +99,6 @@ export function McpServerNewPage() {
       return next;
     });
     setFailure(undefined);
-  };
-
-  /**
-   * Loads a PEM CA bundle from the chosen file into the form.
-   *
-   * Read in the browser rather than uploaded: the certificate is public material
-   * that only becomes a Secret when the server is created, so there is nothing to
-   * send until then. Returning `false` stops antd from trying to upload it.
-   */
-  const readCaCert = (file: File): boolean => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      if (!text.includes("-----BEGIN CERTIFICATE-----")) {
-        setCaCertError("That file is not a PEM-encoded certificate.");
-        return;
-      }
-      setCaCertError(undefined);
-      setCaCertFileName(file.name);
-      set("caCertPem", text);
-    };
-    reader.onerror = () => setCaCertError("That file could not be read.");
-    reader.readAsText(file);
-    return false;
-  };
-
-  const clearCaCert = () => {
-    setCaCertError(undefined);
-    setCaCertFileName(undefined);
-    set("caCertPem", "");
   };
 
   const issues = useMemo(() => validateMcpServerForm(values), [values]);
@@ -284,56 +249,6 @@ export function McpServerNewPage() {
                   ]}
                 />
               </Form.Item>
-
-              {/* Only over TLS is a CA bundle meaningful, so the field appears
-                  only for HTTPS. With one the upstream is verified against it;
-                  without one the system trust store is used. */}
-              {values.tlsEnabled ? (
-                <Form.Item
-                  label="CA certificate"
-                  validateStatus={caCertError ? "error" : undefined}
-                  help={
-                    caCertError ??
-                    "Optional. Upload a PEM CA bundle to verify the upstream against a private CA. Leave blank to use the system trust store."
-                  }
-                >
-                  <Upload.Dragger
-                    accept=".crt,.cer,.pem"
-                    maxCount={1}
-                    beforeUpload={readCaCert}
-                    onRemove={clearCaCert}
-                    fileList={
-                      caCertFileName
-                        ? [
-                            {
-                              uid: "ca-cert",
-                              name: caCertFileName,
-                              status: "done" as const,
-                            },
-                          ]
-                        : []
-                    }
-                  >
-                    <p
-                      className="ant-upload-drag-icon"
-                      css={{ marginBottom: theme.space(2) }}
-                    >
-                      <UploadIcon
-                        size={24}
-                        aria-hidden
-                        css={{ color: theme.color.textMuted }}
-                      />
-                    </p>
-                    <p
-                      data-testid="mcp-ca-upload"
-                      className="ant-upload-text"
-                    >
-                      Drop a CA certificate here, or click to browse
-                    </p>
-                    <p className="ant-upload-hint">PEM, CRT or CER</p>
-                  </Upload.Dragger>
-                </Form.Item>
-              ) : null}
 
               <Form.Item>
                 <Space size={6}>

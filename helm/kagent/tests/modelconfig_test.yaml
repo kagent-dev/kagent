@@ -95,21 +95,9 @@ tests:
         openAI:
           tls:
             disableVerify: true
-            caCertSecretRef: custom-ca
-            caCertSecretKey: ca.crt
-            disableSystemCAs: true
     asserts:
       - equal:
           path: spec.tls.disableVerify
-          value: true
-      - equal:
-          path: spec.tls.caCertSecretRef
-          value: custom-ca
-      - equal:
-          path: spec.tls.caCertSecretKey
-          value: ca.crt
-      - equal:
-          path: spec.tls.disableSystemCAs
           value: true
 
   - it: should render annotations on the default modelconfig when set

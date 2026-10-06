@@ -159,7 +159,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	t.Cleanup(func() { require.NoError(t, guests.Close()) })
 	actors := &testActors{}
 	service, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: kube, Authorizer: auth.NoopAuthorizer{}, Actors: actors, Guests: guests,
-		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour})
+		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour, ExpirationPollInterval: time.Second})
 	require.NoError(t, err)
 	return service, auth.AuthSessionTo(t.Context(), testSession("alice")), actors, func() http.Header {
 		mu.Lock()

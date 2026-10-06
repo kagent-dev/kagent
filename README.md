@@ -61,39 +61,53 @@
 
 ## Getting Started
 
-- [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
-- [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
+- [Your first agent](https://kagent.dev/docs/kagent/1.x/get-started/your-first-agent/)
+- [Installation guide](https://kagent.dev/docs/kagent/1.x/setup/installation/)
 
 ## Technical Details
 
 ### Core Concepts
 
-- **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent".
-- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other custom providers and models accessible via AI gateways. Providers are represented by the ModelConfig resource.
-- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
-- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
+- **Agents**: Agents are the main building block of kagent. An Agent is a Kubernetes custom resource that brings together an agent's behavior and runtime configuration.
+- **Agent Templates**: A system prompt, a set of tools and subagents, and an LLM configuration define an agent's behavior. You can define this directly in an Agent or share it across agents using an AgentTemplate resource.
+- **Harnesses**: A Harness defines how an agent runs. Kagent supports its own Go and Python ADKs, Codex, Claude, and custom runtimes, so you can choose the runtime that fits your agent.
+- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/1.x/setup/model-providers/openai/), [Azure OpenAI](https://kagent.dev/docs/kagent/1.x/setup/model-providers/azure-openai/), [Anthropic](https://kagent.dev/docs/kagent/1.x/setup/model-providers/anthropic/), [Google Vertex AI](https://kagent.dev/docs/kagent/1.x/setup/model-providers/google-vertexai/), [Ollama](https://kagent.dev/docs/kagent/1.x/setup/model-providers/ollama/) and custom providers and models accessible via AI gateways. Models are configured through the ModelConfig resource, with provider support depending on the chosen Harness.
+- **MCP Tools**: Agents can connect to MCP servers that provide tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium, and others. Agents connect through RemoteMCPServer resources, which can be shared across agents.
+- **Sessions**: Sessions keep conversations and task history across interactions. You can suspend and resume an agent, or create a checkpoint and fork a new conversation from it.
+- **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/1.x/observability/tracing/), which allows you to monitor what's happening with your agents and tools.
 
 ### Core Principles
 
-- **Kubernetes Native**: Agents and tools are managed as Kubernetes custom resources using familiar `kubectl` workflows.
-- **Extensible**: Kagent is designed to be extensible, so you can add your own agents and tools.
-- **Flexible**: Kagent is designed to be flexible, to suit any AI agent use case.
-- **Observable**: Kagent is designed to be observable, so you can monitor the agents and tools using all common monitoring frameworks.
-- **Declarative**: Kagent is designed to be declarative, so you can define the agents and tools in a YAML file.
-- **Testable**: Kagent is designed to be tested and debugged easily. This is especially important for AI agent applications.
+- **Kubernetes Native**: Manage agent and tool configuration through Kubernetes APIs and familiar `kubectl` workflows.
+- **Extensible**: Add custom tools, skills, and runtimes to connect agents to your own systems.
+- **Flexible**: Choose the models and runtimes that fit your workload, and reuse agent templates across compatible harnesses.
+- **Observable**: Trace agent, model, and tool execution with OpenTelemetry and your existing observability stack.
+- **Declarative**: Define agents in YAML, keep configuration in version control, and deploy through GitOps workflows.
+- **Testable**: Test agents through their public APIs and use task history and traces to diagnose failures.
 
 ### Architecture
 
-<div align="center">
-  <img src="img/arch.png" alt="kagent" width="500">
-</div>
+```mermaid
+flowchart TD
+    UI[UI] --> CONTROLLER[kagent Controller]
+    CLI[CLI] --> CONTROLLER
+    CONFIG[Kubernetes resources] --> CONTROLLER
+    CONTROLLER --> DB[(PostgreSQL)]
+    CONTROLLER --> SUBSTRATE[Substrate]
+    SUBSTRATE --> RUNTIMES[Agent runtimes]
+    CONTROLLER -->|A2A| RUNTIMES
+```
 
-Kagent has 4 core components:
+Kagent brings together the following components:
 
-- **Controller**: The controller is a Kubernetes controller that watches the kagent custom resources and creates the necessary resources to run the agents.
-- **UI**: The UI is a web UI that allows you to manage the agents and tools.
-- **Engine**: The engine runs your agents using [ADK](https://google.github.io/adk-docs/).
-- **CLI**: The CLI is a command-line tool that allows you to manage the agents and tools.
+- **Controller**: The controller watches kagent custom resources, prepares agents to run, and manages their sessions. It exposes gRPC, A2A, and MCP APIs for clients to interact with agents.
+- **UI**: The UI is a web UI that allows you to manage agents and tools and chat with your agents.
+- **Agent Runtimes**: Agents run using the Go or Python ADK, Codex, Claude, or a custom runtime, selected by their Harness.
+- **Substrate**: Substrate runs the agents and manages their lifecycle, including suspension, resumption, and snapshots.
+- **PostgreSQL**: PostgreSQL stores sessions, tasks, and conversation history so they persist independently of the running agents.
+- **CLI**: The CLI is a command-line tool that allows you to manage agents and tools and interact with your agents.
+
+For more details on the v1 architecture, including resource definitions and how agents run, see the [architecture guide](docs/architecture/README.md).
 
 ## Get Involved
 

@@ -63,7 +63,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
-	compiled.Egress = append(compiled.Egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
+	compiled.Egress = append(compiled.Egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
 	slices.Sort(compiled.Egress)
 
 	return &v2translator.CompileResult{Revision: v2translator.Revision{

@@ -48,7 +48,7 @@ func TestTelemetryConfigFromProcess(t *testing.T) {
 	if !got.Logs.Enabled || got.Logs.Endpoint != "http://generic:4318/otel/v1/logs" || got.Logs.Protocol != "http/protobuf" {
 		t.Fatalf("logs = %#v", got.Logs)
 	}
-	if want := []string{"traces", "generic", "generic"}; !reflect.DeepEqual(got.Destinations(), want) {
+	if want := []string{"http://traces:4317", "http://generic:4318", "http://generic:4318"}; !reflect.DeepEqual(got.Destinations(), want) {
 		t.Fatalf("destinations = %v, want %v", got.Destinations(), want)
 	}
 	want := []corev1.EnvVar{

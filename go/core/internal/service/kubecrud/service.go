@@ -78,10 +78,7 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 
 func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, error) {
 	var zero T
-	if err := s.validateRef(ref); err != nil {
-		return zero, err
-	}
-	if err := s.authorize(ctx, auth.VerbGet, ref); err != nil {
+	if err := s.Authorize(ctx, auth.VerbGet, ref); err != nil {
 		return zero, err
 	}
 	return s.get(ctx, ref)
@@ -113,21 +110,16 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	return object, nil
 }
 
-// GetForUpdate authorizes an update and loads the live object that owns metadata and status.
-func (s *Service[T, L]) GetForUpdate(ctx context.Context, ref types.NamespacedName) (T, error) {
+// Update persists an object read from the cluster, authorized by the identity it is about to write.
+func (s *Service[T, L]) Update(ctx context.Context, object T) (T, error) {
 	var zero T
-	if err := s.validateRef(ref); err != nil {
+	if object == zero {
+		return zero, serviceerrors.NewInvalidArgument(s.resource+" resource is required", nil)
+	}
+	ref := types.NamespacedName{Namespace: object.GetNamespace(), Name: object.GetName()}
+	if err := s.Authorize(ctx, auth.VerbUpdate, ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, ref); err != nil {
-		return zero, err
-	}
-	return s.get(ctx, ref)
-}
-
-// SaveUpdate persists an object returned by GetForUpdate after its spec is changed.
-func (s *Service[T, L]) SaveUpdate(ctx context.Context, object T) (T, error) {
-	var zero T
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
 			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
@@ -138,10 +130,7 @@ func (s *Service[T, L]) SaveUpdate(ctx context.Context, object T) (T, error) {
 }
 
 func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) error {
-	if err := s.validateRef(ref); err != nil {
-		return err
-	}
-	if err := s.authorize(ctx, auth.VerbDelete, ref); err != nil {
+	if err := s.Authorize(ctx, auth.VerbDelete, ref); err != nil {
 		return err
 	}
 	object, err := s.get(ctx, ref)
@@ -178,7 +167,14 @@ func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, e
 	return object, nil
 }
 
-// authorize decides a single operation before any read, so a denial never depends on the object existing.
+// Authorize validates a reference and checks one operation without accessing Kubernetes.
+func (s *Service[T, L]) Authorize(ctx context.Context, verb auth.Verb, ref types.NamespacedName) error {
+	if err := s.validateRef(ref); err != nil {
+		return err
+	}
+	return s.authorize(ctx, verb, ref)
+}
+
 func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, ref types.NamespacedName) error {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
@@ -198,10 +194,8 @@ func (s *Service[T, L]) validateRef(ref types.NamespacedName) error {
 	return nil
 }
 
+// validateNewRef rejects a ref Kubernetes would not accept; an empty value is not a valid subdomain either.
 func (s *Service[T, L]) validateNewRef(ref types.NamespacedName) error {
-	if err := s.validateRef(ref); err != nil {
-		return err
-	}
 	if len(utilvalidation.IsDNS1123Subdomain(ref.Namespace)) > 0 {
 		return serviceerrors.NewInvalidArgument("namespace must be a valid DNS subdomain", nil)
 	}

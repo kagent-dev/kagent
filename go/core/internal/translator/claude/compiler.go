@@ -14,6 +14,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -66,10 +67,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
-	harnessAttributes, err := v2translator.HarnessResourceAttributes(input.Harness)
-	if err != nil {
-		return nil, err
-	}
+	harnessAttributes := v2translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
 		if v2translator.IsResourceAttributesVariable(variable.Name) {
 			continue
@@ -77,13 +75,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		if variable.Name == env.KagentAPIURL.Name() || claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
-		envVar := corev1.EnvVar{Name: variable.Name}
-		if variable.Value != nil {
-			envVar.Value = *variable.Value
-		} else {
-			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: variable.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, envVar)
+		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
@@ -134,7 +126,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
+	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &v2translator.CompileResult{
@@ -198,6 +190,10 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			options := *model.Spec.Anthropic
 			baseURL = strings.TrimSpace(options.BaseURL)
 			options.BaseURL = ""
+			// "5m" is the CRD default and matches Claude Code's native cache TTL.
+			if options.CacheTTL == "5m" {
+				options.CacheTTL = ""
+			}
 			if !reflect.DeepEqual(options, v1alpha3.AnthropicConfig{}) {
 				return nil, nil, v2translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
@@ -206,9 +202,9 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			return nil, nil, err
 		}
 		environment := []corev1.EnvVar{secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}
-		egress := []string{"api.anthropic.com"}
+		egress := []string{"https://api.anthropic.com:443"}
 		if baseURL != "" {
-			hostname, err := anthropicBaseURLHostname(baseURL)
+			hostname, err := anthropicBaseURLOrigin(baseURL)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -254,7 +250,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				environment = append(environment, secretEnvironment(claudeconfig.AWSSessionTokenEnvName, secret.Name, claudeconfig.AWSSessionTokenEnvName))
 			}
 		}
-		return environment, []string{"bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com"}, nil
+		return environment, []string{"https://bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com:443"}, nil
 
 	case v1alpha3.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil || strings.TrimSpace(model.Spec.AnthropicVertexAI.ProjectID) == "" || strings.TrimSpace(model.Spec.AnthropicVertexAI.Location) == "" {
@@ -272,18 +268,18 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		return []corev1.EnvVar{
 			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{vertexHostname(cfg.Location), "oauth2.googleapis.com"}, nil
+		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
 	default:
 		return nil, nil, v2translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
 }
 
-func anthropicBaseURLHostname(raw string) (string, error) {
+func anthropicBaseURLOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", v2translator.NewValidationError("Claude Anthropic baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
 	}
-	return parsed.Hostname(), nil
+	return egress.Origin(parsed), nil
 }
 
 func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelConfig, name, key string, requireJSON bool) error {

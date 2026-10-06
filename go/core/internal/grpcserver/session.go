@@ -76,7 +76,7 @@ func (s *sessionServer) DeleteSession(ctx context.Context, request *apiv1alpha1.
 }
 
 func (s *sessionServer) CreateSessionShare(ctx context.Context, request *apiv1alpha1.CreateSessionShareRequest) (*apiv1alpha1.CreateSessionShareResponse, error) {
-	share, token, err := s.service.CreateShare(ctx, request.GetSessionId(), request.GetPermission())
+	share, token, err := s.service.CreateShare(ctx, request.GetSessionId(), request.GetPermission(), request.GetTtl().AsDuration())
 	if err != nil {
 		return nil, err
 	}
