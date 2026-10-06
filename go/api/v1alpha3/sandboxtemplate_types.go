@@ -55,6 +55,7 @@ type SandboxTemplateStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=sandboxtemplates,singular=sandboxtemplate,scope=Namespaced,categories=kagent
+// +kubebuilder:metadata:annotations="helm.sh/resource-policy=keep"
 // +kubebuilder:printcolumn:name="Image",type="string",JSONPath=".spec.workload.image"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 

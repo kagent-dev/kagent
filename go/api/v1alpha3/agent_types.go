@@ -84,6 +84,7 @@ type AgentStatus struct {
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agents,singular=agent,categories=kagent
+// +kubebuilder:metadata:annotations="helm.sh/resource-policy=keep"
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
