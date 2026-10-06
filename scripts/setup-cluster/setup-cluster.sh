@@ -42,11 +42,16 @@ helm upgrade --install substrate \
 
 step "4/10  CA and JWT pools"
 kubectl create namespace podcertificate-controller-system --dry-run=client -o yaml | kubectl apply -f -
-$ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=service-dns-ca-pool  --secret-namespace=podcertificate-controller-system
-$ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
-$ATE --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool   --secret-namespace=ate-system
-$ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=actor-id-ca-pool     --secret-namespace=ate-system
-$ATE --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
+kubectl --context kind-kagent get secret service-dns-ca-pool -n podcertificate-controller-system >/dev/null 2>&1 ||
+  "$ATE" --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
+kubectl --context kind-kagent get secret pod-identity-ca-pool -n podcertificate-controller-system >/dev/null 2>&1 ||
+  "$ATE" --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
+kubectl --context kind-kagent get secret actor-id-jwt-pool -n ate-system >/dev/null 2>&1 ||
+  "$ATE" --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
+kubectl --context kind-kagent get secret actor-id-ca-pool -n ate-system >/dev/null 2>&1 ||
+  "$ATE" --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
+kubectl --context kind-kagent get secret egress-mitm-ca-pool -n ate-system >/dev/null 2>&1 ||
+  "$ATE" --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
 
 # kubectl-ate prints "Successfully created" and exits 0 slightly BEFORE the secret is
 # readable, so wait on the secret rather than trusting the exit code. Found the hard
