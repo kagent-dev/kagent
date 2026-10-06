@@ -217,6 +217,40 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+// A terminal boundary whose suspend did not happen is released without a
+// snapshot: the next turn is admitted and the boundary is not claimed again.
+func TestReleasedTerminalBoundaryAdmitsTheNextTurn(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, waiting := waitingTaskFixture(t, client)
+	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	current, initialVersion := resumeRuntimeTask(t, client, session.Id, reply)
+	current.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted}
+	hash := sha256.Sum256([]byte("released"))
+	version, err := client.UpdateSessionTask(t.Context(), session.Id, initialVersion, hash[:], current, current, "")
+	require.NoError(t, err)
+	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(current.ID), version))
+	work, err := client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	require.NoError(t, err)
+	fresh := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
+	fresh.ContextID = session.ContextId
+	_, err = client.CreateRuntimeTask(t.Context(), session.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh), "")
+	require.ErrorIs(t, err, ErrFailedPrecondition, "a held claim refuses the next turn")
+
+	stale := *work
+	stale.ExecutorID = uuid.New()
+	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), &stale), ErrNotFound, "another executor cannot release the claim")
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work))
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work), "a retried release is harmless")
+	_, err = client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(current.ID)}, "alice", uuid.NewString())
+	require.ErrorIs(t, err, ErrFailedPrecondition, "a boundary without a snapshot cannot be checkpointed")
+	_, err = client.CreateRuntimeTask(t.Context(), session.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh), "")
+	require.NoError(t, err)
+}
+
 func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")

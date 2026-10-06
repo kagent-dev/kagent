@@ -167,11 +167,24 @@ func expiredPauseCandidate(ctx context.Context, tx pgx.Tx, ttl time.Duration, sk
 // Retries are harmless, and a stale claim cannot release another operation.
 // Task state and history remain readable throughout lifecycle work.
 func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuiescence, snapshot *SessionTaskSnapshot) error {
-	if work == nil || work.ExecutorID == uuid.Nil {
-		return fmt.Errorf("claimed task boundary is required")
-	}
 	if work.State.Terminal() && (snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope == "") {
 		return fmt.Errorf("terminal task quiescence requires a runtime snapshot")
+	}
+	return c.settleSessionQuiescence(ctx, work, snapshot)
+}
+
+// ReleaseSessionQuiescence settles a claimed boundary whose runtime was neither
+// suspended nor paused, for a caller that found the Actor's state after a failed
+// Quiesce or Pause: the task keeps no snapshot, admission reopens, and the next
+// turn takes the runtime as it is. A terminal task released this way cannot be
+// checkpointed until a later turn records a snapshot.
+func (c *Client) ReleaseSessionQuiescence(ctx context.Context, work *SessionQuiescence) error {
+	return c.settleSessionQuiescence(ctx, work, nil)
+}
+
+func (c *Client) settleSessionQuiescence(ctx context.Context, work *SessionQuiescence, snapshot *SessionTaskSnapshot) error {
+	if work == nil || work.ExecutorID == uuid.Nil {
+		return fmt.Errorf("claimed task boundary is required")
 	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, work.Session.Id)

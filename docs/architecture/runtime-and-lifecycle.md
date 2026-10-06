@@ -171,6 +171,17 @@ claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
 adopted implicitly.
 
+A pause or suspend that returns an error leaves its outcome to the Actor's own
+state. The claiming worker reads the Actor again, first after a second and then
+with a backoff up to a minute, and keeps the claim while the Actor is still in
+transition (`SUSPENDING`, `PAUSING`) or Substrate cannot answer. A `SUSPENDED`
+Actor of the session with an external snapshot finishes the claim with that
+snapshot, and a `PAUSED` Actor finishes a pause. Any other state, a running,
+crashed or missing Actor included, releases the claim without a snapshot: the next
+turn takes the runtime as it is, a lost runtime fails the session there, and the
+released boundary cannot be checkpointed. Each read and the resolution are logged
+with `session_id` and `task_id`.
+
 ```mermaid
 sequenceDiagram
     participant Client

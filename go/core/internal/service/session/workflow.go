@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -21,6 +22,7 @@ type workflowStore interface {
 	ClaimSessionQuiescence(context.Context, time.Duration, []string) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
+	ReleaseSessionQuiescence(context.Context, *database.SessionQuiescence) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
@@ -48,6 +50,10 @@ type ActorWorkflow struct {
 	quiescenceWake   chan struct{}
 	pausedRuntimeTTL time.Duration
 	deferred         deferrals
+	// settling tracks the claims whose failed Pause or Quiesce is resolved from
+	// the Actor's state; settleDelay is the first wait between its reads.
+	settling    sync.WaitGroup
+	settleDelay time.Duration
 }
 
 type WorkflowOption func(*ActorWorkflow)
@@ -62,7 +68,7 @@ func WithPausedRuntimeTTL(ttl time.Duration) WorkflowOption {
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, options ...WorkflowOption) *ActorWorkflow {
-	workflow := &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
+	workflow := &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, settleDelay: time.Second}
 	for _, option := range options {
 		option(workflow)
 	}
@@ -117,10 +123,15 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Sessio
 	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
 	}
-	metadata := actor.GetMetadata()
-	if !validActorIdentity(actor, revision, name) || metadata.GetUid() != current.GetMetadata().GetUid() {
+	if !validActorIdentity(actor, revision, name) || actor.GetMetadata().GetUid() != current.GetMetadata().GetUid() {
 		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
 	}
+	return externalSnapshot(actor)
+}
+
+// externalSnapshot is the session task snapshot a suspended Actor reports.
+func externalSnapshot(actor *ateapipb.Actor) (*database.SessionTaskSnapshot, error) {
+	atespace, name := actor.GetMetadata().GetAtespace(), actor.GetMetadata().GetName()
 	snapshot := actor.GetStatus().GetExternalSnapshot()
 	if snapshot.GetSnapshotUri() == "" {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
@@ -133,6 +144,40 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Sessio
 		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
 		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
 	}, nil
+}
+
+// boundaryActor reads the session's Actor after a Pause or Quiesce whose
+// outcome is unknown, with the external snapshot it holds when it is this
+// session's Actor and suspended with a valid one. A missing Actor is returned
+// as nil without an error: nothing will settle the boundary later.
+func (w *ActorWorkflow) boundaryActor(ctx context.Context, session *apiv1alpha1.Session) (*ateapipb.Actor, *database.SessionTaskSnapshot, error) {
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return nil, nil, fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if status.Code(err) == codes.NotFound {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || !validActorIdentity(actor, revision, name) {
+		return actor, nil, nil
+	}
+	_, err = w.store.GetSessionForRuntime(ctx, session.GetId(), actor.GetMetadata().GetUid())
+	if errors.Is(err, database.ErrNotFound) {
+		return actor, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("verify runtime actor UID: %w", err)
+	}
+	snapshot, err := externalSnapshot(actor)
+	if err != nil {
+		return actor, nil, nil
+	}
+	return actor, snapshot, nil
 }
 
 // PauseNodeLost reports whether the session's Actor is paused on a checkpoint
