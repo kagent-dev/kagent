@@ -92,18 +92,18 @@ var (
 	KagentA2ARetryEnabled = RegisterBoolVar(
 		"KAGENT_A2A_RETRY_ENABLED",
 		false,
-		"Enable retrying same-cluster, pod-to-pod A2A requests that fail with a "+
-			"transport-level error (connection refused/reset/EOF), such as when the "+
-			"target agent pod is evicted or replaced mid-request. Disabled by default "+
-			"since this traffic never passes agentgateway and has no other retry.",
+		"Enable retrying outbound A2A HTTP requests that cannot have reached the "+
+			"remote agent (connection refused, DNS failure), and agent card "+
+			"discovery on any connection failure. A send that fails after delivery "+
+			"is never resent at the transport level.",
 		ComponentAgentRuntime,
 	)
 
 	KagentA2ARetryMaxAttempts = RegisterIntVar(
 		"KAGENT_A2A_RETRY_MAX_ATTEMPTS",
 		3,
-		"Maximum number of attempts (including the first) for an A2A request "+
-			"that fails with a transport-level error. Only used when "+
+		"Maximum number of attempts (including the first) for a retryable A2A "+
+			"transport failure. Only used when "+
 			"KAGENT_A2A_RETRY_ENABLED is true.",
 		ComponentAgentRuntime,
 	)
