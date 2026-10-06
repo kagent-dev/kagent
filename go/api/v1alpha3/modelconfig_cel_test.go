@@ -264,4 +264,25 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			require.Contains(t, err.Error(), c.wantReject)
 		})
 	}
+
+	for _, tc := range []struct {
+		name   string
+		stream *bool
+		want   bool
+	}{
+		{name: "default", want: true},
+		{name: "enabled", stream: new(true), want: true},
+		{name: "disabled", stream: new(false), want: false},
+	} {
+		t.Run("stream "+tc.name, func(t *testing.T) {
+			model := &ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "mc-stream-" + tc.name, Namespace: ns},
+				Spec:       ModelConfigSpec{Model: "gpt-4", Provider: ModelProviderOpenAI, Stream: tc.stream},
+			}
+			require.NoError(t, cl.Create(ctx, model))
+			stored := &ModelConfig{}
+			require.NoError(t, cl.Get(ctx, ctrl_client.ObjectKeyFromObject(model), stored))
+			require.Equal(t, new(tc.want), stored.Spec.Stream)
+		})
+	}
 }

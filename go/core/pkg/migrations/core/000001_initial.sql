@@ -176,7 +176,8 @@ CREATE TABLE session_share (
     permission  TEXT        NOT NULL CHECK (permission IN (
         'SESSION_SHARE_PERMISSION_READ_ONLY', 'SESSION_SHARE_PERMISSION_READ_WRITE')),
     token_hash  BYTEA       NOT NULL UNIQUE,
-    data        BYTEA       NOT NULL
+    data        BYTEA       NOT NULL,
+    expires_at  TIMESTAMPTZ
 );
 CREATE INDEX session_share_session_idx
     ON session_share (session_id, id);

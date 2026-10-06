@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { getChatClient } from "@/api/chat";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
+import { messageSummary } from "@/components/chat/messageText";
 import type { AgentInstance } from "@/api";
 
 /**
@@ -86,10 +87,8 @@ export function useConversationTitles(
               id: instance.id,
               agent: instance.agent,
             });
-            const said = history.messages
-              .find((message) => message.role === "user")
-              ?.parts.find((part) => part.kind === "text")?.text;
-            const title = autoTitleFrom(said);
+            const first = history.messages.find((message) => message.role === "user");
+            const title = autoTitleFrom(first && messageSummary(first));
             if (!title) return undefined;
             derived.set(instance.id, title);
             return [instance.id, title] as const;

@@ -43,6 +43,9 @@ KAGENT_CAPTURE_INPUT_TRUNCATED: Final = "kagent.capture.input_truncated"
 KAGENT_CAPTURE_OUTPUT_TRUNCATED: Final = "kagent.capture.output_truncated"
 """Whether the captured output messages were shortened to the capture budget."""
 
+KAGENT_GC_STAGE: Final = "kagent.gc.stage"
+"""The stage of a runtime revision garbage collection attempt."""
+
 KAGENT_INVOCATION_DISPOSITION: Final = "kagent.invocation.disposition"
 """How a segment stopped, when the task state does not say it."""
 
@@ -162,6 +165,15 @@ class GenAiProviderNameValues(StrEnum):
     """[Mistral AI](https://mistral.ai/)"""
     MOONSHOT_AI = "moonshot_ai"
     """[Moonshot AI](https://www.moonshot.ai/)"""
+
+
+class KagentGcStageValues(StrEnum):
+    """Values of KAGENT_GC_STAGE."""
+
+    DISCOVERY = "discovery"
+    """Discovering cleanup-eligible persisted revisions."""
+    COLLECTION = "collection"
+    """Claiming, deleting compute for, or finalizing a revision."""
 
 
 class KagentInvocationDispositionValues(StrEnum):

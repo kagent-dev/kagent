@@ -167,7 +167,68 @@ refinements:
     stability: development
     type: kagent.agent
   events: []
-  metrics: []
+  metrics:
+  - attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        The gRPC status code name for Substrate errors, or `_OTHER` for other failures. Absent on success. Never raw error text or revision, template, UID, or namespace identity.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The attempt failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The stage of a runtime revision garbage collection attempt.
+      key: kagent.gc.stage
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Discovering cleanup-eligible persisted revisions.
+          id: discovery
+          stability: development
+          value: discovery
+        - brief: Claiming, deleting compute for, or finalizing a revision.
+          id: collection
+          stability: development
+          value: collection
+    brief: Duration of a runtime revision garbage collection attempt.
+    id: kagent.runtime_revision.gc.duration
+    instrument: histogram
+    name: kagent.runtime_revision.gc.duration
+    note: |
+      Records each discovery and each collection attempt, including the database claim, Substrate read and deletion, and database finalization. A no-op claim is a successful attempt. Parent cancellation is excluded; an operation deadline while the parent remains active is recorded as a failure. Explicit bucket boundaries in seconds are 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, and 60.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: s
+  - brief: Number of cleanup-eligible runtime revisions in the last successful discovery.
+    id: kagent.runtime_revision.gc.pending
+    instrument: gauge
+    name: kagent.runtime_revision.gc.pending
+    note: |
+      An observable integer gauge over a cached count, without collection-time database or network access. Absent before successful discovery and while inactive; zero means a successful empty discovery. Discovery errors retain the previous count while garbage collection is active.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{revision}\u0027
   spans:
   - attributes:
     - brief: The A2A method that started the invocation.
@@ -2253,6 +2314,21 @@ registry:
       path: telemetry/registry/kagent.yaml
     stability: development
     type: boolean
+  - brief: The stage of a runtime revision garbage collection attempt.
+    key: kagent.gc.stage
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: Discovering cleanup-eligible persisted revisions.
+        id: discovery
+        stability: development
+        value: discovery
+      - brief: Claiming, deleting compute for, or finalizing a revision.
+        id: collection
+        stability: development
+        value: collection
   - brief: How a segment stopped, when the task state does not say it.
     key: kagent.invocation.disposition
     provenance:
@@ -2510,6 +2586,65 @@ registry:
     stability: development
     type: kagent.agent
   events: []
-  metrics: []
+  metrics:
+  - attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        The gRPC status code name for Substrate errors, or `_OTHER` for other failures. Absent on success. Never raw error text or revision, template, UID, or namespace identity.
+      provenance:
+        path: telemetry/registry/signals.yaml
+      requirement_level:
+        conditionally_required: The attempt failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The stage of a runtime revision garbage collection attempt.
+      key: kagent.gc.stage
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Discovering cleanup-eligible persisted revisions.
+          id: discovery
+          stability: development
+          value: discovery
+        - brief: Claiming, deleting compute for, or finalizing a revision.
+          id: collection
+          stability: development
+          value: collection
+    brief: Duration of a runtime revision garbage collection attempt.
+    instrument: histogram
+    name: kagent.runtime_revision.gc.duration
+    note: |
+      Records each discovery and each collection attempt, including the database claim, Substrate read and deletion, and database finalization. A no-op claim is a successful attempt. Parent cancellation is excluded; an operation deadline while the parent remains active is recorded as a failure. Explicit bucket boundaries in seconds are 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, and 60.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: s
+  - brief: Number of cleanup-eligible runtime revisions in the last successful discovery.
+    instrument: gauge
+    name: kagent.runtime_revision.gc.pending
+    note: |
+      An observable integer gauge over a cached count, without collection-time database or network access. Absent before successful discovery and while inactive; zero means a successful empty discovery. Discovery errors retain the previous count while garbage collection is active.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{revision}\u0027
   spans: []
 schema_url: https://kagent.dev/schemas/telemetry/0.1.0
