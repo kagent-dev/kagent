@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
@@ -196,6 +197,16 @@ func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]c
 	return agents, nil
 }
 
+// maxOutputTokens caps the output of every model request Claude Code makes, as
+// maxTokens caps a Go ADK model call. Claude Code lowers a value above the
+// model's own cap to that cap.
+func maxOutputTokens(tokens int) []corev1.EnvVar {
+	if tokens <= 0 {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: claudeconfig.MaxOutputTokensEnvName, Value: strconv.Itoa(tokens)}}
+}
+
 func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
 	root.Model, child.Model = "", ""
 	return reflect.DeepEqual(root, child)
@@ -205,10 +216,13 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderAnthropic:
 		var baseURL string
+		var maxTokens int
 		if model.Spec.Anthropic != nil {
 			options := *model.Spec.Anthropic
 			baseURL = strings.TrimSpace(options.BaseURL)
 			options.BaseURL = ""
+			maxTokens = options.MaxTokens
+			options.MaxTokens = 0
 			// "5m" is the CRD default and matches Claude Code's native cache TTL.
 			if options.CacheTTL == "5m" {
 				options.CacheTTL = ""
@@ -218,7 +232,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			// carries it. Nothing is passed on.
 			options.PromptCaching = false
 			if !reflect.DeepEqual(options, v1alpha3.AnthropicConfig{}) {
-				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl, promptCaching and a 5m cacheTTL yet")
+				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl, maxTokens, promptCaching and a 5m cacheTTL yet")
 			}
 		}
 		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
@@ -234,7 +248,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			environment = append(environment, corev1.EnvVar{Name: claudeconfig.AnthropicBaseURLEnvName, Value: baseURL})
 			egress = []string{hostname}
 		}
-		return environment, egress, nil
+		return append(environment, maxOutputTokens(maxTokens)...), egress, nil
 
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
@@ -282,18 +296,18 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			return nil, nil, translator.NewValidationError("Claude Vertex requires anthropicVertexAI.projectID and location")
 		}
 		options := *model.Spec.AnthropicVertexAI
-		options.ProjectID, options.Location = "", ""
+		options.ProjectID, options.Location, options.MaxTokens = "", "", 0
 		if !reflect.DeepEqual(options, v1alpha3.AnthropicVertexAIConfig{}) {
-			return nil, nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
+			return nil, nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID, location and maxTokens yet")
 		}
 		if err := c.requireGoogleCredentials(ctx, model); err != nil {
 			return nil, nil, err
 		}
 		cfg := model.Spec.AnthropicVertexAI
-		return []corev1.EnvVar{
+		return append([]corev1.EnvVar{
 			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+		}, maxOutputTokens(cfg.MaxTokens)...), []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
 	default:
 		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}

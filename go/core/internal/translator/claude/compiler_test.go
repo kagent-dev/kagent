@@ -52,6 +52,18 @@ func TestCompileProviderCredentials(t *testing.T) {
 			wantEgress: []string{"http://host.docker.internal:8090", "http://kagent-controller.kagent:8083"},
 		},
 		{
+			// An installation's default ModelConfig sets maxTokens for the Go ADK
+			// runtime; the same ModelConfig caps Claude Code's output per request.
+			name: "Anthropic gateway with the shared maxTokens and prompt caching options",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-6",
+				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic", MaxTokens: 32000, PromptCaching: true, CacheTTL: "5m"}},
+			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder,
+				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic", claudeconfig.MaxOutputTokensEnvName: "32000"},
+			wantEgress: []string{"http://host.docker.internal:8090", "http://kagent-controller.kagent:8083"},
+		},
+		{
 			name: "Bedrock IAM",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
@@ -263,6 +275,20 @@ func TestCompileAcceptsTheSharedPromptCachingModelConfig(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err != nil {
 		t.Fatalf("Compile() error = %v; promptCaching with the default cacheTTL is accepted", err)
+	}
+}
+
+func TestCompileRejectsAHarnessSettingClaudesOutputCap(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-6",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.MaxOutputTokensEnvName, Value: "64000"}}
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(t.Context(), input)
+	var validation *translator.ValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("Compile() error = %v, want validation error: the ModelConfig owns the output cap", err)
 	}
 }
 

@@ -38,6 +38,7 @@ const (
 	AnthropicAPIKeyEnvName              = "ANTHROPIC_API_KEY"
 	AnthropicBaseURLEnvName             = "ANTHROPIC_BASE_URL"
 	AnthropicCustomHeadersEnvName       = "ANTHROPIC_CUSTOM_HEADERS"
+	MaxOutputTokensEnvName              = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 	VertexProjectEnvName                = "ANTHROPIC_VERTEX_PROJECT_ID"
 	VertexRegionEnvName                 = "CLOUD_ML_REGION"
 	SandboxEnvName                      = "IS_SANDBOX"
@@ -64,7 +65,7 @@ func OwnsEnvironment(name string) bool {
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, AnthropicCustomHeadersEnvName, VertexProjectEnvName, VertexRegionEnvName,
-		SandboxEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
+		MaxOutputTokensEnvName, SandboxEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER",
 		"OTEL_LOGS_EXPORTER", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT",
 		"OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES", "TRACEPARENT", "TRACESTATE",
