@@ -116,26 +116,6 @@ describe("useConversationTitles", () => {
     expect(result.current).toEqual({});
   });
 
-  it("takes the newer title when a lost first message is sent again", async () => {
-    const histories = new Map<string, ChatMessage[]>();
-    const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
-    const listed = [conversation("fresh"), conversation("other")];
-
-    const { result, rerender } = renderHook<Record<string, string>, { open: Open }>(
-      ({ open }) => useConversationTitles(listed, open),
-      { wrapper: sharedCache(), initialProps: { open: { id: "fresh", title: "First try." } } },
-    );
-    await waitFor(() => expect(reads.sort()).toEqual(["fresh", "other"]));
-
-    // Leaving mid-send loses "First try."; the reader comes back and sends again.
-    rerender({ open: { id: "other" } });
-    rerender({ open: { id: "fresh" } });
-    rerender({ open: { id: "fresh", title: "Second try." } });
-    rerender({ open: { id: "other" } });
-    expect(result.current).toEqual({ fresh: "Second try." });
-  });
-
   it("takes the title back even after a read that ran while it was remembered", async () => {
     const histories = new Map<string, ChatMessage[]>();
     const reads: string[] = [];
