@@ -13,7 +13,6 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv/push"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
@@ -186,7 +185,7 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 	digest := sha256.Sum256([]byte("create"))
 	version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
 	require.NoError(t, err)
-	sender := push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true})
+	sender := NewHTTPPushSender(time.Second, true, true)
 	_, err = NewPushWorker(store, sender, testPushSigner(t)).poll(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, events)

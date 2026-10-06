@@ -52,7 +52,8 @@ the task state. A leader-elected worker sends them after that transaction
 commits. Failed attempts retry up to ten times, including after controller
 restarts. Requests can arrive more than once or out of order, so receivers
 should handle duplicates and use `GetTask` as the source of truth. Any 2xx
-response acknowledges delivery. Kagent does not expose delivery status.
+response acknowledges delivery. Redirects are treated as failures; register
+the final callback URL. Kagent does not expose delivery status.
 
 Kagent sends a JSON A2A `statusUpdate` for `INPUT_REQUIRED`, `AUTH_REQUIRED`, or
 a terminal state (`COMPLETED`, `FAILED`, `CANCELED`, or `REJECTED`). The update
@@ -101,5 +102,5 @@ HTTP and private, loopback, or link-local destinations with
 corresponding `KAGENT_A2A_PUSH_ALLOW_HTTP` and
 `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` variables). These exceptions are
 needed for some in-cluster test receivers; only enable them for trusted
-networks. The sender checks resolved addresses at connection time and on
-redirects.
+networks. The sender checks resolved addresses at connection time and does not
+follow redirects.

@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
@@ -25,6 +26,44 @@ func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
 	require.True(t, closed)
 	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", config))
 	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", &a2a.PushConfig{ID: "default", URL: "http://changed"}), ErrIdempotencyConflict)
+}
+
+func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, task := waitingTaskFixture(t, client)
+	config := &a2a.PushConfig{ID: "callback", URL: "http://receiver"}
+	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "pending", "", config))
+	require.NoError(t, execSQL(ctx, client.db, `UPDATE session_push_registration SET created_at = clock_timestamp() - interval '11 minutes' WHERE initial_message_id = $1`, "pending"))
+
+	tx, err := client.db.Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `UPDATE session_push_registration SET task_id = $2 WHERE initial_message_id = $1`, "pending", task.ID)
+	require.NoError(t, err)
+
+	expired := make(chan error, 1)
+	go func() { expired <- client.ExpireUnboundPushRegistrations(ctx) }()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := client.db.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+				WHERE datname = current_database()
+					AND query LIKE '%UPDATE session_push_registration SET closed_at%'
+					AND cardinality(pg_blocking_pids(pid)) > 0)
+		`).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond, "expiration should wait for the binding transaction")
+	require.NoError(t, tx.Commit(ctx))
+	require.NoError(t, <-expired)
+	var bound, closed bool
+	require.NoError(t, client.db.QueryRow(ctx, `
+		SELECT task_id IS NOT NULL, closed_at IS NOT NULL FROM session_push_registration
+		WHERE initial_message_id = $1
+	`, "pending").Scan(&bound, &closed))
+	require.True(t, bound)
+	require.False(t, closed)
 }
 
 func TestPushRegistrationConcurrentConfiguration(t *testing.T) {

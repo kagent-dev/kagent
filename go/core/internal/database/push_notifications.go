@@ -118,6 +118,7 @@ func (c *Client) ExpireUnboundPushRegistrations(ctx context.Context) error {
             WHERE task_id IS NULL AND closed_at IS NULL
                 AND created_at < clock_timestamp() - interval '10 minutes'
             ORDER BY created_at, id LIMIT 100)
+            AND task_id IS NULL AND closed_at IS NULL
     `)
 }
 
