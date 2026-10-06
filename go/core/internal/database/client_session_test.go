@@ -189,7 +189,7 @@ func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
 	version, err := client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("request-1"), parked, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, sessionID, string(parked.ID), version))
-	boundary, err := client.ClaimSessionQuiescence(ctx, 0, nil)
+	boundary, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, nil))
 

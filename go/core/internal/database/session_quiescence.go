@@ -24,6 +24,10 @@ type SessionQuiescence struct {
 	// Suspend asks for a durable suspend of a waiting task's runtime whose
 	// pause is older than the claim's TTL, in place of a second pause.
 	Suspend bool
+	// TakenOver marks a claim whose previous holder stopped renewing its lease
+	// while its runtime request's outcome was unknown. The new holder settles
+	// the boundary from the runtime's state and never repeats the request.
+	TakenOver bool
 }
 
 type quiescenceCandidate struct {
@@ -50,7 +54,13 @@ func (c *Client) HasPendingSessionQuiescence(ctx context.Context) (bool, error) 
 // ClaimSessionQuiescence claims an idle session at its latest settled task
 // version. A new turn supersedes unclaimed idle work; a claim blocks task writes,
 // checkpoints, and explicit lifecycle operations until it finishes. Missing work
-// returns ErrNotFound. Uncertain issued work is never reassigned after a timeout.
+// returns ErrNotFound.
+//
+// A claim holds a lease of the given length, which its holder extends with
+// RenewSessionQuiescence while it works. A claim whose lease ran out, because
+// its holder stopped, is claimed again as TakenOver: the runtime request it
+// issued is uncertain, so it is settled from the runtime's state, never issued
+// a second time. A claim without a lease predates leases and is taken over too.
 //
 // With a positive pauseTTL, a waiting task whose pause finished longer ago than
 // the TTL and whose runtime has no recorded snapshot is claimed again, for a
@@ -59,7 +69,10 @@ func (c *Client) HasPendingSessionQuiescence(ctx context.Context) (bool, error) 
 // boundary's idle marker and the task leaves the waiting state. Sessions in
 // skip are left out of that second claim, for a caller that found their suspend
 // impossible for now.
-func (c *Client) ClaimSessionQuiescence(ctx context.Context, pauseTTL time.Duration, skip []string) (*SessionQuiescence, error) {
+func (c *Client) ClaimSessionQuiescence(ctx context.Context, lease, pauseTTL time.Duration, skip []string) (*SessionQuiescence, error) {
+	if lease <= 0 {
+		return nil, fmt.Errorf("a quiescence claim requires a positive lease")
+	}
 	var result *SessionQuiescence
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
@@ -73,8 +86,13 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context, pauseTTL time.Durat
 			  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = i.id AND state = 'CREATING')
 			ORDER BY e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
 		`, pgx.RowToStructByName[quiescenceCandidate])
-		suspend := false
+		suspend, takeOver := false, false
+		if errors.Is(err, pgx.ErrNoRows) {
+			row, err = expiredClaimCandidate(ctx, tx)
+			takeOver = true
+		}
 		if errors.Is(err, pgx.ErrNoRows) && pauseTTL > 0 {
+			takeOver = false
 			row, err = expiredPauseCandidate(ctx, tx, pauseTTL, skip)
 			suspend = true
 		}
@@ -100,13 +118,22 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context, pauseTTL time.Durat
 		if err != nil {
 			return err
 		}
-		result = &SessionQuiescence{Session: value, TaskID: row.TaskID, State: task.Status.State, Version: row.Sequence, ExecutorID: uuid.New(), Suspend: suspend}
+		result = &SessionQuiescence{Session: value, TaskID: row.TaskID, State: task.Status.State, Version: row.Sequence, ExecutorID: uuid.New(), Suspend: suspend, TakenOver: takeOver}
 		// Recheck after locking: the candidate query's snapshot may predate a
 		// new turn that committed just before we acquired the session lock.
 		var tag pgconn.CommandTag
-		if suspend {
+		switch {
+		case takeOver:
 			tag, err = tx.Exec(ctx, `
-				UPDATE session_task_event SET quiescence_pending = TRUE, quiescence_executor_id = $2
+				UPDATE session_task_event SET quiescence_executor_id = $2, quiescence_claimed_until = clock_timestamp() + $3::interval
+				WHERE sequence = $1 AND published AND quiescence_pending
+				  AND quiescence_executor_id IS NOT NULL
+				  AND (quiescence_claimed_until IS NULL OR quiescence_claimed_until <= clock_timestamp())
+			`, result.Version, result.ExecutorID, lease)
+		case suspend:
+			tag, err = tx.Exec(ctx, `
+				UPDATE session_task_event SET quiescence_pending = TRUE, quiescence_executor_id = $2,
+				    quiescence_claimed_until = clock_timestamp() + $6::interval
 				WHERE sequence = $1 AND published AND quiescence_pending = FALSE
 				  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
 				  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $3 AND state = 'CREATING')
@@ -114,15 +141,15 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context, pauseTTL time.Durat
 				  AND NOT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $4 AND task_id = $5 AND sequence > $1)
 				  AND EXISTS (SELECT 1 FROM session_task WHERE history_id = $4 AND id = $5 AND snapshot_uri IS NULL
 				      AND state IN ('TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED'))
-			`, result.Version, result.ExecutorID, session.ID, session.HistoryID, row.TaskID)
-		} else {
+			`, result.Version, result.ExecutorID, session.ID, session.HistoryID, row.TaskID, lease)
+		default:
 			tag, err = tx.Exec(ctx, `
-				UPDATE session_task_event SET quiescence_executor_id = $2
+				UPDATE session_task_event SET quiescence_executor_id = $2, quiescence_claimed_until = clock_timestamp() + $4::interval
 				WHERE sequence = $1 AND published AND quiescence_pending
 				  AND quiescence_executor_id IS NULL
 				  AND NOT EXISTS (SELECT 1 FROM session WHERE id = $3 AND dispatch_expires_at > clock_timestamp())
 				  AND NOT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $3 AND state = 'CREATING')
-			`, result.Version, result.ExecutorID, session.ID)
+			`, result.Version, result.ExecutorID, session.ID, lease)
 		}
 		if err != nil {
 			return err
@@ -133,6 +160,22 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context, pauseTTL time.Durat
 		return nil
 	})
 	return result, err
+}
+
+// expiredClaimCandidate finds the oldest held claim whose lease ran out or
+// that has none. A held claim blocks every lifecycle operation, so its session
+// is still ready.
+func expiredClaimCandidate(ctx context.Context, tx pgx.Tx) (quiescenceCandidate, error) {
+	return queryOne(ctx, tx, `
+		SELECT i.id::text AS session_id, e.task_id, e.sequence
+		FROM session_task_event e JOIN session_record i ON i.history_id = e.history_id
+		WHERE e.published AND e.quiescence_pending = TRUE
+		  AND e.quiescence_executor_id IS NOT NULL
+		  AND (e.quiescence_claimed_until IS NULL OR e.quiescence_claimed_until <= clock_timestamp())
+		  AND i.state = 'RUNTIME_STATE_READY'
+		  AND i.operation = 'RUNTIME_OPERATION_NONE'
+		ORDER BY e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
+	`, pgx.RowToStructByName[quiescenceCandidate])
 }
 
 // expiredPauseCandidate finds the oldest waiting task whose pause finished
@@ -160,6 +203,28 @@ func expiredPauseCandidate(ctx context.Context, tx pgx.Tx, ttl time.Duration, sk
 		  AND NOT (i.id::text = ANY($2::text[]))
 		ORDER BY e.created_at, e.sequence LIMIT 1 FOR UPDATE OF i SKIP LOCKED
 	`, pgx.RowToStructByName[quiescenceCandidate], ttl, skip)
+}
+
+// RenewSessionQuiescence extends a held claim's lease to the given length from
+// now. It returns ErrNotFound once the claim is no longer this executor's: it
+// was settled, superseded, or taken over after its lease ran out.
+func (c *Client) RenewSessionQuiescence(ctx context.Context, work *SessionQuiescence, lease time.Duration) error {
+	if work == nil || work.ExecutorID == uuid.Nil {
+		return fmt.Errorf("claimed task boundary is required")
+	}
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE session_task_event SET quiescence_claimed_until = clock_timestamp() + $3::interval
+			WHERE sequence = $1 AND quiescence_executor_id = $2 AND quiescence_pending
+		`, work.Version, work.ExecutorID, lease)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // FinishSessionQuiescence records a claimed pause/suspend outcome and releases

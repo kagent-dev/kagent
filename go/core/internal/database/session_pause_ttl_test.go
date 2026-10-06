@@ -36,24 +36,24 @@ func agePause(t *testing.T, pool *pgxpool.Pool, session *apiv1alpha1.Session, ag
 func TestExpiredPauseIsClaimedForASuspend(t *testing.T) {
 	client, _, session, task := pausedTaskFixture(t, time.Hour)
 	ctx := t.Context()
-	_, err := client.ClaimSessionQuiescence(ctx, 0, nil)
+	_, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound, "without a TTL a pause stays in place")
-	_, err = client.ClaimSessionQuiescence(ctx, 2*time.Hour, nil)
+	_, err = client.ClaimSessionQuiescence(ctx, testClaimLease, 2*time.Hour, nil)
 	require.ErrorIs(t, err, ErrNotFound, "a pause younger than the TTL stays in place")
 
-	work, err := client.ClaimSessionQuiescence(ctx, 2*time.Minute, nil)
+	work, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 2*time.Minute, nil)
 	require.NoError(t, err)
 	require.True(t, work.Suspend)
 	require.Equal(t, session.Id, work.Session.Id)
 	require.Equal(t, string(task.ID), work.TaskID)
 	require.Equal(t, a2a.TaskStateInputRequired, work.State)
-	_, err = client.ClaimSessionQuiescence(ctx, 2*time.Minute, nil)
+	_, err = client.ClaimSessionQuiescence(ctx, testClaimLease, 2*time.Minute, nil)
 	require.ErrorIs(t, err, ErrNotFound, "a claimed suspend is not handed out twice")
 	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "reply"), ErrDispatchBusy, "a reply waits for the suspend")
 
 	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/paused", ContentScope: "FULL"}
 	require.NoError(t, client.FinishSessionQuiescence(ctx, work, snapshot))
-	_, err = client.ClaimSessionQuiescence(ctx, 2*time.Minute, nil)
+	_, err = client.ClaimSessionQuiescence(ctx, testClaimLease, 2*time.Minute, nil)
 	require.ErrorIs(t, err, ErrNotFound, "a suspended runtime has its snapshot")
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "reply"))
 	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
@@ -69,27 +69,27 @@ func TestExpiredPauseIsNotClaimedAfterAReply(t *testing.T) {
 	reply.TaskID, reply.ContextID = task.ID, task.ContextID
 	resumeRuntimeTask(t, client, session.Id, reply)
 	agePause(t, pool, session, time.Hour)
-	_, err := client.ClaimSessionQuiescence(t.Context(), 2*time.Minute, nil)
+	_, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 2*time.Minute, nil)
 	require.ErrorIs(t, err, ErrNotFound, "a task that took its reply is not paused")
 }
 
 func TestExpiredPauseWaitsForALiveDispatch(t *testing.T) {
 	client, _, session, _ := pausedTaskFixture(t, time.Hour)
 	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "reply"))
-	_, err := client.ClaimSessionQuiescence(t.Context(), 2*time.Minute, nil)
+	_, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 2*time.Minute, nil)
 	require.ErrorIs(t, err, ErrNotFound, "a reply being dispatched wins over the suspend")
 }
 
 func TestReleasedSuspendClaimCanBeClaimedAgain(t *testing.T) {
 	client, _, session, _ := pausedTaskFixture(t, time.Hour)
-	work, err := client.ClaimSessionQuiescence(t.Context(), 2*time.Minute, nil)
+	work, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 2*time.Minute, nil)
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, nil), "a suspend that did not happen releases the claim")
 	dispatch := uuid.New()
 	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatch, "reply"))
 	_, err = client.RevokeSessionDispatch(t.Context(), session.Id, dispatch, "reply")
 	require.NoError(t, err)
-	again, err := client.ClaimSessionQuiescence(t.Context(), 2*time.Minute, nil)
+	again, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 2*time.Minute, nil)
 	require.NoError(t, err)
 	require.True(t, again.Suspend)
 	require.Equal(t, work.Version, again.Version)
@@ -97,9 +97,9 @@ func TestReleasedSuspendClaimCanBeClaimedAgain(t *testing.T) {
 
 func TestExpiredPauseSkipsDeferredSessions(t *testing.T) {
 	client, _, session, _ := pausedTaskFixture(t, time.Hour)
-	_, err := client.ClaimSessionQuiescence(t.Context(), 2*time.Minute, []string{session.Id})
+	_, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 2*time.Minute, []string{session.Id})
 	require.ErrorIs(t, err, ErrNotFound)
-	work, err := client.ClaimSessionQuiescence(t.Context(), 2*time.Minute, []string{uuid.NewString()})
+	work, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 2*time.Minute, []string{uuid.NewString()})
 	require.NoError(t, err)
 	require.Equal(t, session.Id, work.Session.Id)
 }

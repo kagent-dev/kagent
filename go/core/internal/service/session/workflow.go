@@ -19,7 +19,8 @@ import (
 )
 
 type workflowStore interface {
-	ClaimSessionQuiescence(context.Context, time.Duration, []string) (*database.SessionQuiescence, error)
+	ClaimSessionQuiescence(context.Context, time.Duration, time.Duration, []string) (*database.SessionQuiescence, error)
+	RenewSessionQuiescence(context.Context, *database.SessionQuiescence, time.Duration) error
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	ReleaseSessionQuiescence(context.Context, *database.SessionQuiescence) error
@@ -54,6 +55,9 @@ type ActorWorkflow struct {
 	// the Actor's state; settleDelay is the first wait between its reads.
 	settling    sync.WaitGroup
 	settleDelay time.Duration
+	// claimLease is how long a claim outlives its holder's last renewal before
+	// another worker takes it over; the holder renews it every third of it.
+	claimLease time.Duration
 }
 
 type WorkflowOption func(*ActorWorkflow)
@@ -68,7 +72,7 @@ func WithPausedRuntimeTTL(ttl time.Duration) WorkflowOption {
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, options ...WorkflowOption) *ActorWorkflow {
-	workflow := &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, settleDelay: time.Second}
+	workflow := &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, settleDelay: time.Second, claimLease: 30 * time.Second}
 	for _, option := range options {
 		option(workflow)
 	}

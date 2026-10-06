@@ -33,8 +33,10 @@ func (w *ActorWorkflow) wakeQuiescence() {
 // Start pauses or suspends idle sessions independently of task publication.
 // Startup and periodic recovery scans discover work missed by local signals.
 // Workers drain claims with bounded concurrency; task reads never wait for them.
-// A pause older than the paused runtime TTL is claimed again for a suspend, so a
-// reply that outlives the pause's node restores the runtime from its external
+// A claim's holder renews its lease until the claim is settled, so the claim of
+// a replica that stopped is taken over by another and settled there. A pause
+// older than the paused runtime TTL is claimed again for a suspend, so a reply
+// that outlives the pause's node restores the runtime from its external
 // snapshot instead.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
@@ -43,7 +45,7 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
 			for ctx.Err() == nil {
-				work, err := w.store.ClaimSessionQuiescence(ctx, w.pausedRuntimeTTL, w.deferred.active(time.Now()))
+				work, err := w.store.ClaimSessionQuiescence(ctx, w.claimLease, w.pausedRuntimeTTL, w.deferred.active(time.Now()))
 				if err == nil {
 					// Hand off a hint before runtime I/O so a single settlement
 					// burst can enlist all workers, even if this actor is slow.
@@ -78,7 +80,59 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 	return nil
 }
 
+// quiesceIdleSession holds the claim's lease until its boundary is settled. A
+// claim taken over from a stopped holder is settled from the Actor's state.
 func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.SessionQuiescence) {
+	release := w.holdClaim(ctx, work)
+	if work.TakenOver {
+		logging.FromContext(ctx).WarnContext(ctx, "runtime boundary taken over from a stopped holder", "session_id", work.Session.Id, "task_id", work.TaskID, "version", work.Version)
+	} else if w.issueIdleWork(ctx, work) {
+		release()
+		return
+	}
+	w.settling.Go(func() {
+		defer release()
+		w.settleIdleWork(ctx, work)
+	})
+}
+
+// holdClaim renews the claim's lease every third of it until the returned
+// function is called. Stopping the process stops the renewal, and another
+// worker takes the claim over once the lease has run out.
+func (w *ActorWorkflow) holdClaim(ctx context.Context, work *database.SessionQuiescence) func() {
+	holdCtx, cancel := context.WithCancel(ctx)
+	var renewing sync.WaitGroup
+	renewing.Go(func() {
+		ticker := time.NewTicker(w.claimLease / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-holdCtx.Done():
+				return
+			case <-ticker.C:
+			}
+			renewCtx, renewCancel := context.WithTimeout(holdCtx, w.claimLease/3)
+			err := w.store.RenewSessionQuiescence(renewCtx, work, w.claimLease)
+			renewCancel()
+			switch {
+			case err == nil, holdCtx.Err() != nil:
+			case errors.Is(err, database.ErrNotFound):
+				return
+			default:
+				logging.FromContext(ctx).WarnContext(ctx, "renew runtime boundary claim", "session_id", work.Session.Id, "version", work.Version, "error", err)
+			}
+		}
+	})
+	return func() {
+		cancel()
+		renewing.Wait()
+	}
+}
+
+// issueIdleWork pauses or suspends the claimed session and records the outcome.
+// It reports false when the runtime request's outcome is unknown and the claim
+// is left for settleIdleWork.
+func (w *ActorWorkflow) issueIdleWork(ctx context.Context, work *database.SessionQuiescence) bool {
 	runtimeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	var snapshot *database.SessionTaskSnapshot
 	var err error
@@ -96,7 +150,7 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 			}
 			w.deferred.add(work.Session.Id, time.Now().Add(w.pausedRuntimeTTL))
 			w.finishIdleWork(ctx, work, nil)
-			return
+			return true
 		}
 	}
 	if work.State.Terminal() || work.Suspend {
@@ -109,10 +163,10 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 		// No timeout-based takeover: the Substrate request may still complete.
 		// Keep admission closed until the Actor's own state settles the outcome.
 		logging.FromContext(ctx).ErrorContext(ctx, "runtime boundary outcome unknown", "session_id", work.Session.Id, "task_id", work.TaskID, "version", work.Version, "error", err)
-		w.settling.Go(func() { w.settleIdleWork(ctx, work) })
-		return
+		return false
 	}
 	w.finishIdleWork(ctx, work, snapshot)
+	return true
 }
 
 // settleIdleWork resolves a claim whose Pause or Quiesce failed from the state
@@ -122,7 +176,8 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 // transition, or Substrate cannot answer, the claim is kept and read again with
 // a backoff. Any other state, a running, crashed or missing Actor included,
 // releases the claim without a snapshot: the next send takes the runtime as it
-// is, and a lost one fails the session there.
+// is, and a lost one fails the session there. A worker that stops while it
+// settles leaves the claim to another once the lease has run out.
 func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.SessionQuiescence) {
 	log := logging.FromContext(ctx).With("session_id", work.Session.Id, "task_id", work.TaskID, "version", work.Version)
 	for delay := w.settleDelay; ; delay = min(2*delay, time.Minute) {

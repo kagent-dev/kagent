@@ -295,7 +295,7 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	version, err := store.UpdateSessionTask(t.Context(), source.Id, initialVersion, hash[:], task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, store.SettleSessionTask(t.Context(), source.Id, string(task.ID), version))
-	boundary, err := store.ClaimSessionQuiescence(t.Context(), 0, nil)
+	boundary, err := store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), boundary,
 		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))

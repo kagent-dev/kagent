@@ -48,7 +48,7 @@ func pausedSessionFixture(t *testing.T, store *lifecycleTestStore, actors actorC
 	require.NoError(t, err)
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
 	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
-	work, err := store.ClaimSessionQuiescence(t.Context(), 0, nil)
+	work, err := store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.NoError(t, err)
 	require.False(t, work.Suspend)
 	workflow.quiesceIdleSession(t.Context(), work)
@@ -75,7 +75,7 @@ func TestIdleWorkerSuspendsAnExpiredPause(t *testing.T) {
 	}
 
 	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, WithPausedRuntimeTTL(2*time.Minute))
-	work, err := store.ClaimSessionQuiescence(t.Context(), workflow.pausedRuntimeTTL, nil)
+	work, err := store.ClaimSessionQuiescence(t.Context(), testClaimLease, workflow.pausedRuntimeTTL, nil)
 	require.NoError(t, err)
 	require.True(t, work.Suspend)
 	workflow.quiesceIdleSession(t.Context(), work)
@@ -84,7 +84,7 @@ func TestIdleWorkerSuspendsAnExpiredPause(t *testing.T) {
 	for _, actor := range actors.actors {
 		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState())
 	}
-	_, err = store.ClaimSessionQuiescence(t.Context(), workflow.pausedRuntimeTTL, nil)
+	_, err = store.ClaimSessionQuiescence(t.Context(), testClaimLease, workflow.pausedRuntimeTTL, nil)
 	require.ErrorIs(t, err, database.ErrNotFound, "the recorded snapshot ends the pause TTL's interest")
 	waiting, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestIdleWorkerLeavesAPauseWithoutATTL(t *testing.T) {
 	session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
 	require.NoError(t, err)
 	pausedSessionFixture(t, store, actors, session, time.Hour)
-	_, err = store.ClaimSessionQuiescence(t.Context(), NewActorWorkflow(store, actors).pausedRuntimeTTL, nil)
+	_, err = store.ClaimSessionQuiescence(t.Context(), testClaimLease, NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).pausedRuntimeTTL, nil)
 	require.ErrorIs(t, err, database.ErrNotFound)
 	require.Zero(t, actors.suspends.Load())
 }
@@ -167,7 +167,7 @@ func TestIdleWorkerLeavesAnExpiredPauseOnALostNode(t *testing.T) {
 			}
 
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, WithPausedRuntimeTTL(2*time.Minute))
-			work, err := store.ClaimSessionQuiescence(t.Context(), workflow.pausedRuntimeTTL, workflow.deferred.active(time.Now()))
+			work, err := store.ClaimSessionQuiescence(t.Context(), testClaimLease, workflow.pausedRuntimeTTL, workflow.deferred.active(time.Now()))
 			require.NoError(t, err)
 			require.True(t, work.Suspend)
 			workflow.quiesceIdleSession(t.Context(), work)
@@ -178,7 +178,7 @@ func TestIdleWorkerLeavesAnExpiredPauseOnALostNode(t *testing.T) {
 			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "reply"), "the released claim admits the reply")
 			skip := workflow.deferred.active(time.Now())
 			require.Equal(t, []string{session.Id}, skip)
-			_, err = store.ClaimSessionQuiescence(t.Context(), workflow.pausedRuntimeTTL, skip)
+			_, err = store.ClaimSessionQuiescence(t.Context(), testClaimLease, workflow.pausedRuntimeTTL, skip)
 			require.ErrorIs(t, err, database.ErrNotFound, "a deferred session is not claimed again")
 		})
 	}

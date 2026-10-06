@@ -165,8 +165,13 @@ one pending-work check per recovery interval, rather than querying every second.
 Other background workers and connection-pool idle settings still affect whether
 PostgreSQL can become idle.
 
-Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
-never expires: losing the worker does not prove that the suspend stopped. Uncertain
+Unclaimed idle work survives API restarts. A claim holds a lease (30 seconds,
+in database time) that its worker renews every third of it until the boundary is
+settled. A claim whose lease ran out, because its API replica stopped, crashed or
+was rolled, is claimed again by another worker under a new executor ID. Losing the
+worker does not prove that the suspend stopped, so the new holder never repeats
+the runtime request: it settles the boundary from the Actor's state as below. The
+stopped holder cannot renew, finish or release a claim taken over. Uncertain
 claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
 adopted implicitly.
@@ -180,7 +185,8 @@ snapshot, and a `PAUSED` Actor finishes a pause. Any other state, a running,
 crashed or missing Actor included, releases the claim without a snapshot: the next
 turn takes the runtime as it is, a lost runtime fails the session there, and the
 released boundary cannot be checkpointed. Each read and the resolution are logged
-with `session_id` and `task_id`.
+with `session_id` and `task_id`. A worker that stops while it settles leaves the
+claim to the takeover above.
 
 ```mermaid
 sequenceDiagram

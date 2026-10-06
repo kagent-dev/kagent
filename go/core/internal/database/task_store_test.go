@@ -182,17 +182,17 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	_, err = client.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, deleteSession(t.Context(), client, session.Id), ErrFailedPrecondition)
-	_, err = client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound) // The native cleanup callback has not finished.
 	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version))
 	public, err = client.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
 	require.Len(t, public.History, 3)
-	work, err := client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	work, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.NoError(t, err)
 	require.Equal(t, version, work.Version)
-	_, err = client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound) // Claims cannot expire into a second suspend.
 	require.Error(t, client.FinishSessionQuiescence(t.Context(), work, nil))
 	// Even an unfinished or failed snapshot never hides the completed task.
@@ -213,7 +213,7 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
 	require.Len(t, public.History, 3)
-	_, err = client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -231,7 +231,7 @@ func TestReleasedTerminalBoundaryAdmitsTheNextTurn(t *testing.T) {
 	version, err := client.UpdateSessionTask(t.Context(), session.Id, initialVersion, hash[:], current, current, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(current.ID), version))
-	work, err := client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	work, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.NoError(t, err)
 	fresh := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
 	fresh.ContextID = session.ContextId
@@ -243,7 +243,7 @@ func TestReleasedTerminalBoundaryAdmitsTheNextTurn(t *testing.T) {
 	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), &stale), ErrNotFound, "another executor cannot release the claim")
 	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work))
 	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work), "a retried release is harmless")
-	_, err = client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound)
 	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(current.ID)}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a boundary without a snapshot cannot be checkpointed")
@@ -265,7 +265,7 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.NoError(t, client.SettleSessionTask(t.Context(), source.Id, string(completed.ID), version))
-	boundary, err := client.ClaimSessionQuiescence(t.Context(), 0, nil)
+	boundary, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "turn-N", ContentScope: "DATA"}))
 	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
@@ -350,7 +350,7 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 		claimErrors, writeErrors := make(chan error, 1), make(chan error, 1)
 		go func() {
 			<-start
-			work, err := client.ClaimSessionQuiescence(ctx, 0, nil)
+			work, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 			claimed <- work
 			claimErrors <- err
 		}()
@@ -372,13 +372,13 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 			require.ErrorIs(t, claimErr, ErrNotFound)
 			require.NoError(t, writeErr)
 		}
-		_, err = client.ClaimSessionQuiescence(ctx, 0, nil)
+		_, err = client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 		require.ErrorIs(t, err, ErrNotFound, "dispatch must protect the network gap before persistence")
 		_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("next"), next, dispatchID.String())
 		require.NoError(t, err)
 		// A lost cleanup acknowledgement cannot requeue an obsolete suspension.
 		require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-		_, err = client.ClaimSessionQuiescence(ctx, 0, nil)
+		_, err = client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 		require.ErrorIs(t, err, ErrNotFound)
 		visible, err := client.GetSettledSessionTask(ctx, session.Id, string(task.ID), nil)
 		require.NoError(t, err)
@@ -415,7 +415,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	session, waiting := waitingTaskFixture(t, client)
 	dispatchID := uuid.New()
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatchID, ""))
-	_, err := client.ClaimSessionQuiescence(ctx, 0, nil)
+	_, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrDispatchBusy)
 	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, dispatchID, "new-input")
@@ -433,7 +433,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	// SDKs may first append input while retaining the waiting state.
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("input-only"), waiting, waiting, dispatchID.String())
 	require.NoError(t, err)
-	_, err = client.ClaimSessionQuiescence(ctx, 0, nil)
+	_, err = client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("active"), &resumed, &resumed, dispatchID.String())
 	require.NoError(t, err)
@@ -504,7 +504,7 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	request := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 	_, _, err = client.ReserveSessionCheckpoint(ctx, request, "alice", "checkpoint")
 	require.ErrorIs(t, err, ErrSnapshotPending)
-	work, err := client.ClaimSessionQuiescence(ctx, 0, nil)
+	work, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
 	saved, _, err := client.ReserveSessionCheckpoint(ctx, request, "alice", "saved")

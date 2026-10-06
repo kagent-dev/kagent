@@ -35,7 +35,7 @@ func saveRuntimeTask(t *testing.T, client *Client, sessionID string, task *a2a.T
 	if err := client.SettleSessionTask(ctx, sessionID, string(task.ID), version); err != nil {
 		return err
 	}
-	work, err := client.ClaimSessionQuiescence(ctx, 0, nil)
+	work, err := client.ClaimSessionQuiescence(ctx, testClaimLease, 0, nil)
 	if err != nil {
 		return err
 	}

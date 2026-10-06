@@ -31,7 +31,7 @@ type idleQuiescenceStore struct {
 
 var _ workflowStore = (*idleQuiescenceStore)(nil)
 
-func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context, time.Duration, []string) (*database.SessionQuiescence, error) {
+func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context, time.Duration, time.Duration, []string) (*database.SessionQuiescence, error) {
 	s.claims.Add(1)
 	if s.claimErr != nil {
 		return nil, s.claimErr
@@ -126,6 +126,9 @@ func TestQuiescenceRetriesPendingWorkAndDatabaseErrors(t *testing.T) {
 	}
 }
 
+// testClaimLease outlives every test that does not wait for a claim to expire.
+const testClaimLease = time.Hour
+
 func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 	for _, test := range []struct {
 		name           string
@@ -194,7 +197,7 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 			}, 5*time.Second, 10*time.Millisecond)
 			require.EqualValues(t, 1, actors.mutations.Load(), "database retries must not suspend the actor again")
 			require.Equal(t, test.finishFailures+1, writes.attempts.Load())
-			_, err = store.ClaimSessionQuiescence(t.Context(), 0, nil)
+			_, err = store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 			require.ErrorIs(t, err, database.ErrNotFound)
 		})
 	}
@@ -252,7 +255,7 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 			actors := &unsettledActors{lifecycleTestActors: base, pending: pending, settle: test.settle, release: make(chan struct{}), reads: make(chan struct{}, 1)}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			workflow.settleDelay = time.Millisecond
-			work, err := store.ClaimSessionQuiescence(t.Context(), 0, nil)
+			work, err := store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 			require.NoError(t, err)
 			workflow.quiesceIdleSession(t.Context(), work)
 			for range 2 {
@@ -267,7 +270,7 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 			close(actors.release)
 			workflow.settling.Wait()
 			require.EqualValues(t, 1, actors.mutations.Load(), "settling never repeats the runtime request")
-			_, err = store.ClaimSessionQuiescence(t.Context(), 0, nil)
+			_, err = store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 			require.ErrorIs(t, err, database.ErrNotFound, "the settled boundary is not claimed again")
 			if test.snapshot {
 				checkpoint := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
@@ -281,10 +284,91 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 	}
 }
 
+// A worker that stops while its claim is unsettled, during the runtime request
+// or while it reads the Actor again, leaves the claim to another worker once
+// the lease has run out. The other worker settles it from the Actor's state
+// without repeating the request; a live holder keeps its claim past the lease.
+func TestStoppedHolderBoundaryIsSettledByAnotherWorker(t *testing.T) {
+	suspend := func(a *lifecycleTestActors, space, name string) {
+		_, _ = a.SuspendActor(context.Background(), space, name)
+	}
+	pause := func(a *lifecycleTestActors, space, name string) {
+		_, _ = a.PauseActor(context.Background(), space, name)
+	}
+	for _, test := range []struct {
+		name    string
+		waiting bool
+		hang    bool
+		settle  func(*lifecycleTestActors, string, string)
+	}{
+		{name: "stopped while settling a suspend", settle: suspend},
+		{name: "stopped while settling a pause", waiting: true, settle: pause},
+		{name: "stopped during the suspend request", hang: true, settle: suspend},
+		{name: "stopped while settling an unfinished suspend", settle: func(a *lifecycleTestActors, space, name string) {
+			a.setState(space, name, ateapipb.ActorState_ACTOR_STATE_RUNNING)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const lease = 300 * time.Millisecond
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			session, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			require.NoError(t, err)
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
+			message.ContextID = session.ContextId
+			task := a2a.NewSubmittedTask(message, message)
+			task.Status.State = a2a.TaskStateCompleted
+			pending := ateapipb.ActorState_ACTOR_STATE_SUSPENDING
+			if test.waiting {
+				task.Status.State = a2a.TaskStateInputRequired
+				pending = ateapipb.ActorState_ACTOR_STATE_PAUSING
+			}
+			hash := sha256.Sum256([]byte("turn"))
+			version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
+			require.NoError(t, err)
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+
+			actors := &unsettledActors{lifecycleTestActors: base, pending: pending, settle: test.settle, release: make(chan struct{}), reads: make(chan struct{}, 1), hang: test.hang}
+			stopped, stop := context.WithCancel(t.Context())
+			first := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			first.settleDelay, first.claimLease = time.Millisecond, lease
+			work, err := store.ClaimSessionQuiescence(t.Context(), lease, 0, nil)
+			require.NoError(t, err)
+			issued := make(chan struct{})
+			go func() { defer close(issued); first.quiesceIdleSession(stopped, work) }()
+			require.Eventually(t, func() bool { return actors.mutations.Load() == 1 }, 5*time.Second, time.Millisecond)
+
+			// The live holder renews its claim for longer than one lease.
+			time.Sleep(3 * lease)
+			_, err = store.ClaimSessionQuiescence(t.Context(), lease, 0, nil)
+			require.ErrorIs(t, err, database.ErrNotFound, "a renewed claim is not taken over")
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "held"), database.ErrDispatchBusy)
+
+			stop()
+			<-issued
+			first.settling.Wait()
+			close(actors.release)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			second := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			second.settleDelay, second.claimLease = time.Millisecond, lease
+			done := make(chan error, 1)
+			go func() { done <- second.Start(ctx) }()
+			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+			require.Eventually(t, func() bool {
+				return store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next") == nil
+			}, 10*time.Second, 20*time.Millisecond, "the boundary is settled by the second worker and admits the next turn")
+			require.EqualValues(t, 1, actors.mutations.Load(), "the second worker never repeats the runtime request")
+		})
+	}
+}
+
 // unsettledActors fails the boundary request after Substrate took it: the Actor
 // reports pending until release is closed, and then what settle made of it.
+// With hang, the request does not return until its caller stops.
 type unsettledActors struct {
 	*lifecycleTestActors
+	hang      bool
 	pending   ateapipb.ActorState
 	settle    func(*lifecycleTestActors, string, string)
 	release   chan struct{}
@@ -309,18 +393,21 @@ func (a *unsettledActors) GetActor(ctx context.Context, space, name string) (*at
 	return a.lifecycleTestActors.GetActor(ctx, space, name)
 }
 
-func (a *unsettledActors) SuspendActor(_ context.Context, space, name string) (*ateapipb.Actor, error) {
-	return nil, a.fail(space, name)
+func (a *unsettledActors) SuspendActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	return nil, a.fail(ctx, space, name)
 }
 
-func (a *unsettledActors) PauseActor(_ context.Context, space, name string) (*ateapipb.Actor, error) {
-	return nil, a.fail(space, name)
+func (a *unsettledActors) PauseActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	return nil, a.fail(ctx, space, name)
 }
 
-func (a *unsettledActors) fail(space, name string) error {
+func (a *unsettledActors) fail(ctx context.Context, space, name string) error {
 	a.mutations.Add(1)
 	a.setState(space, name, a.pending)
 	a.failed.Store(true)
+	if a.hang {
+		<-ctx.Done()
+	}
 	return status.Error(codes.DeadlineExceeded, "sandbox teardown outlived the request")
 }
 
