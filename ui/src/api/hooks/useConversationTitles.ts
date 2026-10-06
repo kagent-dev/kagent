@@ -65,7 +65,7 @@ export function useConversationTitles(
     if (remembered.current !== openId) remembered.current = undefined;
     if (!openId) return;
     if (openTitle) {
-      if (derived.has(openId)) return;
+      if (derived.get(openId) === openTitle) return;
       derived.set(openId, openTitle);
       remembered.current = openId;
     } else if (remembered.current === openId) {
