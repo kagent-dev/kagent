@@ -67,16 +67,47 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	require.ErrorContains(t, err, "cannot use gateway header injection")
 }
 
-func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true})
-	_, bindings, err := CompileCredentials(input, nil, nil)
-	require.NoError(t, err)
-	require.Empty(t, bindings)
-	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token",
-	}).Root}}
-	_, _, err = CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
-	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+func TestCompileCredentialsRejectsActorPassthrough(t *testing.T) {
+	passthrough := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true})
+	shared := credentialInput(v1alpha3.ModelConfigSpec{})
+	shared.Root.Shared = []AgentInputBinding{{Agent: passthrough.Root}}
+	for _, test := range []struct {
+		name   string
+		input  *HarnessInput
+		models []*ResolvedModelConfig
+	}{
+		{name: "root", input: passthrough},
+		{name: "shared", input: shared},
+		{name: "extra model", input: credentialInput(v1alpha3.ModelConfigSpec{}), models: []*ResolvedModelConfig{passthrough.Root.ResolvedModelConfig}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := CompileCredentials(test.input, test.models, nil)
+			require.ErrorContains(t, err, "apiKeyPassthrough requires caller credentials inside the actor")
+		})
+	}
+}
+
+func TestCompileCredentialsRejectsActorTokenEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		name, value string
+		denied      bool
+	}{
+		{"KAGENT_PROPAGATE_TOKEN", "true", true},
+		{"KAGENT_PROPAGATE_TOKEN", " TRUE ", true},
+		{"KAGENT_PROPAGATE_TOKEN", "false", false},
+		{"KAGENT_PROPAGATE_TOKEN", "", false},
+		{"KAGENT_STS_WELL_KNOWN_URI", "https://sts.example.com/.well-known/openid-configuration", true},
+		{"KAGENT_STS_WELL_KNOWN_URI", "", false},
+	} {
+		t.Run(test.name+"="+test.value, func(t *testing.T) {
+			_, _, err := CompileCredentials(credentialInput(v1alpha3.ModelConfigSpec{}), nil, []corev1.EnvVar{{Name: test.name, Value: test.value}})
+			if test.denied {
+				require.ErrorContains(t, err, "requires caller credentials inside the actor")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {

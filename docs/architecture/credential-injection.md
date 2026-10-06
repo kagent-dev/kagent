@@ -72,9 +72,13 @@ ModelConfig or RemoteMCPServer for gateway injection.
 AWS IAM signing keys, Google service-account keys, and OAuth client credentials
 require mechanisms beyond static header injection and are rejected rather than
 serialized into runtimes.
-Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share a hostname with static gateway credentials, which would override
-the caller's authentication.
+The A2A gateway always removes caller `Authorization` before actor dispatch.
+Compilation rejects `apiKeyPassthrough`, `KAGENT_PROPAGATE_TOKEN=true`, and a
+non-empty `KAGENT_STS_WELL_KNOWN_URI`, because these modes require caller
+credentials inside the actor. Gateway injection of caller credentials is not
+yet implemented. Existing sessions keep their pinned runtime revisions, but
+their requests also lose `Authorization`; recreate sessions that depend on
+these modes with supported credentials before upgrading.
 
 ## Deferred API fields
 

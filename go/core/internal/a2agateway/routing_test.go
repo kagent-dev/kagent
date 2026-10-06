@@ -49,12 +49,12 @@ func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Sessio
 	return session, nil
 }
 
-func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessionsvc.Service {
-	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{})
+func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer, options ...sessionsvc.Option) *sessionsvc.Service {
+	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{}, options...)
 }
 
-func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
-	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer))
+func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string, options ...sessionsvc.Option) a2asrv.RequestHandler {
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer, options...))
 	return New(interactions, dialer, url)
 }
 

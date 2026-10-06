@@ -20,6 +20,12 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
 func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
+	for _, variable := range environment {
+		if (variable.Name == env.KagentPropagateToken.Name() && strings.EqualFold(strings.TrimSpace(variable.Value), "true")) ||
+			(variable.Name == env.StsWellKnownURI.Name() && variable.Value != "") {
+			return nil, nil, NewValidationError("environment setting %q requires caller credentials inside the actor; the gateway removes Authorization before dispatch", variable.Name)
+		}
+	}
 	var bindings []egress.Credential
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
@@ -60,7 +66,10 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	}
 	for _, resolved := range models {
 		model := resolved.Config
-		if model.Spec.APIKeyPassthrough || model.Spec.APIKeySecret == "" {
+		if model.Spec.APIKeyPassthrough {
+			return nil, nil, NewValidationError("apiKeyPassthrough requires caller credentials inside the actor; the gateway removes Authorization before dispatch")
+		}
+		if model.Spec.APIKeySecret == "" {
 			continue
 		}
 		name, endpoint, header, prefix := modelCredentialTarget(resolved)
@@ -88,22 +97,6 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	bindings, err := egress.CanonicalCredentials(bindings)
 	if err != nil {
 		return nil, nil, NewValidationError("%v", err)
-	}
-	for _, resolved := range models {
-		if !resolved.Config.Spec.APIKeyPassthrough {
-			continue
-		}
-		_, endpoint, _, _ := modelCredentialTarget(resolved)
-		u, err := url.Parse(endpoint)
-		if err != nil {
-			return nil, nil, NewValidationError("invalid passthrough credential destination")
-		}
-		hostname := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-		for _, binding := range bindings {
-			if binding.Hostname == hostname {
-				return nil, nil, NewValidationError("destination %q cannot combine caller-token passthrough with gateway credentials", hostname)
-			}
-		}
 	}
 	result := append([]corev1.EnvVar(nil), environment...)
 	for i, variable := range result {

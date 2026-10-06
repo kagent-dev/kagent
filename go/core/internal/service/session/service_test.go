@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
 )
 
 type serviceTestSession struct{ userID string }
@@ -522,16 +523,35 @@ func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	}
 }
 
+func TestServiceDisableSessionSharingDisablesShareCreation(t *testing.T) {
+	for _, permission := range []apiv1alpha1.SessionSharePermission{
+		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
+		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE,
+	} {
+		t.Run(permission.String(), func(t *testing.T) {
+			store := &serviceTestStore{}
+			service := NewService(store, serviceTestAuthorizer{}, nil, WithDisableSessionSharing(true))
+			share, token, err := service.CreateShare(serviceTestContext("alice"), uuid.NewString(), permission, 0)
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition), "%v", err)
+			require.Nil(t, share)
+			require.Empty(t, token)
+			require.Nil(t, store.share)
+			require.Empty(t, store.tokenHash)
+		})
+	}
+}
+
 func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
 	for _, test := range []struct {
-		name     string
-		ctx      context.Context
-		share    *auth.ShareContext
-		denied   bool
-		owner    string
-		unscoped bool
-		code     serviceerrors.Code
+		name           string
+		ctx            context.Context
+		share          *auth.ShareContext
+		denied         bool
+		owner          string
+		unscoped       bool
+		code           serviceerrors.Code
+		disableSharing bool
 	}{
 		{name: "owner", ctx: serviceTestContext("alice"), owner: "alice"},
 		{name: "denied owner", ctx: serviceTestContext("alice"), denied: true, code: serviceerrors.CodePermissionDenied},
@@ -544,6 +564,13 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 		{name: "controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), unscoped: true},
 		{name: "denied controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), denied: true, code: serviceerrors.CodePermissionDenied},
 		{name: "controller with share stays scoped", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, owner: "owner"},
+		{name: "sharing disabled owner", ctx: serviceTestContext("alice"), owner: "alice", disableSharing: true},
+		{name: "sharing disabled shared reader", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: id, UserID: "owner", ReadOnly: true}, disableSharing: true, code: serviceerrors.CodePermissionDenied},
+		{name: "sharing disabled shared writer", ctx: serviceTestContext("visitor"), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, disableSharing: true, code: serviceerrors.CodePermissionDenied},
+		{name: "sharing disabled owner using share", ctx: serviceTestContext("owner"), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, disableSharing: true, owner: "owner"},
+		{name: "sharing disabled unrelated share uses caller", ctx: serviceTestContext("alice"), share: &auth.ShareContext{SessionID: uuid.NewString(), UserID: "owner"}, disableSharing: true, owner: "alice"},
+		{name: "sharing disabled controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), disableSharing: true, unscoped: true},
+		{name: "sharing disabled controller with share", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, disableSharing: true, code: serviceerrors.CodePermissionDenied},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := test.ctx
@@ -554,7 +581,7 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 			store := &serviceTestStore{getResult: stored}
 			authorizer := &recordingAuthorizer{denied: map[string]bool{id: test.denied}}
 			// A suspended read must never touch a workflow.
-			service := NewService(store, authorizer, nil)
+			service := NewService(store, authorizer, nil, WithDisableSessionSharing(test.disableSharing))
 			result, err := service.Get(ctx, id)
 			if test.code != "" {
 				if !serviceerrors.IsCode(err, test.code) || store.getID != "" {

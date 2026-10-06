@@ -8,6 +8,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -23,6 +24,7 @@ type runtimeTestAuth struct{ auth.AuthProvider }
 
 func (runtimeTestAuth) UpstreamAuth(req *http.Request, _ auth.Session, _ auth.Principal) error {
 	req.Header.Set("Authorization", "Bearer runtime-test")
+	req.Header.Set("X-User-ID", "runtime-user")
 	req.Header.Set("ate-target-actor", "wrong/actor")
 	return nil
 }
@@ -51,28 +53,48 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
 	client, err := dialer.Dial(ctx, &apiv1alpha1.Session{
 		Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Destroy()) })
 
-	_, err = client.GetTask(ctx, &a2atype.GetTaskRequest{ID: "task"})
-	require.Error(t, err)
-	for _, err := range client.SendStreamingMessage(ctx, &a2atype.SendMessageRequest{
-		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
-	}) {
-		require.Error(t, err)
-	}
-	for range 2 {
-		select {
-		case md := <-received:
-			require.Equal(t, []string{"team/session-session"}, md.Get("ate-target-actor"))
-			require.Equal(t, []string{"Bearer runtime-test"}, md.Get("authorization"))
-			require.Equal(t, []string{listener.Addr().String()}, md.Get(":authority"))
-		case <-ctx.Done():
-			t.Fatal("runtime did not receive both calls")
-		}
+	for _, authenticated := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without identity", true: "with identity"}[authenticated], func(t *testing.T) {
+			callCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer outgoing-test")
+			params := a2aclient.ServiceParams{
+				"Authorization": {"Bearer param-test"},
+				"aUtHoRiZaTiOn": {"Bearer mixed-case-test"},
+				"x-request-id":  {"request"},
+			}
+			callCtx = a2aclient.AttachServiceParams(callCtx, params)
+			if authenticated {
+				callCtx = auth.AuthSessionTo(callCtx, auth.ControlPlaneSession{})
+			}
+			_, err = client.GetTask(callCtx, &a2atype.GetTaskRequest{ID: "task"})
+			require.Error(t, err)
+			for _, err := range client.SendStreamingMessage(callCtx, &a2atype.SendMessageRequest{
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+			}) {
+				require.Error(t, err)
+			}
+			for range 2 {
+				select {
+				case md := <-received:
+					require.Equal(t, []string{"team/session-session"}, md.Get("ate-target-actor"))
+					require.Empty(t, md.Get("authorization"))
+					require.Equal(t, []string{"request"}, md.Get("x-request-id"))
+					if authenticated {
+						require.Equal(t, []string{"runtime-user"}, md.Get("x-user-id"))
+					}
+					require.Equal(t, []string{listener.Addr().String()}, md.Get(":authority"))
+				case <-ctx.Done():
+					t.Fatal("runtime did not receive both calls")
+				}
+			}
+			original, _ := metadata.FromOutgoingContext(callCtx)
+			require.Equal(t, []string{"Bearer outgoing-test"}, original.Get("authorization"))
+			require.Equal(t, []string{"Bearer param-test"}, params["Authorization"])
+		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -78,9 +79,8 @@ func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) 
 	)
 }
 
-// upstreamAuthInterceptor mirrors the current gateway's per-request auth
-// forwarding. ServiceParams make the resulting headers transport-neutral: the
-// A2A gRPC transport carries them as metadata to the private runtime.
+// upstreamAuthInterceptor forwards identity metadata without caller credentials.
+// The A2A gRPC transport replaces outgoing metadata with these ServiceParams.
 type upstreamAuthInterceptor struct {
 	a2aclient.PassthroughInterceptor
 	authenticator auth.AuthProvider
@@ -102,6 +102,11 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	for key, values := range httpRequest.Header {
 		for _, value := range values {
 			req.ServiceParams.Append(key, value)
+		}
+	}
+	for key := range req.ServiceParams {
+		if strings.EqualFold(key, "authorization") {
+			delete(req.ServiceParams, key)
 		}
 	}
 	req.ServiceParams["ate-target-actor"] = []string{u.targetActor}

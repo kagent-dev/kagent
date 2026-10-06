@@ -62,10 +62,11 @@ type ShareListResult struct {
 }
 
 type Service struct {
-	store       store
-	authorizer  auth.Authorizer
-	workflow    sessionWorkflow
-	shareMaxTTL time.Duration
+	store                 store
+	authorizer            auth.Authorizer
+	workflow              sessionWorkflow
+	shareMaxTTL           time.Duration
+	disableSessionSharing bool
 }
 
 type Option func(*Service)
@@ -75,6 +76,14 @@ type Option func(*Service)
 func WithShareMaxTTL(maxTTL time.Duration) Option {
 	return func(service *Service) {
 		service.shareMaxTTL = maxTTL
+	}
+}
+
+// WithDisableSessionSharing prevents shares from granting access to another user.
+// Existing shares remain stored so enabling sharing restores their use.
+func WithDisableSessionSharing(disabled bool) Option {
+	return func(service *Service) {
+		service.disableSessionSharing = disabled
 	}
 }
 
@@ -334,6 +343,9 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, permission 
 	if err != nil {
 		return nil, "", err
 	}
+	if s.disableSessionSharing {
+		return nil, "", serviceerrors.NewFailedPrecondition("Session sharing is disabled", nil)
+	}
 	token, tokenHash, err := generateShareToken()
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
@@ -407,7 +419,8 @@ func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
 // to select the record's owner. Read-only restrictions live here so they apply
 // equally to transport calls and direct service callers.
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
-	if _, ok := auth.AuthSessionFrom(ctx); !ok {
+	caller, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	if share, ok := auth.ShareContextFrom(ctx); ok {
@@ -415,6 +428,9 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
 		}
 		if share.IsForSession(name) {
+			if s.disableSessionSharing && share.UserID != caller.Principal().User.ID {
+				return "", serviceerrors.NewPermissionDenied("Session sharing is disabled", nil)
+			}
 			return share.UserID, nil
 		}
 	}

@@ -2,15 +2,18 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -46,6 +49,82 @@ func (s *interactionTestStore) GetSettledSessionTask(context.Context, string, st
 func (s *interactionTestStore) GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error) {
 	s.taskReads++
 	return s.task, nil
+}
+
+func TestDisableSessionSharingPreservesOwnerAdmission(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	workflow := NewActorWorkflow(store, actors)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	owner := serviceTestContext("alice")
+	agent := types.NamespacedName{Namespace: session.Agent.Namespace, Name: session.Agent.Name}
+	disabled := NewService(store, auth.NoopAuthorizer{}, workflow)
+	_, token, err := disabled.CreateShare(owner, session.Id, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, 0)
+	require.NoError(t, err)
+	share, err := ResolveShare(t.Context(), store, token)
+	require.NoError(t, err)
+	visitor := auth.ShareContextTo(serviceTestContext("bob"), share)
+	interactions := NewInteractionService(store, nil, NewService(store, auth.NoopAuthorizer{}, workflow, WithDisableSessionSharing(true)))
+	input := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	input.ContextID = session.ContextId
+	request := &a2atype.SendMessageRequest{Message: input}
+	_, err = interactions.PrepareSend(visitor, agent, request)
+	require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+	_, err = interactions.PrepareSend(serviceTestContext("bob"), agent, request)
+	require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+
+	observer, disconnect := context.WithCancel(owner)
+	t.Cleanup(disconnect)
+	prepared, err := interactions.PrepareSend(observer, agent, request)
+	require.NoError(t, err)
+	task := a2atype.NewSubmittedTask(input, input)
+	digest := sha256.Sum256([]byte("accepted"))
+	version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, prepared.DispatchID.String())
+	require.NoError(t, err)
+	disconnect()
+	revoked, err := interactions.RevokeSend(context.WithoutCancel(observer), agent, input, prepared.DispatchID)
+	require.NoError(t, err)
+	require.False(t, revoked, "observer cleanup must not revoke accepted execution")
+	next := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("next"))
+	next.ContextID = session.ContextId
+	_, err = interactions.PrepareSend(owner, agent, &a2atype.SendMessageRequest{Message: next})
+	require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation, "accepted execution must still block another input")
+
+	task.Status.State = a2atype.TaskStateInputRequired
+	digest = sha256.Sum256([]byte("waiting"))
+	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
+	require.NoError(t, err)
+	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("approved"))
+	reply.ContextID, reply.TaskID = session.ContextId, task.ID
+	prepared, err = interactions.PrepareSend(owner, agent, &a2atype.SendMessageRequest{Message: reply})
+	require.NoError(t, err, "the owner can continue without a checkpoint")
+	task.History = append(task.History, reply)
+	task.Status.State = a2atype.TaskStateWorking
+	digest = sha256.Sum256([]byte("continued"))
+	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, prepared.DispatchID.String())
+	require.NoError(t, err)
+	task.Status.State = a2atype.TaskStateCompleted
+	digest = sha256.Sum256([]byte("completed"))
+	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
+	require.NoError(t, err)
+	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+
+	_, err = interactions.PrepareSend(visitor, agent, &a2atype.SendMessageRequest{Message: next})
+	require.ErrorIs(t, err, a2atype.ErrUnauthorized, "completion must not change the session owner")
+	prepared, err = interactions.PrepareSend(owner, agent, &a2atype.SendMessageRequest{Message: next})
+	require.NoError(t, err, "the owner can start a sequential task without a checkpoint")
+	revoked, err = interactions.RevokeSend(owner, agent, next, prepared.DispatchID)
+	require.NoError(t, err)
+	require.True(t, revoked)
+
+	interactions = NewInteractionService(store, nil, disabled)
+	prepared, err = interactions.PrepareSend(visitor, agent, &a2atype.SendMessageRequest{Message: next})
+	require.NoError(t, err, "enabling sharing must restore the existing share")
+	revoked, err = interactions.RevokeSend(visitor, agent, next, prepared.DispatchID)
+	require.NoError(t, err)
+	require.True(t, revoked)
 }
 
 func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
@@ -102,16 +181,19 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 		}},
 	} {
 		for _, test := range []struct {
-			name  string
-			ctx   context.Context
-			agent types.NamespacedName
-			want  error
+			name           string
+			ctx            context.Context
+			agent          types.NamespacedName
+			want           error
+			disableSharing bool
 		}{
 			{name: "unauthenticated", ctx: context.Background(), agent: agent, want: a2atype.ErrUnauthenticated},
 			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
 			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, want: a2atype.ErrUnauthorized},
 			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner", ReadOnly: true}), agent: agent},
 			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, want: a2atype.ErrUnauthorized},
+			{name: "sharing disabled shared reader", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner", ReadOnly: true}), agent: agent, disableSharing: true, want: a2atype.ErrUnauthorized},
+			{name: "sharing disabled shared writer", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, disableSharing: true, want: a2atype.ErrUnauthorized},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
 				stored := &apiv1alpha1.Session{Id: id, ContextId: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED,
@@ -119,7 +201,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				sessionStore := &serviceTestStore{getResult: stored}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
-				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil))
+				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil, WithDisableSessionSharing(test.disableSharing)))
 				want := test.want
 				if test.name == "read-only share" && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized

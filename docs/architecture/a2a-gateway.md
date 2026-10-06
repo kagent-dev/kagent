@@ -47,6 +47,19 @@ Shared listings are restricted to one conversation and denied Sessions are filte
 before pagination. Public Agent Card URLs and SDK transport handling belong to the
 gateway.
 
+`app.Options.DisableSessionSharing` prevents shares from granting session access
+to another caller and rejects new shares.
+The owner can continue tasks and use existing shares. Internal controller access
+still requires authorisation. The setting defaults to false, which preserves
+normal sharing. Setting it back to false restores access through stored shares
+that remain valid.
+
+The gateway always removes `Authorization` from actor-bound requests, including
+headers supplied by the authentication provider and A2A service parameters.
+Identity metadata can still reach the actor. This behaviour is independent of
+the session sharing setting. Caller credentials remain available to services
+in the control plane; stripping them does not implement credential propagation.
+
 The runtime owns execution and persists updates through the private gRPC
 `TaskStoreService`. The gateway owns each caller's observation connection.
 Disconnecting a client or gateway does not cancel the native runner or remove

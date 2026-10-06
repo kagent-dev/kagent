@@ -321,16 +321,19 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		t.Run(string(protocol), func(t *testing.T) {
 			for _, test := range []struct {
-				name       string
-				permission apiv1alpha1.SessionSharePermission
-				sessionID  string
-				storeErr   error
-				wantStatus int
-				canRead    bool
-				canWrite   bool
+				name           string
+				permission     apiv1alpha1.SessionSharePermission
+				sessionID      string
+				storeErr       error
+				wantStatus     int
+				canRead        bool
+				canWrite       bool
+				disableSharing bool
 			}{
 				{name: "read only", permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, sessionID: gatewayTestID, canRead: true},
 				{name: "read write", permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, sessionID: gatewayTestID, canRead: true, canWrite: true},
+				{name: "sharing disabled read only", permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, sessionID: gatewayTestID, disableSharing: true},
+				{name: "sharing disabled read write", permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, sessionID: gatewayTestID, disableSharing: true},
 				{name: "other session", sessionID: "12345678-1234-4234-8234-123456789abc"},
 				{name: "expired", storeErr: database.ErrNotFound, wantStatus: 403},
 				{name: "store unavailable", storeErr: errors.New("database credentials"), wantStatus: 500},
@@ -339,7 +342,8 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 					store := &gatewayTestStore{session: gatewayTestSession(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 					shares := &httpTestShares{permission: test.permission, sessionID: test.sessionID, err: test.storeErr}
 					runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
-					gateway := newTestGateway(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+					dialer := &gatewayTestDialer{client: gatewayTestClient(t, runtime)}
+					gateway := newTestGateway(store, &gatewayDenyAuthorizer{}, dialer, gatewayTestURL, sessionsvc.WithDisableSessionSharing(test.disableSharing))
 					address := startCoreTestServer(t, gateway, shares)
 					transport := newGatewayTestTransport(t, address, protocol)
 					params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}, "x-share-token": {"share"}}
@@ -375,6 +379,10 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 					}
 					if test.wantStatus != 0 && protocol == a2atype.TransportProtocolJSONRPC {
 						require.Contains(t, err.Error(), http.StatusText(test.wantStatus))
+					}
+					if test.disableSharing {
+						require.Zero(t, store.reserveCalls)
+						require.Nil(t, dialer.session)
 					}
 				})
 			}

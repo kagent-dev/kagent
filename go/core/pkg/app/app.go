@@ -88,6 +88,9 @@ type Options struct {
 	// Authorizer decides what an identified caller may do and which collection
 	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
 	Authorizer auth.CollectionAuthorizer
+	// DisableSessionSharing prevents shares from granting access to another user.
+	// It also disables new shares. The default preserves session sharing.
+	DisableSessionSharing bool
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
 	// a scheme added here is in place before any cache is built. Returning an
@@ -332,7 +335,8 @@ func Run(ctx context.Context, opts Options) error {
 	if shareMaxTTL < 0 {
 		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
 	}
-	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
+	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow,
+		sessionsvc.WithShareMaxTTL(shareMaxTTL), sessionsvc.WithDisableSessionSharing(opts.DisableSessionSharing))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		kagentenv.SubstrateAtenetRouterURL.Get(),
