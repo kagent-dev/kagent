@@ -43,13 +43,13 @@ afterEach(() => clearApiExtensions());
  * entry here fails to compile, so the sweep below cannot silently stop covering
  * the whole surface.
  */
-for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{description:"Inline fixture"},harnessRef:{name:"k8s-agent"}}}});
+for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{inline:{description:"Inline fixture"}},harness:{ref:{name:"k8s-agent"}}}}});
 
 const INPUTS = {
   "agents.list": {namespace:"kagent"},
   "agents.get": {namespace:"kagent", name:"k8s-agent-7f3a91c"},
-  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{templateRef:{name:"note-taker"},harnessRef:{name:"k8s-agent"}}}},
-  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{description:"Changed inline"},harnessRef:{name:"k8s-agent"}}}},
+  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{template:{ref:{name:"note-taker"}},harness:{ref:{name:"k8s-agent"}}}}},
+  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{inline:{description:"Changed inline"}},harness:{ref:{name:"k8s-agent"}}}}},
   "agents.delete": {namespace:"kagent", name:"disposable-agent"},
 
   "scheduledRuns.list": {},

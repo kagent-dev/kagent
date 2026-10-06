@@ -93,16 +93,16 @@ function AgentForm({ agent }: { agent?: Agent }) {
   const namespace = chosenNamespace ?? fallbackNamespace;
   const [name, setName] = useState(agent?.name ?? "");
 
-  const [templateSource, setTemplateSource] = useState<Source>(spec?.template ? "inline" : "reference");
-  const [templateRef, setTemplateRef] = useState(spec?.templateRef?.name);
+  const [templateSource, setTemplateSource] = useState<Source>(spec?.template.inline ? "inline" : "reference");
+  const [templateRef, setTemplateRef] = useState(spec?.template.ref?.name);
   const [templateDraft, setTemplateDraft] = useState(() =>
-    spec?.template ? draftFromSpec(spec.template, agent!.namespace) : emptyDraft(namespace),
+    spec?.template.inline ? draftFromSpec(spec.template.inline, agent!.namespace) : emptyDraft(namespace),
   );
 
-  const [harnessSource, setHarnessSource] = useState<Source>(spec?.harness ? "inline" : "reference");
-  const [harnessRef, setHarnessRef] = useState(spec?.harnessRef?.name);
+  const [harnessSource, setHarnessSource] = useState<Source>(spec?.harness.inline ? "inline" : "reference");
+  const [harnessRef, setHarnessRef] = useState(spec?.harness.ref?.name);
   const [harnessDraft, setHarnessDraft] = useState(() =>
-    spec?.harness ? harnessDraftFromSpec(spec.harness) : emptyHarnessDraft(),
+    spec?.harness.inline ? harnessDraftFromSpec(spec.harness.inline) : emptyHarnessDraft(),
   );
 
   const templates = useAgentTemplates(namespace || undefined);
@@ -131,12 +131,12 @@ function AgentForm({ agent }: { agent?: Agent }) {
     setSaving(true);
     setFailure(undefined);
     const agentSpec = {
-      ...(templateSource === "reference"
-        ? { templateRef: { name: templateRef! } }
-        : { template: specFromDraft(inlineTemplate, spec?.template) }),
-      ...(harnessSource === "reference"
-        ? { harnessRef: { name: harnessRef! } }
-        : { harness: harnessSpecFromDraft(harnessDraft, spec?.harness) }),
+      template: templateSource === "reference"
+        ? { ref: { name: templateRef! } }
+        : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },
+      harness: harnessSource === "reference"
+        ? { ref: { name: harnessRef! } }
+        : { inline: harnessSpecFromDraft(harnessDraft, spec?.harness.inline) },
     } as AgentSpec;
     const input = {
       namespace,
@@ -215,7 +215,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
             onChange={setTemplateDraft}
             isCreate={false}
             namespace={namespace}
-            hasUnshownFields={spec?.template ? hasUnshownSpecFields(spec.template) : false}
+            hasUnshownFields={spec?.template.inline ? hasUnshownSpecFields(spec.template.inline) : false}
           />
         }
       />

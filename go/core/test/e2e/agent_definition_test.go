@@ -38,14 +38,12 @@ func TestAgentInlineAndReferencedConfiguration(t *testing.T) {
 					if inlineTemplate {
 						template := &v1alpha3.AgentTemplate{}
 						require.NoError(t, kube.Get(t.Context(), key, template))
-						agent.Spec.Template = template.Spec.DeepCopy()
-						agent.Spec.TemplateRef = nil
+						agent.Spec.Template = v1alpha3.AgentTemplateSource{Inline: template.Spec.DeepCopy()}
 					}
 					if inlineHarness {
 						runtime := &v1alpha3.Harness{}
 						require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: harness.name}, runtime))
-						agent.Spec.Harness = runtime.Spec.DeepCopy()
-						agent.Spec.HarnessRef = nil
+						agent.Spec.Harness = v1alpha3.AgentHarnessSource{Inline: runtime.Spec.DeepCopy()}
 					}
 					require.NoError(t, kube.Update(t.Context(), agent))
 					generation := agent.Generation

@@ -2,10 +2,17 @@ import type { ResourceMetadata } from "./common";
 import type { AgentTemplate, AgentTemplateSpec } from "./agentTemplates";
 import type { HarnessSpec } from "./harnesses";
 
-/** Exactly one of each pair; refs resolve in the Agent's namespace. */
-export type AgentSpec =
-  ({ template: AgentTemplateSpec; templateRef?: never } | { templateRef: { name: string }; template?: never }) &
-  ({ harness: HarnessSpec; harnessRef?: never } | { harnessRef: { name: string }; harness?: never });
+/** Exactly one source per required wrapper; refs resolve in the Agent's namespace. */
+export type AgentTemplateSource =
+  | { inline: AgentTemplateSpec; ref?: never }
+  | { ref: { name: string }; inline?: never };
+export type AgentHarnessSource =
+  | { inline: HarnessSpec; ref?: never }
+  | { ref: { name: string }; inline?: never };
+export interface AgentSpec {
+  template: AgentTemplateSource;
+  harness: AgentHarnessSource;
+}
 /** One condition the controller recorded for an Agent. */
 export interface AgentCondition {
   type: string;
@@ -86,18 +93,20 @@ export function bareName(ref: string): string {
 
 /** The shared template's name, or undefined when the template is inline. */
 export function templateRefName(agent: Agent): string | undefined {
-  return agent.resource.spec.templateRef?.name;
+  return agent.resource.spec.template.ref?.name;
 }
 
 /** The shared harness's name, or undefined when the harness is inline. */
 export function harnessRefName(agent: Agent): string | undefined {
-  return agent.resource.spec.harnessRef?.name;
+  return agent.resource.spec.harness.ref?.name;
 }
 
 /** The inline template's description, or the referenced one's from the Agent's namespace. */
 export function agentDescription(agent: Agent, templates: readonly AgentTemplate[] = []): string | undefined {
   const { spec } = agent.resource;
-  if (spec.template) return spec.template.description || undefined;
-  return templates.find((entry) => entry.namespace === agent.namespace && entry.name === spec.templateRef.name)
+  if (spec.template.inline) return spec.template.inline.description || undefined;
+  const refName = spec.template.ref?.name;
+  if (!refName) return undefined;
+  return templates.find((entry) => entry.namespace === agent.namespace && entry.name === refName)
     ?.description || undefined;
 }

@@ -1213,8 +1213,8 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 	agent := &v1alpha3.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: template.Name, Namespace: template.Namespace},
 		Spec: v1alpha3.AgentSpec{
-			TemplateRef: &corev1.LocalObjectReference{Name: template.Name},
-			HarnessRef:  &corev1.LocalObjectReference{Name: harnessName},
+			Template: v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+			Harness:  v1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{Name: harnessName}},
 		},
 	}
 	if err := kube.Create(t.Context(), agent); err != nil {

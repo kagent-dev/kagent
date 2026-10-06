@@ -1689,8 +1689,8 @@ function writeAgent(ref: {namespace: string; name: string} | undefined, value: J
   const name = requireOptionalName("agent", ref?.name);
   const resource = value as unknown as Agent["resource"];
   const spec = resource?.spec;
-  if (!name || !spec || Number(spec.template !== undefined) + Number(spec.templateRef !== undefined) !== 1 || Number(spec.harness !== undefined) + Number(spec.harnessRef !== undefined) !== 1 || (spec.templateRef && !spec.templateRef.name) || (spec.harnessRef && !spec.harnessRef.name)) {
-    throw new ConnectError("Choose exactly one template or templateRef and one harness or harnessRef", Code.InvalidArgument);
+  if (!name || !spec || !spec.template || !spec.harness || Number(spec.template.inline !== undefined) + Number(spec.template.ref !== undefined) !== 1 || Number(spec.harness.inline !== undefined) + Number(spec.harness.ref !== undefined) !== 1 || (spec.template.ref && !spec.template.ref.name) || (spec.harness.ref && !spec.harness.ref.name)) {
+    throw new ConnectError("Choose exactly one inline or ref source for template and harness", Code.InvalidArgument);
   }
   const status = reconciledStatus(namespace, spec, previous);
   return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name, generation: status?.observedGeneration}, spec, status}};
@@ -1706,10 +1706,10 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
   const condition = (type: string, ok: boolean, reason: string, message: string) =>
     ({type, status: ok ? "True" : "False", reason, message});
   const accepted = condition("Accepted", true, "Accepted", "Agent explicitly selects its template and harness");
-  const missing = spec.templateRef && !allAgentTemplates().some(row => row.namespace === namespace && row.name === spec.templateRef?.name)
-    ? `AgentTemplate ${spec.templateRef.name} not found`
-    : spec.harnessRef && !allHarnesses().some(row => row.namespace === namespace && row.name === spec.harnessRef?.name)
-      ? `Harness ${spec.harnessRef.name} not found` : undefined;
+  const missing = spec.template.ref && !allAgentTemplates().some(row => row.namespace === namespace && row.name === spec.template.ref?.name)
+    ? `AgentTemplate ${spec.template.ref.name} not found`
+    : spec.harness.ref && !allHarnesses().some(row => row.namespace === namespace && row.name === spec.harness.ref?.name)
+      ? `Harness ${spec.harness.ref.name} not found` : undefined;
   if (missing) {
     return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: latest, conditions: [
       accepted,

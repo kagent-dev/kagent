@@ -131,19 +131,21 @@ metadata:
   namespace: kagent
 spec:
   template:
-    modelConfig:
-      name: default-model-config
-    description: A general-purpose assistant.
-    systemPrompt: You are a helpful assistant running on kagent.
+    inline:
+      modelConfig:
+        name: default-model-config
+      description: A general-purpose assistant.
+      systemPrompt: You are a helpful assistant running on kagent.
   harness:
-    kagent: {}
-    workload:
-      image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
-    substrate:
-      workerPoolRef:
-        name: kagent-default
-      snapshotPolicy:
-        location: s3://ate-snapshots/kagent
+    inline:
+      kagent: {}
+      workload:
+        image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
+      substrate:
+        workerPoolRef:
+          name: kagent-default
+        snapshotPolicy:
+          location: s3://ate-snapshots/kagent
 EOF
 
 # Ready means Substrate has booted the template's golden actor and snapshotted it, which

@@ -110,6 +110,9 @@ func newAgentReconciliations(
 			var missingPool *translator.WorkerPoolNotFoundError
 			switch {
 			case errors.As(err, &validation):
+				// TODO(tim): Separate structural Agent validation from resolved
+				// compatibility failures so invalid sources do not report Accepted=True
+				// and ResolvedRefs=True.
 				condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
 			case errors.As(err, &missingPool):
 				reason = "WorkerPoolNotFound"

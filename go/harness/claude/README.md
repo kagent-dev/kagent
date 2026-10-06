@@ -126,30 +126,32 @@ metadata:
   namespace: kagent
 spec:
   template:
-    description: test
-    modelConfig:
-      name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
-    systemPrompt: |
-        Follow the selected skill and use the configured MCP tool.
-    tools:
-      - mcp:
-          server:
-            kind: RemoteMCPServer
-            name: kagent-tool-server
-    plugins:
-      - source:
-          git:
-            url: https://github.com/agentplugins/agent-plugins-example.git
-            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
-        skills:
-          - migrate-agent-plugin
+    inline:
+      description: test
+      modelConfig:
+        name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
+      systemPrompt: |
+          Follow the selected skill and use the configured MCP tool.
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: kagent-tool-server
+      plugins:
+        - source:
+            git:
+              url: https://github.com/agentplugins/agent-plugins-example.git
+              commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
+          skills:
+            - migrate-agent-plugin
   harness:
-    claude: {}
-    workload:
-      image: ${KAGENT_CLAUDE_IMAGE}
-    substrate:
-      workerPoolRef:
-        name: kagent-default
-      snapshotPolicy:
-        location: gs://ate-snapshots/kagent/
+    inline:
+      claude: {}
+      workload:
+        image: ${KAGENT_CLAUDE_IMAGE}
+      substrate:
+        workerPoolRef:
+          name: kagent-default
+        snapshotPolicy:
+          location: gs://ate-snapshots/kagent/
 ```

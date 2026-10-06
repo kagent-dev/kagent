@@ -769,7 +769,10 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 	t.Run("cycle", func(t *testing.T) {
 		root := template("root", binding("child", "child"))
 		child := template("child", binding("root", root.Name))
-		_, err := compiler(t, root, child, harness).CompileAgent(t.Context(), &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: "test"}, Spec: v1alpha3.AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: root.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name}}})
+		_, err := compiler(t, root, child, harness).CompileAgent(t.Context(), &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: "test"}, Spec: v1alpha3.AgentSpec{
+			Template: v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: root.Name}},
+			Harness:  v1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{Name: harness.Name}},
+		}})
 		require.ErrorContains(t, err, "cycle")
 	})
 	t.Run("consecutive shared depth", func(t *testing.T) {
@@ -811,6 +814,67 @@ func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
 	}
 }
 
+func TestCompileAgentRejectsInvalidSources(t *testing.T) {
+	template := &v1alpha3.AgentTemplateSpec{}
+	harness := &v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}
+	ref := &corev1.LocalObjectReference{Name: "shared"}
+	for _, tt := range []struct {
+		name      string
+		spec      v1alpha3.AgentSpec
+		wantError string
+	}{
+		{
+			name:      "template has no source",
+			spec:      v1alpha3.AgentSpec{Harness: v1alpha3.AgentHarnessSource{Inline: harness}},
+			wantError: "each require exactly one of inline or ref",
+		},
+		{
+			name: "template has two sources",
+			spec: v1alpha3.AgentSpec{
+				Template: v1alpha3.AgentTemplateSource{Inline: template, Ref: ref},
+				Harness:  v1alpha3.AgentHarnessSource{Inline: harness},
+			},
+			wantError: "each require exactly one of inline or ref",
+		},
+		{
+			name:      "harness has no source",
+			spec:      v1alpha3.AgentSpec{Template: v1alpha3.AgentTemplateSource{Inline: template}},
+			wantError: "each require exactly one of inline or ref",
+		},
+		{
+			name: "harness has two sources",
+			spec: v1alpha3.AgentSpec{
+				Template: v1alpha3.AgentTemplateSource{Inline: template},
+				Harness:  v1alpha3.AgentHarnessSource{Inline: harness, Ref: ref},
+			},
+			wantError: "each require exactly one of inline or ref",
+		},
+		{
+			name: "template ref has no name",
+			spec: v1alpha3.AgentSpec{
+				Template: v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{}},
+				Harness:  v1alpha3.AgentHarnessSource{Inline: harness},
+			},
+			wantError: "template ref.name must not be empty",
+		},
+		{
+			name: "harness ref has no name",
+			spec: v1alpha3.AgentSpec{
+				Template: v1alpha3.AgentTemplateSource{Inline: template},
+				Harness:  v1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{}},
+			},
+			wantError: "harness ref.name must not be empty",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := compiler(t).CompileAgent(t.Context(), &v1alpha3.Agent{Spec: tt.spec})
+			require.ErrorContains(t, err, tt.wantError)
+			var validationError *v2translator.ValidationError
+			require.ErrorAs(t, err, &validationError)
+		})
+	}
+}
+
 func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review code",
@@ -830,14 +894,14 @@ func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "agent-uid"}}
 			if tt.inlineTemplate {
-				agent.Spec.Template = template.Spec.DeepCopy()
+				agent.Spec.Template.Inline = template.Spec.DeepCopy()
 			} else {
-				agent.Spec.TemplateRef = &corev1.LocalObjectReference{Name: template.Name}
+				agent.Spec.Template.Ref = &corev1.LocalObjectReference{Name: template.Name}
 			}
 			if tt.inlineHarness {
-				agent.Spec.Harness = harness.Spec.DeepCopy()
+				agent.Spec.Harness.Inline = harness.Spec.DeepCopy()
 			} else {
-				agent.Spec.HarnessRef = &corev1.LocalObjectReference{Name: harness.Name}
+				agent.Spec.Harness.Ref = &corev1.LocalObjectReference{Name: harness.Name}
 			}
 			original := agent.DeepCopy()
 			c := compiler(t, modelConfig(), template, harness, child)
@@ -873,7 +937,10 @@ func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 		}
 	})
 	t.Run("missing local reference", func(t *testing.T) {
-		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "elsewhere", Name: "assistant"}, Spec: v1alpha3.AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name}}}
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "elsewhere", Name: "assistant"}, Spec: v1alpha3.AgentSpec{
+			Template: v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+			Harness:  v1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{Name: harness.Name}},
+		}}
 		_, err := compiler(t, template, harness).CompileAgent(t.Context(), agent)
 		require.ErrorContains(t, err, "not found")
 	})
@@ -926,13 +993,14 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 				} {
 					t.Run(name+"/"+source.name, func(t *testing.T) {
 						agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: name}, Spec: v1alpha3.AgentSpec{
-							TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name},
+							Template: v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+							Harness:  v1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{Name: harness.Name}},
 						}}
 						if source.template {
-							agent.Spec.TemplateRef, agent.Spec.Template = nil, template.Spec.DeepCopy()
+							agent.Spec.Template = v1alpha3.AgentTemplateSource{Inline: template.Spec.DeepCopy()}
 						}
 						if source.harness {
-							agent.Spec.HarnessRef, agent.Spec.Harness = nil, harness.Spec.DeepCopy()
+							agent.Spec.Harness = v1alpha3.AgentHarnessSource{Inline: harness.Spec.DeepCopy()}
 						}
 						result, err := c.CompileAgent(t.Context(), agent)
 						require.NoError(t, err)
@@ -962,7 +1030,10 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 // inlineAgent supplies complete specs through the same public entry point as users.
 func inlineAgent(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) *v1alpha3.Agent {
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: harness.Namespace},
-		Spec: v1alpha3.AgentSpec{Template: &template.Spec, Harness: &harness.Spec}}
+		Spec: v1alpha3.AgentSpec{
+			Template: v1alpha3.AgentTemplateSource{Inline: &template.Spec},
+			Harness:  v1alpha3.AgentHarnessSource{Inline: &harness.Spec},
+		}}
 }
 
 func TestResolveModelConfigMistral(t *testing.T) {

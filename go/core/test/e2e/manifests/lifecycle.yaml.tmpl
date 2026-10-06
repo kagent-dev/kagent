@@ -107,10 +107,12 @@ metadata:
   name: smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: smoke
-  harnessRef:
-    name: kagent
+  template:
+    ref:
+      name: smoke
+  harness:
+    ref:
+      name: kagent
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
@@ -118,7 +120,9 @@ metadata:
   name: byo-smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: byo-smoke
-  harnessRef:
-    name: byo-e2e
+  template:
+    ref:
+      name: byo-smoke
+  harness:
+    ref:
+      name: byo-e2e

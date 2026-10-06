@@ -22,21 +22,61 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// AgentSpec pairs portable behavior with a runner. References are local to the
+// +genclient
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:path=agents,singular=agent,categories=kagent
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+
+// Agent is a runnable definition with an explicit template and harness.
+type Agent struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// +required
+	Spec AgentSpec `json:"spec"`
+	// +optional
+	Status AgentStatus `json:"status,omitempty"`
+}
+
+// AgentSpec pairs portable behavior with a runtime. References are local to the
 // Agent's namespace, including references nested in inline specs.
-// +kubebuilder:validation:XValidation:rule="has(self.template) != has(self.templateRef)",message="exactly one of template or templateRef must be specified"
-// +kubebuilder:validation:XValidation:rule="has(self.harness) != has(self.harnessRef)",message="exactly one of harness or harnessRef must be specified"
 type AgentSpec struct {
+	// Template selects the portable behavior this Agent exposes.
+	// +required
+	Template AgentTemplateSource `json:"template"`
+	// Harness selects the runtime configuration that executes the behavior.
+	// +required
+	Harness AgentHarnessSource `json:"harness"`
+}
+
+// AgentTemplateSource selects portable behavior inline or by local reference.
+// +kubebuilder:validation:XValidation:rule="has(self.inline) != has(self.ref)",message="exactly one of inline or ref must be specified"
+type AgentTemplateSource struct {
+	// Inline defines the Agent's portable behavior directly. It cannot be set
+	// together with Ref.
 	// +optional
-	Template *AgentTemplateSpec `json:"template,omitempty"`
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
+	Inline *AgentTemplateSpec `json:"inline,omitempty"`
+	// Ref names an AgentTemplate in the Agent's namespace. It cannot be set
+	// together with Inline.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="ref.name must not be empty"
 	// +optional
-	TemplateRef *corev1.LocalObjectReference `json:"templateRef,omitempty"`
+	Ref *corev1.LocalObjectReference `json:"ref,omitempty"`
+}
+
+// AgentHarnessSource selects runtime configuration inline or by local reference.
+// +kubebuilder:validation:XValidation:rule="has(self.inline) != has(self.ref)",message="exactly one of inline or ref must be specified"
+type AgentHarnessSource struct {
+	// Inline defines the Agent's runtime configuration directly. It cannot be
+	// set together with Ref.
 	// +optional
-	Harness *HarnessSpec `json:"harness,omitempty"`
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="harnessRef.name must not be empty"
+	Inline *HarnessSpec `json:"inline,omitempty"`
+	// Ref names a Harness in the Agent's namespace. It cannot be set together
+	// with Inline.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="ref.name must not be empty"
 	// +optional
-	HarnessRef *corev1.LocalObjectReference `json:"harnessRef,omitempty"`
+	Ref *corev1.LocalObjectReference `json:"ref,omitempty"`
 }
 
 const (
@@ -67,24 +107,6 @@ type AgentStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// +genclient
-// +kubebuilder:object:root=true
-// +kubebuilder:resource:path=agents,singular=agent,categories=kagent
-// +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-
-// Agent is a runnable definition with an explicit template and harness.
-type Agent struct {
-	metav1.TypeMeta `json:",inline"`
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-	// +required
-	Spec AgentSpec `json:"spec"`
-	// +optional
-	Status AgentStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

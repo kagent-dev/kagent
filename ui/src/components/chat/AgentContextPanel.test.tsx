@@ -10,7 +10,7 @@ const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(
 vi.mock("@/api", () => ({ useAgentTemplate, useAgent }));
 
 function renderPanel(tools: unknown[]) {
-  useAgent.mockReturnValue({data: {resource: {spec: {templateRef: {name: "assistant"}, harnessRef: {name: "runner"}}}}});
+  useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "assistant"}}, harness: {ref: {name: "runner"}}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
       resource: {

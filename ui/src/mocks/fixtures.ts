@@ -862,8 +862,8 @@ const INLINE_HARNESS: HarnessSpec = {
 
 /** Every template/harness combination: ref+ref, inline+ref, ref+inline, inline+inline. */
 export const mockAgents: Agent[] = [
-  agent("kagent", "k8s-agent-7f3a91c", { templateRef: { name: "k8s-agent-7f3a91c" }, harnessRef: { name: "k8s-agent" } }),
-  agent("kagent", "support-triage-2b91d0e", { templateRef: { name: "support-triage-2b91d0e" }, harnessRef: { name: "support-triage" } }, {
+  agent("kagent", "k8s-agent-7f3a91c", { template: { ref: { name: "k8s-agent-7f3a91c" } }, harness: { ref: { name: "k8s-agent" } } }),
+  agent("kagent", "support-triage-2b91d0e", { template: { ref: { name: "support-triage-2b91d0e" } }, harness: { ref: { name: "support-triage" } } }, {
     observedGeneration: 1,
     desiredRevision: "rev-2b91d0e",
     conditions: [
@@ -873,26 +873,26 @@ export const mockAgents: Agent[] = [
       { type: "Ready", status: "False", reason: "ActorTemplatePending", message: "waiting for the ActorTemplate golden snapshot" },
     ],
   }),
-  agent("kagent", "shared-brain-fast", { templateRef: { name: "shared-brain" }, harnessRef: { name: "fast-lane" } }),
-  agent("kagent", "shared-brain", { templateRef: { name: "shared-brain" }, harnessRef: { name: "k8s-agent" } }),
+  agent("kagent", "shared-brain-fast", { template: { ref: { name: "shared-brain" } }, harness: { ref: { name: "fast-lane" } } }),
+  agent("kagent", "shared-brain", { template: { ref: { name: "shared-brain" } }, harness: { ref: { name: "k8s-agent" } } }),
   // Same refs as `shared-brain`: still a separate agent with its own conversations.
-  agent("kagent", "shared-brain-twin", { templateRef: { name: "shared-brain" }, harnessRef: { name: "k8s-agent" } }),
+  agent("kagent", "shared-brain-twin", { template: { ref: { name: "shared-brain" } }, harness: { ref: { name: "k8s-agent" } } }),
   agent("kagent", "release-notes", {
-    template: {
+    template: { inline: {
       modelConfig: { name: "default-model-config" },
       description: "Drafts release notes from merged pull requests.",
       systemPrompt: "You write short, accurate release notes.",
-    },
-    harnessRef: { name: "k8s-agent" },
+    } },
+    harness: { ref: { name: "k8s-agent" } },
   }),
-  agent("kagent", "triage-on-claude", { templateRef: { name: "support-triage-2b91d0e" }, harness: INLINE_HARNESS }),
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harness: { inline: INLINE_HARNESS } }),
   agent("kagent", "scratchpad", {
-    template: {
+    template: { inline: {
       modelConfig: { name: "default-model-config" },
       description: "A throwaway agent for trying prompts.",
       systemPrompt: "You are a helpful assistant.",
-    },
-    harness: INLINE_HARNESS,
+    } },
+    harness: { inline: INLINE_HARNESS },
   }),
-  agent("analytics", "reporting-agent-9d4e2f1", { templateRef: { name: "reporting-agent-9d4e2f1" }, harnessRef: { name: "reporting" } }),
+  agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harness: { ref: { name: "reporting" } } }),
 ];

@@ -658,11 +658,11 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         }}
       >
         <IdentityField label="Agent template">
-          {spec.templateRef ? (
+          {spec.template.ref ? (
             <Link
               to={buildPath(paths.agentTemplateDetail, {
                 namespace: agent.namespace,
-                name: spec.templateRef.name,
+                name: spec.template.ref.name,
               })}
               data-testid="agent-template-link"
               css={{
@@ -675,10 +675,10 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
               }}
             >
               <Text
-                ellipsis={{ tooltip: spec.templateRef.name }}
+                ellipsis={{ tooltip: spec.template.ref.name }}
                 css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
               >
-                {spec.templateRef.name}
+                {spec.template.ref.name}
               </Text>
               <Pencil size={12} aria-hidden color={theme.color.textMuted} />
             </Link>
@@ -688,9 +688,9 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         </IdentityField>
 
         <IdentityField label="Runs on">
-          {spec.harnessRef ? (
-            <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
-              {spec.harnessRef.name}
+          {spec.harness.ref ? (
+            <Text ellipsis={{ tooltip: spec.harness.ref.name }} css={mono}>
+              {spec.harness.ref.name}
             </Text>
           ) : (
             <Text data-testid="agent-harness-inline">Inline</Text>

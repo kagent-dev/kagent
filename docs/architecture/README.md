@@ -37,8 +37,8 @@ semantics; kagent does not maintain a parallel session or task API.
 
 ```mermaid
 flowchart LR
-    AGENT[Agent] --> AT[template or templateRef]
-    AGENT --> H[harness or harnessRef]
+    AGENT[Agent] --> AT[template: inline or ref]
+    AGENT --> H[harness: inline or ref]
     AT --> R[resolve tree]
     H --> R
     R --> B[build harness inputs]
