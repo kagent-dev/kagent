@@ -556,6 +556,10 @@ func (*fakeSessionStore) FailSession(context.Context, string, *apiv1alpha1.Failu
 	return nil, database.ErrNotFound
 }
 
+func (*fakeSessionStore) InterruptSessionTask(context.Context, string, string, time.Time, string) (*database.SessionTaskInterruption, error) {
+	return nil, database.ErrNotFound
+}
+
 type fakeSessionWorkflow struct{}
 
 func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {

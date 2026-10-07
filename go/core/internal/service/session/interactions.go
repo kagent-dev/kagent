@@ -182,6 +182,13 @@ func (s *InteractionService) FailLostRuntime(ctx context.Context, session *apiv1
 	return s.sessions.FailLostRuntime(ctx, session)
 }
 
+// FailLostTurn ends a resolved session's turn that its lost runtime took and
+// records the loss, when the runtime is lost, and returns the failure the turn
+// and later sends are refused with.
+func (s *InteractionService) FailLostTurn(ctx context.Context, session *apiv1alpha1.Session, taskID a2atype.TaskID) (*apiv1alpha1.Failure, error) {
+	return s.sessions.FailLostTurn(ctx, session, string(taskID))
+}
+
 // AwaitRuntime waits, bounded, until a resolved session's runtime that refused
 // a send can take it.
 func (s *InteractionService) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {

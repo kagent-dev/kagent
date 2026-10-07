@@ -103,6 +103,9 @@ func (g *Gateway) sendMessageOnce(ctx context.Context, agent types.NamespacedNam
 		// Preserve explicit protocol rejections, including unwrapped sentinels.
 		if ctx.Err() == nil && a2atype.ErrorReason(err) == a2atype.ErrorReason(a2atype.ErrInternalError) {
 			if task, readErr := g.interactions.GetTaskByMessage(ctx, agent, req.Message); readErr == nil {
+				if lostErr := g.failLostTurn(ctx, session, task); lostErr != nil {
+					return nil, lostErr
+				}
 				if recovered, recoverErr := recoverBoundary(g.interactions.GetSendResult(ctx, agent, req.Message, task.ID, historyLength)); recovered != nil || recoverErr != nil {
 					return recovered, recoverErr
 				}
@@ -281,6 +284,28 @@ func (g *Gateway) refusedSend(ctx context.Context, session *apiv1alpha1.Session,
 	return errRuntimeAwaited
 }
 
+// failLostTurn ends a turn the runtime took before its stream broke, when the
+// runtime is lost, and answers the loss: the runtime saves nothing more for
+// that turn, so waiting for its boundary would only wait out the caller's
+// deadline, and the next send would be refused with the same loss. A turn
+// whose boundary the runtime did save is recovered by the caller instead. A
+// runtime that is not lost, or whose state cannot be read, returns nil: the
+// turn's outcome is still the runtime's.
+func (g *Gateway) failLostTurn(ctx context.Context, session *apiv1alpha1.Session, task *a2atype.Task) error {
+	if isQuiescent(task.Status.State) {
+		return nil
+	}
+	failure, err := g.interactions.FailLostTurn(ctx, session, task.ID)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "check session runtime after a broken turn", "session_id", session.GetId(), "task_id", task.ID, "error", err)
+		return nil
+	}
+	if failure == nil {
+		return nil
+	}
+	return a2atype.NewError(a2atype.ErrUnsupportedOperation, failure.GetMessage())
+}
+
 // observe owns only this observer's actor connection. Disconnecting cannot
 // cancel execution. Final results come from the service after native cleanup
 // acknowledges their saved version, independently of actor pause or suspend.
@@ -351,6 +376,11 @@ func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, sessi
 			task, err := g.interactions.GetTaskByMessage(ctx, agent, message)
 			if err == nil {
 				taskID = task.ID
+				if lostErr := g.failLostTurn(ctx, session, task); lostErr != nil {
+					_ = closeRuntime()
+					yield(nil, lostErr)
+					return
+				}
 			} else {
 				taskID = ""
 			}

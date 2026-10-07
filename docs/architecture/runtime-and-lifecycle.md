@@ -234,7 +234,10 @@ the runtime request: it settles the boundary from the Actor's state as below. Th
 stopped holder cannot renew, finish or release a claim taken over. Uncertain
 claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
-adopted implicitly.
+adopted implicitly. A session that fails, its runtime lost, releases its idle
+work with the failure, claimed or not: nothing settles a boundary of a runtime
+that is gone, a held claim would only refuse the session's delete, and the
+holder's late outcome finds the boundary settled and records nothing.
 
 A pause or suspend that returns an error leaves its outcome to the Actor's own
 state. The claiming worker reads the Actor again, first after a second and then

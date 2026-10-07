@@ -51,8 +51,10 @@ type SessionTaskInterruption struct {
 }
 
 // InterruptSessionTask ends a submitted or working task that recorded no event
-// since cutoff. A boundary the runtime saved but never settled is published as
-// it is: the runtime's outcome wins over an interruption. Otherwise a published
+// since cutoff; a zero cutoff ends the task whatever it recorded last, for a
+// caller that knows its runtime is gone. A boundary the runtime saved but never
+// settled is published as it is: the runtime's outcome wins over an
+// interruption. Otherwise a published
 // FAILED status update carrying message ends the task, so a late runtime save
 // fails on the terminal task and the session takes its next message. The
 // boundary carries no idle work: a suspend of a runtime that may be gone would
@@ -97,7 +99,7 @@ func (c *Client) InterruptSessionTask(ctx context.Context, sessionID, taskID str
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if !latest.CreatedAt.Before(cutoff) {
+		if !cutoff.IsZero() && !latest.CreatedAt.Before(cutoff) {
 			return fmt.Errorf("task %s recorded an event at %s: %w", taskID, latest.CreatedAt.Format(time.RFC3339), ErrConflict)
 		}
 		if !latest.Published && latest.Boundary {

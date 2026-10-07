@@ -173,7 +173,13 @@ initial task followed by live updates. If completion races subscription setup,
 the gateway recovers the committed public result through the interaction service. Unary sends also recover the
 task containing the input if suspension interrupts the response; ambiguous message
 IDs and protocol errors are not recovered. Cancellation recovers only a terminal
-task. An interrupted request with unfinished work
+task. A send whose stream breaks after the runtime took its input, while the
+task is still submitted or working, first asks whether the runtime is lost: a
+crashed or missing Actor saves nothing more for the turn, so the turn ends
+`FAILED` with the loss's message, the session records the loss, and the send is
+answered with it at once rather than waiting for a boundary that never comes;
+an intact runtime, or one whose state cannot be read, keeps the turn. An
+interrupted request with unfinished work
 still returns an error. Clients can replace their
 projection with that current task and apply subsequent upstream A2A updates.
 There is no event cursor or promise of replaying every previous token event.

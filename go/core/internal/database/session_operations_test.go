@@ -281,3 +281,31 @@ func TestFailSessionRecordsRuntimeLoss(t *testing.T) {
 	require.NoError(t, err, "a failed session stays deletable")
 	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, deletion.Instance.State)
 }
+
+// A session that fails while a worker holds its idle boundary, because the
+// runtime the worker was pausing crashed, releases the claim with the failure:
+// nothing settles it for a runtime that is gone, and a held claim would refuse
+// the delete for good. The holder's late outcome records nothing.
+func TestFailSessionReleasesHeldIdleWork(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	session, _ := completedBoundaryFixture(t, client)
+	work, err := client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
+	require.NoError(t, err)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.ErrorIs(t, err, ErrFailedPrecondition, "a held claim refuses the delete of a ready session")
+
+	failure := &apiv1alpha1.Failure{Reason: "RuntimeLost", Message: "runtime lost: Actor team-a/session-1 crashed; start a new conversation"}
+	failed, err := client.FailSession(t.Context(), session.Id, failure)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, failed.State)
+	require.ErrorIs(t, client.RenewSessionQuiescence(t.Context(), work, testClaimLease), ErrNotFound, "the claim is released")
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work), "the holder's late release records nothing")
+	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/late", ContentScope: "DATA"}
+	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, snapshot), "the holder's late finish records nothing")
+	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
+	require.ErrorIs(t, err, ErrNotFound, "a failed session's boundary is not claimed again")
+
+	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.NoError(t, err, "the failed session is deletable at once")
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, deletion.Instance.State)
+}

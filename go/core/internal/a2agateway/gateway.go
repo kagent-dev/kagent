@@ -24,6 +24,7 @@ type interactionService interface {
 	PrepareTaskSubscription(context.Context, types.NamespacedName, *a2a.SubscribeToTaskRequest) (*apiv1alpha1.Session, *a2a.Task, error)
 	RevokeSend(context.Context, types.NamespacedName, *a2a.Message, uuid.UUID) (bool, error)
 	FailLostRuntime(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Failure, error)
+	FailLostTurn(context.Context, *apiv1alpha1.Session, a2a.TaskID) (*apiv1alpha1.Failure, error)
 	RepointQuiesced(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	AwaitRuntime(context.Context, *apiv1alpha1.Session) error
 	GetTaskByMessage(context.Context, types.NamespacedName, *a2a.Message) (*a2a.Task, error)

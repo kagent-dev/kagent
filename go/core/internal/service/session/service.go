@@ -35,6 +35,7 @@ type store interface {
 	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error)
 	DeleteSessionShare(context.Context, string, string) error
 	FailSession(context.Context, string, *apiv1alpha1.Failure) (*apiv1alpha1.Session, error)
+	InterruptSessionTask(context.Context, string, string, time.Time, string) (*database.SessionTaskInterruption, error)
 }
 
 type sessionWorkflow interface {
@@ -99,17 +100,51 @@ func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflo
 // not known to be lost, and the recorded failure otherwise, including one an
 // earlier call recorded.
 func (s *Service) FailLostRuntime(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Failure, error) {
-	cause, lost, err := s.workflow.RuntimeLost(ctx, session)
-	if err != nil {
+	failure, err := s.runtimeLoss(ctx, session)
+	if err != nil || failure == nil {
 		return nil, err
 	}
-	if !lost {
-		return nil, nil
+	return s.failLost(ctx, session, failure)
+}
+
+// FailLostTurn ends the session's turn whose runtime stream broke after the
+// runtime took its input, when the runtime is gone: a runtime that crashed
+// with a turn in flight saves nothing more for it, so the caller waiting for
+// the turn's boundary would wait until its deadline and the session would keep
+// the turn as active work until the stalled sweep. The turn ends FAILED with
+// the loss's message, the session records the loss, and the failure is
+// returned for the caller's answer. A turn that moved on meanwhile keeps its
+// outcome; the loss is recorded all the same. A turn whose runtime work is not
+// settled, another attempt's reservation or claimed idle work, is left alone
+// with that error: the next send settles the loss. A runtime that is not lost,
+// or whose state cannot be read, returns nil and leaves the turn to its runtime.
+func (s *Service) FailLostTurn(ctx context.Context, session *apiv1alpha1.Session, taskID string) (*apiv1alpha1.Failure, error) {
+	failure, err := s.runtimeLoss(ctx, session)
+	if err != nil || failure == nil {
+		return nil, err
 	}
-	failed, err := s.store.FailSession(ctx, session.GetId(), &apiv1alpha1.Failure{
+	_, err = s.store.InterruptSessionTask(ctx, session.GetId(), taskID, time.Time{}, failure.GetMessage())
+	if err != nil && !errors.Is(err, database.ErrConflict) && !errors.Is(err, database.ErrNotFound) {
+		return nil, err
+	}
+	return s.failLost(ctx, session, failure)
+}
+
+// runtimeLoss is the failure the session's runtime is due to, nil while the
+// runtime is not lost; an answer the workflow cannot give is its error.
+func (s *Service) runtimeLoss(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Failure, error) {
+	cause, lost, err := s.workflow.RuntimeLost(ctx, session)
+	if err != nil || !lost {
+		return nil, err
+	}
+	return &apiv1alpha1.Failure{
 		Reason:  apia2a.FailureReasonRuntimeLost,
 		Message: apia2a.RuntimeLostMessagePrefix + cause + "; start a new conversation",
-	})
+	}, nil
+}
+
+func (s *Service) failLost(ctx context.Context, session *apiv1alpha1.Session, failure *apiv1alpha1.Failure) (*apiv1alpha1.Failure, error) {
+	failed, err := s.store.FailSession(ctx, session.GetId(), failure)
 	if err != nil {
 		return nil, err
 	}

@@ -282,7 +282,8 @@ func toSessionOperation(row sessionRow) (*SessionOperation, error) {
 // already records a failure with the same reason is returned as it is; any
 // other state returns ErrConflict. Runtime writes and lifecycle admission read
 // the state under the same row lock, so a failed session refuses new work but
-// stays readable and deletable.
+// stays readable and deletable: its idle work, claimed or not, is released
+// with the failure, since nothing settles it for a runtime that is gone.
 func (c *Client) FailSession(ctx context.Context, sessionID string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
 	if failure.GetReason() == "" || failure.GetMessage() == "" {
 		return nil, fmt.Errorf("session failure requires a reason and a message: %w", ErrFailedPrecondition)
@@ -315,6 +316,16 @@ func (c *Client) FailSession(ctx context.Context, sessionID string, failure *api
 			return err
 		}
 		if err := saveRuntimeLifecycle(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent); err != nil {
+			return err
+		}
+		// A failed session's runtime takes no pause or suspend any more, and a
+		// failed session takes no turn: its idle work, claimed or not, would
+		// only hold the delete. A holder's late finish or release finds the
+		// boundary settled and records nothing.
+		if err := execSQL(ctx, tx, `
+			UPDATE session_task_event SET quiescence_pending = FALSE
+			WHERE history_id = $1 AND quiescence_pending
+		`, row.HistoryID); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, row.Data); err != nil {

@@ -79,6 +79,21 @@ func TestInterruptSessionTaskFailsTheTurnAndReopensTheSession(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 }
 
+// A caller that knows the turn's runtime is gone ends the turn without a
+// cutoff, whatever the turn recorded last.
+func TestInterruptSessionTaskWithoutACutoffEndsAFreshTurn(t *testing.T) {
+	client, session, task, _ := stalledTaskFixture(t, a2a.TaskStateSubmitted)
+	outcome, err := client.InterruptSessionTask(t.Context(), session.Id, string(task.ID), time.Time{}, "runtime lost: Actor team-a/session-1 crashed; start a new conversation")
+	require.NoError(t, err)
+	require.Equal(t, &SessionTaskInterruption{State: a2a.TaskStateFailed}, outcome)
+	failed, err := client.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
+	require.NoError(t, err)
+	require.Equal(t, a2a.TaskStateFailed, failed.Status.State)
+	require.Equal(t, a2a.NewTextPart("runtime lost: Actor team-a/session-1 crashed; start a new conversation"), failed.Status.Message.Parts[0])
+	_, err = client.InterruptSessionTask(t.Context(), session.Id, string(task.ID), time.Time{}, "again")
+	require.ErrorIs(t, err, ErrConflict, "an ended turn is not interrupted again")
+}
+
 func TestInterruptSessionTaskSettlesTheRuntimesOwnBoundary(t *testing.T) {
 	client, session, task, version := stalledTaskFixture(t, a2a.TaskStateWorking)
 	done := *task

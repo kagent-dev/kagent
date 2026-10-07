@@ -20,6 +20,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -85,6 +86,19 @@ type gatewayTestStore struct {
 	// being lost; awaitErr is what each answers.
 	awaitCalls int
 	awaitErr   error
+	// interruptedTask is the turn InterruptSessionTask ended with
+	// interruptionMessage; interruptErr is its answer instead.
+	interruptedTask     string
+	interruptionMessage string
+	interruptErr        error
+}
+
+func (s *gatewayTestStore) InterruptSessionTask(_ context.Context, _, taskID string, _ time.Time, message string) (*database.SessionTaskInterruption, error) {
+	s.interruptedTask, s.interruptionMessage = taskID, message
+	if s.interruptErr != nil {
+		return nil, s.interruptErr
+	}
+	return &database.SessionTaskInterruption{State: a2atype.TaskStateFailed}, nil
 }
 
 func (s *gatewayTestStore) FailSession(_ context.Context, id string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
@@ -275,6 +289,12 @@ func (r *gatewayTestRuntime) SendStreamingMessage(_ context.Context, _ a2aclient
 		r.onStream(req)
 	}
 	return func(yield func(a2atype.Event, error) bool) {
+		if r.onSend != nil {
+			if err := r.onSend(); err != nil {
+				yield(nil, err)
+				return
+			}
+		}
 		if r.task != nil {
 			yield(r.task, nil)
 			return
@@ -1143,6 +1163,99 @@ func TestGatewayFailsSessionWhenRuntimeIsLost(t *testing.T) {
 			require.EqualError(t, err, want)
 			require.Equal(t, 1, runtime.sendCalls, "a failed session is refused without a dial")
 			require.Equal(t, 1, store.reserveCalls, "a failed session reserves no dispatch")
+		})
+	}
+}
+
+// A runtime that takes the input and then loses its stream, because its worker
+// went away with the turn in flight, saves nothing more for the turn: the
+// gateway ends the turn with the loss and answers it at once instead of
+// waiting for a boundary until the caller's deadline. A runtime that is intact
+// leaves the turn to its runtime, and a boundary the runtime saved before the
+// stream broke is recovered as the response.
+func TestGatewayFailsTheTurnWhenRuntimeIsLostAfterTakingTheInput(t *testing.T) {
+	lost := a2atype.NewError(a2atype.ErrInternalError, "upstream call failed: broken pipe")
+	want := apia2a.RuntimeLostMessagePrefix + "Actor team-a/session-8bd650a8 crashed; start a new conversation"
+	send := func(t *testing.T, gateway a2asrv.RequestHandler, streaming bool) (*a2atype.Task, error) {
+		t.Helper()
+		var last a2atype.Event
+		if streaming {
+			for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+				if err != nil {
+					return nil, err
+				}
+				last = event
+			}
+		} else {
+			result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			if err != nil {
+				return nil, err
+			}
+			last = result.(a2atype.Event)
+		}
+		task, _ := last.(*a2atype.Task)
+		return task, nil
+	}
+	for _, streaming := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unary", true: "streaming"}[streaming], func(t *testing.T) {
+			t.Run("lost", func(t *testing.T) {
+				session := gatewayTestSession()
+				taken := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}}
+				store := &gatewayTestStore{session: session, task: taken, lost: true, lostCause: "Actor team-a/session-8bd650a8 crashed"}
+				runtime := &gatewayTestRuntime{onSend: func() error {
+					store.replay = taken
+					return lost
+				}}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+				result, err := send(t, gateway, streaming)
+				require.Nil(t, result)
+				require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+				require.EqualError(t, err, want)
+				require.Equal(t, 1, store.lostCalls)
+				require.Equal(t, "task", store.interruptedTask, "the taken turn is ended")
+				require.Equal(t, want, store.interruptionMessage)
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, store.session.State)
+				require.Equal(t, apia2a.FailureReasonRuntimeLost, store.failed.GetReason())
+				require.True(t, runtime.destroyed, "the broken runtime connection is released")
+
+				_, err = send(t, gateway, streaming)
+				require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+				require.EqualError(t, err, want)
+				require.Equal(t, 1, store.reserveCalls, "a failed session reserves no dispatch")
+			})
+			t.Run("intact", func(t *testing.T) {
+				session := gatewayTestSession()
+				taken := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+				store := &gatewayTestStore{session: session, task: taken}
+				runtime := &gatewayTestRuntime{onSend: func() error {
+					store.replay = taken
+					return lost
+				}}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+				result, err := send(t, gateway, streaming)
+				require.Nil(t, result)
+				require.ErrorIs(t, err, lost, "an incomplete turn of an intact runtime stays an error")
+				require.Equal(t, 1, store.lostCalls)
+				require.Empty(t, store.interruptedTask, "an intact runtime's turn is left to it")
+				require.Nil(t, store.failed)
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, store.session.State)
+			})
+			t.Run("boundary saved", func(t *testing.T) {
+				session := gatewayTestSession()
+				saved := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}
+				store := &gatewayTestStore{session: session, task: saved, lost: true, lostCause: "Actor team-a/session-8bd650a8 crashed"}
+				runtime := &gatewayTestRuntime{onSend: func() error {
+					store.replay = saved
+					return lost
+				}}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+				result, err := send(t, gateway, streaming)
+				require.NoError(t, err)
+				require.Equal(t, saved, result, "the boundary the runtime saved is the response")
+				require.Zero(t, store.lostCalls, "a saved boundary asks nothing of the runtime's state")
+				require.Empty(t, store.interruptedTask)
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, store.session.State)
+			})
 		})
 	}
 }

@@ -101,14 +101,23 @@ func TestSessionRuntimeLostFailsTheSession(t *testing.T) {
 	require.NoError(t, kube.Delete(fixture.ctx, worker, ctrlclient.GracePeriodSeconds(0)))
 
 	// The first send after the loss asks the workflow whether the runtime is
-	// lost; Substrate needs a moment to notice the worker is gone.
+	// lost; Substrate needs a moment to notice the worker is gone. A send the
+	// dying sandbox still takes is answered with the loss once its stream
+	// breaks; should the gateway not know the runtime lost yet, the send's own
+	// deadline ends it, so one send cannot use up the window.
 	var lostErr error
-	require.Eventually(t, func() bool {
+	err = wait.PollUntilContextTimeout(fixture.ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		sendCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
 		message, request := newMessageRequest(t, "Are you still there?")
 		message.ContextID, request.Message.ContextId, request.Tenant = fixture.sessionID, fixture.sessionID, fixture.tenant
-		_, lostErr = fixture.client.SendMessage(fixture.ctx, request)
-		return lostErr != nil && strings.Contains(lostErr.Error(), "runtime lost")
-	}, 4*time.Minute, 5*time.Second, "a send after the worker's loss must report the runtime lost: %v", lostErr)
+		response, sendErr := fixture.client.SendMessage(sendCtx, request)
+		if lostErr = sendErr; sendErr == nil {
+			t.Logf("a send after the worker's loss was answered: %v", response)
+		}
+		return lostErr != nil && strings.Contains(lostErr.Error(), "runtime lost"), nil
+	})
+	require.NoErrorf(t, err, "a send after the worker's loss must report the runtime lost; the last send answered: %v", lostErr)
 
 	session, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
 	require.NoError(t, err)

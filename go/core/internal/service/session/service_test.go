@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -57,6 +58,12 @@ type serviceTestStore struct {
 	failedID     string
 	failure      *apiv1alpha1.Failure
 	failErr      error
+	// interruptedTask is the task InterruptSessionTask ended, with its cutoff
+	// and message; interruptErr is its answer instead.
+	interruptedTask     string
+	interruptCutoff     time.Time
+	interruptionMessage string
+	interruptErr        error
 }
 
 func (s *serviceTestStore) FailSession(_ context.Context, id string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
@@ -65,6 +72,14 @@ func (s *serviceTestStore) FailSession(_ context.Context, id string, failure *ap
 		return nil, s.failErr
 	}
 	return &apiv1alpha1.Session{Id: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, Failure: failure}, nil
+}
+
+func (s *serviceTestStore) InterruptSessionTask(_ context.Context, _, taskID string, cutoff time.Time, message string) (*database.SessionTaskInterruption, error) {
+	s.interruptedTask, s.interruptCutoff, s.interruptionMessage = taskID, cutoff, message
+	if s.interruptErr != nil {
+		return nil, s.interruptErr
+	}
+	return &database.SessionTaskInterruption{State: a2atype.TaskStateFailed}, nil
 }
 
 func (s *serviceTestStore) CreateSession(_ context.Context, session *apiv1alpha1.Session, requestID string) (*apiv1alpha1.Session, bool, error) {
@@ -778,5 +793,54 @@ func TestFailLostRuntime(t *testing.T) {
 		workflow := serviceTestWorkflow{lost: true, lostCause: "Actor team-a/session-session-1 not found"}
 		_, err := NewService(store, serviceTestAuthorizer{}, workflow).FailLostRuntime(t.Context(), session)
 		require.ErrorIs(t, err, database.ErrConflict)
+	})
+}
+
+func TestFailLostTurn(t *testing.T) {
+	session := &apiv1alpha1.Session{Id: "session-1", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}
+	lost := serviceTestWorkflow{lost: true, lostCause: "Actor team-a/session-session-1 crashed"}
+	want := "runtime lost: Actor team-a/session-session-1 crashed; start a new conversation"
+	t.Run("not lost", func(t *testing.T) {
+		store := &serviceTestStore{}
+		failure, err := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}).FailLostTurn(t.Context(), session, "task-1")
+		require.NoError(t, err)
+		require.Nil(t, failure)
+		require.Empty(t, store.interruptedTask, "an intact runtime's turn is left to it")
+		require.Empty(t, store.failedID)
+	})
+	t.Run("lost", func(t *testing.T) {
+		store := &serviceTestStore{}
+		failure, err := NewService(store, serviceTestAuthorizer{}, lost).FailLostTurn(t.Context(), session, "task-1")
+		require.NoError(t, err)
+		require.Equal(t, "task-1", store.interruptedTask)
+		require.True(t, store.interruptCutoff.IsZero(), "the turn ends whatever it recorded last")
+		require.Equal(t, want, store.interruptionMessage)
+		require.Equal(t, session.Id, store.failedID)
+		require.Equal(t, apia2a.FailureReasonRuntimeLost, failure.GetReason())
+		require.Equal(t, want, failure.GetMessage())
+	})
+	t.Run("turn moved on", func(t *testing.T) {
+		for name, interruptErr := range map[string]error{"ended": database.ErrConflict, "gone": database.ErrNotFound} {
+			t.Run(name, func(t *testing.T) {
+				store := &serviceTestStore{interruptErr: interruptErr}
+				failure, err := NewService(store, serviceTestAuthorizer{}, lost).FailLostTurn(t.Context(), session, "task-1")
+				require.NoError(t, err)
+				require.Equal(t, session.Id, store.failedID, "the loss is recorded whatever became of the turn")
+				require.Equal(t, want, failure.GetMessage())
+			})
+		}
+	})
+	t.Run("turn not settled", func(t *testing.T) {
+		store := &serviceTestStore{interruptErr: database.ErrFailedPrecondition}
+		_, err := NewService(store, serviceTestAuthorizer{}, lost).FailLostTurn(t.Context(), session, "task-1")
+		require.ErrorIs(t, err, database.ErrFailedPrecondition)
+		require.Empty(t, store.failedID, "a turn with unsettled runtime work is left to the next send")
+	})
+	t.Run("unknown", func(t *testing.T) {
+		store := &serviceTestStore{}
+		_, err := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{lostErr: errors.New("ate-api is rolling")}).FailLostTurn(t.Context(), session, "task-1")
+		require.ErrorContains(t, err, "ate-api is rolling")
+		require.Empty(t, store.interruptedTask)
+		require.Empty(t, store.failedID, "an unknown runtime state ends nothing")
 	})
 }
