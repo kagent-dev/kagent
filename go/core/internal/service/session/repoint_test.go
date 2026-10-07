@@ -1,10 +1,11 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"testing"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -56,7 +57,7 @@ func TestRevisionRepointSweepVisitsEverySessionOnce(t *testing.T) {
 	for i := range revisionRepointPage + 1 {
 		store.sessions = append(store.sessions, &apiv1alpha1.Session{Id: fmt.Sprintf("%04d", i), PreparedRevision: "revision-1", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY})
 	}
-	sort.Slice(store.sessions, func(i, j int) bool { return store.sessions[i].Id < store.sessions[j].Id })
+	slices.SortFunc(store.sessions, func(a, b *apiv1alpha1.Session) int { return cmp.Compare(a.Id, b.Id) })
 	workflow := &repointTestWorkflow{failing: map[string]error{
 		"0003": fmt.Errorf("claimed: %w", database.ErrConflict),
 		"0007": errors.New("substrate unavailable"),

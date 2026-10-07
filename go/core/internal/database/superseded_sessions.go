@@ -107,7 +107,7 @@ func (c *Client) repointSession(ctx context.Context, sessionID, revision string,
 		}
 		result = operation.Instance
 		if !owned(operation) {
-			return fmt.Errorf("Session changed before its repoint was recorded: %w", ErrConflict)
+			return fmt.Errorf("session changed before its repoint was recorded: %w", ErrConflict)
 		}
 		if result.PreparedRevision == revision {
 			return nil
