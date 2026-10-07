@@ -137,6 +137,37 @@ again. Shares without an expiry are untouched. `kagent.session.share_expired` co
 the deleted shares (`kagent_session_share_expired_total`); a sweep that deleted any
 logs `deleted expired session shares` at debug level with `count`.
 
+## Superseded revisions
+
+A session is prepared on one runtime revision of its agent and its Actor runs
+on that revision's ActorTemplate. When the agent is re-rendered — a template
+change, a Harness change, a release that renders every template anew — the
+agent's current revision moves on and the session's does not: a revision
+rendered by an older release lacks what the platform needs now, and its
+ActorTemplate keeps what that release put there. A suspended Actor can be
+moved: Substrate's `UpdateActor` accepts another ActorTemplate while the Actor
+is suspended, as long as the sandbox config and the durable volumes stay the
+same, and the next resume restores the Actor's data onto the new template's
+golden snapshot. The workflow moves an Actor onto its agent's current revision
+in the same atespace, gives it that revision's egress allowlist, and records
+the session as prepared on it, so the superseded revision loses its last
+reference and the runtime revision GC deletes it with its ActorTemplate.
+
+Three paths move an Actor: a turn, under its dispatch reservation and before
+the gateway dials the quiesced runtime; the Resume RPC of a suspended session;
+and the controller leader's sweep every `KAGENT_REVISION_REPOINT_INTERVAL` (5m
+by default; `controller.revisionRepointInterval`; 0 disables), which visits
+every READY session on a superseded revision whose runtime is settled — no
+turn reserved or running, no idle boundary claimed, no lifecycle operation —
+so a conversation nobody writes to again does not keep the old revision alive.
+The turn's move and the sweep's may meet on one Actor: whichever comes second
+finds the Actor moved and records what the first has yet to. A lifecycle
+operation that claims the session meanwhile wins, and the Actor goes back to
+the template of the revision the session records. A template Substrate
+refuses — different sandbox config, a durable volume added or changed — is
+logged and the session stays on its revision; a live or paused Actor is never
+moved under its turn.
+
 ## Automatic quiescence
 
 The runtime stages a final task update and acknowledges it after native cleanup.

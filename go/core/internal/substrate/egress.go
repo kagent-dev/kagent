@@ -32,3 +32,28 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name str
 	}
 	return nil
 }
+
+// ReplaceActorEgressPolicy gives an Actor the allowlist of the revision it is
+// repointed to: it creates the policy, or replaces the rules of the one it has.
+func (c *Client) ReplaceActorEgressPolicy(ctx context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	actor := actorRef(atespace, name)
+	_, err := c.CreateActorEgressPolicy(ctx, &ateapipb.CreateActorEgressPolicyRequest{
+		Actor: actor, EgressPolicy: policy,
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		return err
+	}
+	existing, err := c.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: actor})
+	if err != nil {
+		return err
+	}
+	if proto.Equal(&ateapipb.EgressPolicy{Rules: existing.GetRules()}, &ateapipb.EgressPolicy{Rules: policy.Rules}) {
+		return nil
+	}
+	// The existing metadata carries the uid and version preconditions.
+	replacement := &ateapipb.EgressPolicy{Metadata: existing.GetMetadata(), Rules: policy.GetRules()}
+	_, err = c.UpdateActorEgressPolicy(ctx, &ateapipb.UpdateActorEgressPolicyRequest{Actor: actor, EgressPolicy: replacement})
+	return err
+}

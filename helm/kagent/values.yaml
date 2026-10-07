@@ -397,6 +397,12 @@ controller:
   # 0 keeps every pause in place until the reply.
   pausedRuntimeTTL: "2m"
 
+  # A conversation whose runtime revision its agent has superseded is moved onto
+  # the agent's current revision while its runtime is quiesced, this often, so a
+  # conversation nobody writes to again does not keep the old revision and its
+  # ActorTemplate alive. A turn moves its own runtime regardless. 0 disables the sweep.
+  revisionRepointInterval: "5m"
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:

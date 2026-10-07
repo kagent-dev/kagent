@@ -76,7 +76,11 @@ type gatewayTestStore struct {
 	lostCause string
 	lostErr   error
 	lostCalls int
-	failed    *apiv1alpha1.Failure
+	// repointCalls counts the gateway's repoints before a turn; repointErr is
+	// what each answers.
+	repointCalls int
+	repointErr   error
+	failed       *apiv1alpha1.Failure
 }
 
 func (s *gatewayTestStore) FailSession(_ context.Context, id string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {

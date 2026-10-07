@@ -149,6 +149,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
 | `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
+| `KAGENT_REVISION_REPOINT_INTERVAL` | Duration | `5m0s` | How often the controller moves the quiesced runtimes of sessions whose revision their agent has superseded onto the agent's current revision, so a conversation nobody writes to again does not keep the old revision and its ActorTemplate alive. A turn moves its own runtime regardless. Zero disables the sweep. |
 | `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | Duration | `1m0s` | Interval between unreferenced runtime revision cleanup sweeps. Must be positive. |
 | `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
 | `KAGENT_SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |

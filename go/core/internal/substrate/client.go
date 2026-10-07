@@ -196,6 +196,28 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+// RepointActor moves a suspended Actor onto another ActorTemplate. Substrate
+// accepts the change only while the Actor is suspended and the new template
+// keeps the sandbox config and the durable volumes; the next resume restores
+// the Actor's data onto the new template's golden. An Actor already on the
+// template is returned as it is.
+func (c *Client) RepointActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	actor, err := c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, err
+	}
+	if template := actor.GetActorTemplate(); template.GetAtespace() == tmplNS && template.GetName() == tmplName {
+		return actor, nil
+	}
+	// The read's metadata carries the uid and version Substrate requires as
+	// preconditions, so a concurrent change fails the update.
+	actor.ActorTemplate = actorRef(tmplNS, tmplName)
+	actor.Status = nil
+	return c.UpdateActor(ctx, &ateapipb.UpdateActorRequest{Actor: actor})
+}
+
 func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()

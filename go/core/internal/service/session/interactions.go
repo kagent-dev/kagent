@@ -182,6 +182,12 @@ func (s *InteractionService) FailLostRuntime(ctx context.Context, session *apiv1
 	return s.sessions.FailLostRuntime(ctx, session)
 }
 
+// RepointQuiesced moves a resolved session's quiesced runtime onto its agent's
+// current revision before the turn the caller has reserved wakes it.
+func (s *InteractionService) RepointQuiesced(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	return s.sessions.RepointQuiesced(ctx, session)
+}
+
 // PrepareCancelTask authorizes cancellation and returns the actor target and
 // committed task. A terminal task needs no actor call.
 func (s *InteractionService) PrepareCancelTask(ctx context.Context, agent types.NamespacedName, req *a2atype.CancelTaskRequest) (*apiv1alpha1.Session, *a2atype.Task, error) {

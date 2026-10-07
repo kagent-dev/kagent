@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -168,20 +169,60 @@ type lifecycleTestStore struct {
 	revision *database.RuntimeRevision
 }
 
-func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
+// GetRuntimeRevision answers the fixture's revision; another revision the
+// fixture's database knows, one a session moved to, is read from there.
+func (s *lifecycleTestStore) GetRuntimeRevision(ctx context.Context, revision string) (*database.RuntimeRevision, error) {
+	if s.Client != nil && s.revision.Revision != "" && revision != s.revision.Revision {
+		return s.Client.GetRuntimeRevision(ctx, revision)
+	}
 	return s.revision, nil
 }
 
 type lifecycleTestActors struct {
-	mu          sync.Mutex
-	actors      map[string]*ateapipb.Actor
-	workers     []*ateapipb.Worker
-	workersErr  error
-	getErr      error
-	policyErr   error
-	policy      *ateapipb.EgressPolicy
-	policyActor string
-	policyCalls int
+	mu               sync.Mutex
+	actors           map[string]*ateapipb.Actor
+	workers          []*ateapipb.Worker
+	workersErr       error
+	getErr           error
+	policyErr        error
+	policy           *ateapipb.EgressPolicy
+	policyActor      string
+	policyCalls      int
+	repointErr       error
+	repointCalls     int
+	replacedPolicies int
+}
+
+// RepointActor moves a suspended Actor onto another template as Substrate
+// does: an Actor already there is returned as it is, a live one is refused.
+func (a *lifecycleTestActors) RepointActor(_ context.Context, atespace, name, templateAtespace, templateName string) (*ateapipb.Actor, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.repointErr != nil {
+		return nil, a.repointErr
+	}
+	actor := a.actors[actorKey(atespace, name)]
+	if actor == nil {
+		return nil, status.Error(codes.NotFound, "missing")
+	}
+	if template := actor.GetActorTemplate(); template.GetAtespace() == templateAtespace && template.GetName() == templateName {
+		return proto.CloneOf(actor), nil
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		return nil, status.Error(codes.FailedPrecondition, "actor is not suspended")
+	}
+	actor.ActorTemplate = &ateapipb.ObjectRef{Atespace: templateAtespace, Name: templateName}
+	a.repointCalls++
+	return proto.CloneOf(actor), nil
+}
+
+func (a *lifecycleTestActors) ReplaceActorEgressPolicy(_ context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.policyActor = actorKey(atespace, name)
+	a.policy = proto.CloneOf(policy)
+	a.replacedPolicies++
+	return a.policyErr
 }
 
 func actorKey(atespace, name string) string { return atespace + "/" + name }
@@ -263,6 +304,149 @@ func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name stri
 	defer a.mu.Unlock()
 	delete(a.actors, actorKey(atespace, name))
 	return nil
+}
+
+// supersedingRevision re-renders the fixture's agent: revision-2, on another
+// ActorTemplate with another allowlist, becomes its current revision.
+func supersedingRevision(t *testing.T, store *lifecycleTestStore) *database.RuntimeRevision {
+	t.Helper()
+	current := database.RuntimeRevision{
+		Revision: "revision-2", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{"https://api.example"},
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision-2", ActorTemplateUID: "actor-template-uid-2",
+	}
+	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: current.Revision}))
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), current, true))
+	return &current
+}
+
+func TestRepointQuiescedMovesASuspendedActorOntoTheCurrentRevision(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	name := substrate.ActorName(session.Id)
+
+	unchanged, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, "revision-1", unchanged.GetPreparedRevision(), "a session on its agent's current revision stays")
+	require.Equal(t, 0, actors.repointCalls)
+
+	current := supersedingRevision(t, store)
+	moved, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, moved.GetPreparedRevision())
+	actor, err := actors.GetActor(t.Context(), "team-a", name)
+	require.NoError(t, err)
+	require.Equal(t, current.ActorTemplateName, actor.GetActorTemplate().GetName(), "the Actor runs on the current revision's template")
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.GetStatus().GetState(), "and stays suspended until a turn wakes it")
+	require.Equal(t, actorKey("team-a", name), actors.policyActor)
+	require.Equal(t, 1, actors.replacedPolicies, "the Actor takes the current revision's allowlist")
+	require.NotEmpty(t, actors.policy.GetRules())
+	stored, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, stored.GetPreparedRevision(), "the session is recorded on the current revision")
+
+	again, err := workflow.RepointQuiesced(t.Context(), moved)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, again.GetPreparedRevision())
+	require.Equal(t, 1, actors.repointCalls, "a moved Actor is left as it is")
+
+	// The gateway, holding a session read before the sweep moved it, finds the
+	// Actor moved and records nothing new.
+	stale, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, stale.GetPreparedRevision())
+	require.Equal(t, 1, actors.repointCalls)
+}
+
+func TestRepointQuiescedLeavesARefusedOrLiveActor(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	supersedingRevision(t, store)
+
+	actors.repointErr = status.Error(codes.FailedPrecondition, "volume layout differs")
+	refused, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err, "a template Substrate refuses is not an error")
+	require.Equal(t, "revision-1", refused.GetPreparedRevision(), "the session stays on its prepared revision")
+	require.Equal(t, 0, actors.replacedPolicies)
+
+	actors.repointErr = nil
+	running, err := actors.ResumeActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, running.GetStatus().GetState())
+	live, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, "revision-1", live.GetPreparedRevision(), "a live Actor is never moved")
+	require.Equal(t, 0, actors.repointCalls)
+	stored, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, "revision-1", stored.GetPreparedRevision())
+}
+
+// claimedStore answers every repoint record as a lifecycle operation that
+// claimed the session first, with the session still on its revision.
+type claimedStore struct {
+	*lifecycleTestStore
+}
+
+func (s *claimedStore) RepointSession(ctx context.Context, sessionID, _, _ string) (*apiv1alpha1.Session, error) {
+	session, err := s.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return session, fmt.Errorf("claimed: %w", database.ErrConflict)
+}
+
+func TestRepointQuiescedGoesBackWhenALifecycleOperationClaimedTheSession(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+	require.NoError(t, err)
+	supersedingRevision(t, store)
+
+	_, err = NewActorWorkflow(&claimedStore{store}, actors, make(chan struct{}, 1), time.Second).RepointQuiesced(t.Context(), session)
+	require.ErrorIs(t, err, database.ErrConflict)
+	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	require.Equal(t, store.revision.ActorTemplateName, actor.GetActorTemplate().GetName(), "the Actor goes back to the template of the revision the session records")
+	require.Equal(t, 2, actors.repointCalls)
+	require.Equal(t, 2, actors.replacedPolicies, "with that revision's allowlist")
+	require.Empty(t, actors.policy.GetRules())
+}
+
+func TestResumeMovesASuspendedSessionOntoTheCurrentRevision(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	suspended, err := workflow.Suspend(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.GetState())
+	current := supersedingRevision(t, store)
+
+	resumed, err := workflow.Resume(t.Context(), suspended)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, resumed.GetState())
+	require.Equal(t, current.Revision, resumed.GetPreparedRevision(), "the session resumed on its agent's current revision")
+	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
+	require.NoError(t, err)
+	require.Equal(t, current.ActorTemplateName, actor.GetActorTemplate().GetName())
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.GetStatus().GetState())
+	require.Equal(t, 1, actors.replacedPolicies)
+
+	// A later resume of the same session finds nothing to move.
+	suspended, err = workflow.Suspend(t.Context(), resumed)
+	require.NoError(t, err)
+	resumed, err = workflow.Resume(t.Context(), suspended)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, resumed.GetPreparedRevision())
+	require.Equal(t, 1, actors.repointCalls)
 }
 
 func TestQuiesceRejectsWrongActorIdentity(t *testing.T) {

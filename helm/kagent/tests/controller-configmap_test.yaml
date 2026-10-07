@@ -58,6 +58,20 @@ tests:
           path: data.KAGENT_PAUSED_RUNTIME_TTL
           value: 2m
 
+  - it: defaults the revision repoint interval to five minutes
+    asserts:
+      - equal:
+          path: data.KAGENT_REVISION_REPOINT_INTERVAL
+          value: 5m
+
+  - it: allows the revision repoint sweep to be disabled
+    set:
+      controller.revisionRepointInterval: "0"
+    asserts:
+      - equal:
+          path: data.KAGENT_REVISION_REPOINT_INTERVAL
+          value: "0"
+
   - it: allows pauses to stay in place until the reply
     set:
       controller.pausedRuntimeTTL: "0"

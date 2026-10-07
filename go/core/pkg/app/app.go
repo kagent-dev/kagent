@@ -344,6 +344,13 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(stalledTurns); err != nil {
 		return fmt.Errorf("register stalled turn worker: %w", err)
 	}
+	repoints, err := sessionsvc.NewRevisionRepointWorker(store, sessionWorkflow, kagentenv.SessionRevisionRepointInterval.Get())
+	if err != nil {
+		return err
+	}
+	if err := manager.Add(repoints); err != nil {
+		return fmt.Errorf("register revision repoint worker: %w", err)
+	}
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		kagentenv.SubstrateAtenetRouterURL.Get(),

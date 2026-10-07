@@ -14,6 +14,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,6 +28,9 @@ type workflowStore interface {
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
+	GetCurrentRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
+	RepointSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string) error
+	RepointSession(context.Context, string, string, string) (*apiv1alpha1.Session, error)
 	BeginSessionOperation(context.Context, string, apiv1alpha1.RuntimeOperation) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
@@ -38,6 +42,8 @@ type workflowStore interface {
 type actorClient interface {
 	substrate.LifecycleClient
 	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
+	RepointActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
+	ReplaceActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
 	ListAllWorkers(context.Context) ([]*ateapipb.Worker, error)
 }
 
@@ -317,8 +323,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
 
-	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
-		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
+	binding := actorBinding(session.Id, revision)
 	var creation *substrate.ActorCreation
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		policy, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
@@ -328,6 +333,30 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		creation = &substrate.ActorCreation{EgressPolicy: policy}
 		if snapshot != nil {
 			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+		}
+	}
+	// A suspended Actor of a superseded revision resumes on the agent's current
+	// one (see repointTarget). An earlier attempt of this operation may have
+	// moved the Actor before its record was written: it is then found on the
+	// current template and the record follows below.
+	var current *database.RuntimeRevision
+	var currentPolicy *ateapipb.EgressPolicy
+	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
+		current, currentPolicy, err = w.repointTarget(ctx, revision)
+		if err != nil {
+			return w.failPreparation(ctx, operation, err)
+		}
+	}
+	if current != nil {
+		actor, err := w.actors.GetActor(ctx, binding.Atespace, binding.Name)
+		if err != nil {
+			return w.failPreparation(ctx, operation, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err))
+		}
+		switch {
+		case validActorIdentity(actor, current, binding.Name):
+			binding, revision = actorBinding(session.Id, current), current
+		case actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
+			current = nil
 		}
 	}
 	prepare := substrate.PrepareActorTransition
@@ -366,6 +395,24 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		defer cancel()
 		err = errors.Join(err, w.store.ReleaseRuntimeOperation(finishCtx, sessionID, operation.ID, executorID))
 	}()
+	if current != nil {
+		repointed, err := w.repointActor(ctx, session.Id, current, currentPolicy)
+		if err != nil {
+			return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+		}
+		if repointed != nil {
+			if err := w.store.RepointSessionOperation(ctx, sessionID, operation.ID, executorID, current.Revision); err != nil {
+				return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+			}
+			if moved := actorBinding(session.Id, current); moved != binding {
+				binding, revision = moved, current
+				transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
+				if err != nil {
+					return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+				}
+			}
+		}
+	}
 	if err := substrate.ApplyActorTransition(ctx, w.actors, transition); err != nil {
 		if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME && status.Code(err) == codes.DataLoss {
 			// Substrate answers DataLoss when the Actor's snapshot cannot be
@@ -393,6 +440,116 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	return w.store.FinishSessionOperation(finishCtx, sessionID, operation.ID, executorID, authority, transition.ActorUID(), "")
+}
+
+// actorBinding names the session's Actor and the ActorTemplate of revision.
+func actorBinding(sessionID string, revision *database.RuntimeRevision) substrate.ActorBinding {
+	return substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(sessionID),
+		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
+}
+
+// repointTarget returns the revision an Actor of revision moves to when it
+// resumes, with that revision's egress allowlist, or nil when it stays: a
+// revision rendered by an older release lacks configuration the platform needs
+// now, and once no session references it the runtime revision GC collects it.
+// The target is the agent's current revision in the same atespace; an Actor
+// never moves between atespaces.
+func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.RuntimeRevision) (*database.RuntimeRevision, *ateapipb.EgressPolicy, error) {
+	current, err := w.store.GetCurrentRuntimeRevision(ctx, revision.Revision)
+	switch {
+	case errors.Is(err, database.ErrNotFound):
+		return nil, nil, nil
+	case err != nil:
+		return nil, nil, fmt.Errorf("load current revision: %w", err)
+	case current.Revision == revision.Revision || current.ActorTemplateAtespace != revision.ActorTemplateAtespace:
+		return nil, nil, nil
+	}
+	policy, err := substrate.ActorEgressPolicy(current.ActorTemplateAtespace, current.EgressDestinations, current.Credentials)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build egress policy of revision %s: %w", current.Revision, err)
+	}
+	return current, policy, nil
+}
+
+// repointActor moves a suspended Actor onto the ActorTemplate of current and
+// gives it that revision's egress allowlist; an Actor already on the template
+// keeps it. Substrate refuses, without effect, an Actor that is no longer
+// suspended and a template whose sandbox config or durable volumes differ,
+// since the Actor's data could not be restored onto it: that returns a nil
+// Actor and the Actor stays on its prepared revision.
+func (w *ActorWorkflow) repointActor(ctx context.Context, sessionID string, current *database.RuntimeRevision, policy *ateapipb.EgressPolicy) (*ateapipb.Actor, error) {
+	atespace, name := current.ActorTemplateAtespace, substrate.ActorName(sessionID)
+	actor, err := w.actors.RepointActor(ctx, atespace, name, current.ActorTemplateAtespace, current.ActorTemplateName)
+	if status.Code(err) == codes.FailedPrecondition {
+		logging.FromContext(ctx).InfoContext(ctx, "the session stays on its prepared revision: Substrate refused its agent's current ActorTemplate",
+			"session_id", sessionID, "revision", current.Revision, "reason", status.Convert(err).Message())
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("repoint Actor %s/%s to ActorTemplate %s: %w", atespace, name, current.ActorTemplateName, err)
+	}
+	if !validActorIdentity(actor, current, name) || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		return nil, fmt.Errorf("repoint Actor %s/%s returned unexpected identity or state", atespace, name)
+	}
+	if err := w.actors.ReplaceActorEgressPolicy(ctx, atespace, name, policy); err != nil {
+		return nil, fmt.Errorf("replace Actor %s/%s egress policy: %w", atespace, name, err)
+	}
+	return actor, nil
+}
+
+// RepointQuiesced moves the quiesced Actor of a READY session onto its agent's
+// current revision, before a turn wakes it or because nothing has for a while,
+// and returns the session as it then is. The caller keeps every turn of its
+// own off the session meanwhile: the gateway holds the turn's dispatch, the
+// sweep visits only settled sessions. A session whose Actor is current, live,
+// paused, not its own, or refused by Substrate is returned unchanged. Two
+// callers may move the same Actor, the gateway before a turn and the sweep of
+// superseded revisions: the second finds the Actor moved and records what the
+// first has yet to. A lifecycle operation that claimed the session meanwhile
+// wins: the Actor goes back to the template of the revision the session
+// records.
+func (w *ActorWorkflow) RepointQuiesced(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
+		return session, nil
+	}
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return nil, fmt.Errorf("load prepared revision: %w", err)
+	}
+	current, policy, err := w.repointTarget(ctx, revision)
+	if err != nil || current == nil {
+		return session, err
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if err != nil {
+		return nil, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || (!validActorIdentity(actor, revision, name) && !validActorIdentity(actor, current, name)) {
+		return session, nil
+	}
+	if _, err := w.store.GetSessionForRuntime(ctx, session.GetId(), actor.GetMetadata().GetUid()); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			return session, nil
+		}
+		return nil, fmt.Errorf("verify runtime actor UID: %w", err)
+	}
+	repointed, err := w.repointActor(ctx, session.GetId(), current, policy)
+	if err != nil || repointed == nil {
+		return session, err
+	}
+	updated, err := w.store.RepointSession(ctx, session.GetId(), revision.Revision, current.Revision)
+	if errors.Is(err, database.ErrConflict) && updated.GetPreparedRevision() == revision.Revision {
+		previous, policyErr := substrate.ActorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
+		if policyErr == nil {
+			_, policyErr = w.repointActor(ctx, session.GetId(), revision, previous)
+		}
+		return nil, errors.Join(err, policyErr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // failPreparation releases only unissued work. If another caller won, observe
