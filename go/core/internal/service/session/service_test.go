@@ -140,6 +140,10 @@ func (w serviceTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) 
 	return w.lostCause, w.lost, w.lostErr
 }
 
+func (serviceTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
+	return nil
+}
+
 func (w serviceTestWorkflow) RepointQuiesced(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, w.err
 }

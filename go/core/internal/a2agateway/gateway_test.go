@@ -81,6 +81,10 @@ type gatewayTestStore struct {
 	repointCalls int
 	repointErr   error
 	failed       *apiv1alpha1.Failure
+	// awaitCalls counts the waits for a runtime that refused a send without
+	// being lost; awaitErr is what each answers.
+	awaitCalls int
+	awaitErr   error
 }
 
 func (s *gatewayTestStore) FailSession(_ context.Context, id string, failure *apiv1alpha1.Failure) (*apiv1alpha1.Session, error) {
@@ -828,7 +832,7 @@ func TestGatewayRecoversUnaryResponseLostDuringFinalization(t *testing.T) {
 
 func TestGatewayReportsOnlyRevokedAttemptsAsNotAccepted(t *testing.T) {
 	for _, revoked := range []bool{false, true} {
-		store := &gatewayTestStore{session: gatewayTestSession(), revoked: revoked, taskErr: database.ErrNotFound}
+		store := &gatewayTestStore{session: gatewayTestSession(), revoked: revoked, taskErr: database.ErrNotFound, awaitErr: errors.New("runtime unavailable")}
 		failure := a2atype.NewError(a2atype.ErrInternalError, "connection lost before response")
 		runtime := &gatewayTestRuntime{onSend: func() error { return failure }}
 		gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
@@ -1027,6 +1031,86 @@ func (r *refusingRuntime) SendStreamingMessage(context.Context, a2aclient.Servic
 	return func(yield func(a2atype.Event, error) bool) { yield(nil, r.err) }
 }
 
+// heldRuntime refuses its first held sends with err, the way Substrate's
+// ingress answers while another operation holds the Actor past its parking
+// budget, and takes every later one.
+type heldRuntime struct {
+	gatewayTestRuntime
+	held int
+	err  error
+}
+
+func (r *heldRuntime) SendMessage(ctx context.Context, params a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	if r.held > 0 {
+		r.held--
+		r.sendCalls++
+		return nil, r.err
+	}
+	return r.gatewayTestRuntime.SendMessage(ctx, params, req)
+}
+
+func (r *heldRuntime) SendStreamingMessage(ctx context.Context, params a2aclient.ServiceParams, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	r.sendCalls++
+	if r.held > 0 {
+		r.held--
+		return func(yield func(a2atype.Event, error) bool) { yield(nil, r.err) }
+	}
+	return r.gatewayTestRuntime.SendStreamingMessage(ctx, params, req)
+}
+
+// A send the runtime refused without taking it, while another operation held
+// its Actor (a repoint right after an upgrade), is answered once the gateway
+// waited the operation out: the turn runs again instead of failing.
+func TestGatewayWaitsOutAnOperationHoldingTheRuntime(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unary", true: "streaming"}[streaming], func(t *testing.T) {
+			answered := &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+			store := &gatewayTestStore{session: gatewayTestSession(), revoked: true, task: answered}
+			runtime := &heldRuntime{held: 1, err: a2atype.NewError(a2atype.ErrInternalError, "error resuming actor team-a/session-8bd650a8")}
+			runtime.task = answered
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			var err error
+			if streaming {
+				for _, err = range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+					if err != nil {
+						break
+					}
+				}
+			} else {
+				_, err = gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			}
+			require.NoError(t, err)
+			require.Equal(t, 1, store.awaitCalls)
+			require.Equal(t, 2, runtime.sendCalls)
+			require.Equal(t, 2, store.reserveCalls)
+			require.Nil(t, store.failed)
+		})
+	}
+}
+
+// The gateway waits once per turn: a runtime that refuses again after the
+// wait, or that the wait could not make available, keeps the retryable refusal.
+func TestGatewayWaitsForARefusingRuntimeOnlyOnce(t *testing.T) {
+	for name, awaitErr := range map[string]error{
+		"refused again":  nil,
+		"still held":     errors.New("resume Actor team-a/session-8bd650a8: still held by another operation after 2m0s"),
+		"resume refused": errors.New("resume Actor team-a/session-8bd650a8: rpc error: code = PermissionDenied"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &gatewayTestStore{session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound, awaitErr: awaitErr}
+			runtime := &refusingRuntime{err: a2atype.NewError(a2atype.ErrInternalError, "error resuming actor team-a/session-8bd650a8")}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			var protocolError *a2atype.Error
+			require.ErrorAs(t, err, &protocolError)
+			require.Equal(t, "KAGENT_SEND_NOT_ACCEPTED", protocolError.ErrorInfo().Value["metadata"].(map[string]string)["reason"])
+			require.Equal(t, 1, store.awaitCalls)
+			require.Equal(t, map[bool]int{true: 2, false: 1}[awaitErr == nil], runtime.sendCalls)
+			require.Nil(t, store.failed)
+		})
+	}
+}
+
 // A send the runtime provably did not take, on a session whose Actor Substrate
 // reports crashed or gone, ends with the loss instead of a retry: the session
 // records it, and the next send is refused with the same message without a dial.
@@ -1068,7 +1152,7 @@ func TestGatewayFailsSessionWhenRuntimeIsLost(t *testing.T) {
 func TestGatewayKeepsRetryableRefusalWhenRuntimeIsNotKnownLost(t *testing.T) {
 	for name, store := range map[string]*gatewayTestStore{
 		"unknown": {session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound, lostErr: errors.New("ate-api is rolling")},
-		"intact":  {session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound},
+		"intact":  {session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound, awaitErr: errors.New("runtime unavailable")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runtime := &refusingRuntime{err: a2atype.NewError(a2atype.ErrInternalError, "actor request timed out")}

@@ -668,6 +668,61 @@ func TestRuntimeLost(t *testing.T) {
 	}
 }
 
+// heldActors answers the resumes in answers in order, the way ate-api answers
+// while another operation holds the Actor, and resumes it after them.
+type heldActors struct {
+	*lifecycleTestActors
+	answers []error
+	resumes int
+}
+
+func (a *heldActors) ResumeActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	a.resumes++
+	if len(a.answers) > 0 {
+		err := a.answers[0]
+		if len(a.answers) > 1 || status.Code(err) != codes.Aborted {
+			a.answers = a.answers[1:]
+		}
+		return nil, err
+	}
+	return &ateapipb.Actor{Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}}, nil
+}
+
+func TestAwaitRuntime(t *testing.T) {
+	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
+	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
+	held := status.Error(codes.Aborted, "another operation is in progress for this actor")
+	for _, test := range []struct {
+		name        string
+		answers     []error
+		wantResumes int
+		wantErr     string
+	}{
+		{name: "free", wantResumes: 1},
+		{name: "held, then free", answers: []error{held, held, held, nil}, wantResumes: 4},
+		// The last answer repeats: the operation outlasts the bound.
+		{name: "held past the bound", answers: []error{held}, wantErr: "still held by another operation"},
+		{name: "not transient", answers: []error{held, status.Error(codes.PermissionDenied, "denied")}, wantResumes: 2, wantErr: "denied"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, answers: test.answers}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow.busyWait, workflow.busyRetry = 200*time.Millisecond, time.Millisecond
+			err := workflow.AwaitRuntime(t.Context(), session)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if test.wantResumes != 0 {
+				require.Equal(t, test.wantResumes, actors.resumes)
+			} else {
+				require.Greater(t, actors.resumes, 1, "an Actor another operation holds is resumed again within the bound")
+			}
+		})
+	}
+}
+
 // snapshotLossActors answers every resume the way Substrate does when the
 // Actor's snapshot is gone from the store: DataLoss, the Actor left as state.
 type snapshotLossActors struct {

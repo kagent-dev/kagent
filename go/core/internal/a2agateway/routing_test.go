@@ -57,6 +57,11 @@ func (w gatewayTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) 
 	return w.store.lostCause, w.store.lost, w.store.lostErr
 }
 
+func (w gatewayTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
+	w.store.awaitCalls++
+	return w.store.awaitErr
+}
+
 func (w gatewayTestWorkflow) RepointQuiesced(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	w.store.repointCalls++
 	return session, w.store.repointErr

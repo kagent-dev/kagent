@@ -44,6 +44,7 @@ type sessionWorkflow interface {
 	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error)
 	RepointQuiesced(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	AwaitRuntime(context.Context, *apiv1alpha1.Session) error
 }
 
 type ListRequest struct {
@@ -113,6 +114,12 @@ func (s *Service) FailLostRuntime(ctx context.Context, session *apiv1alpha1.Sess
 		return nil, err
 	}
 	return failed.GetFailure(), nil
+}
+
+// AwaitRuntime waits, bounded, until the session's runtime can take the turn
+// it refused: an operation holding its Actor, such as a repoint, finishes first.
+func (s *Service) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
+	return s.workflow.AwaitRuntime(ctx, session)
 }
 
 // RepointQuiesced moves the session's quiesced runtime onto its agent's current

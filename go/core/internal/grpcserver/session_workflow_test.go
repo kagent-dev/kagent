@@ -35,3 +35,7 @@ func (staticSessionWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) 
 func (staticSessionWorkflow) RepointQuiesced(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, nil
 }
+
+func (staticSessionWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
+	return nil
+}

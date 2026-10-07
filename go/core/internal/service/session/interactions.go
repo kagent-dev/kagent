@@ -182,6 +182,12 @@ func (s *InteractionService) FailLostRuntime(ctx context.Context, session *apiv1
 	return s.sessions.FailLostRuntime(ctx, session)
 }
 
+// AwaitRuntime waits, bounded, until a resolved session's runtime that refused
+// a send can take it.
+func (s *InteractionService) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
+	return s.sessions.AwaitRuntime(ctx, session)
+}
+
 // RepointQuiesced moves a resolved session's quiesced runtime onto its agent's
 // current revision before the turn the caller has reserved wakes it.
 func (s *InteractionService) RepointQuiesced(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
