@@ -158,7 +158,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
 | `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
 | `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
-| `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
+| `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between the expiration sweeps, which delete idle sessions and expired session shares. Must be positive. |
 | `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
 | `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second. |
 | `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |

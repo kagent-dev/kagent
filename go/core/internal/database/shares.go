@@ -133,6 +133,21 @@ func (c *Client) DeleteSessionShare(ctx context.Context, id, userID string) erro
 	return nil
 }
 
+// DeleteExpiredSessionShares removes every share expired at now and returns how
+// many went. now comes from the clock that set the shares' expires_at, as in
+// GetSessionShareByTokenHash, so a share stops granting and leaves the table on
+// the same clock. A share without expiry stays.
+func (c *Client) DeleteExpiredSessionShares(ctx context.Context, now time.Time) (int64, error) {
+	count, err := c.db.Exec(ctx, `
+		DELETE FROM session_share
+		WHERE expires_at IS NOT NULL AND expires_at <= $1
+	`, now)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired Session shares: %w", err)
+	}
+	return count.RowsAffected(), nil
+}
+
 type sessionShareRow struct {
 	ID         uuid.UUID
 	SessionID  uuid.UUID

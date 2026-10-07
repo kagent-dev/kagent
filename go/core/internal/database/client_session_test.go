@@ -909,6 +909,53 @@ func TestSessionShareExpiry(t *testing.T) {
 	require.NoError(t, client.DeleteSessionShare(ctx, expired.GetId(), "alice"))
 }
 
+func TestDeleteExpiredSessionShares(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
+	require.NoError(t, err)
+	// Postgres keeps microseconds; a clock the column can hold exactly makes
+	// "expired at now" a precise claim.
+	now := time.Now().Truncate(time.Microsecond)
+	share := func(expiresAt *timestamppb.Timestamp, token string) string {
+		t.Helper()
+		created, err := client.CreateSessionShare(ctx, &apiv1alpha1.SessionShare{
+			Id: uuid.NewString(), SessionId: session.Id,
+			Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
+			ExpiresAt:  expiresAt,
+		}, []byte(token), "alice")
+		require.NoError(t, err)
+		return created.GetId()
+	}
+	share(timestamppb.New(now.Add(-time.Second)), "expired")
+	share(timestamppb.New(now), "expired at now")
+	live := share(timestamppb.New(now.Add(time.Hour)), "live")
+	unbounded := share(nil, "unbounded")
+
+	count, err := client.DeleteExpiredSessionShares(ctx, now)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count, "a share expired at now is gone, as its token grants nothing at now")
+	listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	require.ElementsMatch(t, []string{live, unbounded}, []string{listed[0].GetId(), listed[1].GetId()})
+
+	count, err = client.DeleteExpiredSessionShares(ctx, now)
+	require.NoError(t, err)
+	require.Zero(t, count, "the same clock finds nothing more")
+	share(nil, "expired")
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("expired"), now)
+	require.NoError(t, err, "a deleted share's token hash is free again")
+
+	count, err = client.DeleteExpiredSessionShares(ctx, now.Add(2*time.Hour))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count, "the live share goes once the clock passes its expiry")
+	listed, err = client.ListSessionShares(ctx, session.Id, "alice", "", 10)
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "shares without expiry stay")
+}
+
 func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()

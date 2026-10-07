@@ -3,12 +3,14 @@ package session
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -16,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestSessionExpirationRetriesDeletion(t *testing.T) {
@@ -132,19 +135,74 @@ func TestSessionExpirationCountsCompletedSweepDeletionOnce(t *testing.T) {
 	writes.finishErr = nil
 	require.NoError(t, worker.expire(t.Context(), session.Id, time.Now()))
 	require.ErrorIs(t, worker.expire(t.Context(), session.Id, time.Time{}), database.ErrNotFound)
+	require.EqualValues(t, 1, counterValue(t, reader, "kagent.session.expired"))
+}
+
+// counterValue reads one Int64Counter's single data point, or fails the test.
+func counterValue(t *testing.T, reader *metric.ManualReader, name string) int64 {
+	t.Helper()
 	var metrics metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &metrics))
 	for _, scope := range metrics.ScopeMetrics {
 		for _, measurement := range scope.Metrics {
-			if measurement.Name == "kagent.session.expired" {
+			if measurement.Name == name {
 				sum := measurement.Data.(metricdata.Sum[int64])
 				require.Len(t, sum.DataPoints, 1)
-				require.EqualValues(t, 1, sum.DataPoints[0].Value)
-				return
+				return sum.DataPoints[0].Value
 			}
 		}
 	}
-	t.Fatal("missing session expiration counter")
+	t.Fatalf("missing counter %s", name)
+	return 0
+}
+
+// The sweep deletes the shares expired at its clock and counts them; a share
+// expiring later and one without expiry stay for the owner to see and revoke.
+func TestSessionExpirationDeletesExpiredShares(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	previous := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() {
+		otel.SetMeterProvider(previous)
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+	store, session := lifecycleFixture(t)
+	worker, err := NewExpirationWorker(store, NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second), time.Hour, time.Minute)
+	require.NoError(t, err)
+	now := time.Now().Truncate(time.Microsecond)
+	share := func(expiresAt *timestamppb.Timestamp, token string) string {
+		t.Helper()
+		created, err := store.CreateSessionShare(t.Context(), &apiv1alpha1.SessionShare{
+			Id: uuid.NewString(), SessionId: session.Id,
+			Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
+			ExpiresAt:  expiresAt,
+		}, []byte(token), session.Creator)
+		require.NoError(t, err)
+		return created.GetId()
+	}
+	listed := func() []string {
+		t.Helper()
+		shares, err := store.ListSessionShares(t.Context(), session.Id, session.Creator, "", 10)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(shares))
+		for _, share := range shares {
+			ids = append(ids, share.GetId())
+		}
+		return ids
+	}
+	share(timestamppb.New(now.Add(-time.Second)), "expired")
+	later := share(timestamppb.New(now.Add(time.Hour)), "later")
+	unbounded := share(nil, "unbounded")
+
+	worker.expireShares(t.Context(), now)
+	require.ElementsMatch(t, []string{later, unbounded}, listed())
+	worker.expireShares(t.Context(), now)
+	require.EqualValues(t, 1, counterValue(t, reader, "kagent.session.share_expired"), "a sweep that finds nothing counts nothing")
+
+	worker.expireShares(t.Context(), now.Add(2*time.Hour))
+	require.Equal(t, []string{unbounded}, listed(), "a share without expiry stays")
+	require.EqualValues(t, 2, counterValue(t, reader, "kagent.session.share_expired"))
 }
 
 func TestSessionExpirationConfiguration(t *testing.T) {
@@ -154,20 +212,39 @@ func TestSessionExpirationConfiguration(t *testing.T) {
 		_, err := NewExpirationWorker(nil, nil, time.Hour, interval)
 		require.ErrorContains(t, err, "poll interval must be positive")
 	}
-	worker, err := NewExpirationWorker(nil, nil, 0, time.Minute)
+	store := &sweepCountingStore{}
+	worker, err := NewExpirationWorker(store, nil, 0, time.Millisecond)
 	require.NoError(t, err)
 	require.True(t, worker.NeedLeaderElection())
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() { done <- worker.Start(ctx) }()
-	select {
-	case <-done:
-		t.Fatal("disabled worker should wait for shutdown without accessing the store")
-	case <-time.After(10 * time.Millisecond):
-	}
+	// A zero idle TTL turns idle deletion off, not the share sweep.
+	require.Eventually(t, func() bool { return store.shareSweeps.Load() > 1 }, 5*time.Second, time.Millisecond)
+	require.Zero(t, store.idleListings.Load(), "a disabled idle deletion never lists idle sessions")
 	cancel()
 	require.NoError(t, <-done)
+}
+
+// sweepCountingStore counts the sweeps a worker runs and holds nothing.
+type sweepCountingStore struct {
+	idleListings atomic.Int64
+	shareSweeps  atomic.Int64
+}
+
+func (s *sweepCountingStore) ListIdleSessions(context.Context, time.Time, string, int) ([]string, error) {
+	s.idleListings.Add(1)
+	return nil, nil
+}
+
+func (*sweepCountingStore) BeginIdleSessionDeletion(context.Context, string, time.Time) (*database.IdleSessionDeletion, error) {
+	return nil, database.ErrNotFound
+}
+
+func (s *sweepCountingStore) DeleteExpiredSessionShares(context.Context, time.Time) (int64, error) {
+	s.shareSweeps.Add(1)
+	return 0, nil
 }
 
 func TestSessionExpirationWorkerDiscoversIdleSessions(t *testing.T) {

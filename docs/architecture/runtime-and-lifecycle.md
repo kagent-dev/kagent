@@ -88,8 +88,9 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 Sessions expire after seven days without task activity by default, using the same
 bounded deletion workflow as Sandboxes. `controller.sessionIdleTTL` in Helm sets
 `KAGENT_SESSION_IDLE_TTL` on the controller. Values use Go durations (`168h` for seven days,
-`720h` for thirty); `0` disables the worker, including retries, and negative values
-are rejected. There is no per-agent override or maximum TTL.
+`720h` for thirty); `0` disables idle deletion, including retries, and negative values
+are rejected. There is no per-agent override or maximum TTL. The worker still
+sweeps expired shares (below) with idle deletion off.
 
 Idle time is measured from the later of session creation and the latest stored
 A2A event's database timestamp. Forks retain original event timestamps, so their
@@ -127,6 +128,14 @@ retention policy. History is no longer accessible through the expired Session AP
 `kagent.session.expired` counts completed sweep removals (Prometheus exports
 `kagent_session_expired_total`). Each removal logs `expired idle session` at debug
 level with `session_id` and `idle_time`.
+
+The same sweep deletes the session shares whose `expires_at` has passed, judged on
+the controller's clock like the share token lookup. An expired share grants nothing
+from its expiry on; without the sweep its row stayed until the owner revoked it or
+the session was deleted, one dead row for every shared conversation nobody wrote to
+again. Shares without an expiry are untouched. `kagent.session.share_expired` counts
+the deleted shares (`kagent_session_share_expired_total`); a sweep that deleted any
+logs `deleted expired session shares` at debug level with `count`.
 
 ## Automatic quiescence
 
