@@ -54,6 +54,7 @@ test("agents: the list is the way in to a conversation, through the agent", asyn
     await expectSettled(page);
     await expect(page.getByTestId("new-chat-empty")).toBeVisible();
     await expect(page.getByTestId("chat-input")).toBeVisible();
+    await expect(page.getByTestId(`chat-session-${instances.ready}`)).toBeVisible();
     await expect(
       page.getByTestId(`chat-session-${instances.someoneElses}`),
     ).toHaveCount(0);
