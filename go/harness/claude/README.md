@@ -15,12 +15,12 @@ harness.
 | [`../../core/internal/translator/claude`](../../core/internal/translator/claude) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision and warnings |
 | [`config/config.go`](config/config.go) | The versioned JSON contract shared by the compiler and runtime, including defaults and reserved environment variables |
 | [`cmd/main.go`](cmd/main.go) | Actor startup, environment inputs, Claude version validation, continuation-store wiring, and private A2A startup |
-| [`internal/adapter/adapter.go`](internal/adapter/adapter.go) | Materializing Claude home, skills, permission rules, MCP config and provider credentials, and handing Claude's trees to the unprivileged user |
+| [`internal/adapter/adapter.go`](internal/adapter/adapter.go) | Materializing Claude home, skills, permission rules and MCP config, and handing Claude's trees to the unprivileged user |
 | [`internal/driver`](internal/driver) | Claude CLI arguments, stream-JSON parsing, runtime-event translation, cancellation, and process supervision |
 
 ## Working
 
-- [x] Anthropic API keys and Amazon Bedrock bearer tokens, injected by the gateway
+- [x] Anthropic API keys, Amazon Bedrock bearer tokens, and Vertex AI service account keys, injected by the gateway
 - [x] Streaming text, tool calls, and tool results over A2A
 - [x] Task cancellation
 - [x] Durable Claude session resume between turns
@@ -31,8 +31,10 @@ harness.
 - [x] Human-in-the-loop MCP tool approval
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
-AWS IAM keys and Vertex service-account keys require local signing and are rejected
-by the compiler. Harness environment entries accept only literal values.
+A Vertex AI service account key is exchanged for an access token by Substrate's
+credential provider, and Claude Code runs with `CLAUDE_CODE_SKIP_VERTEX_AUTH` so it
+never holds the key. AWS IAM keys require local signing and are rejected by the
+compiler. Harness environment entries accept only literal values.
 
 With `KAGENT_PROPAGATE_TOKEN=true` in the Harness environment, the caller's `authorization`
 of each A2A turn is forwarded on MCP calls, as the Go ADK does. The adapter points every

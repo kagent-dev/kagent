@@ -49,6 +49,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_PORT` | String | `(none)` | ADK A2A listen port: the Go HTTP/gRPC listener defaults to 8080; the Python gRPC listener defaults to 80. Explicit Go --port/AppConfig.Port or Python a2a_grpc_address takes precedence. The controller sets 80 for managed kagent runtimes. Python's HTTP --port is separate. |
 | `KAGENT_PROPAGATE_TOKEN` | String | `(none)` | Set to true to propagate authentication tokens to downstream services. Unset or any other value disables propagation. |
 | `KAGENT_SKILLS_FOLDER` | String | `/skills` | Skills directory for standalone Python skills tools. The Python ADK adds skills tools when set; managed Go ADK runtimes use their compiled skill configuration. |
+| `KAGENT_SKIP_VERTEX_AUTH` | Boolean | `false` | When true, call Vertex AI without Google credentials of the runtime's own; the egress gateway sets the access token. |
 | `KAGENT_STS_AUDIENCE` | String | `(none)` | Comma-separated RFC 8693 audiences sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience. |
 | `KAGENT_STS_RESOURCE` | String | `(none)` | Comma-separated RFC 8707 resource indicators sent on STS token-exchange requests to scope issued tokens to target backends. |
 | `KAGENT_STS_WELL_KNOWN_URI` | String | `(none)` | Well-known endpoint for the Security Token Service (STS) used for token exchange. |

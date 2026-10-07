@@ -23,6 +23,7 @@ func TestCanonicalCredentials(t *testing.T) {
 		{"provider", func(c *Credential) { c.URI = "https://example.com/secret" }},
 		{"missing key", func(c *Credential) { c.URI = "ate-secret://k8s.io/default/team/auth" }},
 		{"old provider", func(c *Credential) { c.URI = "ate-secret://kubernetes.io/team/auth/token" }},
+		{"unknown authority", func(c *Credential) { c.URI = "ate-secret://vault.k8s.io/default/team/auth/token" }},
 		{"missing locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/team/auth/token" }},
 		{"unsupported locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/remote/team/auth/token" }},
 		{"query", func(c *Credential) { c.URI += "?key=other" }},
@@ -38,4 +39,10 @@ func TestCanonicalCredentials(t *testing.T) {
 	other.URI = "ate-secret://k8s.io/default/team/other/token"
 	_, err = CanonicalCredentials([]Credential{base, other})
 	require.ErrorContains(t, err, "conflicting credentials")
+
+	// The Google provider mints an access token from the key the URI names.
+	google := Credential{Hostname: "us-east5-aiplatform.googleapis.com", Header: "authorization", Prefix: "Bearer ", URI: CredentialURI(GoogleAccessTokenAuthority, "team", "vertex", "credentials.json")}
+	got, err = CanonicalCredentials([]Credential{google})
+	require.NoError(t, err)
+	require.Equal(t, "ate-secret://google-access-token.k8s.io/default/team/vertex/credentials.json", got[0].URI)
 }

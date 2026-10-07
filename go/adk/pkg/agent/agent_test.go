@@ -630,3 +630,19 @@ func TestCreateGoogleADKAgentLoadsSkillsWithFrontmatterFieldsOutsideTheSpec(t *t
 		t.Fatalf("a skill without a description must still fail with %v, got %v", skill.ErrInvalidFrontmatter, err)
 	}
 }
+
+// With the egress gateway minting the access token, the Gemini Vertex AI client
+// is built without Application Default Credentials.
+func TestCreateLLMGeminiVertexAIWithGatewayCredential(t *testing.T) {
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "project")
+	t.Setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+	t.Setenv("KAGENT_SKIP_VERTEX_AUTH", "true")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/credentials.json")
+	llm, err := CreateLLM(context.Background(), &adk.GeminiVertexAI{BaseModel: adk.BaseModel{Model: "gemini-2.5-pro"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llm == nil {
+		t.Fatal("CreateLLM() returned no model")
+	}
+}

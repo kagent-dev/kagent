@@ -323,11 +323,22 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
+		clientConfig := &genai.ClientConfig{
 			Backend:  genai.BackendVertexAI,
 			Project:  project,
 			Location: location,
-		})
+		}
+		if env.SkipVertexAuth.Get() {
+			// The egress gateway sets the access token on every call: handed an
+			// HTTP client, the SDK sends the request as it is and never looks for
+			// Application Default Credentials.
+			httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
+			if err != nil {
+				return nil, fmt.Errorf("failed to build HTTP client for Gemini on Vertex AI: %w", err)
+			}
+			clientConfig.HTTPClient = httpClient
+		}
+		return adkgemini.NewModel(ctx, modelName, clientConfig)
 
 	case *adk.Anthropic:
 		modelName := m.Model
@@ -416,7 +427,8 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 
 	case *adk.GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
-		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
+		// Uses the Anthropic SDK's built-in Vertex AI support with Application
+		// Default Credentials, or with the egress gateway's access token.
 		project := env.GoogleCloudProject.Get()
 		region := env.GoogleCloudLocation.Get()
 		if region == "" {

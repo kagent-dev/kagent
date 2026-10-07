@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +44,33 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			require.Equal(t, test.header, bindings[0].Header)
 			require.Equal(t, test.prefix, bindings[0].Prefix)
 			require.Equal(t, "ate-secret://k8s.io/default/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
+		})
+	}
+}
+
+// A Vertex AI key is bound on the Google access-token authority, which mints
+// the bearer token the gateway sets; no variable carries the key, so the
+// environment compiles unchanged.
+func TestCompileCredentialsBindsVertexAIWithoutEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		spec v1alpha3.ModelConfigSpec
+		host string
+	}{
+		{"Gemini regional", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderGeminiVertexAI, GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-central1"}}}, "us-central1-aiplatform.googleapis.com"},
+		{"Anthropic global", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global"}}}, "aiplatform.googleapis.com"},
+		{"Anthropic multi-region", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "eu"}}}, "aiplatform.eu.rep.googleapis.com"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.spec.APIKeySecret, test.spec.APIKeySecretKey = "auth", "credentials.json"
+			environment := []corev1.EnvVar{{Name: "GOOGLE_CLOUD_LOCATION", Value: "somewhere"}}
+			got, bindings, err := CompileCredentials(credentialInput(test.spec), nil, environment)
+			require.NoError(t, err)
+			require.Equal(t, environment, got)
+			require.Equal(t, []egress.Credential{{
+				Hostname: test.host, Header: "authorization", Prefix: "Bearer ",
+				URI: "ate-secret://google-access-token.k8s.io/default/team/auth/credentials.json",
+			}}, bindings)
 		})
 	}
 }
@@ -222,9 +250,9 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 					Spec:       tt.spec,
 				},
 			}
-			name, endpoint, _, _ := modelCredentialTarget(resolved)
-			require.Equal(t, tt.wantName, name)
-			require.Equal(t, tt.wantEndpoint, endpoint)
+			target := modelCredentialTarget(resolved)
+			require.Equal(t, tt.wantName, target.name)
+			require.Equal(t, tt.wantEndpoint, target.endpoint)
 		})
 	}
 }

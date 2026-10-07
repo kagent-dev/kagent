@@ -617,6 +617,66 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	}
 }
 
+// A Vertex AI ModelConfig with a service account key compiles for the kagent
+// harness: the key is bound on the Google access-token authority for the
+// gateway to exchange, the runtime is told to skip Google authentication of
+// its own, and nothing of the key reaches the revision.
+func TestCompileAgentBindsVertexAIAtGateway(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "vertex-auth", Namespace: "test"},
+		Data:       map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"private-key-must-not-be-serialized"}`)},
+	}
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
+			APIKeySecret: secret.Name, APIKeySecretKey: "credentials.json",
+			AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}},
+		},
+	}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:   &v1alpha3.KagentHarness{},
+			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+	}
+	spec, err := compiler(t, model, secret).CompileAgent(context.Background(), inlineAgent(harness, template))
+	require.NoError(t, err)
+	require.Equal(t, []egress.Credential{{
+		Hostname: "us-east5-aiplatform.googleapis.com", Header: "authorization", Prefix: "Bearer ",
+		URI: "ate-secret://google-access-token.k8s.io/default/test/vertex-auth/credentials.json",
+	}}, spec.Credentials)
+	environment := map[string]string{}
+	for _, variable := range spec.Environment {
+		require.Nil(t, variable.ValueFrom, "%s is unresolved", variable.Name)
+		environment[variable.Name] = variable.Value
+	}
+	require.Equal(t, "true", environment["KAGENT_SKIP_VERTEX_AUTH"])
+	require.NotContains(t, environment, "GOOGLE_APPLICATION_CREDENTIALS")
+	require.Contains(t, spec.EgressDestinations, "https://us-east5-aiplatform.googleapis.com:443")
+	require.NotContains(t, spec.EgressDestinations, "https://oauth2.googleapis.com:443")
+	if bytes.Contains(spec.ConfigJSON, []byte("private-key")) || bytes.Contains(spec.Provenance, []byte("private-key")) {
+		t.Fatal("runtime revision contains credential material")
+	}
+
+	// A key that is not a service account's is reported when the agent is compiled.
+	user := secret.DeepCopy()
+	user.Data["credentials.json"] = []byte(`{"type":"authorized_user","project_id":"project"}`)
+	_, err = compiler(t, model, user).CompileAgent(context.Background(), inlineAgent(harness, template))
+	var validation *translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.ErrorContains(t, err, "service_account")
+}
+
 func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
 	t.Setenv("OTEL_METRICS_EXPORTER", "otlp")

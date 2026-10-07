@@ -151,7 +151,6 @@ func TestNewKeepsClaudesPolicyOutOfItsReach(t *testing.T) {
 	raw, err := json.Marshal(cfg)
 	require.NoError(t, err)
 	input := rootInput(t, raw)
-	input.Environment = append(input.Environment, config.GoogleCredentialsJSONEnvName+`={"type":"service_account"}`)
 	runner, err := New(t.Context(), input)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runner.Close() })
@@ -164,7 +163,7 @@ func TestNewKeepsClaudesPolicyOutOfItsReach(t *testing.T) {
 	mcpConfig := filepath.Join(input.PolicyDir, "mcp.json")
 	require.Subset(t, args, []string{"--mcp-config", mcpConfig})
 
-	policy := []string{input.ManagedSettingsPath, mcpConfig, filepath.Join(input.PolicyDir, "google-credentials.json")}
+	policy := []string{input.ManagedSettingsPath, mcpConfig}
 	for _, path := range policy {
 		info, err := os.Lstat(path)
 		require.NoError(t, err)

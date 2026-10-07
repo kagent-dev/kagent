@@ -145,10 +145,6 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
-	environment, err = materializeGoogleCredentials(environment, files)
-	if err != nil {
-		return nil, err
-	}
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
@@ -337,36 +333,6 @@ func approvalServerNames(servers map[string]config.MCPServer) (protected []strin
 		}
 	}
 	return protected
-}
-
-func materializeGoogleCredentials(environment []string, files harnessFiles) ([]string, error) {
-	// The compiler injects the Secret value as JSON, while Google ADC expects a
-	// file path. Keep the credential out of the well-known path under /data,
-	// which is durable and may be snapshotted.
-	prefix := config.GoogleCredentialsJSONEnvName + "="
-	var credentials string
-	filtered := make([]string, 0, len(environment))
-	for _, item := range environment {
-		if strings.HasPrefix(item, prefix) {
-			if credentials != "" {
-				return nil, fmt.Errorf("%s is configured more than once", config.GoogleCredentialsJSONEnvName)
-			}
-			credentials = strings.TrimPrefix(item, prefix)
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	if credentials == "" {
-		return filtered, nil
-	}
-	if !json.Valid([]byte(credentials)) {
-		return nil, fmt.Errorf("%s must contain valid JSON", config.GoogleCredentialsJSONEnvName)
-	}
-	path, err := files.write("google-credentials.json", []byte(credentials))
-	if err != nil {
-		return nil, fmt.Errorf("materialize Google credentials: %w", err)
-	}
-	return setEnvironment(filtered, config.GoogleApplicationCredentialsEnvName, path), nil
 }
 
 // reclaimTreeRoot takes the root directory of one of Claude's trees back, so

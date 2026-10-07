@@ -58,6 +58,54 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	}
 }
 
+// A Vertex AI credential is exchanged by the egress gateway: the runtime is
+// told to skip Google authentication of its own and gets neither the key nor a
+// credential file.
+func TestTranslateVertexAIEnvironment(t *testing.T) {
+	vertex := v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}
+	for _, tt := range []struct {
+		name string
+		spec v1alpha3.ModelConfigSpec
+		want []string
+	}{
+		{
+			name: "Gemini with a key",
+			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderGeminiVertexAI, Model: "gemini-2.5-pro", APIKeySecret: "vertex-auth", APIKeySecretKey: "credentials.json", GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: vertex}},
+			want: []string{env.GoogleGenAIUseVertexAI.Name(), env.GoogleCloudProject.Name(), env.GoogleCloudLocation.Name(), env.SkipVertexAuth.Name()},
+		},
+		{
+			name: "Anthropic with a key",
+			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", APIKeySecret: "vertex-auth", APIKeySecretKey: "credentials.json", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}},
+			want: []string{env.GoogleCloudProject.Name(), env.GoogleCloudLocation.Name(), env.SkipVertexAuth.Name()},
+		},
+		{
+			name: "Anthropic without a key",
+			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}},
+			want: []string{env.GoogleCloudProject.Name(), env.GoogleCloudLocation.Name()},
+		},
+		{
+			name: "Anthropic passthrough",
+			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude", APIKeySecret: "vertex-auth", APIKeySecretKey: "credentials.json", APIKeyPassthrough: true, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}},
+			want: []string{env.GoogleCloudProject.Name(), env.GoogleCloudLocation.Name()},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "test"}, Spec: tt.spec}}
+			_, data, err := translateModel(resolved)
+			require.NoError(t, err)
+			names := make([]string, 0, len(data.EnvVars))
+			for _, variable := range data.EnvVars {
+				require.Nil(t, variable.ValueFrom, "%s reads a Secret", variable.Name)
+				names = append(names, variable.Name)
+				if variable.Name == env.SkipVertexAuth.Name() {
+					require.Equal(t, "true", variable.Value)
+				}
+			}
+			require.ElementsMatch(t, tt.want, names)
+		})
+	}
+}
+
 // The Ollama key reaches the agent as an environment variable read from a
 // Secret, never serialized into the agent config. The host is the operator's,
 // or the cloud endpoint for a model the routing predicate sends there, since

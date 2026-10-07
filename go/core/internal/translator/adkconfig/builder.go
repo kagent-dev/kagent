@@ -94,13 +94,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	if input.ResolvedModelConfig != nil {
 		modelConfig = input.ResolvedModelConfig.Config
 		var err error
-		modelRuntime, err = resolveModel(input.ResolvedModelConfig)
+		modelRuntime, err = c.resolveModel(input.ResolvedModelConfig)
 		if err != nil {
 			return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 		}
-	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	stream := new(true)
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
@@ -300,6 +297,34 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 	return result
 }
 
+// resolveModel collapses provider-specific translation output into the subset
+// needed to compile a runtime revision.
+func (c *Builder) resolveModel(resolved *translator.ResolvedModelConfig) (*modelRuntime, error) {
+	model, data, err := translateModel(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.requireGoogleCredentials(resolved.Config); err != nil {
+		return nil, err
+	}
+	return &modelRuntime{Model: model, Environment: data.EnvVars}, nil
+}
+
+// requireGoogleCredentials checks the service account key of a Vertex AI
+// ModelConfig when the agent is compiled: the egress gateway exchanges it for
+// an access token on every call, and the runtime never sees it.
+func (c *Builder) requireGoogleCredentials(model *v1alpha3.ModelConfig) error {
+	vertex := translator.VertexAIConfig(&model.Spec)
+	if vertex == nil || model.Spec.APIKeySecret == "" || model.Spec.APIKeyPassthrough {
+		return nil
+	}
+	secret := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}))
+	if secret == nil {
+		return fmt.Errorf("read Vertex AI credential Secret %q: not found", model.Spec.APIKeySecret)
+	}
+	return translator.ValidateGoogleServiceAccountKey((*secret).Data[model.Spec.APIKeySecretKey], vertex.ProjectID)
+}
+
 // agentConfigDestinations extracts the network allowlist required by the
 // resolved model and MCP configuration. Provider defaults are included when
 // no explicit endpoint appears in the serialized model.
@@ -327,6 +352,10 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
+		if vertex := translator.VertexAIConfig(&modelConfig.Spec); vertex != nil {
+			destinations = append(destinations, translator.VertexAIOrigin(vertex.Location))
+		}
 	case v1alpha3.ModelProviderMistral:
 		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
 			destinations = append(destinations, "https://api.mistral.ai:443")

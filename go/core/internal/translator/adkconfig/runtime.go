@@ -32,12 +32,9 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 	if failures := resolved.ReferenceFailures; len(failures) > 0 {
 		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
 	}
-	runtime, err := resolveModel(resolved)
+	runtime, err := c.resolveModel(resolved)
 	if err != nil {
 		return nil, err
-	}
-	if runtime.HasUnsupportedVolumes {
-		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	return &modelResult{
 		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,

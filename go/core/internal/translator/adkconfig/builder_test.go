@@ -276,6 +276,56 @@ func TestOllamaEgressDestination(t *testing.T) {
 	})
 }
 
+// A Vertex AI ModelConfig with a service account key compiles for the Substrate
+// runtime: no volume, the location's endpoint allowed, and the key checked
+// here, so a wrong one is reported against the agent and not at the gateway's
+// fetch.
+func TestBuildVertexAIGatewayCredential(t *testing.T) {
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "vertex", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderGeminiVertexAI, Model: "gemini-2.5-pro",
+			APIKeySecret: "vertex-auth", APIKeySecretKey: "credentials.json",
+			GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global"}},
+		},
+	}
+	build := func(t *testing.T, key string) (*Result, error) {
+		t.Helper()
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "vertex-auth", Namespace: "test"}, Data: map[string][]byte{"credentials.json": []byte(key)}}
+		mock := krttest.NewMock(t, []any{model, secret})
+		collections := translator.Collections{Secrets: krttest.GetMockCollection[*corev1.Secret](mock)}
+		resolved, err := translator.ResolveModelConfig(krt.TestingDummyContext{}, collections, krttest.GetMockCollection[*v1alpha3.ModelConfig](mock).List()[0])
+		require.NoError(t, err)
+		collections.ResolvedModelConfigs = krttest.GetMockCollection[translator.ResolvedModelConfig](krttest.NewMock(t, []any{*resolved}))
+		return NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(), &translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+			Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{Name: "pi", Namespace: "test"}, ResolvedModelConfig: resolved},
+		})
+	}
+	result, err := build(t, `{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"private"}`)
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://aiplatform.googleapis.com:443"}, result.Egress)
+	environment := map[string]string{}
+	for _, variable := range result.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	require.Equal(t, "true", environment[env.SkipVertexAuth.Name()])
+	require.NotContains(t, environment, env.GoogleApplicationCredentials.Name())
+
+	for _, tt := range []struct{ name, key, wantErr string }{
+		{"user credentials", `{"type":"authorized_user","project_id":"project"}`, "service_account"},
+		{"other project", `{"type":"service_account","project_id":"other"}`, "project_id"},
+		{"foreign token endpoint", `{"type":"service_account","project_id":"project","token_uri":"https://token.example.com/"}`, "token_uri"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := build(t, tt.key)
+			var validation *translator.ValidationError
+			require.ErrorAs(t, err, &validation)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) translator.Collections {
 	t.Helper()
 	objects := make([]any, 0, 2*len(models))
