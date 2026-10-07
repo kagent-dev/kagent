@@ -167,12 +167,23 @@ SandboxConfig and provision compatible workers and runtime assets. Selecting
 RuntimeClass.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
-`RevisionInvalid`. Neither produces a desired ActorTemplate. The worker-pool
-selector is unchanged. WorkerPool updates are tracked through KRT and recompute
-the desired revision. Empty and explicit `gvisor` hash the explicit `gvisor`
+`RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
+are tracked through KRT and recompute the desired revision.
+Empty and explicit `gvisor` hash the explicit `gvisor`
 class; both sandbox classes participate in the digest, so a prepared MicroVM runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
 original digest. Existing Sessions remain pinned to their revisions.
+
+Generated ActorTemplates select workers with both `kagent.dev/worker-pool`
+and `kagent.dev/worker-pool-namespace`. The labels identify the referenced pool's
+name and namespace. Same-named pools in other namespaces cannot supply workers.
+The Helm chart sets both labels. Operators must set both labels on externally
+managed pools before upgrading the controller.
+
+The namespace selector creates new immutable revisions for Agents and
+SandboxTemplates. Existing Sessions and Sandboxes retain their original templates.
+Wait for the new revisions to become ready, then recreate those workloads
+to apply placement within their namespaces.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining

@@ -23,6 +23,9 @@ tests:
           path: metadata.labels["kagent.dev/worker-pool"]
           value: selected-pool
       - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: kagent
+      - equal:
           path: spec.sandboxClass
           value: gvisor
       - equal:
@@ -35,6 +38,48 @@ tests:
       - equal:
           path: spec.sandboxClass
           value: gvisor
+  - it: should scope a same-named pool to its release namespace
+    release:
+      namespace: tenant-b
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: tenant-b
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool"]
+          value: selected-pool
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: tenant-b
+  - it: should scope placement to the namespace override
+    set:
+      namespaceOverride: tenant-a
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: tenant-a
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: tenant-a
+  - it: should preserve extra labels without allowing placement overrides
+    set:
+      labels:
+        kagent.dev/worker-pool: foreign-global-pool
+        kagent.dev/worker-pool-namespace: foreign-global-namespace
+      substrateWorkerPool.labels:
+        team: platform
+        kagent.dev/worker-pool: foreign-pool
+        kagent.dev/worker-pool-namespace: foreign-namespace
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool"]
+          value: selected-pool
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: kagent
   - it: should render microvm with the selected image and worker selector label
     set:
       substrateWorkerPool.sandboxClass: microvm
