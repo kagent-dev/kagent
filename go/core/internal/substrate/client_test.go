@@ -20,27 +20,94 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestAteAPITLSConfig(t *testing.T) {
-	cfg, err := ateAPITLSConfig(Config{})
+func TestClientTLSConfig(t *testing.T) {
+	cfg, err := clientTLSConfig("", "")
 	require.NoError(t, err)
 	require.False(t, cfg.InsecureSkipVerify)
 	require.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 
-	cert := newTestTLSCert(t)
-	key, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
-	require.NoError(t, err)
-	bundle := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})...)
-	path := filepath.Join(t.TempDir(), "bundle.pem")
-	require.NoError(t, os.WriteFile(path, bundle, 0o600))
-	cfg, err = ateAPITLSConfig(Config{CAFile: path, ClientCertFile: path})
+	path := writeTLSBundle(t, newTestTLSCert(t))
+	cfg, err = clientTLSConfig(path, path)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RootCAs)
 	loaded, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
 	require.NoError(t, err)
 	require.NotEmpty(t, loaded.Certificate)
+}
+
+func TestRouterTransport(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		router       Router
+		wantTarget   string
+		wantProtocol string
+		wantErr      string
+	}{
+		{name: "http ignores TLS files", router: Router{URL: "http://router:80", CAFile: "/missing", ClientCertFile: "/missing"}, wantTarget: "router:80", wantProtocol: "insecure"},
+		{name: "https", router: Router{URL: "https://router:443"}, wantTarget: "router:443", wantProtocol: "tls"},
+		{name: "https with missing CA file", router: Router{URL: "https://router:443", CAFile: "/missing"}, wantErr: "read CA file"},
+		{name: "missing host", router: Router{URL: "http://"}, wantErr: "must include a host"},
+		{name: "unsupported scheme", router: Router{URL: "ftp://router"}, wantErr: "must use http or https"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			target, transport, err := test.router.Transport()
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.wantTarget, target)
+			require.Equal(t, test.wantProtocol, transport.Info().SecurityProtocol)
+		})
+	}
+}
+
+// The router's sender policy relies on seeing the controller certificate.
+func TestRouterTransportPresentsClientCertificate(t *testing.T) {
+	cert := newTestTLSCert(t)
+	bundle := writeTLSBundle(t, cert)
+	pool := x509.NewCertPool()
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	require.NoError(t, err)
+	pool.AddCert(leaf)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	peers := make(chan []*x509.Certificate, 1)
+	srv := grpc.NewServer(
+		grpc.Creds(credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{cert},
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    pool,
+			MinVersion:   tls.VersionTLS12,
+		})),
+		grpc.UnknownServiceHandler(func(_ any, stream grpc.ServerStream) error {
+			p, _ := peer.FromContext(stream.Context())
+			peers <- p.AuthInfo.(credentials.TLSInfo).State.PeerCertificates
+			return status.Error(codes.Unimplemented, "observed")
+		}),
+	)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	call := func(router Router) error {
+		target, transport, err := router.Transport()
+		require.NoError(t, err)
+		conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(transport))
+		require.NoError(t, err)
+		defer conn.Close() //nolint:errcheck
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		return conn.Invoke(ctx, "/test.Router/Call", &emptypb.Empty{}, &emptypb.Empty{})
+	}
+	url := "https://" + lis.Addr().String()
+	require.Equal(t, codes.Unavailable, status.Code(call(Router{URL: url, CAFile: bundle})), "the router requires a client certificate")
+	require.Equal(t, codes.Unimplemented, status.Code(call(Router{URL: url, CAFile: bundle, ClientCertFile: bundle})))
+	require.Equal(t, cert.Certificate[0], (<-peers)[0].Raw)
 }
 
 func TestDial_verifiedTLSReachesReady(t *testing.T) {
@@ -199,12 +266,24 @@ func newTestTLSCert(t *testing.T) tls.Certificate {
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	require.NoError(t, err)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// writeTLSBundle writes the certificate and key to one PEM file, as pod
+// certificate credential bundles are mounted.
+func writeTLSBundle(t *testing.T, cert tls.Certificate) string {
+	t.Helper()
+	key, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	require.NoError(t, err)
+	bundle := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})...)
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	require.NoError(t, os.WriteFile(path, bundle, 0o600))
+	return path
 }
 
 // listWorkersFake pages workers the way ate-api does: one row per page, and an empty

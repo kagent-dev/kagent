@@ -47,7 +47,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	a2apb.RegisterA2AServiceServer(server, &a2apb.UnimplementedA2AServiceServer{})
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
-	dialer, err := NewRuntimeDialer("http://"+listener.Addr().String(), runtimeTestAuth{})
+	dialer, err := NewRuntimeDialer(substrate.Router{URL: "http://" + listener.Addr().String()}, runtimeTestAuth{})
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()

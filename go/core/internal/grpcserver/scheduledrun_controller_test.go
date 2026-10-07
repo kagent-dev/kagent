@@ -334,7 +334,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
 			authenticator := &scheduledControllerAuth{}
-			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
+			dialer, err := a2agateway.NewRuntimeDialer(substrate.Router{URL: "http://" + listener.Addr().String()}, authenticator)
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
 			created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{

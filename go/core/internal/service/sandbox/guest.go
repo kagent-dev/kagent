@@ -2,12 +2,9 @@ package sandbox
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -19,8 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -32,20 +27,16 @@ type GuestDialer struct {
 	endpoint      string
 }
 
-func NewGuestDialer(routerURL string, authenticator auth.AuthProvider) (*GuestDialer, error) {
-	router, err := url.Parse(routerURL)
-	if err != nil || router.Host == "" || (router.Scheme != "http" && router.Scheme != "https") {
-		return nil, fmt.Errorf("invalid sandbox router URL")
-	}
-	transport := insecure.NewCredentials()
-	if router.Scheme == "https" {
-		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: router.Hostname()})
-	}
-	conn, err := grpc.NewClient(router.Host, grpc.WithTransportCredentials(transport))
+func NewGuestDialer(router substrate.Router, authenticator auth.AuthProvider) (*GuestDialer, error) {
+	target, transport, err := router.Transport()
 	if err != nil {
 		return nil, err
 	}
-	return &GuestDialer{conn: conn, authenticator: authenticator, endpoint: routerURL}, nil
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(transport))
+	if err != nil {
+		return nil, err
+	}
+	return &GuestDialer{conn: conn, authenticator: authenticator, endpoint: router.URL}, nil
 }
 
 func (d *GuestDialer) Close() error { return d.conn.Close() }

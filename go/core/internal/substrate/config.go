@@ -13,3 +13,12 @@ type Config struct {
 	DialTimeout    time.Duration
 	CallTimeout    time.Duration
 }
+
+// Router identifies the Atenet router for agent and sandbox guest traffic.
+// For an https router, CAFile verifies the router and ClientCertFile carries the
+// controller identity it requests for mTLS. An http router ignores both.
+type Router struct {
+	URL            string
+	CAFile         string
+	ClientCertFile string
+}

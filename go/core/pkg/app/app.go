@@ -273,10 +273,13 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	// The controller presents one Substrate identity to ate-api and an https router.
+	caFile, clientCertFile := kagentenv.SubstrateATEAPICAFile.Get(), kagentenv.SubstrateATEAPIClientCertFile.Get()
+	router := substrate.Router{URL: kagentenv.SubstrateAtenetRouterURL.Get(), CAFile: caFile, ClientCertFile: clientCertFile}
 	actors, err := substrate.Dial(ctx, substrate.Config{
 		AteAPIEndpoint: env(kagentenv.SubstrateATEAPIEndpoint),
-		CAFile:         kagentenv.SubstrateATEAPICAFile.Get(),
-		ClientCertFile: kagentenv.SubstrateATEAPIClientCertFile.Get(),
+		CAFile:         caFile,
+		ClientCertFile: clientCertFile,
 		CallTimeout:    30 * time.Second,
 	})
 	if err != nil {
@@ -338,10 +341,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
-	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		kagentenv.SubstrateAtenetRouterURL.Get(),
-		authenticator,
-	)
+	gatewayDialer, err := a2agateway.NewRuntimeDialer(router, authenticator)
 	if err != nil {
 		return err
 	}
@@ -367,7 +367,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
-	guests, err := sandboxservice.NewGuestDialer(kagentenv.SubstrateAtenetRouterURL.Get(), authenticator)
+	guests, err := sandboxservice.NewGuestDialer(router, authenticator)
 	if err != nil {
 		return err
 	}

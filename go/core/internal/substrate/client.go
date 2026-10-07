@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -38,7 +40,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
-	tlsConfig, err := ateAPITLSConfig(cfg)
+	tlsConfig, err := clientTLSConfig(cfg.CAFile, cfg.ClientCertFile)
 	if err != nil {
 		return nil, err
 	}
@@ -67,28 +69,52 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	}, nil
 }
 
-func ateAPITLSConfig(cfg Config) (*tls.Config, error) {
+func clientTLSConfig(caFile, clientCertFile string) (*tls.Config, error) {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if cfg.CAFile != "" {
-		pem, err := os.ReadFile(cfg.CAFile)
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile)
 		if err != nil {
-			return nil, fmt.Errorf("substrate: read ate-api CA file: %w", err)
+			return nil, fmt.Errorf("substrate: read CA file: %w", err)
 		}
 		tlsCfg.RootCAs = x509.NewCertPool()
 		if !tlsCfg.RootCAs.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("substrate: ate-api CA file %q contains no certificates", cfg.CAFile)
+			return nil, fmt.Errorf("substrate: CA file %q contains no certificates", caFile)
 		}
 	}
-	if cfg.ClientCertFile != "" {
+	if clientCertFile != "" {
 		tlsCfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-			cert, err := tls.LoadX509KeyPair(cfg.ClientCertFile, cfg.ClientCertFile)
+			cert, err := tls.LoadX509KeyPair(clientCertFile, clientCertFile)
 			if err != nil {
-				return nil, fmt.Errorf("substrate: load ate-api client certificate: %w", err)
+				return nil, fmt.Errorf("substrate: load client certificate: %w", err)
 			}
 			return &cert, nil
 		}
 	}
 	return tlsCfg, nil
+}
+
+// Transport returns the router's gRPC target and transport credentials.
+func (r Router) Transport() (string, credentials.TransportCredentials, error) {
+	router, err := url.Parse(r.URL)
+	if err != nil {
+		return "", nil, fmt.Errorf("parse Atenet router URL %q: %w", r.URL, err)
+	}
+	if router.Host == "" {
+		return "", nil, fmt.Errorf("atenet router URL %q must include a host", r.URL)
+	}
+	switch router.Scheme {
+	case "http":
+		return router.Host, insecure.NewCredentials(), nil
+	case "https":
+		tlsConfig, err := clientTLSConfig(r.CAFile, r.ClientCertFile)
+		if err != nil {
+			return "", nil, err
+		}
+		tlsConfig.ServerName = router.Hostname()
+		return router.Host, credentials.NewTLS(tlsConfig), nil
+	default:
+		return "", nil, fmt.Errorf("atenet router URL %q must use http or https", r.URL)
+	}
 }
 
 func waitConnReady(ctx context.Context, conn *grpc.ClientConn) error {
