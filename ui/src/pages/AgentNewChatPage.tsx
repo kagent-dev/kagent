@@ -50,7 +50,7 @@ export function AgentNewChatPage() {
 
   const conversations = useAgentConversations(namespace, name);
   const canAttach = useAgentTakesFiles(namespace && name && `${namespace}/${name}`);
-  const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
+  const rows = useMemo(() => conversations.data?.own ?? [], [conversations.data]);
 
   const [isCreating, setCreating] = useState(false);
   const [error, setError] = useState<Error>();
