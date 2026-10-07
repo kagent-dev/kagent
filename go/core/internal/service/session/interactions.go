@@ -207,8 +207,12 @@ func (s *InteractionService) prepareTask(ctx context.Context, agent types.Namesp
 
 // reserveDispatch waits only before forwarding input. No runtime send is retried
 // on an ambiguous transport error, and no SQL lock is held during dispatch.
+// Dispatch IDs are time-ordered, so a forwarded ID shows how old its attempt is.
 func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string) (uuid.UUID, error) {
-	id := uuid.New()
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.Nil, err
+	}
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	for {

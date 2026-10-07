@@ -11,6 +11,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -191,4 +192,25 @@ func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
 			t.Fatalf("ListTasks(%v) = %v, want invalid Agent before storage", agent, err)
 		}
 	}
+}
+
+type dispatchRecordingStore struct {
+	*database.Client
+	reserved uuid.UUID
+}
+
+func (s *dispatchRecordingStore) ReserveSessionDispatch(_ context.Context, _ string, id uuid.UUID, _ string) error {
+	s.reserved = id
+	return nil
+}
+
+func TestReserveDispatchUsesTimeOrderedIDs(t *testing.T) {
+	store := &dispatchRecordingStore{}
+	before := time.Now().Truncate(time.Millisecond)
+	id, err := (&InteractionService{store: store}).reserveDispatch(t.Context(), "session", "")
+	require.NoError(t, err)
+	require.Equal(t, store.reserved, id)
+	require.Equal(t, uuid.Version(7), id.Version())
+	sec, nsec := id.Time().UnixTime()
+	require.False(t, time.Unix(sec, nsec).Before(before), "the ID carries its reservation time")
 }
