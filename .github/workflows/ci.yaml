@@ -226,7 +226,25 @@ jobs:
           worker_logs_pid=$!
           kubectl logs -n ate-system -l app --all-containers --prefix --timestamps --tail=-1 --follow --max-log-requests=20 > "$RUNNER_TEMP/e2e-logs/substrate.log" 2>&1 &
           substrate_logs_pid=$!
-          trap 'kill "$worker_logs_pid" "$substrate_logs_pid" 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" 2>/dev/null || true' EXIT
+          # Tests roll the controller (withControllerEnv, the sandbox restart), and a
+          # log read at the end holds only the final pod: every controller pod is
+          # followed from the moment it runs, into a file of its own.
+          controller_log_pids="$RUNNER_TEMP/controller-log-pids"
+          : > "$controller_log_pids"
+          (
+            followed=" "
+            while true; do
+              for pod in $(kubectl get pods -n kagent -l app.kubernetes.io/component=controller -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}'); do
+                case "$followed" in *" $pod "*) continue ;; esac
+                followed="$followed$pod "
+                kubectl logs -n kagent "$pod" --all-containers --prefix --timestamps --tail=-1 --follow > "$RUNNER_TEMP/e2e-logs/controller-$pod.log" 2>&1 &
+                echo $! >> "$controller_log_pids"
+              done
+              sleep 5
+            done
+          ) &
+          controller_logs_pid=$!
+          trap 'kill "$worker_logs_pid" "$substrate_logs_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true' EXIT
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=30m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
 
       - name: Check E2E telemetry with Weaver live-check
@@ -235,12 +253,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/e2e-logs"
           telemetry/live-check.sh stop || echo "::warning::Weaver live-check produced no report"
           cp -r telemetry/conformance/report "$RUNNER_TEMP/e2e-logs/live-check" 2>/dev/null || true
-
-      - name: Collect E2E controller logs
-        if: always()
-        run: |
-          mkdir -p "$RUNNER_TEMP/e2e-logs"
-          kubectl logs -n kagent deployment/kagent-controller --timestamps > "$RUNNER_TEMP/e2e-logs/controller.log" 2>&1 || true
 
       - name: Upload E2E logs
         if: always()
