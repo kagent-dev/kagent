@@ -8,7 +8,9 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -27,7 +29,9 @@ func (runtimeTestAuth) UpstreamAuth(req *http.Request, _ auth.Session, _ auth.Pr
 	return nil
 }
 
-func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
+// startRuntime serves a runtime that records each call's metadata.
+func startRuntime(t *testing.T) (net.Listener, chan metadata.MD) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	received := make(chan metadata.MD, 2)
@@ -47,6 +51,11 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	a2apb.RegisterA2AServiceServer(server, &a2apb.UnimplementedA2AServiceServer{})
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
+	return listener, received
+}
+
+func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
+	listener, received := startRuntime(t)
 	dialer, err := NewRuntimeDialer(substrate.Router{URL: "http://" + listener.Addr().String()}, runtimeTestAuth{})
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -75,4 +84,41 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 			t.Fatal("runtime did not receive both calls")
 		}
 	}
+}
+
+// recordingAuth records the request UpstreamAuth receives and adds one param.
+type recordingAuth struct {
+	auth.AuthProvider
+	seen chan http.Header
+}
+
+func (a recordingAuth) UpstreamAuth(req *http.Request, _ auth.Session, _ auth.Principal) error {
+	a.seen <- req.Header.Clone()
+	req.Header.Set("x-scoped-credential", "for-"+req.Header.Get(apia2a.DispatchHeader))
+	return nil
+}
+
+func TestRuntimeDialerShowsCallParamsToUpstreamAuth(t *testing.T) {
+	listener, received := startRuntime(t)
+	authenticator := recordingAuth{seen: make(chan http.Header, 1)}
+	dialer, err := NewRuntimeDialer(substrate.Router{URL: "http://" + listener.Addr().String()}, authenticator)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
+	client, err := dialer.Dial(ctx, &apiv1alpha1.Session{
+		Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Destroy()) })
+
+	ctx = a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.DispatchHeader: {"dispatch-1"}})
+	_, err = client.GetTask(ctx, &a2atype.GetTaskRequest{ID: "task"})
+	require.Error(t, err)
+	seen := <-authenticator.seen
+	require.Equal(t, "dispatch-1", seen.Get(apia2a.DispatchHeader))
+	require.Equal(t, "team/session-session", seen.Get("ate-target-actor"))
+	md := <-received
+	require.Equal(t, []string{"dispatch-1"}, md.Get(apia2a.DispatchHeader))
+	require.Equal(t, []string{"for-dispatch-1"}, md.Get("x-scoped-credential"))
 }
