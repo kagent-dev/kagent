@@ -20,11 +20,15 @@ tests:
           path: metadata.name
           value: selected-pool
       - equal:
-          path: metadata.labels["kagent.dev/worker-pool"]
+          path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: kagent
+      # Name-only templates from earlier releases select this key; without it
+      # they cannot reach this pool from another namespace.
+      - notExists:
+          path: metadata.labels["kagent.dev/worker-pool"]
       - equal:
           path: spec.sandboxClass
           value: gvisor
@@ -46,7 +50,7 @@ tests:
           path: metadata.namespace
           value: tenant-b
       - equal:
-          path: metadata.labels["kagent.dev/worker-pool"]
+          path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
@@ -64,22 +68,36 @@ tests:
   - it: should preserve extra labels without allowing placement overrides
     set:
       labels:
-        kagent.dev/worker-pool: foreign-global-pool
+        environment: production
+        kagent.dev/worker-pool-name: foreign-global-pool
         kagent.dev/worker-pool-namespace: foreign-global-namespace
       substrateWorkerPool.labels:
         team: platform
-        kagent.dev/worker-pool: foreign-pool
+        kagent.dev/worker-pool-name: foreign-pool
         kagent.dev/worker-pool-namespace: foreign-namespace
     asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: metadata.labels.environment
+          value: production
       - equal:
           path: metadata.labels.team
           value: platform
       - equal:
-          path: metadata.labels["kagent.dev/worker-pool"]
+          path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: kagent
+  - it: should render a numeric pool name as a string label
+    set:
+      substrateWorkerPool.name: 1234
+    asserts:
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: "1234"
   - it: should render microvm with the selected image and worker selector label
     set:
       substrateWorkerPool.sandboxClass: microvm
@@ -92,7 +110,7 @@ tests:
           path: spec.workerImage
           value: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
       - equal:
-          path: metadata.labels["kagent.dev/worker-pool"]
+          path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool
   - it: should not create an externally managed pool
     set:

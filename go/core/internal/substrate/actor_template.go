@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	workerPoolLabelKey          = "kagent.dev/worker-pool"
+	workerPoolNameLabelKey      = "kagent.dev/worker-pool-name"
 	workerPoolNamespaceLabelKey = "kagent.dev/worker-pool-namespace"
 	defaultContainerName        = "kagent"
 	durableDataVolume           = "data"
@@ -177,10 +177,11 @@ func revisionActorTemplateName(agentName string, revision translator.RevisionID)
 }
 
 func workerSelectorForPool(pool types.NamespacedName) *ateapipb.Selector {
-	// Substrate matches worker labels across the entire fleet. The namespace
-	// keeps same-named pools from sharing placement across Agent boundaries.
+	// Substrate matches worker labels across the entire fleet and never checks
+	// them against the pool's namespace. Placement therefore stays within the
+	// referenced pool's namespace only while every pool's labels name its own.
 	return &ateapipb.Selector{MatchLabels: map[string]string{
-		workerPoolLabelKey:          pool.Name,
+		workerPoolNameLabelKey:      pool.Name,
 		workerPoolNamespaceLabelKey: pool.Namespace,
 	}}
 }

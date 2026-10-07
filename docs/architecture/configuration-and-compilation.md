@@ -174,16 +174,12 @@ class; both sandbox classes participate in the digest, so a prepared MicroVM run
 cannot be confused with a gVisor revision. Returning to gVisor restores the
 original digest. Existing Sessions remain pinned to their revisions.
 
-Generated ActorTemplates select workers with both `kagent.dev/worker-pool`
+Generated ActorTemplates select workers with both `kagent.dev/worker-pool-name`
 and `kagent.dev/worker-pool-namespace`. The labels identify the referenced pool's
-name and namespace. Same-named pools in other namespaces cannot supply workers.
-The Helm chart sets both labels. Operators must set both labels on externally
-managed pools before upgrading the controller.
-
-The namespace selector creates new immutable revisions for Agents and
-SandboxTemplates. Existing Sessions and Sandboxes retain their original templates.
-Wait for the new revisions to become ready, then recreate those workloads
-to apply placement within their namespaces.
+name and namespace. The Helm chart sets both labels on the pool it creates, and
+externally managed pools must carry both. Substrate matches worker labels without
+checking them against the pool's namespace. Placement therefore stays within a
+namespace only while every pool's labels name the pool's own namespace.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining

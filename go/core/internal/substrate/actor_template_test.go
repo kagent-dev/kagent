@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 func TestActorTemplateSandboxClass(t *testing.T) {
@@ -58,50 +57,14 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 	}
 }
 
-func TestActorTemplateWorkerPoolIsolation(t *testing.T) {
-	for _, pool := range []string{"kagent-default", "custom-pool"} {
-		t.Run(pool, func(t *testing.T) {
-			spec := &translator.Revision{
-				Namespace: "tenant-a", AgentName: "helper", WorkerPoolName: pool,
-				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
-					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
-					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
-				},
-			}
-			id, err := spec.Digest()
-			require.NoError(t, err)
-			template, err := ActorTemplateForRevision(spec, id)
-			require.NoError(t, err)
-			testWorkerPoolSelection(t, template, spec.Namespace, pool)
-		})
-	}
-}
-
+// The keys are literals because the Helm chart and externally managed pools
+// set them by name; changing a key constant must fail here.
 func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, namespace, pool string) {
 	t.Helper()
-	selector := labels.SelectorFromSet(template.GetWorkerSelector().GetMatchLabels())
-	for _, tt := range []struct {
-		name   string
-		labels labels.Set
-		want   bool
-	}{
-		{name: "referenced pool", labels: labels.Set{
-			"kagent.dev/worker-pool": pool, "kagent.dev/worker-pool-namespace": namespace, "team": "platform",
-		}, want: true},
-		{name: "same name in another namespace", labels: labels.Set{
-			"kagent.dev/worker-pool": pool, "kagent.dev/worker-pool-namespace": "foreign-namespace",
-		}},
-		{name: "another pool in the same namespace", labels: labels.Set{
-			"kagent.dev/worker-pool": "foreign-pool", "kagent.dev/worker-pool-namespace": namespace,
-		}},
-		{name: "name without namespace", labels: labels.Set{"kagent.dev/worker-pool": pool}},
-		{name: "namespace without name", labels: labels.Set{"kagent.dev/worker-pool-namespace": namespace}},
-		{name: "unlabeled pool", labels: labels.Set{}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, selector.Matches(tt.labels))
-		})
-	}
+	require.Equal(t, map[string]string{
+		"kagent.dev/worker-pool-name":      pool,
+		"kagent.dev/worker-pool-namespace": namespace,
+	}, template.GetWorkerSelector().GetMatchLabels())
 }
 
 func TestActorTemplateForRevision(t *testing.T) {

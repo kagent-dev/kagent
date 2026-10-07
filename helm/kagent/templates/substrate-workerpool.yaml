@@ -8,7 +8,7 @@ metadata:
   name: {{ .Values.substrateWorkerPool.name | quote }}
   namespace: {{ include "kagent.namespace" . }}
   labels:
-    {{- $labels := mergeOverwrite (dict) (include "kagent.labels" . | fromYaml) (.Values.substrateWorkerPool.labels | default dict) (dict "kagent.dev/worker-pool" .Values.substrateWorkerPool.name "kagent.dev/worker-pool-namespace" (include "kagent.namespace" .)) }}
+    {{- $labels := mergeOverwrite (dict) (include "kagent.labels" . | fromYaml) (.Values.substrateWorkerPool.labels | default dict) (dict "kagent.dev/worker-pool-name" (toString .Values.substrateWorkerPool.name) "kagent.dev/worker-pool-namespace" (include "kagent.namespace" .)) }}
     {{- toYaml $labels | nindent 4 }}
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
