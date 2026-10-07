@@ -13,6 +13,7 @@ type sessionDeletionReason string
 const (
 	sessionDeletionUserRequested sessionDeletionReason = "user_requested"
 	sessionDeletionIdleTimeout   sessionDeletionReason = "idle_timeout"
+	sessionDeletionAgentDeleted  sessionDeletionReason = "agent_deleted"
 )
 
 // beginSessionDeletion attaches the reason to ordinary lifecycle admission.
@@ -28,11 +29,12 @@ func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason
 	return operation, nil
 }
 
-// finishSessionDeletion releases expired creation receipts. Explicit deletion
-// retains its tombstone so the original request cannot recreate compute.
+// finishSessionDeletion releases the creation receipts of the sessions a sweep
+// deleted, idle ones and those of a deleted Agent. Explicit deletion retains
+// its tombstone so the original request cannot recreate compute.
 func finishSessionDeletion(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
 	return execSQL(ctx, tx, `
 		DELETE FROM runtime_instance r USING session s
-		WHERE r.id = $1 AND s.id = r.id AND s.deletion_reason = 'idle_timeout'
+		WHERE r.id = $1 AND s.id = r.id AND s.deletion_reason IN ('idle_timeout', 'agent_deleted')
 	`, id)
 }

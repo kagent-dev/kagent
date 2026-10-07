@@ -137,6 +137,26 @@ again. Shares without an expiry are untouched. `kagent.session.share_expired` co
 the deleted shares (`kagent_session_share_expired_total`); a sweep that deleted any
 logs `deleted expired session shares` at debug level with `count`.
 
+## Deleted Agents
+
+Deleting an Agent retires its definition and ends its sessions. The same sweep
+deletes the sessions whose Agent name has no active definition through the
+bounded deletion workflow above, with the durable reason `agent_deleted`,
+whatever the idle TTL: a session's runtime does not outlive the Agent it was
+created for, and the ActorTemplate of its revision is collected only once no
+session references it. A deletion whose runtime work failed, or whose admission
+was refused while the last turn's boundary was still being settled, stays
+admitted or listed and is finished by a later sweep, never dropped. A session
+whose Agent was deleted and created again under the same name before the sweep
+reached it is a session of a replaced Agent, not of a deleted one: it keeps its
+pinned revision, as the definition model promises, until it idles out or its
+Agent is deleted for good. Retained checkpoints keep their revision pins as
+before.
+
+`kagent.session.agent_deleted` counts the completed deletions
+(`kagent_session_agent_deleted_total`); each logs `deleted the session of a
+deleted Agent` at debug level with `session_id`.
+
 ## Superseded revisions
 
 A session is prepared on one runtime revision of its agent and its Actor runs

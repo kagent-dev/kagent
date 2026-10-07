@@ -312,9 +312,10 @@ specs.
 Create a session with `kagent agent session create --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.
 The controller selects that Agent's latest successful revision. Deleting an Agent
-retires its definition; sessions and checkpoints retain their pinned revisions.
-Recreating the same name creates a new identity and cannot inherit the old
-Agent's last successful revision.
+retires its definition and ends its sessions (the expiration sweep deletes them,
+see [Deleted Agents](runtime-and-lifecycle.md#deleted-agents)); checkpoints retain
+their pinned revisions. Recreating the same name creates a new identity and cannot
+inherit the old Agent's last successful revision.
 
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this

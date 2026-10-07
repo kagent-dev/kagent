@@ -220,8 +220,9 @@ func TestSessionExpirationConfiguration(t *testing.T) {
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() { done <- worker.Start(ctx) }()
-	// A zero idle TTL turns idle deletion off, not the share sweep.
-	require.Eventually(t, func() bool { return store.shareSweeps.Load() > 1 }, 5*time.Second, time.Millisecond)
+	// A zero idle TTL turns idle deletion off, not the share sweep and not the
+	// sweep of the sessions of deleted Agents.
+	require.Eventually(t, func() bool { return store.shareSweeps.Load() > 1 && store.deletedAgentListings.Load() > 1 }, 5*time.Second, time.Millisecond)
 	require.Zero(t, store.idleListings.Load(), "a disabled idle deletion never lists idle sessions")
 	cancel()
 	require.NoError(t, <-done)
@@ -229,8 +230,9 @@ func TestSessionExpirationConfiguration(t *testing.T) {
 
 // sweepCountingStore counts the sweeps a worker runs and holds nothing.
 type sweepCountingStore struct {
-	idleListings atomic.Int64
-	shareSweeps  atomic.Int64
+	idleListings         atomic.Int64
+	deletedAgentListings atomic.Int64
+	shareSweeps          atomic.Int64
 }
 
 func (s *sweepCountingStore) ListIdleSessions(context.Context, time.Time, string, int) ([]string, error) {
@@ -239,6 +241,15 @@ func (s *sweepCountingStore) ListIdleSessions(context.Context, time.Time, string
 }
 
 func (*sweepCountingStore) BeginIdleSessionDeletion(context.Context, string, time.Time) (*database.IdleSessionDeletion, error) {
+	return nil, database.ErrNotFound
+}
+
+func (s *sweepCountingStore) ListSessionsOfDeletedAgents(context.Context, string, int) ([]string, error) {
+	s.deletedAgentListings.Add(1)
+	return nil, nil
+}
+
+func (*sweepCountingStore) BeginDeletedAgentSessionDeletion(context.Context, string) (*database.SessionOperation, error) {
 	return nil, database.ErrNotFound
 }
 
