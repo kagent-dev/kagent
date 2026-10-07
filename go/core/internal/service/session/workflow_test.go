@@ -268,29 +268,55 @@ func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, na
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+func (a *lifecycleTestActors) ResumeActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
+	if err := fenceActor(ctx, actor); err != nil {
+		return nil, err
+	}
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) PauseActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+func (a *lifecycleTestActors) PauseActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
+	if err := fenceActor(ctx, actor); err != nil {
+		return nil, err
+	}
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+func (a *lifecycleTestActors) SuspendActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
+	if err := fenceActor(ctx, actor); err != nil {
+		return nil, err
+	}
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 	actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/snapshot-1", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
 	return proto.CloneOf(actor), nil
+}
+
+// fenceActor checks a request's fencing token as Substrate does: an older
+// token, or the same generation from another holder, is refused; a newer one
+// is recorded; a request without one is admitted.
+func fenceActor(ctx context.Context, actor *ateapipb.Actor) error {
+	token := substrate.FencingTokenFrom(ctx)
+	if token == nil {
+		return nil
+	}
+	if recorded := actor.GetStatus().GetFencingToken(); recorded != nil {
+		if token.GetGeneration() < recorded.GetGeneration() || (token.GetGeneration() == recorded.GetGeneration() && token.GetHolder() != recorded.GetHolder()) {
+			return status.Errorf(codes.FailedPrecondition, "fencing token %s/%d is older than %s/%d", token.GetHolder(), token.GetGeneration(), recorded.GetHolder(), recorded.GetGeneration())
+		}
+	}
+	actor.Status.FencingToken = proto.CloneOf(token)
+	return nil
 }
 
 func (a *lifecycleTestActors) ListAllWorkers(context.Context) ([]*ateapipb.Worker, error) {

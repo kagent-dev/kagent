@@ -227,6 +227,13 @@ func (c *Client) RenewSessionQuiescence(ctx context.Context, work *SessionQuiesc
 	})
 }
 
+// NextQuiescenceFencingGeneration returns the generation of a quiescence
+// holder's next fencing token. Generations only grow, across sessions and
+// replicas: a request sent after another always carries a newer token.
+func (c *Client) NextQuiescenceFencingGeneration(ctx context.Context) (int64, error) {
+	return queryOne(ctx, c.db, `SELECT nextval('quiescence_fencing_generation')`, pgx.RowTo[int64])
+}
+
 // FinishSessionQuiescence records a claimed pause/suspend outcome and releases
 // the session for new execution. Terminal tasks require the matching snapshot.
 // Retries are harmless, and a stale claim cannot release another operation.

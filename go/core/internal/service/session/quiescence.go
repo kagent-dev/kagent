@@ -3,14 +3,19 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -131,11 +136,19 @@ func (w *ActorWorkflow) holdClaim(ctx context.Context, work *database.SessionQui
 
 // issueIdleWork pauses or suspends the claimed session and records the outcome.
 // It reports false when the runtime request's outcome is unknown and the claim
-// is left for settleIdleWork.
+// is left for settleIdleWork. The request carries the holder's fencing token:
+// a holder frozen past its lease, whose claim another worker took over and
+// settled, finds its late request refused by Substrate and leaves the claim to
+// its successor.
 func (w *ActorWorkflow) issueIdleWork(ctx context.Context, work *database.SessionQuiescence) bool {
 	runtimeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	var snapshot *database.SessionTaskSnapshot
-	var err error
+	runtimeCtx, err := w.fence(runtimeCtx, work)
+	if err != nil {
+		cancel()
+		logging.FromContext(ctx).ErrorContext(ctx, "runtime boundary not issued", "session_id", work.Session.Id, "version", work.Version, "error", err)
+		return false
+	}
 	if work.Suspend {
 		// Nothing has been issued yet, so a suspend that cannot happen now
 		// releases the claim, reopening admission for the reply, and the
@@ -159,6 +172,13 @@ func (w *ActorWorkflow) issueIdleWork(ctx context.Context, work *database.Sessio
 		err = w.Pause(runtimeCtx, work.Session)
 	}
 	cancel()
+	if status.Code(err) == codes.FailedPrecondition {
+		// Substrate holds a newer fencing token: this claim was taken over and
+		// its successor settles it. Renewal stops; should the refusal have had
+		// another cause, the lease runs out and the claim is taken over as well.
+		logging.FromContext(ctx).WarnContext(ctx, "runtime boundary superseded by a newer holder", "session_id", work.Session.Id, "task_id", work.TaskID, "version", work.Version, "error", err)
+		return true
+	}
 	if err != nil {
 		// No timeout-based takeover: the Substrate request may still complete.
 		// Keep admission closed until the Actor's own state settles the outcome.
@@ -176,8 +196,9 @@ func (w *ActorWorkflow) issueIdleWork(ctx context.Context, work *database.Sessio
 // transition, or Substrate cannot answer, the claim is kept and read again with
 // a backoff. Any other state, a running, crashed or missing Actor included,
 // releases the claim without a snapshot: the next send takes the runtime as it
-// is, and a lost one fails the session there. A worker that stops while it
-// settles leaves the claim to another once the lease has run out.
+// is, and a lost one fails the session there; a running Actor is fenced first.
+// A worker that stops while it settles leaves the claim to another once the
+// lease has run out.
 func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.SessionQuiescence) {
 	log := logging.FromContext(ctx).With("session_id", work.Session.Id, "task_id", work.TaskID, "version", work.Version)
 	for delay := w.settleDelay; ; delay = min(2*delay, time.Minute) {
@@ -199,12 +220,9 @@ func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.Sessi
 			w.finishIdleWork(ctx, work, nil)
 			return
 		default:
-			log.WarnContext(ctx, "runtime boundary released without snapshot", "actor_state", state, "actor_found", actor != nil)
-			if work.Suspend {
-				w.deferred.add(work.Session.Id, time.Now().Add(w.pausedRuntimeTTL))
+			if w.releaseIdleWork(ctx, log, work, actor, delay) {
+				return
 			}
-			w.recordIdleWork(ctx, work, func(ctx context.Context) error { return w.store.ReleaseSessionQuiescence(ctx, work) })
-			return
 		}
 		select {
 		case <-ctx.Done():
@@ -212,6 +230,63 @@ func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.Sessi
 		case <-time.After(delay):
 		}
 	}
+}
+
+// releaseIdleWork releases a claim whose Actor was neither suspended nor
+// paused. A running Actor first gets a fencing token newer than any request
+// this claim's holders sent, by a fenced Resume that leaves the runtime as it
+// is, so a Pause or Suspend still in flight cannot land after the release. It
+// reports false when the fence could not be set yet and is tried again.
+func (w *ActorWorkflow) releaseIdleWork(ctx context.Context, log *slog.Logger, work *database.SessionQuiescence, actor *ateapipb.Actor, delay time.Duration) bool {
+	state := actor.GetStatus().GetState()
+	if state == ateapipb.ActorState_ACTOR_STATE_RUNNING {
+		err := w.fenceRunning(ctx, work, actor)
+		if status.Code(err) == codes.FailedPrecondition {
+			log.WarnContext(ctx, "runtime boundary superseded by a newer holder", "error", err)
+			return true
+		}
+		if err != nil {
+			log.WarnContext(ctx, "fence running Actor", "error", err, "retry_in", delay)
+			return false
+		}
+	}
+	log.WarnContext(ctx, "runtime boundary released without snapshot", "actor_state", state, "actor_found", actor != nil)
+	if work.Suspend {
+		w.deferred.add(work.Session.Id, time.Now().Add(w.pausedRuntimeTTL))
+	}
+	w.recordIdleWork(ctx, work, func(ctx context.Context) error { return w.store.ReleaseSessionQuiescence(ctx, work) })
+	return true
+}
+
+// fenceRunning records a new fencing token of work's holder on the running
+// Actor without touching the runtime: Substrate's Resume of a running Actor
+// only records a newer token.
+func (w *ActorWorkflow) fenceRunning(ctx context.Context, work *database.SessionQuiescence, actor *ateapipb.Actor) error {
+	fenceCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	fenceCtx, err := w.fence(fenceCtx, work)
+	if err != nil {
+		return err
+	}
+	atespace, name := actor.GetMetadata().GetAtespace(), actor.GetMetadata().GetName()
+	resumed, err := w.actors.ResumeActor(fenceCtx, atespace, name)
+	if err != nil {
+		return fmt.Errorf("fence Actor %s/%s: %w", atespace, name, err)
+	}
+	if state := resumed.GetStatus().GetState(); state != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+		return fmt.Errorf("fence Actor %s/%s returned status %s", atespace, name, state)
+	}
+	return nil
+}
+
+// fence returns ctx carrying a fencing token of work's holder whose generation
+// is newer than that of every request sent before, by any holder.
+func (w *ActorWorkflow) fence(ctx context.Context, work *database.SessionQuiescence) (context.Context, error) {
+	generation, err := w.store.NextQuiescenceFencingGeneration(ctx)
+	if err != nil {
+		return ctx, fmt.Errorf("next fencing generation: %w", err)
+	}
+	return substrate.WithFencingToken(ctx, &ateapipb.FencingToken{Holder: work.ExecutorID.String(), Generation: generation}), nil
 }
 
 func inTransition(state ateapipb.ActorState) bool {

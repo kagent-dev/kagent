@@ -189,7 +189,7 @@ func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmp
 func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{Actor: actorRef(atespace, actorID), FencingToken: FencingTokenFrom(ctx)})
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (c *Client) RepointActor(ctx context.Context, atespace, actorID, tmplNS, tm
 func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID), FencingToken: FencingTokenFrom(ctx)})
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +231,7 @@ func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ate
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID), FencingToken: FencingTokenFrom(ctx)})
 	if err != nil {
 		return nil, err
 	}

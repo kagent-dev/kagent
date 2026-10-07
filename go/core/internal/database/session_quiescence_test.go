@@ -96,3 +96,15 @@ func TestQuiescenceLeaseRequiresAHolder(t *testing.T) {
 	_, err = client.ClaimSessionQuiescence(t.Context(), 0, 0, nil)
 	require.Error(t, err, "a claim without a lease is refused")
 }
+
+// Every fencing token a quiescence holder takes outranks the ones before it, so
+// a holder that took a claim over outranks the holder it replaced.
+func TestQuiescenceFencingGenerationGrows(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	first, err := client.NextQuiescenceFencingGeneration(t.Context())
+	require.NoError(t, err)
+	require.Positive(t, first, "Substrate requires a generation of at least 1")
+	second, err := client.NextQuiescenceFencingGeneration(t.Context())
+	require.NoError(t, err)
+	require.Greater(t, second, first)
+}

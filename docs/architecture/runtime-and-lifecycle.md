@@ -251,6 +251,20 @@ released boundary cannot be checkpointed. Each read and the resolution are logge
 with `session_id` and `task_id`. A worker that stops while it settles leaves the
 claim to the takeover above.
 
+The claim's records fence a stopped holder; a fencing token fences one that is
+frozen (a GC pause, a node stall, a slow network) while its pause or suspend is in
+flight. Every Pause, Suspend and fencing Resume a holder sends carries a token: its
+executor ID and a generation from the `quiescence_fencing_generation` sequence,
+which grows with every request of every holder. Substrate records the newest token
+per Actor and refuses an older one with `FailedPrecondition` without acting on it.
+Before a claim is released on a running Actor, its holder sends a fenced Resume
+with a new generation, which records the token and leaves the runtime as it is, so
+a request still in flight from the same or an earlier holder cannot pause or
+suspend the Actor once the next turn is admitted. A holder whose own request is
+refused this way was superseded: it stops renewing and leaves the claim to its
+successor. Requests without a token, from lifecycle operations and the gateway's
+resume of a turn, are admitted as before.
+
 ```mermaid
 sequenceDiagram
     participant Client

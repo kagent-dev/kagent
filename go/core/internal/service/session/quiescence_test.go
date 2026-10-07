@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -361,6 +362,112 @@ func TestStoppedHolderBoundaryIsSettledByAnotherWorker(t *testing.T) {
 			require.EqualValues(t, 1, actors.mutations.Load(), "the second worker never repeats the runtime request")
 		})
 	}
+}
+
+// A holder whose Pause is in flight when it freezes past its lease is taken
+// over: the successor fences the running Actor and releases the claim, and the
+// late Pause is refused, so the Actor stays running and the next turn is
+// admitted. A live holder renewing its lease keeps its claim and its slow Pause
+// lands.
+func TestLatePauseOfATakenOverHolderIsRefused(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		frozen bool
+	}{
+		{name: "frozen holder", frozen: true},
+		{name: "live holder"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const lease = 300 * time.Millisecond
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			session, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			require.NoError(t, err)
+			atespace, name := store.revision.ActorTemplateAtespace, substrate.ActorName(session.Id)
+			base.setState(atespace, name, ateapipb.ActorState_ACTOR_STATE_RUNNING)
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
+			message.ContextID = session.ContextId
+			task := a2a.NewSubmittedTask(message, message)
+			task.Status.State = a2a.TaskStateInputRequired
+			hash := sha256.Sum256([]byte("turn"))
+			version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
+			require.NoError(t, err)
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+
+			actors := &delayedPauseActors{lifecycleTestActors: base, issued: make(chan struct{}), land: make(chan struct{}), landed: make(chan error, 1)}
+			var holderStore workflowStore = store
+			if test.frozen {
+				holderStore = &frozenRenewalStore{lifecycleTestStore: store}
+			}
+			first := NewActorWorkflow(holderStore, actors, make(chan struct{}, 1), time.Second)
+			first.claimLease = lease
+			work, err := store.ClaimSessionQuiescence(t.Context(), lease, 0, nil)
+			require.NoError(t, err)
+			holding := make(chan struct{})
+			go func() { defer close(holding); first.quiesceIdleSession(t.Context(), work) }()
+			select {
+			case <-actors.issued:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the holder did not issue its Pause")
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			second := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			second.settleDelay, second.claimLease = time.Millisecond, lease
+			done := make(chan error, 1)
+			go func() { done <- second.Start(ctx) }()
+			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+
+			if !test.frozen {
+				time.Sleep(3 * lease)
+				require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "held"), database.ErrDispatchBusy, "a renewed claim is not taken over")
+				close(actors.land)
+				require.NoError(t, <-actors.landed)
+				<-holding
+				actor, err := base.GetActor(t.Context(), atespace, name)
+				require.NoError(t, err)
+				require.Equal(t, ateapipb.ActorState_ACTOR_STATE_PAUSED, actor.GetStatus().GetState())
+				require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), "the finished pause admits the next turn")
+				return
+			}
+
+			require.Eventually(t, func() bool {
+				return store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next") == nil
+			}, 10*time.Second, 20*time.Millisecond, "the successor settles the boundary and admits the next turn")
+			close(actors.land)
+			require.Equal(t, codes.FailedPrecondition, status.Code(<-actors.landed), "the late Pause of the taken-over holder is refused")
+			<-holding
+			actor, err := base.GetActor(t.Context(), atespace, name)
+			require.NoError(t, err)
+			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.GetStatus().GetState(), "the Actor the next turn takes stays running")
+		})
+	}
+}
+
+// delayedPauseActors holds the first Pause until land is closed, as a request
+// in flight while its sender freezes, and reports what Substrate made of it.
+type delayedPauseActors struct {
+	*lifecycleTestActors
+	issued, land chan struct{}
+	landed       chan error
+}
+
+func (a *delayedPauseActors) PauseActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	close(a.issued)
+	<-a.land
+	actor, err := a.lifecycleTestActors.PauseActor(ctx, space, name)
+	a.landed <- err
+	return actor, err
+}
+
+// frozenRenewalStore stands for a holder frozen past its lease: its renewals
+// never reach the database.
+type frozenRenewalStore struct {
+	*lifecycleTestStore
+}
+
+func (*frozenRenewalStore) RenewSessionQuiescence(context.Context, *database.SessionQuiescence, time.Duration) error {
+	return nil
 }
 
 // unsettledActors fails the boundary request after Substrate took it: the Actor

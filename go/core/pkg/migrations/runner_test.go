@@ -302,7 +302,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
-	latest := map[string][]int64{"core": {0, 1, 2, 3}, "vector": {0, 1}}
+	latest := map[string][]int64{"core": {0, 1, 2, 3, 4}, "vector": {0, 1}}
 	for _, source := range sources {
 		expected := latest[source.Name]
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
@@ -314,6 +314,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	if !testColumnExists(t, dsn, "session_task_event", "quiescence_claimed_until") {
 		t.Fatal("the quiescence claim lease is missing")
+	}
+	if !testTableExists(t, dsn, "quiescence_fencing_generation") {
+		t.Fatal("the quiescence fencing generation is missing")
 	}
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
