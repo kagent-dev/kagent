@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -mod=readonly -trimpath -o /kagent-sandbox-guest ./sandbox/guest/cmd
 
-FROM alpine:3.22
+FROM alpine:3.24.2
 
 RUN apk add --no-cache bash ca-certificates git && \
     mkdir -p /data/workspace /data/guest-logs && \
