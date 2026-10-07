@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -78,6 +79,13 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	if err != nil {
 		return ctx, nil, err
 	}
+	// UpstreamAuth sees the call's outgoing params and target Actor, such as the
+	// dispatch ID, so it can scope credentials to one call. It can add params,
+	// but the target Actor is set again below.
+	for key, values := range req.ServiceParams {
+		httpRequest.Header[http.CanonicalHeaderKey(key)] = slices.Clone(values)
+	}
+	httpRequest.Header.Set("ate-target-actor", u.targetActor)
 	if session, ok := auth.AuthSessionFrom(ctx); ok {
 		principal := auth.Principal{Agent: auth.Agent{ID: u.session.GetId()}}
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, principal); err != nil {
