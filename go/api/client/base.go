@@ -10,9 +10,19 @@ func WithUserID(userID string) ClientOption {
 	}
 }
 
+// WithBearerToken sets the caller's bearer token, sent as the authorization
+// metadata of every call. A server in trusted-proxy mode identifies the caller
+// by it; the user ID alone only selects the data partition of an insecure one.
+func WithBearerToken(token string) ClientOption {
+	return func(c *baseClient) {
+		c.bearerToken = token
+	}
+}
+
 type baseClient struct {
-	userID    string
-	transport *grpcTransport
+	userID      string
+	bearerToken string
+	transport   *grpcTransport
 }
 
 func newBaseClient(rawURL string, options ...ClientOption) (*baseClient, error) {

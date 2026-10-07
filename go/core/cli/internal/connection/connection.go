@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/kagent-dev/kagent/go/api/client"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -24,6 +25,8 @@ const (
 	defaultAPIURL     = client.DefaultAPIURL
 	defaultGatewayURL = client.DefaultGatewayURL
 	defaultUserID     = "admin@kagent.dev"
+
+	authorizationMetadataKey = "authorization"
 
 	portForwardReadyTimeout = 15 * time.Second
 	portForwardRetryDelay   = 100 * time.Millisecond
@@ -41,6 +44,11 @@ type Options struct {
 	Verbose    bool
 	Timeout    time.Duration
 	UserID     string
+	// CallerToken is the bearer given on the command line; Connect resolves the
+	// one the calls carry from it, KAGENT_TOKEN or the kubeconfig.
+	CallerToken string
+
+	token callerToken
 }
 
 func DefaultOptions() Options {
@@ -54,7 +62,16 @@ func DefaultOptions() Options {
 }
 
 func (o *Options) clientOptions() []client.ClientOption {
-	clientOptions := []client.ClientOption{client.WithUserID(o.UserID)}
+	clientOptions := []client.ClientOption{
+		client.WithUserID(o.UserID),
+		client.WithGRPCDialOptions(
+			grpc.WithChainUnaryInterceptor(o.unaryInterceptor),
+			grpc.WithChainStreamInterceptor(o.streamInterceptor),
+		),
+	}
+	if o.token.isSet() {
+		clientOptions = append(clientOptions, client.WithBearerToken(o.token.value))
+	}
 	if o.Timeout > 0 {
 		clientOptions = append(clientOptions, client.WithGRPCTimeout(o.Timeout))
 	}
@@ -82,20 +99,32 @@ func (o *Options) validate() error {
 	if strings.IndexFunc(o.UserID, unicode.IsSpace) >= 0 {
 		return errors.New("caller identity must not contain whitespace")
 	}
+	if strings.IndexFunc(o.CallerToken, unicode.IsSpace) >= 0 {
+		return errors.New("caller token must not contain whitespace")
+	}
 	return nil
 }
 
 // Connect checks the configured server and starts a port-forward only for an
-// unreachable default local endpoint.
+// unreachable default local endpoint. It resolves the caller token the
+// session's clients send.
 func Connect(ctx context.Context, cfg *Options, endpoint string) (*PortForward, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	token, err := resolveCallerToken(cfg.CallerToken)
+	if err != nil {
+		return nil, err
+	}
+	cfg.token = token
 	if cfg.Verbose {
 		fmt.Fprintf(os.Stderr, "Using caller identity %q\n", cfg.UserID)
+		if token.isSet() {
+			fmt.Fprintf(os.Stderr, "Using caller token from %s\n", token.source)
+		}
 	}
 
-	err := checkConfiguredServer(ctx, cfg, endpoint)
+	err = checkConfiguredServer(ctx, cfg, endpoint)
 	if err == nil {
 		return nil, nil
 	}

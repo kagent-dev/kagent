@@ -31,17 +31,19 @@ func TestOptionsFromCommandReadsInheritedFlags(t *testing.T) {
 		"--verbose",
 		"--timeout", "12s",
 		"--user-id", "reviewer@example.test",
+		"--caller-token", "reviewer-token",
 	})
 
 	require.NoError(t, root.ExecuteContext(t.Context()))
 	assert.Equal(t, Options{
-		APIURL:     "https://api.example.test",
-		GatewayURL: "https://gateway.example.test",
-		CAFile:     "/tmp/ca.pem",
-		ServerName: "api.example.test",
-		Namespace:  "agents",
-		Verbose:    true,
-		Timeout:    12 * time.Second,
-		UserID:     "reviewer@example.test",
+		APIURL:      "https://api.example.test",
+		GatewayURL:  "https://gateway.example.test",
+		CAFile:      "/tmp/ca.pem",
+		ServerName:  "api.example.test",
+		Namespace:   "agents",
+		Verbose:     true,
+		Timeout:     12 * time.Second,
+		UserID:      "reviewer@example.test",
+		CallerToken: "reviewer-token",
 	}, got)
 }

@@ -13,8 +13,10 @@ import (
 
 func TestOptionsValidate(t *testing.T) {
 	assert.NoError(t, (&Options{UserID: "user@example.com"}).validate())
+	assert.NoError(t, (&Options{UserID: "user@example.com", CallerToken: "token"}).validate())
 	assert.Error(t, (&Options{}).validate())
 	assert.Error(t, (&Options{UserID: "invalid user"}).validate())
+	assert.Error(t, (&Options{UserID: "user@example.com", CallerToken: "invalid token"}).validate())
 }
 
 func TestOptionsClientsValidateOnlyTheirEndpoint(t *testing.T) {

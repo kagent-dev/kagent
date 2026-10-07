@@ -8,8 +8,9 @@ import (
 )
 
 type callObservation struct {
-	userID      string
-	hasDeadline bool
+	userID        string
+	authorization string
+	hasDeadline   bool
 }
 
 func first(values []string) string {

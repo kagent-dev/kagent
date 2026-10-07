@@ -203,7 +203,10 @@ func (c *baseClient) grpcCallContext(ctx context.Context) (context.Context, cont
 
 func (c *baseClient) grpcCallContextForUser(ctx context.Context, userID string) (context.Context, context.CancelFunc) {
 	if userID != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "x-user-id", userID)
+		ctx = metadata.AppendToOutgoingContext(ctx, userIDHeader, userID)
+	}
+	if c.bearerToken != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, authorizationHeader, bearerPrefix+c.bearerToken)
 	}
 	if c.transport.timeout <= 0 {
 		return ctx, func() {}

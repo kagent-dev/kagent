@@ -8,14 +8,15 @@ import (
 // Flag names are unexported so RegisterFlags and OptionsFromCommand are the
 // only things that can disagree about them, and they cannot.
 const (
-	flagAPIURL     = "api-url"
-	flagGatewayURL = "gateway-url"
-	flagCAFile     = "ca-file"
-	flagServerName = "server-name"
-	flagNamespace  = "namespace"
-	flagVerbose    = "verbose"
-	flagTimeout    = "timeout"
-	flagUserID     = "user-id"
+	flagAPIURL      = "api-url"
+	flagGatewayURL  = "gateway-url"
+	flagCAFile      = "ca-file"
+	flagServerName  = "server-name"
+	flagNamespace   = "namespace"
+	flagVerbose     = "verbose"
+	flagTimeout     = "timeout"
+	flagUserID      = "user-id"
+	flagCallerToken = "caller-token"
 )
 
 // RegisterFlags declares the CLI-wide connection flags, defaulted from DefaultOptions.
@@ -29,6 +30,7 @@ func RegisterFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagVerbose, "v", defaults.Verbose, "Verbose output")
 	flags.Duration(flagTimeout, defaults.Timeout, "Timeout")
 	flags.String(flagUserID, defaults.UserID, "Caller identity used to select the server-side data partition")
+	flags.String(flagCallerToken, defaults.CallerToken, "Caller token sent as the bearer of every call; defaults to KAGENT_TOKEN, then the current kubeconfig context's credential")
 }
 
 // OptionsFromCommand resolves connection options from the flags a command was
@@ -59,6 +61,9 @@ func OptionsFromCommand(cmd *cobra.Command) (Options, error) {
 		return Options{}, err
 	}
 	if options.UserID, err = flags.GetString(flagUserID); err != nil {
+		return Options{}, err
+	}
+	if options.CallerToken, err = flags.GetString(flagCallerToken); err != nil {
 		return Options{}, err
 	}
 	return options, nil
