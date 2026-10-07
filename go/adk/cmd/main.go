@@ -187,6 +187,7 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 		Logger:         logger,
 		Output:         agentConfig.Output,
 		Flush:          providers.ForceFlush,
+		AgentName:      runtimeTelemetry.AgentName,
 	})
 	if err != nil {
 		return fmt.Errorf("create A2A executor: %w", err)

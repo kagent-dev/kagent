@@ -190,6 +190,9 @@ func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, t
 		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
 		return nil, err
 	}
+	if params.ServerType != "stdio" {
+		ts.inner = withCallScope(ts.inner)
+	}
 	if requireApproval {
 		ts.inner = tool.WithConfirmation(ts.inner, true, nil)
 	}
@@ -270,8 +273,12 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		}
 	}
 
-	// Outermost layer: inject W3C traceparent/tracestate from the active span so
-	// MCP calls stay attached to the invocation trace (kagent-dev/kagent#2550).
+	// The session's own requests carry no request's trace context or baggage.
+	httpTransport = sessionTraceStripper{base: httpTransport}
+
+	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
+	// OTEL_PROPAGATORS includes it, from the active span so MCP calls stay
+	// attached to the invocation trace (kagent-dev/kagent#2550).
 	httpTransport = otelhttp.NewTransport(httpTransport)
 
 	httpClient := &http.Client{

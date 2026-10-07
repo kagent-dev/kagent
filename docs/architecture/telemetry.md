@@ -75,8 +75,8 @@ with the agent identity winning. The controller reports itself as
 `kagent-controller` with `service.session.id` and `k8s.*` from the downward API.
 
 kagent runtimes apply three defaults when the environment leaves them unset:
-`OTEL_PROPAGATORS=tracecontext`, so a caller's baggage never reaches tools or
-model providers, `OTEL_EXPORTER_OTLP_COMPRESSION=gzip`, and base-2 exponential
+`OTEL_PROPAGATORS=tracecontext`, so baggage is propagated only where an
+operator lists it, `OTEL_EXPORTER_OTLP_COMPRESSION=gzip`, and base-2 exponential
 histograms. The Go runtimes set them in `go/pkg/telemetry`, which also hands
 them to the Claude and Codex processes. The Python runtimes set them in
 `kagent.core`. A BYO image gets them compiled in, together with the rest of the
@@ -84,6 +84,37 @@ kagent telemetry, only while kagent telemetry is on, and its own `Harness.spec.e
 values win, so an image that exports to its own backend keeps doing so. The Python ADK also defaults
 `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2`, `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`,
 and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` from the capture setting.
+
+Propagation follows `OTEL_PROPAGATORS` in both directions: a format that is not
+listed is neither extracted from incoming requests nor injected into outgoing
+ones, including what the process adds itself. The controller and each runtime
+read their own value. Set it on the controller with the chart's
+`controller.env`, and on a runtime with `Harness.spec.env`.
+
+The Go runtime adds the request's GenAI identity to the W3C baggage of each
+request, so its model and MCP calls carry it whenever the runtime's
+`OTEL_PROPAGATORS` includes `baggage`, for example
+`tracecontext,baggage`:
+
+| Member | Model calls | MCP tool calls |
+| --- | --- | --- |
+| `gen_ai.agent.name` | yes | yes |
+| `gen_ai.conversation.id` | yes | yes |
+| `a2a.task.id` | yes | yes |
+| `gen_ai.tool.name` | no | yes |
+| `gen_ai.tool.call.id` | no | yes |
+
+The members are identifiers, never content or credentials. They replace caller
+members of the same name, so a caller cannot impersonate another conversation
+downstream; other caller members are propagated alongside them when the
+controller and runtime both extract baggage.
+
+An MCP session is shared by every request and keeps the context of the call
+that opened it for its own requests: the event stream, replies to server
+requests, and the close. Those requests carry neither trace context nor
+baggage, which would otherwise name a past request. Gemini on Vertex AI and SAP
+AI Core use their providers' HTTP clients and receive neither `traceparent` nor
+baggage. The Python runtime does not add the GenAI identity.
 
 Defaults live in the runtimes because a Substrate Actor holds at most 32
 environment variables, and the ActorTemplate itself uses nine. The controller
