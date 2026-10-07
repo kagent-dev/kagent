@@ -154,7 +154,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	router.Config.Protocols = protocols
 	router.Start()
 	t.Cleanup(router.Close)
-	guests, err := sandboxservice.NewGuestDialer(router.URL, testAuth{})
+	guests, err := sandboxservice.NewGuestDialer(substrate.Router{URL: router.URL}, testAuth{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, guests.Close()) })
 	actors := &testActors{}
