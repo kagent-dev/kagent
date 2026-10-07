@@ -25,7 +25,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
@@ -219,8 +218,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	})
 	native := &runtimeCancelableExecutor{AgentExecutor: executor, cleanupStarted: make(chan struct{}), cleanupRelease: make(chan struct{}), cancelStarted: make(chan a2a.TaskID, 2)}
 	wrapped := runtimeStore.WrapExecutor(native, "", nil)
-	handler := a2asrv.NewHandler(wrapped, a2asrv.WithTaskStore(runtimeStore), a2asrv.WithCallInterceptors(wrapped),
-		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}))
+	handler := a2asrv.NewHandler(wrapped, a2asrv.WithTaskStore(runtimeStore), a2asrv.WithCallInterceptors(wrapped))
 	runtimeListener := bufconn.Listen(DefaultMaxMessageSize)
 	runtimeServer := grpc.NewServer()
 	a2agrpc.NewHandler(handler).RegisterWith(runtimeServer)

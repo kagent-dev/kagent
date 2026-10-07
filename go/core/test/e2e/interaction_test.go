@@ -771,7 +771,7 @@ func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, 
 }
 
 // sendMessageWithRetry follows the gateway's explicit rejection contract. A
-// published task can precede the runtime releasing its execution slot. Retry the
+// quiescence claim or checkpoint can keep dispatch busy past its wait. Retry the
 // same input only when the gateway proves it was never accepted; a generic
 // transport error may hide accepted work and must not cause another execution.
 func sendMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {

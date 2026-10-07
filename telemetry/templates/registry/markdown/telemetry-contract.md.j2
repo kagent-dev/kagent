@@ -12,6 +12,18 @@ This page lists what the [registry](../../telemetry/registry) defines.
 {% for a in ctx.attributes -%}
 | `{{ a.key }}` | {{ a.type }} | {% for v in a.values %}`{{ v }}`{% if not loop.last %}, {% endif %}{% endfor %} | {{ a.brief }}{% if a.note %} {{ a.note }}{% endif %} |
 {% endfor %}
+## Metrics
+{% for m in ctx.metrics %}
+### `{{ m.name }}`
+
+Instrument: {{ m.instrument }}. Unit: `{{ m.unit }}`. {{ m.brief }}{% if m.note %} {{ m.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in m.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
 ## Attribute groups
 {% for g in ctx.groups %}
 ### `{{ g.id }}`

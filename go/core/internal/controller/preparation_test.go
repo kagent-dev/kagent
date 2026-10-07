@@ -112,7 +112,8 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
 
-			require.NoError(t, NewRuntimeRevisionGC(store, templates, time.Minute).collect(ctx, abandoned.Revision))
+			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
+			require.NoError(t, collector.collect(ctx, abandoned.Revision))
 			require.Nil(t, templates.template)
 			_, err = store.GetRuntimeRevision(ctx, abandoned.Revision)
 			require.ErrorIs(t, err, database.ErrNotFound)
