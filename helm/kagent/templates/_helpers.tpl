@@ -300,10 +300,19 @@ Controller gRPC observability Grafana dashboard ConfigMap name.
 {{- end -}}
 
 {{/*
-Controller Service host:port for nginx upstream (no scheme).
+Controller Service host up to `.svc`, for the UI's nginx, which appends the
+cluster domain init.sh reads from the pod's resolv.conf: nginx's resolver does
+not apply the search path.
+*/}}
+{{- define "kagent.controllerServiceHost" -}}
+{{- printf "%s-controller.%s.svc" (include "kagent.fullname" .) (include "kagent.namespace" .) -}}
+{{- end -}}
+
+{{/*
+Controller Service host:port (no scheme).
 */}}
 {{- define "kagent.controllerServiceAuthority" -}}
-{{- printf "%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- printf "%s:%d" (include "kagent.controllerServiceHost" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 
 {{/*

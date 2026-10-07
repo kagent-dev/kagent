@@ -82,6 +82,51 @@ EOF
 sed "s|<base href=\"/\"|<base href=\"${BASE_PATH}/\"|" /usr/share/nginx/html/index.html > /tmp/kagent/index.html
 grep -q "<base href=\"${BASE_PATH}/\"" /tmp/kagent/index.html || echo "init.sh: could not set <base href> to ${BASE_PATH}/" >&2
 
+# Resolver for the controller upstream.
+#
+# nginx.conf proxies to the controller through a variable, so nginx resolves the
+# Service name per request and starts even while cluster DNS or the Service does
+# not answer yet; a request made then gets a 502. nginx's own resolver reads
+# neither /etc/resolv.conf nor its search path, so both come from the pod's
+# resolv.conf here: the nameservers (IPv6 ones in brackets, as nginx wants them)
+# and the cluster domain, taken from the `svc.<cluster domain>` search entry the
+# kubelet writes for the pod.
+RESOLVER_CONF=/tmp/nginx/resolver.conf
+nameservers=()
+cluster_domain=""
+while read -r key values; do
+  case "$key" in
+    nameserver)
+      if [[ "$values" == *:* ]]; then
+        nameservers+=("[${values}]")
+      else
+        nameservers+=("$values")
+      fi
+      ;;
+    search)
+      for domain in $values; do
+        if [[ -z "$cluster_domain" && "$domain" == svc.* ]]; then
+          cluster_domain=${domain#svc.}
+        fi
+      done
+      ;;
+  esac
+done < /etc/resolv.conf
+
+if (( ${#nameservers[@]} == 0 )) || [[ -z "$cluster_domain" ]]; then
+  echo "init.sh: /etc/resolv.conf names no nameserver or no svc.<cluster domain> search entry; the UI needs the pod's cluster DNS (dnsPolicy ClusterFirst) to reach the controller" >&2
+  exit 1
+fi
+
+# valid= bounds how long an answer, or a failure before the controller exists,
+# is cached, so the UI follows the Service within seconds.
+cat > "$RESOLVER_CONF" <<EOF
+resolver ${nameservers[*]} valid=10s;
+map \$host \$kagent_cluster_domain {
+    default "${cluster_domain}";
+}
+EOF
+
 # nginx is the only process in this container, so it runs as PID 1 directly
 # instead of under a process manager.
 exec nginx -g "daemon off;"

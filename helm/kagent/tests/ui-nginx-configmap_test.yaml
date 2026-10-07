@@ -15,7 +15,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'location = /mcp \{\s+proxy_pass http://kagent_backend/mcp;'
+          pattern: 'location = /mcp \{\s+proxy_pass http://\$kagent_backend;'
 
   - it: serves public JWKS through the controller
     asserts:
@@ -77,12 +77,62 @@ tests:
           path: data["nginx.conf"]
           pattern: "listen \\[::\\]:8080;"
 
-  - it: should proxy api upstream to controller Cluster DNS
+  # ---------------------------------------------------------------------------
+  # Controller upstream
+  #
+  # A static upstream block is resolved once at start, and nginx refuses to
+  # start while the name does not resolve yet. The controller is reached through
+  # a variable instead, resolved per request by the resolver init.sh renders.
+  # ---------------------------------------------------------------------------
+  - it: should resolve the controller per request, for IPv4 and IPv6 alike
     template: ui-nginx-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts: &variableUpstream
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'include /tmp/nginx/resolver\.conf;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$kagent_backend "RELEASE-NAME-controller\.NAMESPACE\.svc\.\$kagent_cluster_domain:8083";'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'upstream kagent_backend'
+
+  - it: should resolve the controller per request without IPv6
+    template: ui-nginx-configmap.yaml
+    asserts: *variableUpstream
+
+  - it: should follow the controller service port
+    template: ui-nginx-configmap.yaml
+    set:
+      controller:
+        service:
+          ports:
+            port: 9090
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc:8083;'
+          pattern: 'set \$kagent_backend "RELEASE-NAME-controller\.NAMESPACE\.svc\.\$kagent_cluster_domain:9090";'
+
+  - it: should pass the request URI unchanged to the controller
+    template: ui-nginx-configmap.yaml
+    asserts:
+      # With a variable in proxy_pass, a URI part would replace the whole path.
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location /api/ \{\s+proxy_pass http://\$kagent_backend;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location /a2a/ \{\s+proxy_pass http://\$kagent_backend;'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_pass http://\$kagent_backend/'
+      # WebSocket upgrades on /api/ stay as they were.
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header Connection \$connection_upgrade;'
 
   # ---------------------------------------------------------------------------
   # Static SPA serving
@@ -158,7 +208,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'proxy_pass http://kagent_backend/a2a/;'
+          pattern: 'location /a2a/ \{\s+proxy_pass http://\$kagent_backend;'
       - notMatchRegex:
           path: data["nginx.conf"]
           pattern: 'proxy_pass http://kagent_ui'
