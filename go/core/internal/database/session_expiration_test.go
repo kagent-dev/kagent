@@ -21,6 +21,14 @@ func expirationFixture(t *testing.T) (*Client, *apiv1alpha1.Session) {
 	return client, session
 }
 
+// Use the event store's clock; the host and Docker clocks can differ.
+func dbNow(t *testing.T, client *Client) time.Time {
+	t.Helper()
+	var now time.Time
+	require.NoError(t, client.db.QueryRow(t.Context(), "SELECT clock_timestamp()").Scan(&now))
+	return now
+}
+
 func TestSessionExpirationTaskAdmission(t *testing.T) {
 	for _, test := range []struct {
 		state a2a.TaskState
@@ -41,7 +49,7 @@ func TestSessionExpirationTaskAdmission(t *testing.T) {
 			task.ContextID, task.Status.State = session.ContextId, test.state
 			snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", ContentScope: "FULL"}
 			require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, snapshot))
-			_, err := client.BeginIdleSessionDeletion(t.Context(), session.Id, time.Now())
+			_, err := client.BeginIdleSessionDeletion(t.Context(), session.Id, dbNow(t, client))
 			if test.allow {
 				require.NoError(t, err)
 			} else {
@@ -54,7 +62,7 @@ func TestSessionExpirationTaskAdmission(t *testing.T) {
 func TestSessionExpirationRechecksActivity(t *testing.T) {
 	client, session := expirationFixture(t)
 	ctx := t.Context()
-	before := time.Now()
+	before := dbNow(t, client)
 	ids, err := client.ListIdleSessions(ctx, before, "", 100)
 	require.NoError(t, err)
 	require.Equal(t, []string{session.Id}, ids)
@@ -63,13 +71,13 @@ func TestSessionExpirationRechecksActivity(t *testing.T) {
 	task.ContextID, task.Status.State = session.ContextId, a2a.TaskStateCompleted
 	version, err := client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("completed"), task, "")
 	require.NoError(t, err)
-	savedBefore := time.Now()
-	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	savedBefore := dbNow(t, client)
+	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, dbNow(t, client))
 	require.ErrorIs(t, err, ErrConflict, "unpublished runtime cleanup blocks expiration")
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
 	work, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
-	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, dbNow(t, client))
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a claimed suspension blocks expiration")
 	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", ContentScope: "FULL"}))
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, before)
@@ -90,14 +98,14 @@ func TestSessionExpirationFencesDispatchAndRetries(t *testing.T) {
 	ctx := t.Context()
 	dispatch := uuid.New()
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "message"))
-	_, err := client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	_, err := client.BeginIdleSessionDeletion(ctx, session.Id, dbNow(t, client))
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	_, err = client.RevokeSessionDispatch(ctx, session.Id, dispatch, "message")
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Time{})
 	require.ErrorIs(t, err, ErrConflict, "failed lifecycle admission must not persist idle deletion intent")
 
-	work, err := client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	work, err := client.BeginIdleSessionDeletion(ctx, session.Id, dbNow(t, client))
 	require.NoError(t, err)
 	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, work.Operation.Instance.State)
 	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next"), ErrConflict)
@@ -131,14 +139,14 @@ func TestSessionExpirationSkipsLifecycleAndExplicitTombstones(t *testing.T) {
 	ctx := t.Context()
 	_, err := client.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.NoError(t, err)
-	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, dbNow(t, client))
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = finishSessionOperation(ctx, client, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, "")
 	require.NoError(t, err)
 	require.NoError(t, deleteSession(ctx, client, session.Id))
-	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, dbNow(t, client))
 	require.ErrorIs(t, err, ErrConflict)
-	ids, err := client.ListIdleSessions(ctx, time.Now(), "", 100)
+	ids, err := client.ListIdleSessions(ctx, dbNow(t, client), "", 100)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	_, created, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "conversation")
@@ -155,21 +163,21 @@ func TestSessionExpirationCheckpointAdmission(t *testing.T) {
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, "checkpoint")
 	require.NoError(t, err)
-	_, err = client.BeginIdleSessionDeletion(t.Context(), session.Id, time.Now())
+	_, err = client.BeginIdleSessionDeletion(t.Context(), session.Id, dbNow(t, client))
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshot", "")
 	require.NoError(t, err)
-	beforeFork := time.Now()
+	beforeFork := dbNow(t, client)
 	fork, _, err := client.ForkSession(t.Context(), checkpoint.Id, session.Creator, "fork", uuid.NewString())
 	require.NoError(t, err)
 	fork, err = markSessionReady(t.Context(), client, fork.Id, "fork.example")
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(t.Context(), fork.Id, beforeFork)
 	require.ErrorIs(t, err, ErrConflict, "a fork's copied events must not shorten its idle lifetime")
-	deletion, err := client.BeginIdleSessionDeletion(t.Context(), fork.Id, time.Now())
+	deletion, err := client.BeginIdleSessionDeletion(t.Context(), fork.Id, dbNow(t, client))
 	require.NoError(t, err)
 	require.Equal(t, fork.CreatedAt.AsTime(), deletion.IdleSince)
-	_, err = client.BeginIdleSessionDeletion(t.Context(), session.Id, time.Now())
+	_, err = client.BeginIdleSessionDeletion(t.Context(), session.Id, dbNow(t, client))
 	require.NoError(t, err, "a completed checkpoint must not keep the session alive")
 }
 
@@ -179,12 +187,12 @@ func TestSessionExpirationPaginatesCandidates(t *testing.T) {
 		_, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 		require.NoError(t, err)
 	}
-	_, err := client.BeginIdleSessionDeletion(t.Context(), first.Id, time.Now().Add(-time.Hour))
+	_, err := client.BeginIdleSessionDeletion(t.Context(), first.Id, dbNow(t, client).Add(-time.Hour))
 	require.ErrorIs(t, err, ErrConflict, "a new session without events receives the full idle lifetime")
-	ids, err := client.ListIdleSessions(t.Context(), time.Now(), "", 2)
+	ids, err := client.ListIdleSessions(t.Context(), dbNow(t, client), "", 2)
 	require.NoError(t, err)
 	require.Len(t, ids, 2)
-	next, err := client.ListIdleSessions(t.Context(), time.Now(), ids[1], 2)
+	next, err := client.ListIdleSessions(t.Context(), dbNow(t, client), ids[1], 2)
 	require.NoError(t, err)
 	require.Len(t, next, 1)
 	require.NotContains(t, ids, next[0])
@@ -193,7 +201,7 @@ func TestSessionExpirationPaginatesCandidates(t *testing.T) {
 
 func TestSessionExpirationIgnoresMetadataAndLifecycle(t *testing.T) {
 	client, session := expirationFixture(t)
-	before := time.Now()
+	before := dbNow(t, client)
 	_, err := client.UpdateSessionName(t.Context(), session.Id, session.Creator, "renamed")
 	require.NoError(t, err)
 	_, err = finishSessionOperation(t.Context(), client, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, "")
