@@ -194,7 +194,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 		Listener: listener, Authenticator: &authimpl.InsecureAuthenticator{},
 		SystemService:       testSystemService(),
 		ScheduledRunService: scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
-		SessionService:      sessionsvc.NewService(store, &pkgauth.NoopAuthorizer{}, nil),
+		SessionService:      sessionsvc.NewService(store, &pkgauth.NoopAuthorizer{}, staticSessionWorkflow{}),
 	})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
