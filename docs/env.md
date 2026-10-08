@@ -35,6 +35,9 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_CLOUD_REGION` | String | `(none)` | Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | String | `(none)` | When set to 'true', use Vertex AI for Gemini models. |
 | `KAGENT_A2A_MAX_CONTENT_LENGTH` | String | `10485760` | Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default. |
+| `KAGENT_A2A_RETRY_BASE_DELAY` | Duration | `250ms` | Base delay before the first retry of a failed A2A request, doubling after each subsequent attempt. Only used when KAGENT_A2A_RETRY_ENABLED is true. |
+| `KAGENT_A2A_RETRY_ENABLED` | Boolean | `false` | Enable retrying outbound A2A HTTP requests that cannot have reached the remote agent (connection refused, DNS failure), and agent card discovery on any connection failure. A send that fails after delivery is never resent at the transport level. |
+| `KAGENT_A2A_RETRY_MAX_ATTEMPTS` | Integer | `3` | Maximum number of attempts (including the first) for a retryable A2A transport failure. Only used when KAGENT_A2A_RETRY_ENABLED is true. |
 | `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
 | `KAGENT_BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
 | `KAGENT_CONFIG_DIR` | String | `/config` | Go ADK configuration directory; --filepath takes precedence. |

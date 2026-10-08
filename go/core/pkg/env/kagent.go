@@ -1,5 +1,7 @@
 package env
 
+import "time"
+
 // Core kagent environment variables used by the controller and agent runtime.
 var (
 	LeaderElect = RegisterBoolVar(
@@ -109,6 +111,34 @@ var (
 		"When true, t, or 1 (case-insensitive), enables the list_files and grep_file skills tools, which let an agent "+
 			"enumerate and search the filesystem under its session/skills roots without a "+
 			"shell. Disabled by default; set in Harness env to opt in.",
+		ComponentAgentRuntime,
+	)
+
+	KagentA2ARetryEnabled = RegisterBoolVar(
+		"KAGENT_A2A_RETRY_ENABLED",
+		false,
+		"Enable retrying outbound A2A HTTP requests that cannot have reached the "+
+			"remote agent (connection refused, DNS failure), and agent card "+
+			"discovery on any connection failure. A send that fails after delivery "+
+			"is never resent at the transport level.",
+		ComponentAgentRuntime,
+	)
+
+	KagentA2ARetryMaxAttempts = RegisterIntVar(
+		"KAGENT_A2A_RETRY_MAX_ATTEMPTS",
+		3,
+		"Maximum number of attempts (including the first) for a retryable A2A "+
+			"transport failure. Only used when "+
+			"KAGENT_A2A_RETRY_ENABLED is true.",
+		ComponentAgentRuntime,
+	)
+
+	KagentA2ARetryBaseDelay = RegisterDurationVar(
+		"KAGENT_A2A_RETRY_BASE_DELAY",
+		250*time.Millisecond,
+		"Base delay before the first retry of a failed A2A request, doubling "+
+			"after each subsequent attempt. Only used when "+
+			"KAGENT_A2A_RETRY_ENABLED is true.",
 		ComponentAgentRuntime,
 	)
 
