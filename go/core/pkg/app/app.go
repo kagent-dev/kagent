@@ -165,6 +165,13 @@ func Run(ctx context.Context, opts Options) error {
 	if quiescenceInterval <= 0 {
 		return fmt.Errorf("%s must be positive", kagentenv.SessionQuiescencePollInterval.Name())
 	}
+	dbURL := kagentenv.PostgresDatabaseURL.Get()
+	if dbURL == "" {
+		return fmt.Errorf("%s is required", kagentenv.PostgresDatabaseURL.Name())
+	}
+	if err := database.ValidateURL(dbURL); err != nil {
+		return fmt.Errorf("validate database connection: %w", err)
+	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
 	_, telemetryWarnings := v2translator.TelemetryConfigFromProcess()
@@ -195,29 +202,19 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	dbURL, err := database.ResolveURL(env(kagentenv.PostgresDatabaseURL), kagentenv.PostgresDatabaseURLFile.Get())
-	if err != nil {
-		return err
-	}
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
+	dbRole := kagentenv.DatabaseRole.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
 	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
 	if kagentenv.SkipMigrations.Get() {
-		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
-	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+	} else if err := migrations.RunUpAsRole(ctx, dbURL, dbRole, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{
-		URL:             dbURL,
-		VectorEnabled:   vectorEnabled,
-		MaxConns:        new(int32(kagentenv.PostgresDatabaseMaxConns.Get())),
-		MinConns:        new(int32(kagentenv.PostgresDatabaseMinConns.Get())),
-		MaxConnIdleTime: new(kagentenv.PostgresDatabaseMaxConnIdleTime.Get()),
-		MaxConnLifetime: new(kagentenv.PostgresDatabaseMaxConnLifetime.Get()),
-	})
+	db, err := database.Connect(ctx, postgresConfigFromEnv(dbURL, vectorEnabled))
 	if err != nil {
 		return err
 	}
@@ -468,6 +465,18 @@ func env(variable kagentenv.StringVar) string {
 		return value
 	}
 	return variable.DefaultValue()
+}
+
+func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
+	return &database.PostgresConfig{
+		URL:             source,
+		Role:            kagentenv.DatabaseRole.Get(),
+		VectorEnabled:   vectorEnabled,
+		MaxConns:        new(int32(kagentenv.PostgresDatabaseMaxConns.Get())),
+		MinConns:        new(int32(kagentenv.PostgresDatabaseMinConns.Get())),
+		MaxConnIdleTime: new(kagentenv.PostgresDatabaseMaxConnIdleTime.Get()),
+		MaxConnLifetime: new(kagentenv.PostgresDatabaseMaxConnLifetime.Get()),
+	}
 }
 
 // metricsBindAddress resolves KAGENT_METRICS_BIND_ADDRESS. controller-runtime reads an

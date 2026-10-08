@@ -20,7 +20,8 @@ import (
 )
 
 type InstallCfg struct {
-	Profile string
+	Profile           string
+	SkipDatabaseSetup bool
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -74,6 +75,10 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		fmt.Fprintln(os.Stderr, err)
 		return nil
 	}
+	if err := checkKubectlAvailable(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return nil
+	}
 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
@@ -90,6 +95,7 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 	}
 
 	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
+	substrateHelmConfig := setupSubstrateHelmConfig()
 
 	// setup profile if provided
 	if cfg.Profile = strings.TrimSpace(cfg.Profile); cfg.Profile != "" {
@@ -101,7 +107,7 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		helmConfig.inlineValues = profiles.MinimalProfileYaml
 	}
 
-	return install(ctx, &options, helmConfig, modelProvider)
+	return install(ctx, &options, helmConfig, substrateHelmConfig, modelProvider, cfg.SkipDatabaseSetup)
 }
 
 // helmConfig is the config for the kagent chart
@@ -114,12 +120,40 @@ type helmConfig struct {
 	inlineValues string
 }
 
+func crdChartValues(values []string) []string {
+	var result []string
+	for _, value := range values {
+		key, _, _ := strings.Cut(value, "=")
+		if key == "kmcp.enabled" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
+	result := make([]string, 0, len(values)+1)
+	for _, value := range values {
+		key, _, _ := strings.Cut(value, "=")
+		if strings.HasPrefix(key, "image.") || strings.HasPrefix(key, "global.") || strings.HasPrefix(key, "imagePullSecrets") {
+			result = append(result, value)
+		}
+	}
+	if includeBundledPostgresClient {
+		result = append(result, fmt.Sprintf("postgresClients[0]=%s/kagent-controller=kagent_user", namespace))
+	}
+	return result
+}
+
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
 func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
 	// Build Helm values
 	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
 	values := []string{
+		"controller.substrate.enabled=true",
+		"controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443",
+		"controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80",
 		fmt.Sprintf("providers.default=%s", helmProviderKey),
 		fmt.Sprintf("providers.%s.apiKey=%s", helmProviderKey, apiKeyValue),
 	}
@@ -133,8 +167,11 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 	helmExtraArgs := env.KagentHelmExtraArgs.Get()
 
 	// split helmExtraArgs by "--set" to get additional values
-	extraValues := strings.Split(helmExtraArgs, "--set")
-	values = append(values, extraValues...)
+	for _, value := range strings.Split(helmExtraArgs, "--set") {
+		if value = strings.TrimSpace(value); value != "" {
+			values = append(values, value)
+		}
+	}
 
 	return helmConfig{
 		registry: helmRegistry,
@@ -143,8 +180,52 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 	}
 }
 
-// install installs kagent and kagent-crds using the helm config
-func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider) *connection.PortForward {
+func setupSubstrateHelmConfig() helmConfig {
+	substrateVersion, versionSet := env.KagentSubstrateHelmVersion.Lookup()
+	if !versionSet {
+		substrateVersion = version.SubstrateVersion
+	}
+
+	values := []string{}
+	for _, value := range strings.Split(env.KagentSubstrateHelmExtraArgs.Get(), "--set") {
+		if value = strings.TrimSpace(value); value != "" {
+			values = append(values, value)
+		}
+	}
+
+	return helmConfig{
+		registry: env.KagentSubstrateHelmRepo.Get(),
+		version:  substrateVersion,
+		values:   values,
+	}
+}
+
+func setupPodCertificateHelmConfig(substrateConfig helmConfig) helmConfig {
+	config := helmConfig{
+		registry: substrateConfig.registry,
+		version:  substrateConfig.version,
+	}
+	if registry, ok := env.KagentSubstratePodCertificateHelmRepo.Lookup(); ok {
+		config.registry = registry
+	}
+	if version, ok := env.KagentSubstratePodCertificateHelmVersion.Lookup(); ok {
+		config.version = version
+	}
+	return config
+}
+
+// install installs the Substrate and Kagent releases.
+func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool) *connection.PortForward {
+	podCertificateHelmConfig := setupPodCertificateHelmConfig(substrateHelmConfig)
+	substrateHelmConfig.values = append([]string{
+		fmt.Sprintf("credentialProvider.namespacePolicies[0].atespace=%s", cfg.Namespace),
+		fmt.Sprintf("credentialProvider.namespacePolicies[0].allowedNamespaces[0]=%s", cfg.Namespace),
+	}, substrateHelmConfig.values...)
+	helmConfig.values = append([]string{
+		"substrateWorkerPool.create=true",
+		fmt.Sprintf("substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v%s", strings.TrimPrefix(substrateHelmConfig.version, "v")),
+	}, helmConfig.values...)
+
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -152,7 +233,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 	s.Suffix = " Installing kagent-crds from " + helmConfig.registry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, nil, ""); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, crdChartValues(helmConfig.values), ""); err != nil {
 		// Always stop the spinner before printing error messages
 		s.Stop()
 
@@ -170,6 +251,44 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 		}
 	}
 
+	s.Suffix = " Installing substrate-crds from " + substrateHelmConfig.registry
+	if output, err := installChart(ctx, "substrate-crds", substrateNamespace, substrateHelmConfig.registry, substrateHelmConfig.version, nil, ""); err != nil {
+		s.Stop()
+		fmt.Fprintln(os.Stderr, "Error installing substrate-crds:", output)
+		return nil
+	}
+
+	s.Suffix = " Preparing Substrate prerequisites"
+	if err := prepareSubstrate(ctx); err != nil {
+		s.Stop()
+		fmt.Fprintln(os.Stderr, "Error preparing Substrate prerequisites:", err)
+		return nil
+	}
+
+	s.Suffix = " Installing substrate-podcert from " + podCertificateHelmConfig.registry
+	if output, err := installChart(ctx, "substrate-podcert", podCertificateNamespace, podCertificateHelmConfig.registry, podCertificateHelmConfig.version, podCertificateChartValues(substrateHelmConfig.values, cfg.Namespace, !skipDatabaseSetup), ""); err != nil {
+		s.Stop()
+		fmt.Fprintln(os.Stderr, "Error installing substrate-podcert:", output)
+		return nil
+	}
+
+	if !skipDatabaseSetup {
+		s.Suffix = " Preparing bundled PostgreSQL"
+		if err := prepareBundledPostgres(ctx, cfg.Namespace); err != nil {
+			s.Stop()
+			fmt.Fprintln(os.Stderr, "Error preparing bundled PostgreSQL:", err)
+			return nil
+		}
+		substrateHelmConfig.values = append(substrateHelmConfig.values, "postgres.clientCertificates.enabled=true")
+	}
+
+	s.Suffix = " Installing substrate from " + substrateHelmConfig.registry
+	if output, err := installChart(ctx, "substrate", substrateNamespace, substrateHelmConfig.registry, substrateHelmConfig.version, substrateHelmConfig.values, ""); err != nil {
+		s.Stop()
+		fmt.Fprintln(os.Stderr, "Error installing substrate:", output)
+		return nil
+	}
+
 	// Update status
 	// Removing api key(s) from printed values
 	redactedValues := []string{}
@@ -184,6 +303,9 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 		}
 	}
 
+	if !skipDatabaseSetup {
+		helmConfig.values = append(helmConfig.values, "database.postgres.clientCertificate.enabled=true")
+	}
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.inlineValues); err != nil {
 		// Always stop the spinner before printing error messages
@@ -311,6 +433,14 @@ func checkHelmAvailable() error {
 	return nil
 }
 
+func checkKubectlAvailable() error {
+	_, err := exec.LookPath("kubectl")
+	if err != nil {
+		return fmt.Errorf("kubectl not found in PATH. Please install kubectl first: https://kubernetes.io/docs/tasks/tools/")
+	}
+	return nil
+}
+
 // NewInstallCmd constructs the kagent install command.
 func NewInstallCmd() *cobra.Command {
 	cfg := &InstallCfg{}
@@ -328,6 +458,7 @@ func NewInstallCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal)")
+	cmd.Flags().BoolVar(&cfg.SkipDatabaseSetup, "skip-database-setup", false, "Skip bundled PostgreSQL deployment and initialization")
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})

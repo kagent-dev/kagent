@@ -146,4 +146,11 @@ var (
 		"Verify required database migrations at startup without applying them.",
 		ComponentDatabase, ComponentController,
 	)
+
+	DatabaseRole = RegisterStringVar(
+		"KAGENT_POSTGRES_DATABASE_ROLE",
+		"",
+		"Stable PostgreSQL role assumed after authentication.",
+		ComponentDatabase, ComponentController, ComponentCLI,
+	)
 )

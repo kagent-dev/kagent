@@ -1,4 +1,4 @@
-# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
+# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=--set ui.replicas=0
 -include .env
 
 # Image configuration
@@ -49,6 +49,7 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
+KAGENT_POSTGRES_SECRET ?= kagent-postgres
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -77,11 +78,13 @@ SANDBOX_GUEST_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SANDBOX_GUEST_IMAGE_NAM
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
+SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod)
 
 # Version information for the build
 LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSION) \
            -X github.com/$(DOCKER_REPO)/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE)
+           -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE) \
+           -X github.com/$(DOCKER_REPO)/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
@@ -227,9 +230,10 @@ KMCP_ENABLED ?= true
 KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
 # Substrate
-SUBSTRATE_ENABLED ?= false
-SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod) # Substrate version defaults to the replace target in go.mod
-SUBSTRATE_REPO ?= oci://ghcr.io/kagent-dev/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
+# Override for local development with locally published charts.
+SUBSTRATE_REPO ?= oci://ghcr.io/kagent-dev/substrate/helm
+SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
+SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 
 HELM_ACTION=upgrade --install
 
@@ -459,16 +463,23 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-tools
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
 	helm dependency update helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
-helm-install-provider: ## Install or upgrade kagent-crds and kagent Helm releases on the kind cluster
+helm-install-provider: ## Install or upgrade with Helm; requires a prepared PostgreSQL Secret
 helm-install-provider: helm-version check-api-key
+	@case "$(HELM_ACTION)" in \
+		*--dry-run*) ;; \
+		*) kubectl --context kind-$(KIND_CLUSTER_NAME) --namespace kagent get secret $(KAGENT_POSTGRES_SECRET) >/dev/null 2>&1 || { \
+			echo "Missing PostgreSQL Secret kagent/$(KAGENT_POSTGRES_SECRET). Use 'make kagent-cli-install' for the bundled development database, or create the Secret before a direct Helm install." >&2; \
+			exit 1; \
+		} ;; \
+	esac
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
@@ -497,12 +508,9 @@ helm-install-provider: helm-version check-api-key
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set database.postgres.connectionStringSecretRef.name=$(KAGENT_POSTGRES_SECRET) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set database.postgres.bundled.image.repository=pgvector \
-		--set database.postgres.bundled.image.name=pgvector \
-		--set database.postgres.bundled.image.tag=pg18-trixie \
-		--set database.postgres.vectorEnabled=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
@@ -633,7 +641,15 @@ helm-publish: helm-version
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
-kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
+kagent-cli-install: use-kind-cluster build-cli-local helm-version
+	KAGENT_HELM_REPO=./helm/ \
+	KAGENT_HELM_VERSION=$(VERSION) \
+	KAGENT_SUBSTRATE_HELM_REPO=$(SUBSTRATE_REPO)/ \
+	KAGENT_SUBSTRATE_HELM_VERSION=$(SUBSTRATE_VERSION) \
+	KAGENT_SUBSTRATE_PODCERT_HELM_REPO=$(SUBSTRATE_PODCERT_REPO)/ \
+	KAGENT_SUBSTRATE_PODCERT_HELM_VERSION=$(SUBSTRATE_PODCERT_VERSION) \
+	KAGENT_HELM_EXTRA_ARGS="--set registry=$(DOCKER_REGISTRY) --set tag=$(VERSION) --set imagePullPolicy=Always --set controller.image.pullPolicy=Always --set ui.image.pullPolicy=Always $(KAGENT_HELM_EXTRA_ARGS)" \
+	./go/core/bin/kagent-local install
 	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward

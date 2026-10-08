@@ -2,8 +2,6 @@ package database
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -54,53 +52,51 @@ func TestApplyPoolConfig(t *testing.T) {
 	})
 }
 
-func TestResolveURLFile(t *testing.T) {
-	tests := []struct {
-		name        string
-		fileContent string
-		wantUrl     string
-		wantErr     bool
-	}{
-		{
-			name:        "reads URL from file",
-			fileContent: "postgres://testuser:testpass@host:5432/testdb",
-			wantUrl:     "postgres://testuser:testpass@host:5432/testdb",
-		},
-		{
-			name:        "trims whitespace and newlines",
-			fileContent: "  postgres://user:pass@host:5432/db\n",
-			wantUrl:     "postgres://user:pass@host:5432/db",
-		},
-		{
-			name:        "empty file returns error",
-			fileContent: "",
-			wantErr:     true,
-		},
-		{
-			name:        "whitespace-only file returns error",
-			fileContent: "  \n\t\n  ",
-			wantErr:     true,
-		},
-	}
+func TestValidateURL(t *testing.T) {
+	const valid = "postgres://user:password@localhost:5432/database?sslmode=disable"
+	require.NoError(t, ValidateURL(valid))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpFile := filepath.Join(t.TempDir(), "db-url")
-			err := os.WriteFile(tmpFile, []byte(tt.fileContent), 0600)
-			assert.NoError(t, err)
+	err := ValidateURL("postgres://user:do-not-disclose@[invalid")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errInvalidDatabaseURL)
+	assert.NotContains(t, err.Error(), "do-not-disclose")
+}
 
-			url, err := resolveURLFile(tmpFile)
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tt.wantUrl, url)
-		})
-	}
-
-	t.Run("missing file returns error", func(t *testing.T) {
-		_, err := resolveURLFile("/nonexistent/path/db-url")
-		assert.Error(t, err)
+func TestPoolConfigRefreshesTLSForLiteralURL(t *testing.T) {
+	config, err := poolConfig(&PostgresConfig{
+		URL: "postgres://user:static-password@database:5432/app?sslmode=require",
 	})
+	require.NoError(t, err)
+	require.NotNil(t, config.BeforeConnect)
+
+	connConfig := config.ConnConfig.Copy()
+	initialTLS := connConfig.TLSConfig
+	connConfig.Password = "unchanged-password"
+	require.NoError(t, config.BeforeConnect(context.Background(), connConfig))
+
+	assert.Equal(t, "unchanged-password", connConfig.Password)
+	assert.NotSame(t, initialTLS, connConfig.TLSConfig)
+}
+
+func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
+	maxConns := int32(8)
+	minConns := int32(1)
+	idleTime := time.Minute
+	lifetime := 10 * time.Minute
+	config, err := poolConfig(&PostgresConfig{
+		URL:             "postgres://user:password@database:5432/app?sslmode=disable",
+		VectorEnabled:   true,
+		MaxConns:        &maxConns,
+		MinConns:        &minConns,
+		MaxConnIdleTime: &idleTime,
+		MaxConnLifetime: &lifetime,
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, config.BeforeConnect)
+	assert.NotNil(t, config.AfterConnect)
+	assert.Equal(t, maxConns, config.MaxConns)
+	assert.Equal(t, minConns, config.MinConns)
+	assert.Equal(t, idleTime, config.MaxConnIdleTime)
+	assert.Equal(t, lifetime, config.MaxConnLifetime)
 }

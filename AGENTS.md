@@ -112,7 +112,7 @@ Common commands:
 | Go lint | `make -C go lint` |
 | Generate Go artifacts | `make -C go generate` |
 | Create a Kind cluster | `make create-kind-cluster` |
-| Install into Kind | `make helm-install` |
+| Install into Kind | `make kagent-cli-install` |
 
 ## 8. Contribution Requirements
 
