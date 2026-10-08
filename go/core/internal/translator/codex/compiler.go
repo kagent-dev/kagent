@@ -91,7 +91,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
-		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
+		environment = append(environment, v2translator.HarnessEnvVar(variable))
 	}
 	environment = append(environment,
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},

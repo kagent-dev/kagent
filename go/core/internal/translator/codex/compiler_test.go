@@ -386,3 +386,39 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("changing the capture policy did not change the revision digest")
 	}
 }
+
+func TestCompileHarnessCredentialRef(t *testing.T) {
+	model := testCredentialRefModel()
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte(credentialValue)})
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "TICKETS_API_TOKEN", CredentialRef: &v1alpha3.RuntimeCredentialRef{
+		Name: "model-auth", Key: "api-key", URL: "https://tickets.example.com", Header: "authorization", Prefix: "Bearer ",
+	}}}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(revision.Environment, corev1.EnvVar{Name: "TICKETS_API_TOKEN", Value: v2translator.CredentialPlaceholder}) {
+		t.Fatalf("credentialRef did not compile to the placeholder: %#v", revision.Environment)
+	}
+	found := false
+	for _, binding := range revision.Credentials {
+		found = found || (binding.Hostname == "tickets.example.com" && binding.URI == "ate-secret://k8s.io/default/test/model-auth/api-key")
+	}
+	if !found {
+		t.Fatalf("credentialRef binding missing: %#v", revision.Credentials)
+	}
+	for _, variable := range revision.Environment {
+		if strings.Contains(variable.Value, credentialValue) {
+			t.Fatalf("Secret value leaked into %s", variable.Name)
+		}
+	}
+}
+
+func testCredentialRefModel() v1alpha3.ModelConfigSpec {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	return v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+}

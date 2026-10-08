@@ -66,21 +66,97 @@ spec:
                     description: CodexHarness selects the Codex runtime adapter.
                     type: object
                   env:
+                    description: |-
+                      Env sets runtime environment variables. Entries with credentialRef
+                      resolve Secrets in the Harness namespace (the Agent namespace for an
+                      inline Harness) and are injected by the egress gateway, never into the
+                      ActorTemplate or its golden snapshot.
                     items:
-                      description: RuntimeEnvVar configures one literal runtime environment
-                        variable.
+                      description: |-
+                        RuntimeEnvVar configures one runtime environment variable: either a literal
+                        value or a gateway-injected credential.
                       properties:
+                        credentialRef:
+                          description: |-
+                            CredentialRef binds a Secret key to one HTTP(S) destination. The runtime
+                            process never receives the Secret value: the variable is set to an inert
+                            placeholder, and Substrate's egress gateway replaces Header on requests
+                            to the destination host with Prefix followed by the current Secret value.
+                            The destination origin is added to the agent's egress allow-list.
+
+                            Use it for API keys and bearer tokens consumed by HTTP clients inside the
+                            runtime. It cannot provide values that must be read by the process itself,
+                            such as signing keys or web-identity token files.
+                          properties:
+                            header:
+                              description: |-
+                                Header is the HTTP request header the gateway replaces. Requests that do
+                                not carry the header are forwarded unchanged, so the client must send it
+                                with any value (the placeholder works).
+                              maxLength: 128
+                              minLength: 1
+                              pattern: ^[-!#$%&'*+.^_|~0-9A-Za-z]+$
+                              type: string
+                            key:
+                              description: Key within the Secret. The full value is
+                                injected after Prefix.
+                              maxLength: 253
+                              minLength: 1
+                              pattern: ^[-._a-zA-Z0-9]+$
+                              type: string
+                            name:
+                              description: Name of the Secret in the owning resource's
+                                namespace.
+                              maxLength: 253
+                              minLength: 1
+                              pattern: ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$
+                              type: string
+                            prefix:
+                              description: Prefix is prepended verbatim to the Secret
+                                value, for example "Bearer ".
+                              maxLength: 64
+                              pattern: ^[ -~]*$
+                              type: string
+                            url:
+                              description: |-
+                                URL is the HTTP(S) destination. Only its scheme, DNS hostname and port
+                                are used: the gateway matches the hostname, and the origin is allowed for
+                                egress. IP addresses are not supported.
+                              maxLength: 2048
+                              pattern: ^https?://[^[:space:]/?#@]+(/[^[:space:]?#]*)?$
+                              type: string
+                              x-kubernetes-validations:
+                              - message: url must be an absolute HTTP(S) URL
+                                rule: isURL(self)
+                          required:
+                          - header
+                          - key
+                          - name
+                          - url
+                          type: object
+                          x-kubernetes-validations:
+                          - message: header must not be a hop-by-hop, framing, proxy
+                              or cookie header
+                            rule: '!(self.header.lowerAscii() in [''host'', ''connection'',
+                              ''content-length'', ''transfer-encoding'', ''te'', ''upgrade'',
+                              ''proxy-authorization'', ''cookie''])'
                         name:
                           minLength: 1
                           type: string
                         value:
-                          description: Value is a literal value, including an empty
-                            string.
+                          description: |-
+                            Value is a literal value, including an empty string. Required unless
+                            credentialRef is set.
                           type: string
                       required:
                       - name
-                      - value
                       type: object
+                      x-kubernetes-validations:
+                      - message: one of value or credentialRef must be specified
+                        rule: has(self.value) || has(self.credentialRef)
+                      - message: value and credentialRef are mutually exclusive
+                        rule: '!has(self.credentialRef) || !has(self.value) || size(self.value)
+                          == 0'
                     maxItems: 100
                     type: array
                     x-kubernetes-list-map-keys:
