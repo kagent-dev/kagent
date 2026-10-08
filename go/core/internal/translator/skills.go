@@ -28,6 +28,11 @@ func CompileSkillResources(template *TemplateConfiguration) (agentplugin.Resourc
 		egress = appendArtifactSourceDestination(egress, source)
 	}
 	for _, plugin := range template.Spec.Plugins {
+		// Plugins are materialized while the Actor starts, before it has
+		// egress, so a gateway credential could never apply to them.
+		if plugin.Source.Git != nil && plugin.Source.Git.AuthorizationFrom != nil {
+			return agentplugin.Resources{}, nil, NewValidationError("authorizationFrom is supported only for skills[].source.git")
+		}
 		for _, name := range plugin.Skills {
 			if _, exists := selected[name]; exists {
 				return agentplugin.Resources{}, nil, NewValidationError("duplicate skill name %q", name)
@@ -47,7 +52,7 @@ func CompileSkillResources(template *TemplateConfiguration) (agentplugin.Resourc
 func compileArtifactSource(source v1alpha3.ArtifactSource) agentplugin.Source {
 	result := agentplugin.Source{OCI: source.OCI, Path: source.Path}
 	if source.Git != nil {
-		result.Git = &agentplugin.GitSource{URL: source.Git.URL, Commit: source.Git.Commit}
+		result.Git = &agentplugin.GitSource{URL: source.Git.URL, Commit: source.Git.Commit, GatewayAuthorization: source.Git.AuthorizationFrom != nil}
 	}
 	if source.Bucket != nil {
 		result.S3 = &agentplugin.S3Source{

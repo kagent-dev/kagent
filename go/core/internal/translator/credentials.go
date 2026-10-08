@@ -48,6 +48,19 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 				}
 			}
 		}
+		if agent.Template != nil {
+			for _, skill := range agent.Template.Spec.Skills {
+				git := skill.Source.Git
+				if git == nil || git.AuthorizationFrom == nil {
+					continue
+				}
+				// The runtime sends a placeholder Authorization header that the
+				// gateway replaces with the Secret value.
+				if err := bind(git.URL, "authorization", "", agent.Template.Namespace, git.AuthorizationFrom.Name, git.AuthorizationFrom.Key); err != nil {
+					return err
+				}
+			}
+		}
 		for _, child := range agent.Shared {
 			if err := visit(child.Agent); err != nil {
 				return err

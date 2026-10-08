@@ -41,6 +41,9 @@ type KAgentExecutorConfig struct {
 	Logger         *slog.Logger
 	Output         *apiadk.OutputConfig
 	Flush          func(context.Context) error
+	// EnsureSkills fetches deferred standalone skills before a task runs.
+	// A failure fails the task and is retried by the next one.
+	EnsureSkills func(context.Context) error
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -52,6 +55,7 @@ type KAgentExecutor struct {
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
 	flush                   func(context.Context) error
+	ensureSkills            func(context.Context) error
 }
 
 type structuredOutput struct {
@@ -109,6 +113,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		logger:                  cfg.Logger.With("component", "kagent-executor"),
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
+		ensureSkills:            cfg.EnsureSkills,
 	}, nil
 }
 
@@ -263,6 +268,18 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			"app_name", e.appName,
 			"user_id", userID,
 		)
+
+		// Standalone skills need Actor egress, which only exists once a session
+		// Actor runs, so they are fetched here instead of at startup.
+		if e.ensureSkills != nil {
+			if err := e.ensureSkills(ctx); err != nil {
+				e.logger.ErrorContext(ctx, "standalone skills are unavailable", "task_id", reqCtx.TaskID, "error", err)
+				message := a2atype.NewMessageForTask(a2atype.MessageRoleAgent, reqCtx, a2atype.NewTextPart("skills_unavailable: "+err.Error()))
+				apia2a.SetTimelinePosition(message, time.Now())
+				yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+				return
+			}
+		}
 
 		// Run our own session management before upstream executor runs its prepareSession function.
 		// This ensures that we create a session that contains metadata like x-kagent-source,

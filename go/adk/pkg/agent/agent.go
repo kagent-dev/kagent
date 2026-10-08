@@ -71,7 +71,10 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		if err != nil {
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
-		if len(skills) > 0 {
+		// Standalone skills are fetched before the first task, after the agent
+		// is built; the skill toolset lists the directory on every request.
+		deferredSkills := agentConfig.AgentPlugins != nil && len(agentConfig.AgentPlugins.Skills) > 0
+		if len(skills) > 0 || deferredSkills {
 			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)

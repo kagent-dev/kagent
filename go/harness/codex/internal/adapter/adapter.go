@@ -52,6 +52,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := reconcileGeneratedDir(filepath.Join(codexHome, "skills"), nil); err != nil {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
+	var ensureSkills func(context.Context) error
 	if cfg.SkillResources != nil {
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
@@ -63,6 +64,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		if len(materialized.ClaudeFormatPluginRoots()) > 0 {
 			return nil, fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 		}
+		ensureSkills = materialized.EnsureSkills
 	}
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
 		return nil, err
@@ -86,7 +88,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		Workspace: input.Workspace, Model: cfg.Model, Provider: nativeProviderName(cfg.Provider.Name),
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
-		ApprovalServers: approvalServers,
+		ApprovalServers: approvalServers, EnsureSkills: ensureSkills,
 	}), nil
 }
 

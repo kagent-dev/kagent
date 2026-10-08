@@ -102,6 +102,7 @@ type AgentTemplateSkill struct {
 }
 
 // GitArtifact identifies immutable content at a full Git commit ID.
+// +kubebuilder:validation:XValidation:rule="!has(self.authorizationFrom) || self.url.startsWith('https://')",message="authorizationFrom requires an https URL"
 type GitArtifact struct {
 	// +kubebuilder:validation:Pattern=`^https?://[^[:space:]]+$`
 	// +kubebuilder:validation:MinLength=1
@@ -110,6 +111,15 @@ type GitArtifact struct {
 	// +kubebuilder:validation:Pattern=`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`
 	// +required
 	Commit string `json:"commit"`
+	// AuthorizationFrom references a key in a Secret in the AgentTemplate's
+	// namespace whose value is the complete HTTP Authorization header for the
+	// repository host, for example
+	// `Basic <base64 of x-access-token:TOKEN>` for GitHub or `Bearer TOKEN`.
+	// The egress gateway adds the header to the runtime's requests to that
+	// host; the value never enters the runtime, its configuration, or a
+	// snapshot. Supported for skills only.
+	// +optional
+	AuthorizationFrom *SecretKeyReference `json:"authorizationFrom,omitempty"`
 }
 
 // S3Object identifies one immutable S3 object version.
@@ -157,6 +167,7 @@ type ArtifactSource struct {
 }
 
 // PluginBundle selects Agent Skills from one immutable Agent Plugins package.
+// +kubebuilder:validation:XValidation:rule="!has(self.source.git) || !has(self.source.git.authorizationFrom)",message="authorizationFrom is supported only for skills[].source.git"
 type PluginBundle struct {
 	// +required
 	Source ArtifactSource `json:"source"`

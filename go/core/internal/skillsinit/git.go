@@ -48,9 +48,17 @@ func CloneGit(ref GitRef) error {
 	return nil
 }
 
+// GatewayAuthorizationPlaceholder is the Authorization header value sent for
+// gateway-authorized sources. Substrate's egress gateway replaces only headers
+// a request already carries, so the runtime must send one; the gateway
+// overwrites the whole value with the referenced Secret.
+const GatewayAuthorizationPlaceholder = "kagent-credential-injected"
+
 // CloneGitCommit fetches only one immutable commit instead of cloning the
-// repository's complete history.
-func CloneGitCommit(url, commit, destination string) error {
+// repository's complete history. When gatewayAuthorization is set, every
+// request carries a placeholder Authorization header for the egress gateway to
+// replace; the credential itself never reaches this process.
+func CloneGitCommit(url, commit, destination string, gatewayAuthorization bool) error {
 	if !immutableGitCommit.MatchString(commit) {
 		return fmt.Errorf("git commit must be a full SHA")
 	}
@@ -63,7 +71,13 @@ func CloneGitCommit(url, commit, destination string) error {
 	if err := runGitIn(destination, "remote", "add", "origin", url); err != nil {
 		return err
 	}
-	if err := runGitIn(destination, "fetch", "--depth", "1", "origin", commit); err != nil {
+	fetch := []string{"fetch", "--depth", "1", "origin", commit}
+	if gatewayAuthorization {
+		// Passed per command rather than written to .git/config so the
+		// checkout records nothing about how it was authorized.
+		fetch = append([]string{"-c", "http.extraHeader=Authorization: " + GatewayAuthorizationPlaceholder}, fetch...)
+	}
+	if err := runGitIn(destination, fetch...); err != nil {
 		return err
 	}
 	return runGitIn(destination, "checkout", "--detach", "FETCH_HEAD")
@@ -80,7 +94,9 @@ func runGitIn(dir string, args ...string) error {
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
+	// A runtime has no terminal: an authentication failure must fail the
+	// fetch instead of waiting for a username prompt.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	return cmd.Run()
 }
 

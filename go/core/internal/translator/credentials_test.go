@@ -1,9 +1,12 @@
 package translator
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,6 +80,75 @@ func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
 	}).Root}}
 	_, _, err = CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+}
+
+func privateSkillTemplate(skills ...v1alpha3.AgentTemplateSkill) *TemplateConfiguration {
+	return &TemplateConfiguration{Name: "reviewer", Namespace: "team", Spec: v1alpha3.AgentTemplateSpec{Skills: skills}}
+}
+
+func privateGitSkill(name, url, secret string) v1alpha3.AgentTemplateSkill {
+	return v1alpha3.AgentTemplateSkill{Name: name, Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+		URL: url, Commit: strings.Repeat("a", 40),
+		AuthorizationFrom: &v1alpha3.SecretKeyReference{Name: secret, Key: "authorization"},
+	}}}
+}
+
+func TestCompilePrivateGitSkillBindsGatewayCredentialAndEgress(t *testing.T) {
+	template := privateSkillTemplate(
+		privateGitSkill("review", "https://github.com/acme/private-skills", "skills-auth"),
+		v1alpha3.AgentTemplateSkill{Name: "public", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+			URL: "https://gitlab.example.com/acme/public-skills", Commit: strings.Repeat("b", 40),
+		}}},
+	)
+	resources, destinations, err := CompileSkillResources(template)
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://github.com:443", "https://gitlab.example.com:443"}, destinations)
+	require.True(t, resources.Skills[0].Source.Git.GatewayAuthorization)
+	require.False(t, resources.Skills[1].Source.Git.GatewayAuthorization)
+	raw, err := json.Marshal(resources)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "skills-auth", "the runtime contract must not name the Secret")
+
+	input := credentialInput(v1alpha3.ModelConfigSpec{})
+	input.Root.Template = template
+	environment, bindings, err := CompileCredentials(input, nil, nil)
+	require.NoError(t, err)
+	require.Empty(t, environment, "a git credential needs no runtime environment")
+	require.Equal(t, []egress.Credential{{
+		Hostname: "github.com", Header: "authorization", URI: "ate-secret://k8s.io/default/team/skills-auth/authorization",
+	}}, bindings)
+}
+
+func TestCompilePrivateGitSkillCredentialsFromSharedChild(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{})
+	child := credentialInput(v1alpha3.ModelConfigSpec{}).Root
+	child.Template = privateSkillTemplate(privateGitSkill("review", "https://git.example.com/acme/skills", "child-auth"))
+	child.Template.Namespace = "child-team"
+	input.Root.Shared = []AgentInputBinding{{Agent: child}}
+	_, bindings, err := CompileCredentials(input, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, bindings, 1)
+	require.Equal(t, "ate-secret://k8s.io/default/child-team/child-auth/authorization", bindings[0].URI)
+}
+
+func TestCompilePrivateGitSkillRejectsConflictsAndPlugins(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{})
+	input.Root.Template = privateSkillTemplate(
+		privateGitSkill("one", "https://github.com/acme/one", "first"),
+		privateGitSkill("two", "https://github.com/acme/two", "second"),
+	)
+	_, _, err := CompileCredentials(input, nil, nil)
+	require.ErrorContains(t, err, "conflicting credentials")
+
+	input.Root.Template = privateSkillTemplate(privateGitSkill("one", "https://user@github.com/acme/one", "first"))
+	_, _, err = CompileCredentials(input, nil, nil)
+	require.ErrorContains(t, err, "without user information")
+
+	template := &TemplateConfiguration{Namespace: "team", Spec: v1alpha3.AgentTemplateSpec{Plugins: []v1alpha3.PluginBundle{{
+		Source: privateGitSkill("unused", "https://github.com/acme/plugin", "auth").Source,
+	}}}}
+	_, _, err = CompileSkillResources(template)
+	require.ErrorContains(t, err, "supported only for skills")
 }
 
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {

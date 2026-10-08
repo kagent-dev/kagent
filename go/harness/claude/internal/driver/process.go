@@ -41,6 +41,9 @@ type ProcessConfig struct {
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
+	// EnsureSkills fetches deferred standalone skills before a turn. They
+	// need Actor egress, which does not exist while the Actor starts.
+	EnsureSkills func(context.Context) error
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -165,6 +168,11 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 
 // Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	if d.config.EnsureSkills != nil {
+		if err := d.config.EnsureSkills(ctx); err != nil {
+			return runtime.Outcome{Failure: &runtime.Failure{Message: "skills_unavailable: " + err.Error()}}, nil
+		}
+	}
 	if strings.TrimSpace(turn.Prompt) == "" {
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
