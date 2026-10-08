@@ -114,8 +114,7 @@ func TestScopedToolMatchesMCPTool(t *testing.T) {
 	innerType := reflect.TypeOf(tools[0])
 	require.Equal(t, "*mcptoolset.mcpTool", innerType.String(), "test must inspect ADK's concrete MCP tool")
 	wrappedType := reflect.TypeFor[scopedTool]()
-	for i := range innerType.NumMethod() {
-		method := innerType.Method(i)
+	for method := range innerType.Methods() {
 		_, ok := wrappedType.MethodByName(method.Name)
 		require.Truef(t, ok, "scopedTool does not preserve %s.%s; review the new ADK MCP tool capability", innerType, method.Name)
 	}

@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/baggage"
@@ -97,13 +99,9 @@ func TestRuntimeGenAIBaggage(t *testing.T) {
 				}
 				toolCall = true
 				require.Contains(t, request.Headers.Get("traceparent"), callerTraceID, "MCP tool call does not continue the caller's trace")
-				toolIdentity := map[string]string{
-					"gen_ai.tool.name":    "add_numbers",
-					"gen_ai.tool.call.id": "call_1",
-				}
-				for key, value := range identity {
-					toolIdentity[key] = value
-				}
+				toolIdentity := maps.Clone(identity)
+				toolIdentity[string(conv.GenAIToolNameKey)] = "add_numbers"
+				toolIdentity[string(conv.GenAIToolCallIDKey)] = "call_1"
 				assertBaggage(t, request.Headers.Get("baggage"), toolIdentity)
 			}
 			require.True(t, toolCall, "mock MCP server did not receive a tool call")
