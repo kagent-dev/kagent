@@ -110,17 +110,6 @@ jobs:
       - name: Create Kind cluster
         run: make create-kind-cluster
 
-      - name: Cache Cloud Hypervisor assets
-        if: matrix.sandbox_class == 'microvm'
-        uses: actions/cache@v6
-        with:
-          path: .cache/substrate/microvm-assets/amd64
-          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
-
-      - name: Install Cloud Hypervisor runtime
-        if: matrix.sandbox_class == 'microvm'
-        run: bash scripts/kind/setup-microvm.sh
-
       - name: Install Kagent
         id: install-kagent
         env:
@@ -170,6 +159,17 @@ jobs:
           KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
+
+      - name: Cache Cloud Hypervisor assets
+        if: matrix.sandbox_class == 'microvm'
+        uses: actions/cache@v6
+        with:
+          path: .cache/substrate/microvm-assets/amd64
+          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
+
+      - name: Install Cloud Hypervisor runtime
+        if: matrix.sandbox_class == 'microvm'
+        run: bash scripts/kind/setup-microvm.sh
 
       - name: Run e2e tests
         if: success()

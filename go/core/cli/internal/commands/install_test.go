@@ -86,7 +86,7 @@ func TestBundledPostgresAssets(t *testing.T) {
 		strings.NewReplacer("${NAMESPACE}", "demo", "${SUBSTRATE_NAMESPACE}", substrateNamespace).Replace(bundledPostgresYAML),
 	}
 	manifest := strings.Join(manifests, "\n---\n")
-	for _, document := range strings.Split(manifest, "\n---\n") {
+	for document := range strings.SplitSeq(manifest, "\n---\n") {
 		require.NotContains(t, document, "${")
 		var object map[string]any
 		require.NoError(t, yaml.Unmarshal([]byte(document), &object))

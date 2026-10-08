@@ -167,7 +167,7 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 	helmExtraArgs := env.KagentHelmExtraArgs.Get()
 
 	// split helmExtraArgs by "--set" to get additional values
-	for _, value := range strings.Split(helmExtraArgs, "--set") {
+	for value := range strings.SplitSeq(helmExtraArgs, "--set") {
 		if value = strings.TrimSpace(value); value != "" {
 			values = append(values, value)
 		}
@@ -187,7 +187,7 @@ func setupSubstrateHelmConfig() helmConfig {
 	}
 
 	values := []string{}
-	for _, value := range strings.Split(env.KagentSubstrateHelmExtraArgs.Get(), "--set") {
+	for value := range strings.SplitSeq(env.KagentSubstrateHelmExtraArgs.Get(), "--set") {
 		if value = strings.TrimSpace(value); value != "" {
 			values = append(values, value)
 		}
