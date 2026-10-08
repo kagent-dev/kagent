@@ -206,11 +206,15 @@ SEMCONV_REGISTRY := telemetry/registry
 SEMCONV_GENERATE := $(WEAVER) registry generate -r $(SEMCONV_REGISTRY) --v2 -t telemetry/templates
 SEMCONV_GENERATED_PATHS := go/pkg/telemetry/conv python/packages/kagent-core/src/kagent/core/telemetry/_conv.py docs/architecture/telemetry-contract.md telemetry/resolved.yaml
 
+.PHONY: semconv-deps
+semconv-deps: ## Fetch the contract's upstream registries and Weaver policies at their pins; present checkouts need no network
+	telemetry/deps.sh
+
 .PHONY: semconv-check
-semconv-check: ## Validate the telemetry registry with Weaver and the kagent policies
+semconv-check: semconv-deps ## Validate the telemetry registry with Weaver and the kagent policies
 	$(WEAVER) registry check -r $(SEMCONV_REGISTRY) --v2 \
-		--policy '$(WEAVER_PACKAGES)[policies/check/naming_conventions]' \
-		--policy '$(WEAVER_PACKAGES)[policies/check/stability]' \
+		--policy telemetry/deps/opentelemetry-weaver-packages/policies/check/naming_conventions \
+		--policy telemetry/deps/opentelemetry-weaver-packages/policies/check/stability \
 		--policy telemetry/policies
 
 .PHONY: semconv-policies-test
@@ -218,7 +222,7 @@ semconv-policies-test: ## Check that each kagent telemetry policy rejects its fi
 	telemetry/policies/test.sh
 
 .PHONY: semconv-generate
-semconv-generate: ## Generate the telemetry conventions, the contract reference, and the resolved snapshot
+semconv-generate: semconv-deps ## Generate the telemetry conventions, the contract reference, and the resolved snapshot
 	$(SEMCONV_GENERATE) go go/pkg/telemetry/conv
 	$(SEMCONV_GENERATE) python python/packages/kagent-core/src/kagent/core/telemetry
 	$(SEMCONV_GENERATE) markdown docs/architecture
