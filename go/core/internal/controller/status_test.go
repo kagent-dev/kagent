@@ -10,10 +10,9 @@ import (
 func TestStatusForPairPublishesCompilationWarnings(t *testing.T) {
 	warnings := []string{"partial MCP selection is not enforced"}
 	state := AgentReconciliation{
-		Agent:      &kagentv1alpha3.Agent{},
-		Revision:   &v2translator.Revision{},
-		Warnings:   warnings,
-		RevisionID: v2translator.RevisionID{1},
+		Agent:    &kagentv1alpha3.Agent{},
+		Warnings: warnings,
+		Target:   &compiledTarget{RevisionID: v2translator.RevisionID{1}},
 	}
 	status := statusForAgent(state, 1, "")
 	if len(status.Warnings) != 1 || status.Warnings[0] != warnings[0] {

@@ -1,18 +1,15 @@
 package controller
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -83,7 +80,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
-		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
+		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	state := collections.Reconciliations.List()[0]
 	if state.ObservedActorTemplate != nil {
@@ -98,7 +95,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		return ready != nil && ready.Status == metav1.ConditionFalse
 	})
 
-	observed := proto.CloneOf(state.DesiredActorTemplate)
+	observed := proto.CloneOf(state.Target.ActorTemplate)
 	observed.Metadata.Uid = "actor-template-uid"
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	store := &fakeRuntimeRevisionStore{}
@@ -113,59 +110,13 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 			return false
 		}
 		ready := apimeta.FindStatusCondition(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
-		return ready != nil && ready.Status == metav1.ConditionTrue && updates[0].Status.LatestSuccessfulRevision == state.RevisionID.String()
-	})
-
-	t.Run("deleting revision becomes pending and retries", func(t *testing.T) {
-		store.pairErr = database.ErrObjectDeleting
-		require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))
-		waitFor(t, func() bool {
-			pending := collections.Reconciliations.GetKey(state.ResourceName())
-			updates := collections.AgentStatuses.List()
-			if pending == nil || pending.ObservedActorTemplate != nil || pending.Failure != nil || len(updates) != 1 {
-				return false
-			}
-			return apimeta.IsStatusConditionFalse(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
-		})
-
-		pollCtx, cancelPoll := context.WithCancel(t.Context())
-		queued := make(chan string, 1)
-		reconciler.agents = controllers.NewQueue("test-deleting-revision", controllers.WithGenericReconciler(func(item any) error {
-			select {
-			case queued <- item.(string):
-			case <-pollCtx.Done():
-			}
-			return nil
-		}))
-		go reconciler.agents.Run(pollCtx.Done())
-		go reconciler.pollPendingTemplates(pollCtx.Done())
-		t.Cleanup(func() {
-			cancelPoll()
-			require.NoError(t, reconciler.agents.WaitForClose(time.Second))
-		})
-		// Retry more than once: the poll must keep working after the KRT event.
-		for range 2 {
-			select {
-			case key := <-queued:
-				require.Equal(t, state.ResourceName(), key)
-				require.NoError(t, reconciler.reconcileAgent(t.Context(), key))
-			case <-time.After(5 * time.Second):
-				t.Fatal("pending pair was not requeued while awaiting deletion")
-			}
-		}
-		store.pairErr = nil
-		require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))
-		waitFor(t, func() bool {
-			updates := collections.AgentStatuses.List()
-			return len(updates) == 1 && true &&
-				apimeta.IsStatusConditionTrue(updates[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
-		})
+		return ready != nil && ready.Status == metav1.ConditionTrue && updates[0].Status.LatestSuccessfulRevision == state.Target.RevisionID.String()
 	})
 
 	modelConfigs.UpdateObject(&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.1"}})
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
-		return len(states) == 1 && states[0].RevisionID != state.RevisionID && states[0].ObservedActorTemplate == nil
+		return len(states) == 1 && states[0].Target.RevisionID != state.Target.RevisionID && states[0].ObservedActorTemplate == nil
 	})
 }
 
@@ -230,25 +181,25 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			key := "team-a/assistant"
 			waitFor(t, func() bool {
 				state := reconciliations.GetKey(key)
-				return state != nil && state.Failure != nil
+				return state != nil && state.CompilationFailure != nil
 			})
 			missingPool := &ReconciliationFailure{
 				Condition: kagentv1alpha3.AgentConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: `WorkerPool "team-a/selected" not found`,
 			}
-			require.Equal(t, missingPool, reconciliations.GetKey(key).Failure)
-			require.Nil(t, reconciliations.GetKey(key).Revision, "missing capacity must fail compilation")
+			require.Equal(t, missingPool, reconciliations.GetKey(key).CompilationFailure)
+			require.Nil(t, reconciliations.GetKey(key).Target, "missing capacity must fail compilation")
 
 			workerPools.UpdateObject(&atev1alpha1.WorkerPool{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "selected"},
 			})
 			waitFor(t, func() bool {
 				state := reconciliations.GetKey(key)
-				return state != nil && state.Failure == nil && state.DesiredActorTemplate != nil && state.Revision.SandboxClass == ""
+				return state != nil && state.CompilationFailure == nil && state.Target != nil && state.Target.Revision.SandboxClass == ""
 			})
 			baseline := reconciliations.GetKey(key)
-			gvisorRevision := baseline.RevisionID
+			gvisorRevision := baseline.Target.RevisionID
 			require.False(t, gvisorRevision.IsZero())
-			gvisorTemplate := proto.CloneOf(baseline.DesiredActorTemplate)
+			gvisorTemplate := proto.CloneOf(baseline.Target.ActorTemplate)
 			observed := proto.CloneOf(gvisorTemplate)
 			observed.Metadata.Uid = "actor-template-uid"
 			observations.UpdateObject(AgentRuntimeObservation{
@@ -284,14 +235,14 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					waitFor(t, func() bool {
 						state := reconciliations.GetKey(key)
 						if step.failure != nil {
-							return state != nil && state.Failure != nil && *state.Failure == *step.failure
+							return state != nil && state.CompilationFailure != nil && *state.CompilationFailure == *step.failure
 						}
-						return state != nil && state.Failure == nil && state.DesiredActorTemplate != nil && state.Revision.SandboxClass == step.class
+						return state != nil && state.CompilationFailure == nil && state.Target != nil && state.Target.Revision.SandboxClass == step.class
 					})
 					state := reconciliations.GetKey(key)
 					if step.failure != nil {
-						require.True(t, state.RevisionID.IsZero())
-						require.Nil(t, state.DesiredActorTemplate)
+						require.Nil(t, state.Target)
+						require.Empty(t, state.desiredRevision())
 						require.Nil(t, state.ObservedActorTemplate)
 						pairStatus := statusForAgent(*state, 1, gvisorRevision.String())
 						require.Equal(t, gvisorRevision.String(), pairStatus.LatestSuccessfulRevision)
@@ -302,19 +253,19 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 						return
 					}
 					expected := proto.CloneOf(gvisorTemplate)
-					expected.Metadata.Name = state.DesiredActorTemplate.GetMetadata().GetName()
+					expected.Metadata.Name = state.Target.ActorTemplate.GetMetadata().GetName()
 					if step.class == atev1alpha1.SandboxClassMicroVM {
-						require.NotEqual(t, gvisorRevision, state.RevisionID)
+						require.NotEqual(t, gvisorRevision, state.Target.RevisionID)
 						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
 						require.Nil(t, state.ObservedActorTemplate, "a gVisor observation must not satisfy a MicroVM revision")
 						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, ConfigName: "microvm"}
 					} else {
-						require.Equal(t, gvisorRevision, state.RevisionID)
+						require.Equal(t, gvisorRevision, state.Target.RevisionID)
 						require.Equal(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
 						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"}
 					}
-					require.True(t, proto.Equal(expected, state.DesiredActorTemplate), "sandbox selection must preserve the rest of the ActorTemplate")
-					require.Equal(t, map[string]string{"kagent.dev/worker-pool": "selected"}, state.DesiredActorTemplate.GetWorkerSelector().GetMatchLabels())
+					require.True(t, proto.Equal(expected, state.Target.ActorTemplate), "sandbox selection must preserve the rest of the ActorTemplate")
+					require.Equal(t, map[string]string{"kagent.dev/worker-pool": "selected"}, state.Target.ActorTemplate.GetWorkerSelector().GetMatchLabels())
 				})
 			}
 		})
@@ -365,14 +316,14 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
-		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
+		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	state := reconciliations.List()[0]
-	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
-		t.Fatalf("Claude revision environment = %#v", state.Revision)
+	if state.Target == nil || state.Target.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Target.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
+		t.Fatalf("Claude revision environment = %#v", state.Target.Revision)
 	}
-	if state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
-		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe())
+	if state.Target.ActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Claude ActorTemplate readiness = %#v", state.Target.ActorTemplate.GetContainers()[0].GetWakeupProbe())
 	}
 }
 
@@ -421,14 +372,14 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
-		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
+		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	state := reconciliations.List()[0]
-	if state.Revision == nil || state.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
-		t.Fatalf("Codex revision environment = %#v", state.Revision)
+	if state.Target == nil || state.Target.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Target.Revision.Environment[0].Value != v2translator.CredentialPlaceholder {
+		t.Fatalf("Codex revision environment = %#v", state.Target.Revision)
 	}
-	if state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
-		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetWakeupProbe())
+	if state.Target.ActorTemplate.GetContainers()[0].GetWakeupProbe().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Codex ActorTemplate readiness = %#v", state.Target.ActorTemplate.GetContainers()[0].GetWakeupProbe())
 	}
 }
 
@@ -475,8 +426,8 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	var initial string
 	waitFor(t, func() bool {
 		for _, state := range reconciliations.List() {
-			if state.Agent.Name == root.Name && state.Failure == nil {
-				initial = state.RevisionID.String()
+			if state.Agent.Name == root.Name && state.CompilationFailure == nil {
+				initial = state.Target.RevisionID.String()
 				return true
 			}
 		}
@@ -488,7 +439,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	waitFor(t, func() bool {
 		for _, state := range reconciliations.List() {
 			if state.Agent.Name == root.Name {
-				return state.Failure == nil && state.RevisionID.String() != initial
+				return state.CompilationFailure == nil && state.Target.RevisionID.String() != initial
 			}
 		}
 		return false

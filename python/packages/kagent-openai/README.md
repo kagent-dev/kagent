@@ -26,10 +26,10 @@ app = KAgentApp(
         "version": "0.1.0",
         "capabilities": {"streaming": True},
         "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"]
+        "defaultOutputModes": ["text"],
     },
     kagent_url="http://localhost:8083",
-    app_name="my-agent"
+    app_name="my-agent",
 )
 
 # Run
@@ -89,12 +89,7 @@ result = await Runner.run(agent, "Hello!", session=session)
 Test without KAgent backend using in-memory mode:
 
 ```python
-app = KAgentApp(
-    agent=agent,
-    agent_card=agent_card,
-    kagent_url="http://localhost:8083",
-    app_name="test-agent"
-)
+app = KAgentApp(agent=agent, agent_card=agent_card, kagent_url="http://localhost:8083", app_name="test-agent")
 
 fastapi_app = app.build_local()  # In-memory, no persistence
 ```

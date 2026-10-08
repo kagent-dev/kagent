@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -244,6 +246,153 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			spans := exporter.GetSpans()
 			require.Len(t, spans, 2)
 			require.Equal(t, "kagent.api.v1alpha1.TaskStoreService/SettleTask", spans[1].Name)
+		})
+	}
+}
+
+// recordingStore reports SDK saves to the executor, as Store does over gRPC,
+// and keeps each task's saved states by its first message.
+type recordingStore struct {
+	*sdktaskstore.InMemory
+	mu     *sync.Mutex
+	states map[a2a.Text][]a2a.TaskState
+}
+
+func (s recordingStore) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVersion, error) {
+	version, err := s.InMemory.Create(ctx, task)
+	s.record(ctx, task, version, err)
+	return version, err
+}
+
+func (s recordingStore) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) (sdktaskstore.TaskVersion, error) {
+	version, err := s.InMemory.Update(ctx, update)
+	s.record(ctx, update.Task, version, err)
+	return version, err
+}
+
+func (s recordingStore) record(ctx context.Context, task *a2a.Task, version sdktaskstore.TaskVersion, err error) {
+	if err == nil {
+		recordSave(ctx, task, int64(version))
+		s.mu.Lock()
+		key := task.History[0].Parts[0].Content.(a2a.Text)
+		s.states[key] = append(s.states[key], task.Status.State)
+		s.mu.Unlock()
+	}
+}
+
+func (s recordingStore) saved(key a2a.Text) []a2a.TaskState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.states[key])
+}
+
+type beforeHook struct {
+	a2asrv.PassthroughCallInterceptor
+	run func(context.Context, *a2asrv.Request)
+}
+
+func (h beforeHook) Before(ctx context.Context, _ *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
+	h.run(ctx, request)
+	return ctx, nil, nil
+}
+
+func receive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the runtime")
+		panic("unreachable")
+	}
+}
+
+func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
+	ended := (&Store{}).WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", nil)
+	call, end := context.WithCancel(t.Context())
+	call, callCtx := a2asrv.NewCallContext(call, nil)
+	_, _, err := ended.Before(call, callCtx, &a2asrv.Request{Payload: &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser)}})
+	require.NoError(t, err)
+	end()
+	require.Eventually(t, func() bool {
+		ended.mu.Lock()
+		defer ended.mu.Unlock()
+		return ended.admitted == nil
+	}, 5*time.Second, time.Millisecond, "a call that ends before execution must free the slot")
+
+	for _, test := range []struct {
+		name string
+		// park first leaves a task waiting for input; A then replies to it.
+		park bool
+		key  a2a.Text
+		want []a2a.TaskState
+	}{
+		{name: "new task is canceled", key: "A", want: []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateCanceled}},
+		// The SDK saves the reply into history before the runtime's working event.
+		{name: "reply returns its task to waiting", park: true, key: "park", want: []a2a.TaskState{a2a.TaskStateSubmitted,
+			a2a.TaskStateInputRequired, a2a.TaskStateInputRequired, a2a.TaskStateWorking, a2a.TaskStateInputRequired}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			text := func(message *a2a.Message) a2a.Text { return message.Parts[0].Content.(a2a.Text) }
+			started, release := make(chan a2a.Text, 4), make(chan struct{})
+			wrapper := (&Store{}).WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+				return func(yield func(a2a.Event, error) bool) {
+					started <- text(input.Message)
+					switch text(input.Message) {
+					case "park":
+						yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateInputRequired, nil), nil)
+						return
+					case "B":
+						<-release
+					}
+					yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateCompleted, nil), nil)
+				}
+			}), "", nil)
+			tasks := recordingStore{sdktaskstore.NewInMemory(nil), &sync.Mutex{}, map[a2a.Text][]a2a.TaskState{}}
+			var handler a2asrv.RequestHandler
+			send := func(ctx context.Context, message *a2a.Message) (a2a.SendMessageResult, error) {
+				return handler.SendMessage(ctx, &a2a.SendMessageRequest{Message: message})
+			}
+			newMessage := func(body a2a.Text) *a2a.Message {
+				return a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(string(body)))
+			}
+			doneB := make(chan error, 1)
+			// Free A's slot after admission, as its call ending would, then let B take
+			// and hold it while the SDK starts A. Calling release directly avoids
+			// AfterFunc's goroutine and the SDK aborting a canceled reply.
+			hook := beforeHook{run: func(ctx context.Context, request *a2asrv.Request) {
+				if send, ok := request.Payload.(*a2a.SendMessageRequest); !ok || text(send.Message) != "A" {
+					return
+				}
+				wrapper.release(ctx.Value(executionKey{}).(*execution))
+				go func() {
+					_, err := send(t.Context(), newMessage("B"))
+					doneB <- err
+				}()
+				require.Equal(t, a2a.Text("B"), receive(t, started))
+			}}
+			handler = a2asrv.NewHandler(wrapper, a2asrv.WithTaskStore(tasks), a2asrv.WithCallInterceptors(wrapper, hook))
+
+			reply := newMessage("A")
+			if test.park {
+				parked, err := send(t.Context(), newMessage("park"))
+				require.NoError(t, err)
+				require.Equal(t, a2a.Text("park"), receive(t, started))
+				reply.TaskID, reply.ContextID = parked.TaskInfo().TaskID, parked.TaskInfo().ContextID
+			}
+			_, _ = send(t.Context(), reply)
+			_, err := send(t.Context(), newMessage("busy"))
+			require.ErrorIs(t, err, a2a.ErrUnsupportedOperation, "simultaneous sends must not both run")
+			require.Eventually(t, func() bool { return slices.Equal(tasks.saved(test.key), test.want) },
+				5*time.Second, 10*time.Millisecond, "the superseded send must reach a boundary without native work")
+			close(release)
+			require.NoError(t, receive(t, doneB))
+			require.Eventually(t, func() bool {
+				_, err := send(t.Context(), newMessage("C"))
+				return err == nil
+			}, 5*time.Second, 10*time.Millisecond)
+			require.Equal(t, a2a.Text("C"), receive(t, started))
+			require.Empty(t, started, "the superseded send must never start native work")
 		})
 	}
 }

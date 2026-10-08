@@ -19,6 +19,7 @@ import (
 func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		templateName := createInteractionTemplate(t, harness, startInteractionMock(t))
 		binary := kagentCLI(t)
@@ -72,7 +73,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			t.Fatalf("replayed create ID = %q, want %q", replayed.GetSession().GetId(), session.GetId())
 		}
 
-		listedSessions := run(t.Context(), "agent", "session", "list")
+		listedSessions := listKagentCLISessionPage(t, t.Context(), binary, baseArgs, session.GetId())
 		if !strings.Contains(listedSessions, session.GetId()) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listedSessions, session.GetId())
 		}
@@ -96,6 +97,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		binary := kagentCLI(t)
@@ -106,7 +108,7 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			"--user-id", "e2e",
 		}
 
-		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "agent", "session", "list")...)
+		listOutput := listKagentCLISessionPage(t, fixture.ctx, binary, baseArgs, fixture.sessionID)
 		if !strings.Contains(listOutput, fixture.sessionID) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listOutput, fixture.sessionID)
 		}
@@ -157,6 +159,30 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			})
 		}
 	})
+}
+
+// Locate the fixture through pagination, then exercise the table output for its
+// page. Repeated local runs may leave more than one page of unrelated Sessions.
+func listKagentCLISessionPage(t *testing.T, ctx context.Context, binary string, baseArgs []string, sessionID string) string {
+	t.Helper()
+	for pageToken := ""; ; {
+		args := append(append([]string{}, baseArgs...), "agent", "session", "list", "--page-token", pageToken)
+		output := runKagentCLI(t, ctx, binary, append(append([]string{}, args...), "--output-format", "json")...)
+		var response apiv1alpha1.ListSessionsResponse
+		if err := protojson.Unmarshal([]byte(output), &response); err != nil {
+			t.Fatalf("decode list Sessions stdout: %v", err)
+		}
+		for _, session := range response.GetSessions() {
+			if session.GetId() == sessionID {
+				return runKagentCLI(t, ctx, binary, args...)
+			}
+		}
+		next := response.GetPage().GetNextPageToken()
+		if next == "" || next == pageToken {
+			t.Fatalf("list Sessions omitted %s after following pagination", sessionID)
+		}
+		pageToken = next
+	}
 }
 
 func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {

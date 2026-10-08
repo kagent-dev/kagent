@@ -320,4 +320,21 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByText("No agent templates yet.")).toHaveCount(0);
     await expect(dataRows(page)).toHaveCount(0);
   });
+
+  await test.step("17. a failed create is reported beside the button that sent it", async () => {
+    await loadPage(page, routes.agentTemplateNew, {
+      scenario: "error",
+      title: "New agent template",
+    });
+    await page.getByTestId("template-form-name").fill(CREATED);
+    const submit = page.getByTestId("template-submit");
+    await submit.click();
+
+    // The form is longer than the viewport, so an alert at its top goes unseen.
+    const alert = page.getByTestId("template-create-error");
+    await expect(alert).toContainText("Could not create the agent template");
+    await expect(alert).toBeInViewport({ ratio: 0.99 });
+    await expect(submit).toBeInViewport();
+    await expect(page).toHaveURL(/\/agent-templates\/new/);
+  });
 });

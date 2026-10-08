@@ -17,9 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -54,9 +52,7 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 	if pool == "" {
 		pool = kagentenv.E2ESandboxWorkerPool.DefaultValue()
 	}
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
 	t.Cleanup(cancel)
 	ref := &apiv1alpha1.ResourceReference{Namespace: namespace, Name: "scratch-" + uuid.NewString()[:8]}
@@ -149,6 +145,7 @@ func (f *sandboxFixture) read(t *testing.T, id, path string) []byte {
 }
 
 func TestSandboxLifecycle(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	sandbox := f.create(t, 5*time.Minute)
 	id := sandbox.Id
@@ -227,6 +224,7 @@ func TestSandboxLifecycle(t *testing.T) {
 }
 
 func TestSandboxMCP(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	// Preparation and guest execution are exercised independently of agent invocation.
 	sandbox := f.create(t, 5*time.Minute)
@@ -276,12 +274,14 @@ func TestSandboxMCP(t *testing.T) {
 }
 
 func TestSandboxExpiration(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	sandbox := f.create(t, 15*time.Second)
 	f.wait(t, sandbox.Id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
 }
 
 func TestSandboxTemplateRevisionRetention(t *testing.T) {
+	t.Parallel()
 	f := newSandboxFixture(t)
 	first := f.create(t, 5*time.Minute)
 	kube := interactionKubeClient(t)
@@ -289,7 +289,7 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 	key := types.NamespacedName{Namespace: f.template.Namespace, Name: f.template.Name}
 	require.NoError(t, kube.Get(f.ctx, key, template))
 	marker := "prepared-v2"
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: &marker}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: marker}}
 	require.NoError(t, kube.Update(f.ctx, template))
 	require.Eventually(t, func() bool {
 		require.NoError(t, kube.Get(f.ctx, key, template))

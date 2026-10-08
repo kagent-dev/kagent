@@ -212,6 +212,11 @@ rbac:
 controller:
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
+    # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.
+    create: true
+    # -- Name of the controller ServiceAccount.
+    # @default -- `<fullname>-controller`
+    name: ""
     # -- Annotations to add to the controller ServiceAccount.
     # Useful for GCP Workload Identity, AWS IRSA, or Azure Workload Identity.
     # @default -- {} (no extra annotations)
@@ -408,6 +413,14 @@ controller:
   # Kept in the Deployment to support valueFrom and $(VAR_NAME) expansion.
   env: []
 
+  # Session idle retention. Running tasks and turns waiting for input do not expire.
+  # 168h is seven days; 0 disables expiration. Audit history and checkpoints remain.
+  sessionIdleTTL: "168h"
+
+  # Longest lifetime a session share may request; shares created without one receive it.
+  # 0 leaves shares valid until revoked or the session is deleted.
+  sessionShareMaxTTL: "0"
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:
@@ -526,13 +539,16 @@ ui:
   # streaming response if no event is received within this window. Should be >=
   # ui.nginx.proxyReadTimeout so nginx isn't the silent limit. Default 1800 (30m).
   streamTimeoutSeconds: 1800
-  # -- Nginx proxy timeout configuration for the UI sidecar (values are passed
-  # directly to the corresponding nginx directives, e.g. "1800s").
+  # -- Nginx configuration for the UI sidecar (timeout values are passed directly
+  # to the corresponding nginx directives, e.g. "1800s").
   nginx:
     # -- proxy_read_timeout: max time between two successive reads from the upstream.
     proxyReadTimeout: 1800s
     # -- proxy_send_timeout: max time between two successive writes to the upstream.
     proxySendTimeout: 1800s
+    # -- client_max_body_size: max request body size (0 disables it). Just above the
+    # gateway's 16 MiB gRPC cap, which chat attachments hit first.
+    clientMaxBodySize: 20m
   # -- Extra environment variables for the UI container, applied after ConfigMap
   # defaults. Entries stay in the Deployment to support valueFrom and $(VAR_NAME)
   # expansion. An installed app extension's settings go here, named
@@ -720,9 +736,6 @@ providers:
     # This same block can be used under any provider.
     # tls:
     #   disableVerify: false
-    #   caCertSecretRef: ""
-    #   caCertSecretKey: ""
-    #   disableSystemCAs: false
   ollama:
     provider: Ollama
     # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
@@ -747,6 +760,12 @@ providers:
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
+    # Provider options rendered into spec.anthropic of the generated ModelConfig.
+    # promptCaching bills the stable prefix of every agent-loop call (tools,
+    # system prompt, previous turns) as a cache read instead of fresh input.
+    # config:
+    #   promptCaching: true
+    #   cacheTTL: "5m" # or "1h" for calls spaced more than 5 minutes apart
   azureOpenAI:
     provider: AzureOpenAI
     model: "gpt-4.1-mini"
@@ -760,7 +779,7 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.5-flash-lite"
+    model: "gemini-3.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""

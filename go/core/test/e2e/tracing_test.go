@@ -235,9 +235,12 @@ func stringAttribute(attributes []*commonpb.KeyValue, key string) string {
 }
 
 func TestE2ECompletedChatFlushesTraces(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	requireTracingHarnesses(t)
 	receiver := startOTLPTraceReceiver(t)
+	// Clear before starting parallel cases; each assertion filters by trace ID.
+	receiver.clear()
 
 	for _, test := range []struct {
 		name          string
@@ -292,10 +295,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// One receiver serves both cases. Clear retained spans for readability;
-			// the injected trace ID remains the authoritative correlation key because
-			// unrelated controller exports can reach the same listener concurrently.
-			receiver.clear()
+			t.Parallel()
 			model := test.createModel(t, test.modelURL(t))
 			template := createTracingTemplate(t, test.harness, test.templateLabel, model.Name)
 			fixture := newInteractionFixtureForHarnessTemplate(t, target, test.harness, template)

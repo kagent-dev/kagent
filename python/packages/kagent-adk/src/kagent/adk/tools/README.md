@@ -12,10 +12,7 @@ Filesystem-based skills with progressive disclosure and two-tool architecture fo
 from kagent.adk.skills import SkillsPlugin
 
 # Plugin automatically initializes sessions and registers all skills tools
-app = App(
-    root_agent=agent,
-    plugins=[SkillsPlugin(skills_directory="./skills")]
-)
+app = App(root_agent=agent, plugins=[SkillsPlugin(skills_directory="./skills")])
 ```
 
 **Benefits:**
@@ -204,7 +201,7 @@ return_artifacts(file_paths=["outputs/report.pdf"])
 #    → SkillsTool description lists: data-analysis, pdf-processing, etc.
 
 # 2. Agent loads skill instructions
-agent: skills(command='data-analysis')
+agent: skills(command="data-analysis")
 #    → Returns full SKILL.md with detailed instructions
 
 # 3. Agent stages uploaded file

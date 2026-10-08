@@ -45,10 +45,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
-	harnessAttributes, err := v2translator.HarnessResourceAttributes(harness)
-	if err != nil {
-		return nil, err
-	}
+	harnessAttributes := v2translator.HarnessResourceAttributes(harness)
 	harnessEnvironment := slices.DeleteFunc(adkconfig.HarnessEnvironment(harness), func(variable corev1.EnvVar) bool {
 		return v2translator.OwnsTelemetryEnvironment(variable.Name)
 	})
@@ -73,7 +70,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
-	compiled.Egress = append(compiled.Egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
+	compiled.Egress = append(compiled.Egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &v2translator.CompileResult{Revision: v2translator.Revision{

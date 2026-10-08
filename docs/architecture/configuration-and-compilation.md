@@ -4,12 +4,11 @@
 
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-environment and credential references, WorkerPool configuration, snapshot
-location.
+literal environment values, WorkerPool configuration, and snapshot location.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
-description and prompt, MCP tool bindings, skills, plugins, and Shared or
-Dedicated subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
+description and prompt, MCP tool bindings, skills, plugins, and Shared
+subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
 Agent compilation rejects managed harness combinations without one.
 
 `Agent` pairs one template and one Harness. Each side independently selects either
@@ -18,10 +17,8 @@ an inline spec (`template`, `harness`) or a local reference (`templateRef`,
 values, not overrides. References, including those inside inline specs, resolve in
 the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
 with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
-Each subagent selects exactly one of `templateRef` (Shared) or `agentRef`
-(Dedicated); there is no separate `isolation` field. An `agentRef` selects an
-Agent with its own Harness and conversation. Dedicated execution remains
-unsupported and is rejected during compilation.
+Each subagent requires `templateRef` and shares the parent's runtime and Harness.
+Dedicated `agentRef` bindings are deferred and are not part of the served API.
 
 All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
@@ -33,6 +30,32 @@ The `api.kagent.dev` group keeps these definitions separate from legacy
 `MCPServer` retains `kagent.dev/v1alpha1`. Examples assume a fresh installation
 and use `kubectl get agent`. If both agent APIs are installed, use a qualified
 resource name such as `kubectl get agents.api.kagent.dev` to select this API.
+
+### Model streaming
+
+For model endpoints that do not support streaming, set `spec.stream: false` on
+the root agent's `ModelConfig`:
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: non-streaming
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: example-model
+  stream: false
+  openAI:
+    baseUrl: https://models.example.com/v1
+```
+
+The kagent harness uses this setting for LLM calls, including OpenAI Chat
+Completions and Responses. Omitted or `true` keeps streaming enabled. The root
+runner's streaming mode also applies to its shared subagents. Changes prepare a
+new revision; create a new Session to use it. A2A task events remain streamable
+when model streaming is disabled. This setting does not configure
+the Codex or Claude harnesses.
 
 ### kagent workload overrides
 
@@ -115,6 +138,15 @@ reflection and size caches are not state changes and must not be inspected by
 KRT's reflection-based comparison. Other fields retain their existing equality
 semantics.
 
+The compilation graph publishes a target only when the revision, its digest,
+and the desired ActorTemplate have all been built successfully. Compilation
+diagnostics remain separate from runtime preparation failures. When compilation
+fails, `desiredRevision` is empty in status and the persisted desired edge is
+cleared; an unresolved request is never represented as a runtime digest. The
+last successful revision remains available, while abandoned preparations can
+be collected and cannot become the latest successful revision through a delayed
+completion.
+
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
@@ -126,7 +158,7 @@ the ActorTemplate's sandbox configuration:
 | Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
 | `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
 
-These names follow Substrate v0.3.0-alpha1's standard gVisor installation and
+These names follow Substrate v0.4.0-alpha1's standard gVisor installation and
 MicroVM setup/E2E convention. They are not API-level defaults or discovery:
 Substrate requires an explicit name and rejects a missing SandboxConfig or a
 class mismatch. Operators must install the corresponding cluster-scoped
@@ -137,23 +169,33 @@ RuntimeClass.
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. The worker-pool
 selector is unchanged. WorkerPool updates are tracked through KRT and recompute
-the desired revision. Empty and explicit `gvisor` preserve the previous digest
-byte-for-byte; `microvm` participates in the digest, so its prepared runtime
+the desired revision. Empty and explicit `gvisor` hash the explicit `gvisor`
+class; both sandbox classes participate in the digest, so a prepared MicroVM runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
 original digest. Existing Sessions remain pinned to their revisions.
-
-Unresolved inputs still replace the persisted desired pointer with the requested
-identity shown in status, without creating a runtime revision. This releases
-abandoned preparations for garbage collection while preserving the current
-Agent's last-successful runtime.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
 silently pending. Status includes a safe error code; a failed precondition also
 names the expected SandboxConfig and class. Raw backend error messages are not
-copied into Kubernetes status. Preparation keeps retrying and clears the failure
-after the prerequisite or service recovers; terminal compilation, immutable
-template conflict, and golden-snapshot failures are not retried by that poll.
+copied into Kubernetes status. The reconciliation queue owns failure retries,
+with exponential backoff from one second to thirty seconds and no operational
+attempt budget. It clears the failure after the prerequisite or service recovers.
+Periodic polling only checks observed templates whose golden snapshots are still
+pending. Observation and status updates do not bypass backoff; changed desired
+revisions, unresolved inputs, and Agent deletion are reconciled immediately.
+Compilation errors, immutable template conflicts, and golden-snapshot failures
+stop preparation until the desired inputs change.
+
+ActorTemplate construction checks the size of each emitted environment value
+against Substrate's 32,768-character limit, including the serialized config and
+Agent Card. The check counts Unicode code points after JSON encoding, including
+its escaping. Oversized values produce `Compatible=False` with reason
+`ActorTemplateInvalid` before any Substrate call. A subsequent `InvalidArgument`
+from `CreateActorTemplate` is recorded as a terminal `ActorTemplateRejected`
+preparation failure. Its backend message is not copied into status because it
+can include rejected configuration values. Changing the desired revision allows
+preparation to run again.
 
 This selection does not by itself guarantee full MicroVM lifecycle or
 cross-node restore compatibility; those also depend on Substrate, runtime

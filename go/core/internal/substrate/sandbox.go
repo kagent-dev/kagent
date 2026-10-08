@@ -56,17 +56,11 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	}
 	var environment []*ateapipb.EnvVar
 	for _, variable := range template.Spec.Env {
-		if variable.CredentialRef != nil {
-			return nil, "", nil, fmt.Errorf("sandbox environment %q cannot inject a credential", variable.Name)
-		}
 		_, trust := egressTrustEnvironment[variable.Name]
 		if trust || strings.HasPrefix(variable.Name, "KAGENT_") || strings.HasPrefix(variable.Name, "ATE_") {
 			return nil, "", nil, fmt.Errorf("sandbox environment %q is reserved", variable.Name)
 		}
-		if variable.Value == nil {
-			return nil, "", nil, fmt.Errorf("sandbox environment %q requires a literal value", variable.Name)
-		}
-		environment = append(environment, &ateapipb.EnvVar{Name: variable.Name, Value: *variable.Value})
+		environment = append(environment, &ateapipb.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	for _, name := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"} {
 		environment = append(environment, &ateapipb.EnvVar{Name: name, Value: egressTrustMount + "/trust-bundle.pem"})
@@ -97,13 +91,12 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
 			{Name: "guest", Image: &ateapipb.ImageVolumeSource{Reference: policy.GuestImage}},
-			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{TrustBundle: &ateapipb.TrustBundleDataSource{Name: "egress-mitm.ate.dev", Path: "trust-bundle.pem"}}}}},
+			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}}}}},
 		},
 		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: template.Spec.Substrate.SnapshotPolicy.Location,
 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
-			OnResume:        &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN},
 		},
 	}
 	return result, revision, snapshot, nil

@@ -2,6 +2,7 @@ import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
+import httpx2
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
@@ -151,7 +152,7 @@ def _build_tls_httpx_client_factory(
     disable_verify: bool,
     ca_cert_path: str | None,
     disable_system_cas: bool,
-) -> Callable[..., httpx.AsyncClient]:
+) -> Callable[..., httpx2.AsyncClient]:
     ssl_ctx = create_ssl_context(
         disable_verify=disable_verify,
         ca_cert_path=ca_cert_path,
@@ -160,9 +161,9 @@ def _build_tls_httpx_client_factory(
 
     def _factory(
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
         kwargs: dict[str, Any] = {
             "follow_redirects": True,
             "verify": ssl_ctx,
@@ -170,12 +171,12 @@ def _build_tls_httpx_client_factory(
         if timeout is not None:
             kwargs["timeout"] = timeout
         else:
-            kwargs["timeout"] = httpx.Timeout(30, read=300)
+            kwargs["timeout"] = httpx2.Timeout(30, read=300)
         if headers is not None:
             kwargs["headers"] = headers
         if auth is not None:
             kwargs["auth"] = auth
-        return httpx.AsyncClient(**kwargs)
+        return httpx2.AsyncClient(**kwargs)
 
     return _factory
 
@@ -304,6 +305,16 @@ class Foundry(BaseLLM):
 
 class Anthropic(BaseLLM):
     base_url: str | None = None
+    # prompt_caching enables Anthropic prompt caching: cache_control breakpoints
+    # are set on the last tool definition, the last system prompt block and the
+    # last block of the latest conversation turn, so the stable prefix of an
+    # agent loop is billed as a cache read instead of fresh input on every call.
+    prompt_caching: bool = False
+    # cache_ttl selects the cache retention window when prompt_caching is on:
+    # "5m" (default) for the standard 5-minute cache, or "1h" for the 1-hour
+    # cache. 1-hour cache writes are billed at a higher rate, so "1h" only pays
+    # off when the calls sharing a prefix are more than 5 minutes apart.
+    cache_ttl: Literal["5m", "1h"] | None = None
 
     type: Literal["anthropic"]
 
@@ -724,6 +735,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
+            prompt_caching=model_config.prompt_caching,
+            cache_ttl=model_config.cache_ttl,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":

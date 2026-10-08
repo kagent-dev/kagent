@@ -17,20 +17,21 @@ import (
 func equalityTestReconciliation() AgentReconciliation {
 	return AgentReconciliation{
 		Agent: &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "agent"}},
-		Revision: &v2translator.Revision{
+		Target: &compiledTarget{Revision: v2translator.Revision{
 			Namespace: "test", AgentName: "agent",
 			AgentCard: &a2apb.AgentCard{Name: "agent"},
 		},
-		RevisionID: v2translator.RevisionID{1},
-		Warnings:   []string{"warning"},
-		DesiredActorTemplate: &ateapipb.ActorTemplate{
-			Metadata: &ateapipb.ResourceMetadata{Atespace: "test", Name: "runtime"},
+			RevisionID: v2translator.RevisionID{1},
+			ActorTemplate: &ateapipb.ActorTemplate{
+				Metadata: &ateapipb.ResourceMetadata{Atespace: "test", Name: "runtime"},
+			},
 		},
+		Warnings: []string{"warning"},
 		ObservedActorTemplate: &ateapipb.ActorTemplate{
 			Metadata: &ateapipb.ResourceMetadata{Atespace: "test", Name: "runtime", Uid: "runtime-uid"},
 			Status:   &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{ErrorMessage: "preparing"}},
 		},
-		Failure: &ReconciliationFailure{Condition: "Ready", Reason: "RuntimePreparationFailed", Message: "retry", Retryable: true},
+		PreparationFailure: &ReconciliationFailure{Condition: "Ready", Reason: "RuntimePreparationFailed", Message: "retry", Retryable: true},
 	}
 }
 
@@ -43,40 +44,42 @@ func TestAgentReconciliationEquality(t *testing.T) {
 	}{
 		{name: "identical", change: func(*AgentReconciliation) {}, equal: true},
 		{name: "protobuf reflection", change: func(r *AgentReconciliation) {
-			r.Revision.AgentCard.ProtoReflect()
-			r.DesiredActorTemplate.ProtoReflect()
+			r.Target.Revision.AgentCard.ProtoReflect()
+			r.Target.ActorTemplate.ProtoReflect()
 			r.ObservedActorTemplate.ProtoReflect()
 		}, equal: true},
 		{name: "protobuf caches", change: func(r *AgentReconciliation) {
-			proto.Size(r.Revision.AgentCard)
-			proto.Size(r.DesiredActorTemplate)
+			proto.Size(r.Target.Revision.AgentCard)
+			proto.Size(r.Target.ActorTemplate)
 			proto.Size(r.ObservedActorTemplate)
 		}, equal: true},
 		{name: "template source", change: func(r *AgentReconciliation) { r.Agent.Generation++ }},
-		{name: "revision identity", change: func(r *AgentReconciliation) { r.RevisionID[0]++ }},
-		{name: "revision inputs", change: func(r *AgentReconciliation) { r.Revision.SandboxClass = "microvm" }},
-		{name: "agent card", change: func(r *AgentReconciliation) { r.Revision.AgentCard.Name = "changed" }},
-		{name: "missing agent card", change: func(r *AgentReconciliation) { r.Revision.AgentCard = nil }},
-		{name: "missing revision", change: func(r *AgentReconciliation) { r.Revision = nil }},
+		{name: "revision identity", change: func(r *AgentReconciliation) { r.Target.RevisionID[0]++ }},
+		{name: "revision inputs", change: func(r *AgentReconciliation) { r.Target.Revision.SandboxClass = "microvm" }},
+		{name: "agent card", change: func(r *AgentReconciliation) { r.Target.Revision.AgentCard.Name = "changed" }},
+		{name: "missing agent card", change: func(r *AgentReconciliation) { r.Target.Revision.AgentCard = nil }},
+		{name: "missing revision", change: func(r *AgentReconciliation) { r.Target = nil }},
 		{name: "warning", change: func(r *AgentReconciliation) { r.Warnings[0] = "changed" }},
-		{name: "desired template", change: func(r *AgentReconciliation) { r.DesiredActorTemplate.Metadata.Name = "changed" }},
+		{name: "desired template", change: func(r *AgentReconciliation) { r.Target.ActorTemplate.Metadata.Name = "changed" }},
 		{name: "observed template identity", change: func(r *AgentReconciliation) { r.ObservedActorTemplate.Metadata.Uid = "changed" }},
 		{name: "observed template status", change: func(r *AgentReconciliation) {
 			r.ObservedActorTemplate.Status.GoldenSnapshotStatus.ErrorMessage = "changed"
 		}},
-		{name: "missing desired template", change: func(r *AgentReconciliation) { r.DesiredActorTemplate = nil }},
 		{name: "missing observed template", change: func(r *AgentReconciliation) { r.ObservedActorTemplate = nil }},
-		{name: "failure", change: func(r *AgentReconciliation) { r.Failure.Message = "changed" }},
-		{name: "retryability", change: func(r *AgentReconciliation) { r.Failure.Retryable = false }},
-		{name: "failure cleared", change: func(r *AgentReconciliation) { r.Failure = nil }},
+		{name: "failure", change: func(r *AgentReconciliation) { r.PreparationFailure.Message = "changed" }},
+		{name: "retryability", change: func(r *AgentReconciliation) { r.PreparationFailure.Retryable = false }},
+		{name: "failure cleared", change: func(r *AgentReconciliation) { r.PreparationFailure = nil }},
+		{name: "compilation failure", change: func(r *AgentReconciliation) {
+			r.CompilationFailure = &ReconciliationFailure{Reason: "ActorTemplateInvalid"}
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			left, right := equalityTestReconciliation(), equalityTestReconciliation()
 			tt.change(&right)
 			require.Equal(t, tt.equal, krt.Equal(left, right))
 			require.Equal(t, tt.equal, krt.Equal(right, left))
-			require.NotNil(t, left.Revision.AgentCard, "comparison must not mutate its inputs")
-			require.NotNil(t, left.DesiredActorTemplate)
+			require.NotNil(t, left.Target.Revision.AgentCard, "comparison must not mutate its inputs")
+			require.NotNil(t, left.Target.ActorTemplate)
 			require.NotNil(t, left.ObservedActorTemplate)
 		})
 	}
@@ -86,7 +89,7 @@ func equalityTestObservation() AgentRuntimeObservation {
 	state := equalityTestReconciliation()
 	return AgentRuntimeObservation{
 		Namespace: "test", AgentName: "agent",
-		RevisionID: state.RevisionID, Template: state.ObservedActorTemplate, Failure: state.Failure,
+		RevisionID: state.Target.RevisionID, Template: state.ObservedActorTemplate, Failure: state.PreparationFailure,
 	}
 }
 
@@ -130,9 +133,9 @@ func TestPairEqualityDuringProtobufReads(t *testing.T) {
 		wg.Go(func() {
 			<-start
 			for range 10 {
-				proto.CloneOf(left.DesiredActorTemplate)
+				proto.CloneOf(left.Target.ActorTemplate)
 				proto.Size(left.ObservedActorTemplate)
-				proto.Size(left.Revision.AgentCard)
+				proto.Size(left.Target.Revision.AgentCard)
 				proto.Size(observationLeft.Template)
 			}
 		})

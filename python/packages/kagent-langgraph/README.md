@@ -20,8 +20,10 @@ from langgraph.graph import StateGraph
 from langchain_core.messages import BaseMessage
 from typing import TypedDict, Annotated, Sequence
 
+
 class State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], "The conversation history"]
+
 
 config = KAgentConfig()
 controller_client = AsyncControllerClient(
@@ -33,10 +35,12 @@ controller_client = AsyncControllerClient(
 # Define and compile your graph
 builder = StateGraph(State)
 # Add nodes and edges...
-checkpointer = SqliteSaver(sqlite3.connect(
-    os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/langgraph-checkpoints.sqlite"),
-    check_same_thread=False,
-))
+checkpointer = SqliteSaver(
+    sqlite3.connect(
+        os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/langgraph-checkpoints.sqlite"),
+        check_same_thread=False,
+    )
+)
 graph = builder.compile(checkpointer=checkpointer)
 
 # Create KAgent app
@@ -48,7 +52,7 @@ app = KAgentApp(
         "version": "0.1.0",
         "capabilities": {"streaming": True},
         "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"]
+        "defaultOutputModes": ["text"],
     },
     config=config,
     controller_client=controller_client,

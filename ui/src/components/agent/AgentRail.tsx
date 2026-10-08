@@ -391,7 +391,10 @@ export function AgentRail({
    * list very nearly unusable: the one row a reader could identify was the one they
    * were already looking at.
    */
-  const derivedTitles = useConversationTitles(chats);
+  const derivedTitles = useConversationTitles(
+    chats,
+    ref.id ? { id: ref.id, title: autoTitle } : undefined,
+  );
 
   /*
    * Bringing the list into line is the caller's job, not this one's.
