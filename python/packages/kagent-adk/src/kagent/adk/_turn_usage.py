@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from dataclasses import dataclass, fields
 from typing import Any, Optional
 
@@ -115,7 +116,7 @@ class TurnUsage:
     def empty(self) -> bool:
         return self.total.is_zero()
 
-    def stamp(self, metadata: dict[str, Any]) -> None:
+    def stamp(self, metadata: MutableMapping[str, Any]) -> None:
         """Attach the task usage to metadata under the extension URI."""
         if self.empty():
             return
