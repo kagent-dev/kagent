@@ -223,3 +223,6 @@ python/packages/kagent-adk/tests/fixtures/certs/*.srl
 
 ## Upgrade test: previous-release worktree (created by `make run-upgrade-tests`)
 .upgrade-prev/
+
+# Weaver live-check report
+/telemetry/conformance/report/

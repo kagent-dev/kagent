@@ -17,6 +17,8 @@ from kagent.api.v1alpha1 import task_store_pb2
 
 from kagent.core._grpc import AsyncControllerClient
 
+from ._telemetry import TelemetryExecutor, TelemetryRequestHandlerMixin
+
 _VERSION = "kagent.task_store.versions"
 _PERSISTED = "kagent.task_store.persisted"
 _NATIVE_SETTLED = "kagent.task_store.native_settled"
@@ -136,11 +138,15 @@ class KAgentTaskStore(TaskStore):
         return cast(dict[str, int], context.state.setdefault(_VERSION, {}))
 
 
-class KAgentRequestHandler(DefaultRequestHandlerV2):
+class _PersistingRequestHandler(DefaultRequestHandlerV2):
     """Use the SDK handler and surface background persistence failures."""
 
     def __init__(self, *, agent_executor, task_store, **kwargs):
-        super().__init__(agent_executor=_SettledExecutor(agent_executor, task_store), task_store=task_store, **kwargs)
+        super().__init__(
+            agent_executor=TelemetryExecutor(_SettledExecutor(agent_executor, task_store)),
+            task_store=task_store,
+            **kwargs,
+        )
 
     @validate_request_params
     async def on_cancel_task(self, params: a2a_pb2.CancelTaskRequest, context: ServerCallContext):
@@ -170,6 +176,10 @@ class KAgentRequestHandler(DefaultRequestHandlerV2):
         # save when persisting its fallback FAILED event also fails.
         if failure := context.state.get(_FAILED_SAVE):
             raise InternalError("task persistence failed") from failure
+
+
+class KAgentRequestHandler(TelemetryRequestHandlerMixin, _PersistingRequestHandler):
+    pass
 
 
 _BOUNDARY_STATES = {

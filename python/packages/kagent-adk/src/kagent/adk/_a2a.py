@@ -28,11 +28,14 @@ from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentGrpcServerCallContextBuilder,
     KAgentRequestContextBuilder,
+    TelemetryRequestHandler,
     attach_hitl_agent_extension,
     attach_usage_agent_extension,
     get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+from kagent.core.telemetry import shutdown_lifespan
+from opentelemetry.instrumentation.grpc import aio_server_interceptor, filters
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
@@ -156,7 +159,7 @@ class KAgentApp:
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        handler_type = KAgentRequestHandler if controller_client else DefaultRequestHandlerV2
+        handler_type = KAgentRequestHandler if controller_client else TelemetryRequestHandler
         request_handler = handler_type(
             agent_executor=agent_executor,
             task_store=task_store,
@@ -167,6 +170,7 @@ class KAgentApp:
         faulthandler.enable()
 
         lifespan_manager = LifespanManager()
+        lifespan_manager.add(shutdown_lifespan())
         lifespan_manager.add(self._lifespan)
         lifespan_manager.add(self._grpc_lifespan(request_handler))
         lifespan_manager.add(self._readiness_lifespan())
@@ -218,7 +222,9 @@ class KAgentApp:
     def _grpc_lifespan(self, request_handler: DefaultRequestHandlerV2):
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            server = grpc.aio.server()
+            server = grpc.aio.server(
+                interceptors=[aio_server_interceptor(filter_=filters.negate(filters.health_check()))]
+            )
             context_builder = KAgentGrpcServerCallContextBuilder()
             a2a_pb2_grpc.add_A2AServiceServicer_to_server(
                 GrpcHandler(request_handler, context_builder=context_builder), server

@@ -12,7 +12,7 @@ templates:
       . as $resolved
       | ([.registry.attributes[]]
        + [.registry.attribute_groups[].attributes[]]
-       + [.registry.entities[] | (.identity + .description)[]]
+       + [(.registry.entities + .refinements.entities)[] | (.identity + .description)[]]
        + [.refinements.spans[].attributes[] | select(.key as $k | $params.span_attributes | index($k))])
       | if ([.[].key] | contains($params.span_attributes)) then . else error("a span_attributes entry is not on any span refinement") end
       | map(select(.key | test("^(kagent|a2a|gen_ai)\\.")) | select(.deprecated == null))
@@ -21,5 +21,5 @@ templates:
              members: [(.type.members? // [])[] | select(.deprecated == null) | {value, brief: (.brief | text), name: (.id | pascal)}]})
       | {
           attributes: .,
-          metrics: [$resolved.registry.metrics[] | {key: .name, name: (.name | pascal), unit, brief: (.brief | text)}]
+          metrics: ([$resolved.refinements.metrics[] | select(.id | startswith("kagent.")) | {key: .name, name: (.name | pascal), unit, brief: (.brief | text)}] | unique_by(.key))
         }

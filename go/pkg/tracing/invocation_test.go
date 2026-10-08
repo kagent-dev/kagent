@@ -6,6 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
@@ -51,6 +53,44 @@ func TestInvocationEndsExactlyOnce(t *testing.T) {
 	}
 	if got := attributeValue(spans[0].Attributes, AttributeTaskState); got != "TASK_STATE_COMPLETED" {
 		t.Fatalf("task state = %q, want the first outcome", got)
+	}
+}
+
+func TestInvocationDurationMatchesTheSpan(t *testing.T) {
+	tracer, exporter := recordingTracer(t)
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	histogram, err := InvocationDuration(provider.Meter("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
+	invocation.MeasureDuration(histogram, attribute.String(AttributeAgentName, "reporter"))
+	_, _ = invocation.End(ctx, Result{TaskState: "TASK_STATE_FAILED", Error: "runtime_failure"})
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	if len(collected.ScopeMetrics) != 1 || len(collected.ScopeMetrics[0].Metrics) != 1 {
+		t.Fatalf("collected %+v, want one metric", collected.ScopeMetrics)
+	}
+	metric := collected.ScopeMetrics[0].Metrics[0]
+	if metric.Name != "gen_ai.invoke_agent.duration" || metric.Unit != "s" {
+		t.Fatalf("metric = %s in %s, want gen_ai.invoke_agent.duration in s", metric.Name, metric.Unit)
+	}
+	points := metric.Data.(metricdata.Histogram[float64]).DataPoints
+	if len(points) != 1 {
+		t.Fatalf("data points = %d, want one", len(points))
+	}
+	want := attribute.NewSet(attribute.String(AttributeAgentName, "reporter"), attribute.String(AttributeErrorType, "runtime_failure"))
+	if !points[0].Attributes.Equals(&want) {
+		t.Errorf("attributes = %v, want %v", points[0].Attributes.ToSlice(), want.ToSlice())
+	}
+	span := exporter.GetSpans()[0]
+	if got, want := points[0].Sum, span.EndTime.Sub(span.StartTime).Seconds(); got != want {
+		t.Errorf("duration = %v, want the span duration %v", got, want)
 	}
 }
 
