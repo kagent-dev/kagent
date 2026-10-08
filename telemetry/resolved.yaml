@@ -1863,6 +1863,30 @@ refinements:
 registry:
   attribute_groups:
   - attributes:
+    - brief: The tool call identifier.
+      examples:
+      - call_mszuSIzqtI65i1wAUOE8w5H4
+      key: gen_ai.tool.call.id
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: Name of the tool utilized by the agent.
+      examples:
+      - Flights
+      key: gen_ai.tool.name
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    brief: Tool identity propagated to an outbound request as W3C baggage.
+    id: kagent.baggage.outbound
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+  - attributes:
     - brief: Whether the captured input messages were shortened to the capture budget.
       key: kagent.capture.input_truncated
       provenance:

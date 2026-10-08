@@ -41,9 +41,7 @@ type KAgentExecutorConfig struct {
 	Logger         *slog.Logger
 	Output         *apiadk.OutputConfig
 	Flush          func(context.Context) error
-	// AgentName is the compiled agent identity each request adds to its
-	// baggage as gen_ai.agent.name, as on the runtime's spans.
-	AgentName string
+	AgentName      string
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK

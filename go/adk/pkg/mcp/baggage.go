@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
@@ -38,45 +38,27 @@ func inCallScope(ctx context.Context) bool {
 	return scope != nil && scope.active.Load()
 }
 
-// traceHeaders are the W3C headers a request inherits from the context that
-// sends it.
-var traceHeaders = []string{"traceparent", "tracestate", "baggage"}
-
-// sessionTraceStripper removes trace context and baggage from the session's
-// own requests. It sits inside the OpenTelemetry transport, which injects them.
-type sessionTraceStripper struct {
-	base http.RoundTripper
-}
-
-func (s sessionTraceStripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	// The event stream (GET) and close (DELETE) belong to the session even when
-	// a call happens to open them.
-	if req.Method == http.MethodPost && inCallScope(req.Context()) {
-		return s.base.RoundTrip(req)
-	}
-	req = req.Clone(req.Context())
-	for _, header := range traceHeaders {
-		req.Header.Del(header)
-	}
-	return s.base.RoundTrip(req)
+// traceMCPRequest reports whether req belongs to an active MCP operation. The
+// event stream (GET) and close (DELETE) belong to the shared session even when
+// a call happens to open them, so they must not inherit that call's telemetry.
+func traceMCPRequest(req *http.Request) bool {
+	return req.Method == http.MethodPost && inCallScope(req.Context())
 }
 
 // withCallScope runs each tool listing and tool call of ts in a call scope.
 // Tool calls also add the tool name and call ID to the request's baggage.
 func withCallScope(ts tool.Toolset) tool.Toolset {
-	return &scopedToolset{inner: ts}
+	return &scopedToolset{ts}
 }
 
 type scopedToolset struct {
-	inner tool.Toolset
+	tool.Toolset
 }
 
-func (s *scopedToolset) Name() string { return s.inner.Name() }
-
-func (s *scopedToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
+func (s scopedToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
 	values, end := startCallScope(ctx)
 	defer end()
-	tools, err := s.inner.Tools(readonlyValuesContext{ReadonlyContext: ctx, values: values})
+	tools, err := s.Toolset.Tools(readonlyValuesContext{ReadonlyContext: ctx, values: values})
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +72,8 @@ func (s *scopedToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error)
 	}
 	return wrapped, nil
 }
+
+var _ tool.Toolset = scopedToolset{}
 
 // functionTool is the shape ADK runs and declares to the model. MCP tools
 // implement it.
@@ -106,7 +90,7 @@ type scopedTool struct {
 
 // ProcessRequest lets the inner tool declare itself, then registers the
 // wrapper in its place so that ADK runs the wrapper.
-func (t *scopedTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) error {
+func (t scopedTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) error {
 	if err := t.functionTool.ProcessRequest(ctx, req); err != nil {
 		return err
 	}
@@ -116,10 +100,10 @@ func (t *scopedTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest)
 	return nil
 }
 
-func (t *scopedTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
+func (t scopedTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
 	values, end := startCallScope(telemetry.WithBaggage(ctx,
-		attribute.String(telemetry.BaggageToolName, t.Name()),
-		attribute.String(telemetry.BaggageToolCallID, ctx.FunctionCallID()),
+		conv.GenAIToolNameKey.String(t.Name()),
+		conv.GenAIToolCallIDKey.String(ctx.FunctionCallID()),
 	))
 	defer end()
 	return t.functionTool.Run(valuesContext{Context: ctx, values: values}, args)

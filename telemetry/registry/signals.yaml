@@ -46,6 +46,16 @@ attribute_groups:
       - ref: kagent.invocation.segment
         requirement_level: required
 
+  - id: kagent.baggage.outbound
+    visibility: public
+    brief: Tool identity propagated to an outbound request as W3C baggage.
+    stability: development
+    attributes:
+      - ref: gen_ai.tool.name
+        requirement_level: required
+      - ref: gen_ai.tool.call.id
+        requirement_level: required
+
   - id: kagent.outcome
     visibility: public
     brief: How an invocation ended.

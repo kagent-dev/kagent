@@ -7,13 +7,6 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 )
 
-// The OTel GenAI conventions name the tool attributes. kagent's generated
-// contract lacks them because the ADK records them on its own spans.
-const (
-	BaggageToolName   = "gen_ai.tool.name"
-	BaggageToolCallID = "gen_ai.tool.call.id"
-)
-
 // WithBaggage adds string attributes to the W3C baggage of ctx, replacing
 // members with the same key and keeping the others. Empty values are skipped.
 // Baggage leaves the process only when OTEL_PROPAGATORS includes baggage.

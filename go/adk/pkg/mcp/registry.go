@@ -273,13 +273,10 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		}
 	}
 
-	// The session's own requests carry no request's trace context or baggage.
-	httpTransport = sessionTraceStripper{base: httpTransport}
-
 	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
 	// OTEL_PROPAGATORS includes it, from the active span so MCP calls stay
 	// attached to the invocation trace (kagent-dev/kagent#2550).
-	httpTransport = otelhttp.NewTransport(httpTransport)
+	httpTransport = otelhttp.NewTransport(httpTransport, otelhttp.WithFilter(traceMCPRequest))
 
 	httpClient := &http.Client{
 		Timeout:   httpTimeout,

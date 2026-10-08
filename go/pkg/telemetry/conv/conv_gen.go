@@ -28,6 +28,10 @@ const (
 	GenAIProviderNameKey = attribute.Key("gen_ai.provider.name")
 	// GenAIRequestModelKey is "gen_ai.request.model". The name of the GenAI model configured for the agent.
 	GenAIRequestModelKey = attribute.Key("gen_ai.request.model")
+	// GenAIToolCallIDKey is "gen_ai.tool.call.id". The tool call identifier.
+	GenAIToolCallIDKey = attribute.Key("gen_ai.tool.call.id")
+	// GenAIToolNameKey is "gen_ai.tool.name". Name of the tool utilized by the agent.
+	GenAIToolNameKey = attribute.Key("gen_ai.tool.name")
 	// KagentCaptureInputTruncatedKey is "kagent.capture.input_truncated". Whether the captured input messages were shortened to the capture budget.
 	KagentCaptureInputTruncatedKey = attribute.Key("kagent.capture.input_truncated")
 	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages were shortened to the capture budget.
