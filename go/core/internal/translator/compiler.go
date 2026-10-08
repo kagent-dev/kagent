@@ -165,6 +165,9 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	}
 	result.AgentName = agentName
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	if timeout := harness.Spec.Workload.StartupTimeoutSeconds; timeout != nil {
+		result.StartupTimeoutSeconds = *timeout
+	}
 	return result, nil
 }
 

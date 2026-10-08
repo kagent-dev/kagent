@@ -126,6 +126,13 @@ type HarnessWorkload struct {
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Args []string `json:"args,omitempty"`
+
+	// StartupTimeoutSeconds is the maximum time to wait for the runtime to become
+	// ready before creating or restoring its snapshot. Defaults to 30 seconds.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=300
+	// +optional
+	StartupTimeoutSeconds *int32 `json:"startupTimeoutSeconds,omitempty"`
 }
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.

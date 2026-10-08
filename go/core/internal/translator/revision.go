@@ -45,10 +45,11 @@ type Revision struct {
 	Namespace string
 
 	// Image and Environment describe the runtime container.
-	Image       string
-	Command     []string
-	Args        []string
-	Environment []corev1.EnvVar
+	Image                 string
+	Command               []string
+	StartupTimeoutSeconds int32
+	Args                  []string
+	Environment           []corev1.EnvVar
 	// ConfigJSON is injected into the runtime container verbatim.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
 	ConfigJSON []byte
@@ -90,24 +91,26 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
 	}
 	raw, err := json.Marshal(struct {
-		AgentName          string                   `json:"agentName"`
-		AgentUID           string                   `json:"agentUID"`
-		Namespace          string                   `json:"namespace"`
-		Image              string                   `json:"image"`
-		Command            []string                 `json:"command,omitempty"`
-		Args               []string                 `json:"args,omitempty"`
-		Environment        []corev1.EnvVar          `json:"environment"`
-		ConfigJSON         json.RawMessage          `json:"config"`
-		WorkerPoolName     string                   `json:"workerPoolName"`
-		SnapshotLocation   string                   `json:"snapshotLocation"`
-		Provenance         json.RawMessage          `json:"provenance"`
-		Credentials        []egress.Credential      `json:"credentials,omitempty"`
-		EgressDestinations []string                 `json:"egressDestinations"`
-		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass"`
+		AgentName             string                   `json:"agentName"`
+		AgentUID              string                   `json:"agentUID"`
+		Namespace             string                   `json:"namespace"`
+		Image                 string                   `json:"image"`
+		Command               []string                 `json:"command,omitempty"`
+		Args                  []string                 `json:"args,omitempty"`
+		StartupTimeoutSeconds int32                    `json:"startupTimeoutSeconds,omitempty"`
+		Environment           []corev1.EnvVar          `json:"environment"`
+		ConfigJSON            json.RawMessage          `json:"config"`
+		WorkerPoolName        string                   `json:"workerPoolName"`
+		SnapshotLocation      string                   `json:"snapshotLocation"`
+		Provenance            json.RawMessage          `json:"provenance"`
+		Credentials           []egress.Credential      `json:"credentials,omitempty"`
+		EgressDestinations    []string                 `json:"egressDestinations"`
+		SandboxClass          atev1alpha1.SandboxClass `json:"sandboxClass"`
 	}{
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
-		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
+		StartupTimeoutSeconds: r.StartupTimeoutSeconds,
+		WorkerPoolName:        r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass,
 	})
