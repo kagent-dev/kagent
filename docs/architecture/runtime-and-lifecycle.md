@@ -213,7 +213,7 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Substrate v0.5.0-alpha1 applies one content scope to every snapshot of an Actor,
+Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
 both the node-local snapshot taken on pause and the one uploaded on suspend.
 Templates use Full, so paused and suspended Actors keep their process memory, and
 their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
