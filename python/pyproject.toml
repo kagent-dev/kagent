@@ -10,6 +10,10 @@ dev = [
 ]
 
 [tool.uv]
+override-dependencies = [
+    "opentelemetry-api>=1.45.1,<1.46",
+    "opentelemetry-sdk>=1.45.1,<1.46",
+]
 constraint-dependencies = [
     "aiohttp>=3.14.3",
     "cryptography>=50.0.0",

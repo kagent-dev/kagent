@@ -10,7 +10,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `(none)` | Python Google ADK span content capture. When absent, derived from OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT (true for SPAN_ONLY or SPAN_AND_EVENT, false otherwise). |
+| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `false` | Python Google ADK content on its legacy gcp.vertex.agent.* span keys, including tool arguments and results. kagent keeps it off; captured content uses the GenAI convention keys. |
 | `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN` | String | `2` | Python Google ADK telemetry schema version; set by kagent when absent. |
 | `ANTHROPIC_API_KEY` | String | `(none)` | API key for Anthropic. |
 | `AWS_ACCESS_KEY_ID` | String | `(none)` | AWS access key ID for IAM authentication with Bedrock. |
@@ -22,6 +22,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_AD_TOKEN` | String | `(none)` | Azure Active Directory authentication token for Azure OpenAI. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `AZURE_OPENAI_ENDPOINT` | String | `(none)` | Endpoint URL for Azure OpenAI service. |
+| `CREWAI_DISABLE_TELEMETRY` | String | `true` | CrewAI anonymous telemetry, which exports to CrewAI's own endpoint; kagent turns it off when absent. |
 | `FOUNDRY_API_KEY` | String | `(none)` | API key for Azure AI Foundry. |
 | `FOUNDRY_API_VERSION` | String | `2024-10-21` | Azure AI Foundry OpenAI-compatible data-plane API version. |
 | `FOUNDRY_DEPLOYMENT` | String | `(none)` | Azure AI Foundry model deployment name. |
@@ -72,13 +73,16 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Trace endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Trace protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
 | `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Trace SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
+| `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED` | String | `false` | Python a2a-sdk internal spans; kagent turns them off when absent. |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `NO_CONTENT` | SPAN_ONLY records prompts and responses on agent spans. NO_CONTENT disables capture. Managed runtimes support these two modes; standalone Python ADK also recognizes SPAN_AND_EVENT. Captured content may be sensitive. |
 | `OTEL_LOGS_EXPORTER` | String | `(none)` | Log exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `OTEL_METRICS_EXPORTER` | String | `(none)` | Metric exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `OTEL_PROPAGATORS` | String | `tracecontext` | SDK trace propagators. Kagent defaults to W3C tracecontext without baggage and supplies that default to managed runtimes. |
+| `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` | String | `(none)` | Python instrumentation entry point names to skip, such as httpx or openai. |
+| `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS` | String | `/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json` | Python inbound HTTP paths left untraced; set by kagent when absent. |
 | `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated SDK resource attributes for the current process. Helm injects controller identity; kagent constructs runtime identity separately. Use KAGENT_OTEL_RESOURCE_ATTRIBUTES for attributes shared with managed agents. |
 | `OTEL_SDK_DISABLED` | String | `false` | Disable SDK telemetry and forwarding to managed runtimes when true (case-insensitive). Other values are treated as false. |
-| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental` | Python Google ADK semantic-convention opt-in; set by kagent when absent. |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental,http` | Python semantic-convention opt-in for GenAI and stable HTTP; set by kagent when absent. |
 | `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
 | `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `SAP_AI_CORE_CLIENT_ID` | String | `(none)` | OAuth2 client ID for SAP AI Core authentication. |
