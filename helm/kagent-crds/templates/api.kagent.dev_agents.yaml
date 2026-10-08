@@ -207,6 +207,11 @@ spec:
                               used by Substrate.
                             pattern: ^[^[:space:]]+$
                             type: string
+                          preserveMemory:
+                            description: |-
+                              PreserveMemory captures process memory and rootfs with durable data at
+                              settlement, allowing the runtime to resume without a cold start.
+                            type: boolean
                         required:
                         - location
                         type: object
@@ -254,6 +259,14 @@ spec:
                           digest.
                         pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                         type: string
+                      startupTimeoutSeconds:
+                        description: |-
+                          StartupTimeoutSeconds is the maximum time to wait for the runtime to become
+                          ready before creating or restoring its snapshot. Defaults to 30 seconds.
+                        format: int32
+                        maximum: 300
+                        minimum: 1
+                        type: integer
                     required:
                     - image
                     type: object

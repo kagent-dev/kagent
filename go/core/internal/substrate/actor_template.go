@@ -46,6 +46,10 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if revisionID.IsZero() {
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
+	startupTimeout := spec.StartupTimeoutSeconds
+	if startupTimeout == 0 {
+		startupTimeout = 30
+	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentName, revisionID)
 	// Config and SDK placeholders contain no Secret values. Render the typed
@@ -99,7 +103,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
 				Path: "/readyz",
 				Port: 8081,
-			}, TimeoutSeconds: 30},
+			}, TimeoutSeconds: startupTimeout},
 			VolumeMounts: []*ateapipb.VolumeMount{
 				{Name: durableDataVolume, MountPath: durableDataMount},
 				{Name: egressTrustVolume, MountPath: egressTrustMount},
@@ -107,11 +111,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
-		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: spec.SnapshotLocation,
-			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
-		},
+		SnapshotConfig: snapshotConfig(spec.SnapshotLocation, spec.PreserveMemory),
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
 			// Substrate regenerates this projection on Run and Restore. A fork

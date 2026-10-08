@@ -93,11 +93,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 			{Name: "guest", Image: &ateapipb.ImageVolumeSource{Reference: policy.GuestImage}},
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}}}}},
 		},
-		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: template.Spec.Substrate.SnapshotPolicy.Location,
-			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
-		},
+		SnapshotConfig: snapshotConfig(template.Spec.Substrate.SnapshotPolicy.Location, template.Spec.Substrate.SnapshotPolicy.PreserveMemory),
 	}
 	return result, revision, snapshot, nil
 }

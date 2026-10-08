@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -35,11 +36,15 @@ func modelConfig() *v1alpha3.ModelConfig {
 
 func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 	for _, tt := range []struct {
-		name    string
-		command []string
-		args    []string
+		name           string
+		startupTimeout *int32
+		preserveMemory bool
+		command        []string
+		args           []string
 	}{
 		{name: "image defaults"},
+		{name: "warm runtime", preserveMemory: true},
+		{name: "slow startup", startupTimeout: new(int32(90))},
 		{name: "command", command: []string{"/runtime"}},
 		{name: "args", args: []string{"--verbose"}},
 		{name: "go args", args: []string{"--log-level", "debug"}},
@@ -55,9 +60,10 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 					Workload: v1alpha3.HarnessWorkload{
 						Image:   "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
+						StartupTimeoutSeconds: tt.startupTimeout,
 					},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots", PreserveMemory: tt.preserveMemory},
 					},
 				},
 			}
@@ -91,6 +97,19 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			container := actorTemplate.Containers[0]
 			require.Equal(t, tt.command, container.Command)
 			require.Equal(t, tt.args, container.Args)
+			if tt.startupTimeout == nil {
+				require.EqualValues(t, 30, container.GetWakeupProbe().GetTimeoutSeconds())
+			} else {
+				require.Equal(t, *tt.startupTimeout, result.StartupTimeoutSeconds)
+				require.Equal(t, *tt.startupTimeout, container.GetWakeupProbe().GetTimeoutSeconds())
+			}
+
+			require.Equal(t, tt.preserveMemory, result.PreserveMemory)
+			if tt.preserveMemory {
+				require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, actorTemplate.GetSnapshotConfig().GetOnCommit())
+			} else {
+				require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actorTemplate.GetSnapshotConfig().GetOnCommit())
+			}
 
 			if len(result.Command) > 0 {
 				result.Command[0] = "changed"

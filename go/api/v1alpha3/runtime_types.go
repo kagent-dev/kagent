@@ -25,6 +25,11 @@ type RuntimeSnapshotPolicy struct {
 	// +kubebuilder:validation:Pattern=`^[^[:space:]]+$`
 	// +required
 	Location string `json:"location"`
+
+	// PreserveMemory captures process memory and rootfs with durable data at
+	// settlement, allowing the runtime to resume without a cold start.
+	// +optional
+	PreserveMemory bool `json:"preserveMemory,omitempty"`
 }
 
 // RuntimeSubstratePolicy contains the Substrate policy shared by all runtime variants.

@@ -75,6 +75,36 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		wantReject string
 	}{
 		{
+			name: "Harness accepts memory retention",
+			object: validHarness(namespace, "harness-full-snapshot", HarnessSpec{
+				Kagent:    &KagentHarness{},
+				Substrate: RuntimeSubstratePolicy{SnapshotPolicy: RuntimeSnapshotPolicy{PreserveMemory: true}},
+			}),
+		},
+		{
+			name: "Harness accepts extended startup timeout",
+			object: validHarness(namespace, "harness-slow-startup", HarnessSpec{
+				Kagent:   &KagentHarness{},
+				Workload: HarnessWorkload{StartupTimeoutSeconds: new(int32(90))},
+			}),
+		},
+		{
+			name: "Harness rejects zero startup timeout",
+			object: validHarness(namespace, "harness-zero-startup", HarnessSpec{
+				Kagent:   &KagentHarness{},
+				Workload: HarnessWorkload{StartupTimeoutSeconds: new(int32(0))},
+			}),
+			wantReject: "spec.workload.startupTimeoutSeconds",
+		},
+		{
+			name: "Harness rejects excessive startup timeout",
+			object: validHarness(namespace, "harness-excessive-startup", HarnessSpec{
+				Kagent:   &KagentHarness{},
+				Workload: HarnessWorkload{StartupTimeoutSeconds: new(int32(301))},
+			}),
+			wantReject: "spec.workload.startupTimeoutSeconds",
+		},
+		{
 			name:       "Harness requires one runtime",
 			object:     validHarness(namespace, "harness-no-runtime", HarnessSpec{}),
 			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
