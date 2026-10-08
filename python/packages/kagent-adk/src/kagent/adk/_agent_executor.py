@@ -83,6 +83,38 @@ class _ExecutionState:
     usage: TurnUsage = field(default_factory=TurnUsage)
 
 
+_EXECUTION_END_STATES = frozenset(
+    {
+        TaskState.TASK_STATE_COMPLETED,
+        TaskState.TASK_STATE_FAILED,
+        TaskState.TASK_STATE_CANCELED,
+        TaskState.TASK_STATE_REJECTED,
+        TaskState.TASK_STATE_INPUT_REQUIRED,
+        TaskState.TASK_STATE_AUTH_REQUIRED,
+    }
+)
+
+
+class _UsageStampingQueue:
+    """Stamps the task usage on every status update ending the execution.
+
+    The upstream executor publishes some of them itself, such as the failure
+    of a runner exception, without running the after-agent interceptor.
+    """
+
+    def __init__(self, queue: EventQueue, usage: TurnUsage) -> None:
+        self._queue = queue
+        self._usage = usage
+
+    async def enqueue_event(self, event: A2AEvent) -> None:
+        if isinstance(event, TaskStatusUpdateEvent) and event.status.state in _EXECUTION_END_STATES:
+            self._usage.stamp(event.metadata)
+        await self._queue.enqueue_event(event)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._queue, name)
+
+
 def _call_state(context: RequestContext) -> dict[str, Any]:
     state = getattr(context.call_context, "state", None)
     return state if isinstance(state, dict) else {}
@@ -201,9 +233,7 @@ class A2aAgentExecutor(AgentExecutor):
             context_id=context.context_id,
             status=TaskStatus(state=TaskState.TASK_STATE_CANCELED, timestamp=now_timestamp()),
         )
-        metadata: dict[str, Any] = {}
-        usage.stamp(metadata)
-        event.metadata.update(metadata)
+        usage.stamp(event.metadata)
         await event_queue.enqueue_event(event)
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
@@ -216,6 +246,7 @@ class A2aAgentExecutor(AgentExecutor):
         # Resumed tasks (HITL cycles, follow-up messages) carry the previously
         # persisted total, so the usage total stays a task-lifetime sum.
         execution_state.usage.seed_from_task(context.current_task)
+        event_queue = _UsageStampingQueue(event_queue, execution_state.usage)
         task_id = context.task_id
         if task_id:
             self._running_usage[task_id] = execution_state.usage
@@ -277,23 +308,24 @@ class A2aAgentExecutor(AgentExecutor):
                 context,
                 event_queue,
                 str(error) or "A2A request execution was cancelled.",
-                execution_state.usage,
             )
         except Exception as error:
             logger.error("Error preparing A2A request: %s", error, exc_info=True)
-            await self._publish_failed_status_event(
-                context, event_queue, _friendly_error_message(str(error)), execution_state.usage
-            )
+            await self._publish_failed_status_event(context, event_queue, _friendly_error_message(str(error)))
         finally:
-            if task_id and self._running_usage.get(task_id) is execution_state.usage:
-                del self._running_usage[task_id]
             public_context_id.reset(identity_token)
             if user_token is not None:
                 request_user_id.reset(user_token)
             if context_token is not None:
                 clear_kagent_span_attributes(context_token)
-            if runner is not None:
-                await self._safe_close_runner(runner)
+            try:
+                if runner is not None:
+                    await self._safe_close_runner(runner)
+            finally:
+                # The request handler holds the final event until cleanup ends,
+                # so a cancel arriving meanwhile still reports this execution.
+                if task_id and self._running_usage.get(task_id) is execution_state.usage:
+                    del self._running_usage[task_id]
 
     def _translate_hitl_response(self, context: RequestContext) -> RequestContext:
         payload = get_hitl_payload(context.message)
@@ -403,7 +435,6 @@ class A2aAgentExecutor(AgentExecutor):
         metadata: dict[str, Any] = {}
         if state.last_usage_metadata is not None:
             metadata[A2A_USAGE_METADATA_KEY] = serialize_metadata_value(state.last_usage_metadata)
-        state.usage.stamp(metadata)
         event.metadata.update(metadata)
 
         if event.status.state == TaskState.TASK_STATE_INPUT_REQUIRED and event.status.message:
@@ -451,26 +482,23 @@ class A2aAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
         error_message: str,
-        usage: TurnUsage,
     ) -> None:
         try:
-            event = TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                context_id=context.context_id,
-                status=TaskStatus(
-                    state=TaskState.TASK_STATE_FAILED,
-                    timestamp=now_timestamp(),
-                    message=Message(
-                        message_id=str(uuid.uuid4()),
-                        role=Role.ROLE_AGENT,
-                        parts=[Part(text=error_message)],
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    context_id=context.context_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        timestamp=now_timestamp(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=error_message)],
+                        ),
                     ),
-                ),
+                )
             )
-            metadata: dict[str, Any] = {}
-            usage.stamp(metadata)
-            event.metadata.update(metadata)
-            await event_queue.enqueue_event(event)
         except BaseException as enqueue_error:
             if isinstance(enqueue_error, (KeyboardInterrupt, SystemExit)):
                 raise

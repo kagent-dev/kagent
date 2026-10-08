@@ -19,31 +19,24 @@ import (
 	"google.golang.org/genai"
 )
 
-// runUsageAgent runs an agent emitting the given responses through the
-// executor and returns the artifact updates and the terminal status update.
-func runUsageAgent(
-	t *testing.T,
-	storedTask *a2atype.Task,
-	responses ...model.LLMResponse,
-) ([]*a2atype.TaskArtifactUpdateEvent, *a2atype.TaskStatusUpdateEvent) {
+// scriptedAgent emits one event per response. With a non-nil reported
+// channel it then closes it and blocks until the invocation is canceled.
+func scriptedAgent(t *testing.T, reported chan struct{}, responses ...model.LLMResponse) adkagent.Agent {
 	t.Helper()
-
-	const appName = "usage-app"
-
 	agent, err := adkagent.New(adkagent.Config{
 		Name: "usage-agent",
 		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
 			return func(yield func(*adksession.Event, error) bool) {
 				for _, response := range responses {
-					event := &adksession.Event{
-						Author:       ic.Agent().Name(),
-						InvocationID: ic.InvocationID(),
-						Branch:       ic.Branch(),
-						LLMResponse:  response,
-					}
-					if !yield(event, nil) {
+					if !yield(&adksession.Event{
+						Author: ic.Agent().Name(), InvocationID: ic.InvocationID(), Branch: ic.Branch(), LLMResponse: response,
+					}, nil) {
 						return
 					}
+				}
+				if reported != nil {
+					close(reported)
+					<-ic.Done()
 				}
 			}
 		},
@@ -51,20 +44,37 @@ func runUsageAgent(
 	if err != nil {
 		t.Fatalf("agent.New() error = %v", err)
 	}
+	return agent
+}
 
+func newUsageExecutor(t *testing.T, agent adkagent.Agent) *KAgentExecutor {
+	t.Helper()
 	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName:        appName,
-		SessionService: adksession.InMemoryService(),
-		Logger:         slog.New(slog.DiscardHandler),
-		RunnerConfig: runner.Config{
-			AppName: appName,
-			Agent:   agent,
-		},
+		AppName: "usage-app", SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
+		RunnerConfig: runner.Config{AppName: "usage-app", Agent: agent},
 	})
 	if err != nil {
 		t.Fatalf("NewKAgentExecutor() error = %v", err)
 	}
+	return executor
+}
 
+// storedTaskWithUsage is a task whose persisted usage went through a JSON
+// round-trip in the task store, hence the float64 counts.
+func storedTaskWithUsage(input, output, total float64) *a2atype.Task {
+	return &a2atype.Task{
+		ID: "task-1", ContextID: "context-1",
+		Metadata: map[string]any{UsageExtensionURI: map[string]any{
+			"inputTokens": input, "outputTokens": output, "totalTokens": total,
+		}},
+	}
+}
+
+// runUsageAgent runs an agent emitting the given responses through the
+// executor and returns the terminal status update.
+func runUsageAgent(t *testing.T, storedTask *a2atype.Task, responses ...model.LLMResponse) *a2atype.TaskStatusUpdateEvent {
+	t.Helper()
+	executor := newUsageExecutor(t, scriptedAgent(t, nil, responses...))
 	reqCtx := &a2asrv.ExecutorContext{
 		TaskID:     "task-1",
 		ContextID:  "context-1",
@@ -72,27 +82,19 @@ func runUsageAgent(
 		StoredTask: storedTask,
 	}
 
-	var (
-		updates  []*a2atype.TaskArtifactUpdateEvent
-		terminal *a2atype.TaskStatusUpdateEvent
-	)
+	var terminal *a2atype.TaskStatusUpdateEvent
 	for event, err := range executor.Execute(t.Context(), reqCtx) {
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		switch event := event.(type) {
-		case *a2atype.TaskArtifactUpdateEvent:
-			updates = append(updates, event)
-		case *a2atype.TaskStatusUpdateEvent:
-			if event.Status.State.Terminal() || event.Status.State == a2atype.TaskStateInputRequired {
-				terminal = event
-			}
+		if status, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && (status.Status.State.Terminal() || status.Status.State == a2atype.TaskStateInputRequired) {
+			terminal = status
 		}
 	}
 	if terminal == nil {
 		t.Fatal("no terminal status update emitted")
 	}
-	return updates, terminal
+	return terminal
 }
 
 func usageFrom(t *testing.T, event *a2atype.TaskStatusUpdateEvent) apia2a.Usage {
@@ -124,7 +126,7 @@ func usageResponse(text string, prompt, candidates, total int32) model.LLMRespon
 }
 
 func TestTurnUsageAggregatesNonPartialEvents(t *testing.T) {
-	_, terminal := runUsageAgent(t, nil,
+	terminal := runUsageAgent(t, nil,
 		usageResponse("first", 10, 5, 15),
 		usageResponse("second", 20, 7, 27),
 	)
@@ -142,23 +144,14 @@ func TestTurnUsageSkipsPartialAndEmptyEvents(t *testing.T) {
 	partial.Partial = true
 	noUsage := model.LLMResponse{Content: genai.NewContentFromText("no usage", genai.RoleModel)}
 
-	_, terminal := runUsageAgent(t, nil, partial, noUsage, usageResponse("final", 10, 5, 15))
-
-	total := usageFrom(t, terminal)
-	assertTotals(t, total, 10, 5, 15)
-}
-
-// TestTurnUsageDerivesTotalWhenProviderReportsNone covers the Anthropic models,
-// which report input and output counts without a total.
-func TestTurnUsageDerivesTotalWhenProviderReportsNone(t *testing.T) {
-	_, terminal := runUsageAgent(t, nil, usageResponse("no total", 10, 5, 0))
+	terminal := runUsageAgent(t, nil, partial, noUsage, usageResponse("final", 10, 5, 15))
 
 	total := usageFrom(t, terminal)
 	assertTotals(t, total, 10, 5, 15)
 }
 
 func TestTurnUsageOmittedWhenNoUsageReported(t *testing.T) {
-	_, terminal := runUsageAgent(t, nil, model.LLMResponse{
+	terminal := runUsageAgent(t, nil, model.LLMResponse{
 		Content: genai.NewContentFromText("no usage", genai.RoleModel),
 	})
 
@@ -174,7 +167,7 @@ func TestTurnUsagePayloadIsProviderNeutral(t *testing.T) {
 	response.UsageMetadata.ThoughtsTokenCount = 3
 	response.UsageMetadata.CachedContentTokenCount = 4
 
-	_, terminal := runUsageAgent(t, nil, response)
+	terminal := runUsageAgent(t, nil, response)
 
 	counts := map[string]any{
 		"inputTokens": float64(10), "outputTokens": float64(5), "reasoningTokens": float64(3),
@@ -197,7 +190,7 @@ func TestTurnUsageAttributesCountsPerModel(t *testing.T) {
 	unnamed := usageResponse("unnamed model", 1, 1, 2)
 	unnamed.ModelVersion = ""
 
-	_, terminal := runUsageAgent(t, nil, usageResponse("first", 10, 5, 15), other, unnamed)
+	terminal := runUsageAgent(t, nil, usageResponse("first", 10, 5, 15), other, unnamed)
 
 	usage := usageFrom(t, terminal)
 	assertTotals(t, usage, 31, 13, 44)
@@ -227,7 +220,7 @@ func TestTurnUsageSeedFromTaskAccumulatesAcrossExecutions(t *testing.T) {
 		},
 	}
 
-	_, terminal := runUsageAgent(t, storedTask, usageResponse("resumed", 10, 5, 15))
+	terminal := runUsageAgent(t, storedTask, usageResponse("resumed", 10, 5, 15))
 
 	usage := usageFrom(t, terminal)
 	assertTotals(t, usage, 110, 55, 165)
@@ -265,7 +258,6 @@ func TestTurnUsageSeedFromTaskIgnoresMissingOrMalformed(t *testing.T) {
 // task continues from it instead of restarting at zero.
 func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 	const (
-		appName   = "hitl-usage-app"
 		contextID = "hitl-usage-context"
 		taskID    = "hitl-usage-task"
 	)
@@ -305,14 +297,7 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent.New() error = %v", err)
 	}
-
-	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName: appName, SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
-		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
-	})
-	if err != nil {
-		t.Fatalf("NewKAgentExecutor() error = %v", err)
-	}
+	executor := newUsageExecutor(t, agent)
 
 	var pause *a2atype.TaskStatusUpdateEvent
 	first := &a2asrv.ExecutorContext{
@@ -361,23 +346,11 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 	assertTotals(t, total, 30, 12, 42)
 }
 
-func TestTurnUsageIsPerExecution(t *testing.T) {
-	if got := turnUsageFrom(context.Background()); got != nil {
-		t.Fatalf("turnUsageFrom(background) = %#v, want nil", got)
-	}
-
-	usage := &turnUsage{}
-	ctx := withTurnUsage(context.Background(), usage)
-	if got := turnUsageFrom(ctx); got != usage {
-		t.Fatalf("turnUsageFrom(ctx) = %#v, want the bound accumulator", got)
-	}
-}
-
 // TestTurnUsageDerivesTotalPerCall covers a task mixing calls that report a
 // total with calls that do not: the derived counts of the second call must
 // extend the total reported by the first.
 func TestTurnUsageDerivesTotalPerCall(t *testing.T) {
-	_, terminal := runUsageAgent(t, nil,
+	terminal := runUsageAgent(t, nil,
 		usageResponse("with total", 10, 5, 15),
 		usageResponse("without total", 20, 7, 0),
 	)
@@ -390,17 +363,7 @@ func TestTurnUsageDerivesTotalPerCall(t *testing.T) {
 // persisted total was itself derived: the next execution must add its own
 // derived total instead of keeping the stored one.
 func TestTurnUsageDerivedTotalGrowsAcrossExecutions(t *testing.T) {
-	storedTask := &a2atype.Task{
-		ID:        "task-1",
-		ContextID: "context-1",
-		Metadata: map[string]any{
-			UsageExtensionURI: map[string]any{
-				"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120),
-			},
-		},
-	}
-
-	_, terminal := runUsageAgent(t, storedTask, usageResponse("no total", 200, 30, 0))
+	terminal := runUsageAgent(t, storedTaskWithUsage(100, 20, 120), usageResponse("no total", 200, 30, 0))
 
 	total := usageFrom(t, terminal)
 	assertTotals(t, total, 300, 50, 350)
@@ -451,41 +414,9 @@ func cancelledStatus(t *testing.T, executor *KAgentExecutor, reqCtx *a2asrv.Exec
 // event and discards the execution's own, so the canceled status must carry
 // the calls completed before the cancel.
 func TestTurnUsageReportedOnCancelOfRunningExecution(t *testing.T) {
-	const appName = "cancel-usage-app"
 	counted := make(chan struct{})
-	agent, err := adkagent.New(adkagent.Config{
-		Name: "cancel-usage-agent",
-		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-			return func(yield func(*adksession.Event, error) bool) {
-				for _, response := range []model.LLMResponse{usageResponse("first", 10, 5, 15), usageResponse("second", 20, 7, 27)} {
-					if !yield(&adksession.Event{
-						Author: ic.Agent().Name(), InvocationID: ic.InvocationID(), Branch: ic.Branch(), LLMResponse: response,
-					}, nil) {
-						return
-					}
-				}
-				close(counted)
-				<-ic.Done()
-			}
-		},
-	})
-	if err != nil {
-		t.Fatalf("agent.New() error = %v", err)
-	}
-	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName: appName, SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
-		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
-	})
-	if err != nil {
-		t.Fatalf("NewKAgentExecutor() error = %v", err)
-	}
-
-	stored := &a2atype.Task{
-		ID: "task-1", ContextID: "context-1",
-		Metadata: map[string]any{UsageExtensionURI: map[string]any{
-			"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120),
-		}},
-	}
+	executor := newUsageExecutor(t, scriptedAgent(t, counted, usageResponse("first", 10, 5, 15), usageResponse("second", 20, 7, 27)))
+	stored := storedTaskWithUsage(100, 20, 120)
 	executionCtx, stopExecution := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
@@ -516,37 +447,13 @@ func TestTurnUsageReportedOnCancelOfRunningExecution(t *testing.T) {
 // with no running execution, such as one waiting for input: the canceled
 // status repeats the persisted total so it stays the task's latest value.
 func TestTurnUsageReportedOnCancelOfParkedTask(t *testing.T) {
-	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName: "parked-app", SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
-		RunnerConfig: runner.Config{AppName: "parked-app", Agent: mustNoopAgent(t)},
-	})
-	if err != nil {
-		t.Fatalf("NewKAgentExecutor() error = %v", err)
-	}
-	stored := &a2atype.Task{
-		ID: "task-1", ContextID: "context-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired},
-		Metadata: map[string]any{UsageExtensionURI: map[string]any{
-			"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120),
-		}},
-	}
+	executor := newUsageExecutor(t, scriptedAgent(t, nil))
+	stored := storedTaskWithUsage(100, 20, 120)
+	stored.Status.State = a2atype.TaskStateInputRequired
 
 	status := cancelledStatus(t, executor, &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1", StoredTask: stored})
 
 	assertTotals(t, usageFrom(t, status), 100, 20, 120)
-}
-
-func mustNoopAgent(t *testing.T) adkagent.Agent {
-	t.Helper()
-	agent, err := adkagent.New(adkagent.Config{
-		Name: "noop-agent",
-		Run: func(adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-			return func(func(*adksession.Event, error) bool) {}
-		},
-	})
-	if err != nil {
-		t.Fatalf("agent.New() error = %v", err)
-	}
-	return agent
 }
 
 func TestRunningUsageTracksOnlyTheLatestExecution(t *testing.T) {

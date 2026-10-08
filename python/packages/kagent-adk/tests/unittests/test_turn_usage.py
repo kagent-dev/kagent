@@ -1,37 +1,31 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
 
 import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.types import (
-    Artifact,
     Message,
     Part,
     Role,
     SendMessageRequest,
     Task,
-    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
 )
 from google.adk.a2a.converters.event_converter import convert_event_to_a2a_message
 from google.adk.a2a.converters.long_running_functions import LongRunningFunctions
-from google.adk.a2a.converters.request_converter import AgentRunRequest
-from google.adk.a2a.executor.executor_context import ExecutorContext
 from google.adk.agents.base_agent import BaseAgent
-from google.adk.agents.run_config import RunConfig
 from google.adk.events import Event
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import USAGE_EXTENSION_URI
+from pydantic import Field
 
-import kagent.adk._agent_executor as executor_module
-from kagent.adk._agent_executor import A2aAgentExecutor, _ExecutionState
+from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._turn_usage import (
     TURN_USAGE_PLUGIN_NAME,
     TurnUsage,
@@ -43,9 +37,9 @@ from kagent.adk._turn_usage import (
 def usage_event(
     prompt: int,
     completion: int,
-    total: int,
-    model_version: str | None,
-    partial: bool,
+    total: int | None = None,
+    model_version: str | None = None,
+    partial: bool = False,
     event_id: str | None = None,
 ) -> Event:
     event = Event(
@@ -94,9 +88,9 @@ def test_aggregates_non_partial_events_per_model():
     usage = TurnUsage()
     assert usage.empty()
 
-    usage.add(usage_event(100, 20, 120, "model-b", partial=False))
-    usage.add(usage_event(200, 30, 230, "model-a", partial=False))
-    usage.add(usage_event(1, 1, 2, None, partial=False))
+    usage.add(usage_event(100, 20, 120, "model-b"))
+    usage.add(usage_event(200, 30, 230, "model-a"))
+    usage.add(usage_event(1, 1, 2))
 
     assert not usage.empty()
     assert stamped_usage(usage) == {
@@ -120,14 +114,14 @@ def test_skips_partial_and_empty_events():
     usage.stamp(metadata)
     assert USAGE_EXTENSION_URI not in metadata, "empty usage must not stamp the key"
 
-    usage.add(usage_event(10, 5, 15, None, partial=False))
+    usage.add(usage_event(10, 5, 15))
     assert stamped_usage(usage) == counts(10, 5, 15), "models must be omitted when no event named one"
 
 
 def test_counts_each_adk_event_once():
     """An event reaching the accumulator more than once is counted once."""
     usage = TurnUsage()
-    event = usage_event(10, 5, 15, None, partial=False, event_id="event-1")
+    event = usage_event(10, 5, 15, event_id="event-1")
 
     usage.add(event)
     usage.add(event)
@@ -164,7 +158,7 @@ def test_seed_from_task_accumulates_across_executions():
             }
         )
     )
-    usage.add(usage_event(200, 30, 230, "model-b", partial=False))
+    usage.add(usage_event(200, 30, 230, "model-b"))
 
     assert stamped_usage(usage) == {
         **counts(300, 50, 350),
@@ -192,57 +186,14 @@ def test_seed_from_task_ignores_missing_or_malformed():
     assert usage.empty()
 
 
-def test_derives_total_when_provider_reports_none():
-    """Anthropic reports input and output counts without a total."""
-    usage = TurnUsage()
-    usage.add(
-        Event(
-            author="agent",
-            partial=False,
-            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
-                prompt_token_count=100,
-                candidates_token_count=20,
-            ),
-        )
-    )
-
-    assert stamped_usage(usage) == counts(100, 20, 120)
-
-
 def test_derives_total_per_call():
-    """A task mixing a call that reports a total with one that does not."""
+    """A task mixing a call that reports a total with one that does not, such
+    as Anthropic's."""
     usage = TurnUsage()
-    usage.add(usage_event(10, 5, 15, None, partial=False))
-    usage.add(
-        Event(
-            author="agent",
-            partial=False,
-            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
-                prompt_token_count=20,
-                candidates_token_count=7,
-            ),
-        )
-    )
+    usage.add(usage_event(10, 5, 15))
+    usage.add(usage_event(20, 7))
 
     assert stamped_usage(usage) == counts(30, 12, 42)
-
-
-def test_derived_total_grows_across_executions():
-    """A resumed task whose persisted total was itself derived."""
-    usage = TurnUsage()
-    usage.seed_from_task(task_with_usage(counts(100, 20, 120)))
-    usage.add(
-        Event(
-            author="agent",
-            partial=False,
-            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
-                prompt_token_count=200,
-                candidates_token_count=30,
-            ),
-        )
-    )
-
-    assert stamped_usage(usage) == counts(300, 50, 350)
 
 
 @pytest.mark.asyncio
@@ -289,68 +240,28 @@ def test_attach_turn_usage_repoints_an_already_registered_plugin():
     assert len([p for p in runner.plugin_manager.plugins if p.name == TURN_USAGE_PLUGIN_NAME]) == 1
 
 
-@pytest.mark.asyncio
-async def test_executor_stamps_total_on_terminal_status_update():
-    message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
-    request_context = RequestContext(
-        ServerCallContext(state={}),
-        SendMessageRequest(message=message),
-        task_id="task-1",
-        context_id="context-1",
-    )
-    executor = A2aAgentExecutor(runner=lambda: None)
-    state = _ExecutionState(request_context=request_context)
-    state.usage.seed_from_task(task_with_usage(counts(100, 20, 120)))
-    executor_context = ExecutorContext(app_name="app", user_id="user-1", session_id="context-1", runner=None)
+class _UsageAgent(BaseAgent):
+    """Reports one call's usage, then completes, raises or blocks."""
 
-    adk_event = usage_event(10, 5, 15, "model-a", partial=False, event_id="event-1")
-    a2a_event = TaskArtifactUpdateEvent(
-        task_id="task-1",
-        context_id="context-1",
-        artifact=Artifact(artifact_id="artifact-1", parts=[Part(text="hi")]),
-    )
-    await TurnUsagePlugin(state.usage).on_event_callback(invocation_context=None, event=adk_event)
-    assert await executor._after_event(state, executor_context, a2a_event, adk_event) is a2a_event
+    fail: bool = False
+    block: bool = False
+    reported: asyncio.Event = Field(default_factory=asyncio.Event)
 
-    terminal = TaskStatusUpdateEvent(
-        task_id="task-1",
-        context_id="context-1",
-        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
-    )
-    await executor._after_agent(state, executor_context, terminal)
-
-    assert MessageToDict(terminal.metadata)[USAGE_EXTENSION_URI] == {
-        **counts(110, 25, 135),
-        "models": [{"model": "model-a", **counts(10, 5, 15)}],
-    }
-
-
-@pytest.mark.asyncio
-async def test_failed_status_event_carries_the_total():
-    """Failures raised outside the upstream executor publish their own terminal
-    event, which must carry the total like every other terminal state."""
-    message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
-    request_context = RequestContext(
-        ServerCallContext(state={}),
-        SendMessageRequest(message=message),
-        task_id="task-1",
-        context_id="context-1",
-    )
-    executor = A2aAgentExecutor(runner=lambda: None)
-    usage = TurnUsage()
-    usage.seed_from_task(task_with_usage(counts(100, 20, 120)))
-
-    published: list[TaskStatusUpdateEvent] = []
-
-    class _Queue:
-        async def enqueue_event(self, event):
-            published.append(event)
-
-    await executor._publish_failed_status_event(request_context, _Queue(), "boom", usage)
-
-    assert len(published) == 1
-    assert published[0].status.state == TaskState.TASK_STATE_FAILED
-    assert MessageToDict(published[0].metadata)[USAGE_EXTENSION_URI] == counts(100, 20, 120)
+    async def _run_async_impl(self, ctx):
+        yield Event(
+            author=self.name,
+            invocation_id=ctx.invocation_id,
+            model_version="model-a",
+            content=genai_types.Content(role="model", parts=[genai_types.Part(text="hi")]),
+            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=10, candidates_token_count=5, total_token_count=15
+            ),
+        )
+        self.reported.set()
+        if self.fail:
+            raise RuntimeError("boom")
+        if self.block:
+            await asyncio.Event().wait()
 
 
 class _ListQueue:
@@ -361,75 +272,97 @@ class _ListQueue:
         self.events.append(event)
 
 
-def _cancel_context(task: Task | None) -> RequestContext:
+def _request_context(task: Task | None = None) -> RequestContext:
+    message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
     return RequestContext(
         ServerCallContext(state={}),
-        None,
+        SendMessageRequest(message=message),
         task_id="task-1",
         context_id="ctx-1",
         task=task,
     )
 
 
-def _canceled_usage(queue: _ListQueue) -> dict:
-    [event] = [e for e in queue.events if e.status.state == TaskState.TASK_STATE_CANCELED]
+def _cancel_context(task: Task | None) -> RequestContext:
+    return RequestContext(ServerCallContext(state={}), None, task_id="task-1", context_id="ctx-1", task=task)
+
+
+def _completed_task_with_usage(payload) -> Task:
+    task = task_with_usage(payload)
+    task.status.state = TaskState.TASK_STATE_COMPLETED
+    return task
+
+
+def _usage_of(queue: _ListQueue, state: TaskState) -> dict:
+    [event] = [e for e in queue.events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == state]
     return MessageToDict(event.metadata)[USAGE_EXTENSION_URI]
 
 
+_SEEDED_PLUS_ONE_CALL = {**counts(110, 25, 135), "models": [{"model": "model-a", **counts(10, 5, 15)}]}
+
+
 @pytest.mark.asyncio
-async def test_cancel_reports_usage_of_the_running_execution(monkeypatch):
+@pytest.mark.parametrize(
+    ("fail", "state"),
+    [(False, TaskState.TASK_STATE_COMPLETED), (True, TaskState.TASK_STATE_FAILED)],
+)
+async def test_execution_end_carries_the_task_total(fail, state):
+    """Runs the upstream executor, which publishes a runner failure itself
+    without the after-agent interceptor."""
+    runner = InMemoryRunner(agent=_UsageAgent(name="agent", fail=fail), app_name="app")
+    executor = A2aAgentExecutor(runner=lambda: runner)
+    queue = _ListQueue()
+
+    await executor.execute(_request_context(_completed_task_with_usage(counts(100, 20, 120))), queue)
+
+    assert _usage_of(queue, state) == _SEEDED_PLUS_ONE_CALL
+
+
+@pytest.mark.asyncio
+async def test_cancel_reports_usage_of_the_running_execution():
     """A cancel request's canceled status is the task's final event, so it
     carries the calls the interrupted execution completed."""
-    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
-    executor = A2aAgentExecutor(runner=lambda: None)
-    executor._resolve_runner = AsyncMock(return_value=runner)
-    executor._convert_request = lambda request_context, part_converter: AgentRunRequest(
-        user_id="user-1", session_id="ctx-1", run_config=RunConfig()
-    )
-    executor._prepare_session = AsyncMock()
-    executor._safe_close_runner = AsyncMock()
-    counted = asyncio.Event()
-
-    class BlockingUpstreamExecutor:
-        def __init__(self, *, runner, config, force_new_version):
-            self.runner = runner
-
-        async def execute(self, request_context, queue):
-            plugin = self.runner.plugin_manager.get_plugin(TURN_USAGE_PLUGIN_NAME)
-            await plugin.on_event_callback(
-                invocation_context=None, event=usage_event(10, 5, 15, "model-a", partial=False, event_id="e1")
-            )
-            counted.set()
-            await asyncio.Event().wait()
-
-    monkeypatch.setattr(executor_module, "UpstreamA2aAgentExecutor", BlockingUpstreamExecutor)
-    stored = task_with_usage(counts(100, 20, 120))
-    message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
-    execution_queue = _ListQueue()
-    execution = asyncio.create_task(
-        executor.execute(
-            RequestContext(
-                ServerCallContext(state={}),
-                SendMessageRequest(message=message),
-                task_id="task-1",
-                context_id="ctx-1",
-                task=stored,
-            ),
-            execution_queue,
-        )
-    )
-    await counted.wait()
+    agent = _UsageAgent(name="agent", block=True)
+    executor = A2aAgentExecutor(runner=lambda: InMemoryRunner(agent=agent, app_name="app"))
+    stored = _completed_task_with_usage(counts(100, 20, 120))
+    execution = asyncio.create_task(executor.execute(_request_context(stored), _ListQueue()))
+    await agent.reported.wait()
 
     cancel_queue = _ListQueue()
     await executor.cancel(_cancel_context(stored), cancel_queue)
     execution.cancel()
     await execution
 
-    assert _canceled_usage(cancel_queue) == {
-        **counts(110, 25, 135),
-        "models": [{"model": "model-a", **counts(10, 5, 15)}],
-    }
+    assert _usage_of(cancel_queue, TaskState.TASK_STATE_CANCELED) == _SEEDED_PLUS_ONE_CALL
     assert executor._running_usage == {}, "the finished execution must stop being tracked"
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_runner_cleanup_reports_the_finished_execution():
+    """The request handler holds the final event until runner cleanup ends, so
+    a cancel arriving meanwhile replaces it and must carry its usage."""
+    runner = InMemoryRunner(agent=_UsageAgent(name="agent"), app_name="app")
+    executor = A2aAgentExecutor(runner=lambda: runner)
+    stored = _completed_task_with_usage(counts(100, 20, 120))
+    cleaning, release = asyncio.Event(), asyncio.Event()
+
+    async def slow_failing_cleanup(_runner):
+        cleaning.set()
+        await release.wait()
+        raise RuntimeError("cleanup failed")
+
+    executor._safe_close_runner = slow_failing_cleanup
+    execution = asyncio.create_task(executor.execute(_request_context(stored), _ListQueue()))
+    await cleaning.wait()
+
+    cancel_queue = _ListQueue()
+    await executor.cancel(_cancel_context(stored), cancel_queue)
+    release.set()
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        await execution
+
+    assert _usage_of(cancel_queue, TaskState.TASK_STATE_CANCELED) == _SEEDED_PLUS_ONE_CALL
+    assert executor._running_usage == {}, "a failed cleanup must still stop tracking the execution"
 
 
 @pytest.mark.asyncio
@@ -441,7 +374,7 @@ async def test_cancel_of_parked_task_repeats_the_persisted_usage():
 
     await executor.cancel(_cancel_context(task_with_usage(counts(100, 20, 120))), queue)
 
-    assert _canceled_usage(queue) == counts(100, 20, 120)
+    assert _usage_of(queue, TaskState.TASK_STATE_CANCELED) == counts(100, 20, 120)
 
 
 @pytest.mark.asyncio
