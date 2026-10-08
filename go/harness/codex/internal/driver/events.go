@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -16,10 +17,23 @@ type eventTranslator struct {
 	threadID string
 	turnID   string
 	tools    map[string]activeTool
+
+	now         func() time.Time
+	lastCallEnd time.Time
+	// seenTotals holds the last running total per thread, to skip a replayed notification.
+	seenTotals map[string]codexUsage
 }
 
 func newEventTranslator(threadID, turnID string) *eventTranslator {
-	return &eventTranslator{threadID: threadID, turnID: turnID, tools: make(map[string]activeTool)}
+	now := time.Now
+	return &eventTranslator{
+		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool),
+		now: now, lastCallEnd: now(), seenTotals: map[string]codexUsage{},
+	}
+}
+
+type codexUsage struct {
+	InputTokens, CachedInputTokens, CacheWriteInputTokens, OutputTokens int64
 }
 
 type activeTool struct {
@@ -58,6 +72,8 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 			return runtime.Outcome{}, false, err
 		}
 		return runtime.Outcome{}, false, nil
+	case "thread/tokenUsage/updated":
+		return runtime.Outcome{}, false, t.usage(message.Params, sink)
 	case "turn/completed":
 		var params struct {
 			ThreadID string
@@ -90,6 +106,43 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		// the public text/tool/terminal contract are safe to ignore.
 		return runtime.Outcome{}, false, nil
 	}
+}
+
+func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink) error {
+	var params struct {
+		ThreadID, TurnID string
+		TokenUsage       struct{ Total, Last codexUsage }
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return fmt.Errorf("decode Codex token usage: %w", err)
+	}
+	// The process serves one turn, so another thread is a subagent whose calls also count.
+	own := params.ThreadID == t.threadID
+	if own && params.TurnID != t.turnID {
+		return nil
+	}
+	if total := params.TokenUsage.Total; total != (codexUsage{}) {
+		if t.seenTotals[params.ThreadID] == total {
+			return nil
+		}
+		t.seenTotals[params.ThreadID] = total
+	}
+	// Subagent calls have no start time, so their spans are zero-length at arrival.
+	last, end := params.TokenUsage.Last, t.now()
+	call := runtime.ModelCall{
+		InputTokens:      last.InputTokens,
+		CacheReadTokens:  last.CachedInputTokens,
+		CacheWriteTokens: last.CacheWriteInputTokens,
+		OutputTokens:     last.OutputTokens,
+		Start:            end,
+		End:              end,
+	}
+	if own {
+		// Usage arrives only after the call's tools ran, so the span is approximate.
+		call.Start = t.lastCallEnd
+		t.lastCallEnd = end
+	}
+	return sink.ModelCall(call)
 }
 
 func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sink runtime.EventSink) error {
@@ -153,7 +206,11 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		return fmt.Errorf("codex tool item %q changed name from %q to %q", item.ID, started.name, name)
 	}
 	delete(t.tools, item.ID)
-	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: result, IsError: item.Status == "failed"})
+	status := runtime.ToolRan
+	if item.Status == "declined" {
+		status = runtime.ToolDeclined
+	}
+	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: result, IsError: item.Status == "failed", Status: status})
 }
 
 func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
@@ -164,7 +221,7 @@ func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
 	slices.Sort(ids)
 	for _, id := range ids {
 		if err := sink.ToolResult(runtime.ToolResult{
-			ID: id, Name: t.tools[id].name, Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true,
+			ID: id, Name: t.tools[id].name, Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true, Status: runtime.ToolUnfinished,
 		}); err != nil {
 			return err
 		}

@@ -27,6 +27,8 @@ const (
 	// AttributeRuntime names the runtime on the resource. A Harness object's
 	// configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
+	// AttributeGenAIProducer names the component that writes a native process's model and tool spans.
+	AttributeGenAIProducer = string(conv.KagentGenaiProducerKey)
 	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
@@ -263,6 +265,9 @@ func (t RuntimeTelemetry) ChildResource() []attribute.KeyValue {
 	attributes := t.ResourceIdentity()
 	if t.AgentNamespace != "" {
 		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
+	}
+	if t.Runtime.NativeHarness() {
+		attributes = append(attributes, attribute.String(AttributeGenAIProducer, conv.KagentGenaiProducerAdapter))
 	}
 	return attributes
 }

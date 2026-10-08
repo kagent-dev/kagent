@@ -1,5 +1,7 @@
 package driver
 
+import "github.com/kagent-dev/kagent/go/harness/runtime"
+
 type EventKind string
 
 const (
@@ -8,6 +10,7 @@ const (
 	EventToolActivity   EventKind = "tool_activity"
 	EventCompleted      EventKind = "completed"
 	EventFailed         EventKind = "failed"
+	EventModelCall      EventKind = "model_call"
 )
 
 // Event is the Claude stream vocabulary consumed by ProcessDriver. Vendor
@@ -26,4 +29,5 @@ type Event struct {
 	Category    string
 	SafeMessage string
 	Result      string
+	ModelCall   *runtime.ModelCall
 }

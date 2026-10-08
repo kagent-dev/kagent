@@ -15,10 +15,12 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `kagent.capture.input_truncated` | boolean |  | Whether the captured input messages were shortened to the capture budget. |
 | `kagent.capture.output_truncated` | boolean |  | Whether the captured output messages were shortened to the capture budget. |
 | `kagent.gc.stage` | enum | `discovery`, `collection` | The stage of a runtime revision garbage collection attempt. |
+| `kagent.genai.producer` | enum | `adapter` | The component that writes the GenAI model and tool spans of an agent. Set on the resource of a native harness process. With the value `adapter`, the collector counts the spans of the kagent harness adapter for that agent. When absent, the harness writes its own native spans, as in older images. |
 | `kagent.invocation.disposition` | enum | `canceled`, `abandoned`, `interrupted` | How a segment stopped, when the task state does not say it. |
 | `kagent.invocation.relationship` | enum | `resume_origin` | Why a segment links to another span. A link attribute. A link states a relationship. It does not reparent spans and it does not move the token usage recorded under the linked span. |
 | `kagent.invocation.segment` | enum | `initial`, `resumed` | Whether an execution starts a task or continues it. A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
-| `kagent.runtime` | enum | `adk-go`, `adk-python`, `claude`, `codex`, `langgraph`, `crewai`, `openai-agents`, `byo` | The runtime that produces the model and tool spans of an agent. Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
+| `kagent.model_call.usage_partial` | boolean |  | Whether the call ended without final usage, so its output tokens are a lower bound. Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
+| `kagent.runtime` | enum | `adk-go`, `adk-python`, `claude`, `codex`, `langgraph`, `crewai`, `openai-agents`, `byo` | The framework or harness that runs an agent. Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
 
 ## Metrics
 
@@ -70,6 +72,20 @@ The compiled agent an invocation belongs to.
 | `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | kagent also writes `ollama` and `sap.ai_core`, which the conventions do not list. |
 | `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The ADK runtimes report the model on each inference span instead. |
 
+### `kagent.model_call`
+
+What one model request returned.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.response.finish_reasons` | recommended: The runtime reported it. | Claude only. Codex reports none. |
+| `gen_ai.response.model` | recommended: The runtime reported it. | The model the harness reported. |
+| `gen_ai.usage.cache_read.input_tokens` | recommended: The runtime reported a non-zero count. | The value SHOULD be included in `gen_ai.usage.input_tokens`. |
+| `gen_ai.usage.cache_write.input_tokens` | recommended: The runtime reported a non-zero count. | The value SHOULD be included in `gen_ai.usage.input_tokens`. |
+| `gen_ai.usage.input_tokens` | recommended | Includes cached tokens. Absent when the runtime reported no usage. |
+| `gen_ai.usage.output_tokens` | recommended | Absent when the runtime reported no usage. |
+| `kagent.model_call.usage_partial` | conditionally required: The call ended without final usage. | Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
+
 ### `kagent.outcome`
 
 How an invocation ended.
@@ -107,6 +123,16 @@ The resource of a kagent runtime. The `kagent.main_agent` entity and the service
 | `service.namespace` | required | The agent namespace. |
 | `service.version` | required | The short revision id. |
 
+### `kagent.tool_call`
+
+One tool call of an invocation.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `error.type` | conditionally required: The tool reported a failure or never finished. | `tool_error` when the tool reported a failure, `unfinished` when its result never arrived. Never the tool output. |
+| `gen_ai.tool.call.id` | required |  |
+| `gen_ai.tool.name` | required |  |
+
 ## Spans
 
 ### `kagent.a2a.request`
@@ -128,6 +154,40 @@ Kind `internal`. One execution segment of a runtime that emits its own invoke_ag
 | `kagent.invocation.disposition` | conditionally required: The task state does not say how the segment stopped. |  |
 | `kagent.invocation.segment` | required | A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
 
+### `kagent.execute_tool.internal`
+
+Refines `gen_ai.execute_tool.internal`, kind `internal`. One tool call of a harness turn. Named `execute_tool {gen_ai.tool.name}`. A child of the invoke_agent span when one exists, otherwise a root span, from the tool call to its result. A call that waits for approval starts at the approval.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `error.type` | conditionally required: The tool reported a failure or never finished. | `tool_error` when the tool reported a failure, `unfinished` when its result never arrived. Never the tool output. |
+| `gen_ai.agent.name` | conditionally required: When applicable. |  |
+| `gen_ai.conversation.id` | conditionally required: The gateway assigned an A2A context. | The A2A context ID. |
+| `gen_ai.operation.name` | required | Always `execute_tool`. |
+| `gen_ai.tool.call.id` | required |  |
+| `gen_ai.tool.name` | required |  |
+
+### `kagent.inference.client`
+
+Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A child of the invoke_agent span when one exists, otherwise a root span. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. A request rejected before any response has no chat span.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `error.type` | conditionally required: The call ended with finish reason `error` and was not canceled. | Always `model_error`. A canceled call keeps finish reason `error`, as the conventions require, but has no error status. |
+| `gen_ai.conversation.id` | conditionally required: The gateway assigned an A2A context. | The A2A context ID. |
+| `gen_ai.input.messages` | opt in | Never set here. With content capture on, the turn content is on the invoke_agent span. |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.output.messages` | opt in | Never set here. With content capture on, the turn content is on the invoke_agent span. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | The provider the agent is compiled against. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The model the agent is compiled against. |
+| `gen_ai.response.finish_reasons` | recommended: The runtime reported it. | Claude only. Codex reports none. |
+| `gen_ai.response.model` | recommended: The runtime reported it. | The model the harness reported. |
+| `gen_ai.usage.cache_read.input_tokens` | recommended: The runtime reported a non-zero count. | The value SHOULD be included in `gen_ai.usage.input_tokens`. |
+| `gen_ai.usage.cache_write.input_tokens` | recommended: The runtime reported a non-zero count. | The value SHOULD be included in `gen_ai.usage.input_tokens`. |
+| `gen_ai.usage.input_tokens` | recommended | Includes cached tokens. Absent when the runtime reported no usage. |
+| `gen_ai.usage.output_tokens` | recommended | Absent when the runtime reported no usage. |
+| `kagent.model_call.usage_partial` | conditionally required: The call ended without final usage. | Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
+
 ### `kagent.invoke_agent.internal`
 
 Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment of a kagent agent. Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`.
@@ -147,6 +207,9 @@ Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment o
 | `gen_ai.output.messages` | opt in | Bounded turn content, recorded only under `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. |
 | `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | kagent also writes `ollama` and `sap.ai_core`, which the conventions do not list. |
 | `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The ADK runtimes report the model on each inference span instead. |
+| `gen_ai.response.finish_reasons` | opt in | Never set here. The finish reason is on the chat spans. |
+| `gen_ai.usage.input_tokens` | opt in | Never set here. Token usage is on the chat spans. |
+| `gen_ai.usage.output_tokens` | opt in | Never set here. Token usage is on the chat spans. |
 | `kagent.capture.input_truncated` | conditionally required: gen_ai.input.messages is present. |  |
 | `kagent.capture.output_truncated` | conditionally required: gen_ai.output.messages is present. |  |
 | `kagent.invocation.disposition` | conditionally required: The task state does not say how the segment stopped. |  |
@@ -165,6 +228,7 @@ Refines the `gen_ai.main_agent` entity. An agent runtime compiled by kagent. kag
 | `gen_ai.main_agent.name` | description | required | The compiled agent identity, `<agent>`. |
 | `gen_ai.provider.name` | description | conditionally required: The runtime is a harness compiled against one model. | The provider the agent is compiled against. |
 | `gen_ai.request.model` | description | conditionally required: The runtime is a harness compiled against one model. | The model the agent is compiled against. |
+| `kagent.genai.producer` | description | conditionally required: The runtime is a native harness. | Set on the resource of a native harness process. With the value `adapter`, the collector counts the spans of the kagent harness adapter for that agent. When absent, the harness writes its own native spans, as in older images. |
 | `kagent.runtime` | description | required | Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
 
 

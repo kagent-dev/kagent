@@ -379,7 +379,7 @@ sleep 5
 	if err != nil || outcome.Pending == nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
-	if err := outcome.Pending.Cancel(t.Context()); err != nil {
+	if err := outcome.Pending.Cancel(t.Context(), &recordingSink{}); err != nil {
 		t.Fatal(err)
 	}
 

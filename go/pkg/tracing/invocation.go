@@ -138,6 +138,14 @@ func (i *Invocation) IsRecording() bool {
 	return i != nil && i.span.IsRecording()
 }
 
+// Flush exports spans written after the invocation ended; it is safe on a nil handle.
+func (i *Invocation) Flush(ctx context.Context) error {
+	if i == nil || i.flush == nil {
+		return nil
+	}
+	return i.flush(ctx)
+}
+
 // End completes the invocation from the component that owns execution. It
 // reports whether this call ended the span, and any export failure the caller
 // should log.

@@ -68,7 +68,7 @@ input, the outcome contains a `runtime.PendingTurn`:
 type PendingTurn interface {
         Request() InputRequest
         Resume(context.Context, InputResponse, EventSink) (Outcome, error)
-        Cancel(context.Context) error
+        Cancel(context.Context, ModelCallSink) error
 }
 ```
 

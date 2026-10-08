@@ -380,6 +380,8 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if err := p.session.client.respond(p.id, native); err != nil {
 		return runtime.Outcome{}, err
 	}
+	// The next call's span must not include the human wait for this input.
+	p.session.translator.lastCallEnd = p.session.translator.now()
 	outcome, err := p.driver.consume(ctx, p.session, sink)
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
@@ -387,7 +389,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 
 // Cancel resolves the outstanding request when possible, interrupts the Codex
 // turn, and always reaps the App Server process.
-func (p *pendingTurn) Cancel(ctx context.Context) error {
+func (p *pendingTurn) Cancel(ctx context.Context, _ runtime.ModelCallSink) error {
 	responded := true
 	if _, approval := p.request.(*runtime.ApprovalRequest); approval {
 		responded = p.session.client.respond(p.id, map[string]any{
