@@ -5,6 +5,27 @@ import { themeFor } from "@/theme/theme";
 import { ToolCallCard } from "./ToolCallCard";
 
 describe("ToolCallCard", () => {
+  it.each([
+    [{ data: "observed alert", error: null, status: "success" }, false],
+    [{ output: "observed alert" }, false],
+    [{ error: "upstream unavailable" }, true],
+    [{ isError: true, error: null }, true],
+  ])("renders tool result failure from %j", (response, failed) => {
+    render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ToolCallCard
+          part={{
+            kind: "data",
+            dataKind: "tool_result",
+            data: { name: "alerts_list_alerts", response },
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByText("failed") !== null).toBe(failed);
+  });
+
   it("keeps invocation arguments in the tool call card", () => {
     render(
       <ThemeProvider theme={themeFor("dark")}>

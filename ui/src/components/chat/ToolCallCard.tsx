@@ -103,7 +103,7 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
 
     return {
       body: typeof payload === "string" ? payload : stableJson(payload ?? response),
-      failed: isError === true || error !== undefined,
+      failed: isError === true || error != null,
     };
   }
   return { body: stableJson(part.data), failed: false };
