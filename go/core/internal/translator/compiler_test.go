@@ -622,6 +622,7 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4318/v1/logs")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", "256")
 	otherCollector := "http://other-collector:4317"
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
@@ -655,8 +656,9 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "otlp",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
 		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
-		"OTEL_SERVICE_NAME":        "runnable-agent",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,service.namespace=test",
+		"OTEL_SERVICE_NAME":                      "runnable-agent",
+		"OTEL_RESOURCE_ATTRIBUTES":               "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,service.namespace=test",
+		"OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "256",
 	} {
 		if found[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)

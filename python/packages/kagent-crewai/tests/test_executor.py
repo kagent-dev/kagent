@@ -6,7 +6,7 @@ from a2a.types import Message, Part, Role, SendMessageRequest, TaskArtifactUpdat
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
 
-from kagent.crewai._executor import CrewAIAgentExecutor
+from kagent.crewai._executor import CrewAIAgentExecutor, _convert_a2a_request_to_span_attributes
 
 
 def _request_context(*parts: Part) -> RequestContext:
@@ -72,3 +72,11 @@ async def test_execute_falls_back_to_text_input_without_datapart():
 
     crew.kickoff_async.assert_awaited_once_with(inputs={"input": "hello"})
     _assert_content_artifact_closes_stream(events)
+
+
+def test_span_attributes_are_runtime_only():
+    attrs = _convert_a2a_request_to_span_attributes(_request_context(Part(text="hello")))
+
+    assert attrs["kagent.user_id"]
+    assert "kagent.context.thread_id" not in attrs
+    assert "user.id" not in attrs
