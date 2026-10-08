@@ -13,7 +13,7 @@ import (
 )
 
 func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _ := waitingTaskFixture(t, client)
@@ -29,7 +29,7 @@ func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
 }
 
 func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
@@ -67,7 +67,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 }
 
 func TestPushRegistrationConcurrentConfiguration(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestPushRegistrationConcurrentConfiguration(t *testing.T) {
 }
 
 func TestTaskPushConfigManagement(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
@@ -138,7 +138,7 @@ func TestTaskPushConfigManagement(t *testing.T) {
 }
 
 func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
@@ -179,7 +179,7 @@ func TestPushRegistrationFingerprintRejectsChangedSend(t *testing.T) {
 }
 
 func TestEmbeddedPushDoesNotReplaceExplicitConfiguration(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
@@ -201,7 +201,7 @@ func TestEmbeddedPushDoesNotReplaceExplicitConfiguration(t *testing.T) {
 }
 
 func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
@@ -222,7 +222,7 @@ func TestContinuationPushBindsWithAcceptedTaskWrite(t *testing.T) {
 }
 
 func TestUnacceptedContinuationDoesNotSubscribeToTask(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskFixture(t, client)
@@ -244,7 +244,7 @@ func TestUnacceptedContinuationDoesNotSubscribeToTask(t *testing.T) {
 }
 
 func TestPushOutboxRetriesAndRejectsTerminalRegistration(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	config := &a2a.PushConfig{ID: "callback", URL: "http://receiver"}
@@ -295,7 +295,7 @@ func TestPushOutboxRetriesAndRejectsTerminalRegistration(t *testing.T) {
 }
 
 func TestPushOutboxBackoffAndAttemptLimit(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
@@ -336,7 +336,7 @@ func TestPushOutboxBackoffAndAttemptLimit(t *testing.T) {
 }
 
 func TestPushOutboxExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
@@ -366,7 +366,7 @@ func TestPushOutboxExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 }
 
 func TestPushOutboxKeepsDistinctPublishedBoundaries(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
@@ -399,7 +399,7 @@ func TestPushOutboxKeepsDistinctPublishedBoundaries(t *testing.T) {
 }
 
 func TestPushOutboxExpiredLeaseFencesOldWorker(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
@@ -425,7 +425,7 @@ func TestPushOutboxExpiredLeaseFencesOldWorker(t *testing.T) {
 }
 
 func TestPushOutboxReplacementAndDeleteCancelOldWork(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client,

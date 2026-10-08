@@ -294,7 +294,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	workerDone := make(chan error, 1)
 	pushSigner, err := sessionsvc.NewPushJWTSigner(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))), "https://kagent.example")
 	require.NoError(t, err)
-	worker := sessionsvc.NewPushWorker(database.NewClient(db), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner)
+	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner)
 	go func() { workerDone <- worker.Start(workerCtx) }()
 	t.Cleanup(func() { stopWorker(); require.NoError(t, <-workerDone) })
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
