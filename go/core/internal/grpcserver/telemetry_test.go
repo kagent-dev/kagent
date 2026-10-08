@@ -6,13 +6,16 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/telemetrytest"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -80,6 +83,22 @@ func TestServerTelemetryShape(t *testing.T) {
 	// RPC responses can arrive before otelgrpc records the final span and
 	// metrics. Drain both handlers before inspecting their telemetry.
 	server.server.GracefulStop()
+
+	// The client has its responses before the server is done with the RPCs:
+	// otelgrpc ends the server span and records rpc.server.call.duration on
+	// the stats handler's End event, after the response is written. Wait for
+	// both instead of assuming they are there when the calls return.
+	require.Eventually(t, func() bool {
+		if len(spans.GetSpans()) == 0 {
+			return false
+		}
+		var data metricdata.ResourceMetrics
+		if err := reader.Collect(context.Background(), &data); err != nil {
+			return false
+		}
+		_, ok := telemetrytest.FindMetric(data, "rpc.server.call.duration")
+		return ok
+	}, 10*time.Second, 10*time.Millisecond, "the GetVersion server span and rpc.server.call.duration")
 
 	exported := spans.GetSpans()
 	telemetrytest.AssertTraceShape(t, exported)
