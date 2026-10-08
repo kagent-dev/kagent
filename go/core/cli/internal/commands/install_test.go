@@ -153,11 +153,13 @@ cat >/dev/null
 	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_VERSION", "v3")
 
 	cfg := connection.DefaultOptions()
-	install(t.Context(), &cfg,
+	// The fake kubectl fails port-forward, so only the API check after the releases fails.
+	err := install(t.Context(), &cfg,
 		helmConfig{registry: "./kagent/", version: "v1"},
 		helmConfig{registry: "./substrate/", version: "v2"},
 		"openAI", false,
 	)
+	require.ErrorContains(t, err, "start port-forward")
 
 	commands, err := os.ReadFile(logPath)
 	require.NoError(t, err)

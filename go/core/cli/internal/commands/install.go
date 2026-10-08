@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,19 +68,16 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg) *connection.PortForward {
+func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg) error {
 	if version.Version == "dev" {
-		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
-		return nil
+		return errors.New("installation requires a released version of kagent")
 	}
 
 	if err := checkHelmAvailable(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return nil
+		return err
 	}
 	if err := checkKubectlAvailable(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return nil
+		return err
 	}
 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
@@ -89,10 +87,7 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 	if apiKey, ok := providerAPIKey(modelProvider); ok {
 		apiKeyValue = apiKey.Get()
 		if apiKeyValue == "" {
-			fmt.Fprintf(os.Stderr, "%s is not set\n", apiKey.Name())
-			fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKey.Name())
-			fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
-			return nil
+			return fmt.Errorf("%s is not set; set it, or choose another provider with KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)", apiKey.Name())
 		}
 	}
 
@@ -217,7 +212,7 @@ func setupPodCertificateHelmConfig(substrateConfig helmConfig) helmConfig {
 }
 
 // install installs the Substrate and Kagent releases.
-func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool) *connection.PortForward {
+func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool) error {
 	podCertificateHelmConfig := setupPodCertificateHelmConfig(substrateHelmConfig)
 	substrateHelmConfig.values = append([]string{
 		fmt.Sprintf("credentialProvider.namespacePolicies[0].atespace=%s", cfg.Namespace),
@@ -248,47 +243,36 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 			// Restart the spinner
 			s.Start()
 		} else {
-			fmt.Fprintln(os.Stderr, "Error installing kagent-crds:", output)
-			return nil
+			return fmt.Errorf("install kagent-crds: %s", strings.TrimSpace(output))
 		}
 	}
 
 	s.Suffix = " Installing substrate-crds from " + substrateHelmConfig.registry
 	if output, err := installChart(ctx, "substrate-crds", substrateNamespace, substrateHelmConfig.registry, substrateHelmConfig.version, nil, ""); err != nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error installing substrate-crds:", output)
-		return nil
+		return fmt.Errorf("install substrate-crds: %s", strings.TrimSpace(output))
 	}
 
 	s.Suffix = " Preparing Substrate prerequisites"
 	if err := prepareSubstrate(ctx); err != nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error preparing Substrate prerequisites:", err)
-		return nil
+		return fmt.Errorf("prepare Substrate prerequisites: %w", err)
 	}
 
 	s.Suffix = " Installing substrate-podcert from " + podCertificateHelmConfig.registry
 	if output, err := installChart(ctx, "substrate-podcert", podCertificateNamespace, podCertificateHelmConfig.registry, podCertificateHelmConfig.version, podCertificateChartValues(substrateHelmConfig.values, cfg.Namespace, !skipDatabaseSetup), ""); err != nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error installing substrate-podcert:", output)
-		return nil
+		return fmt.Errorf("install substrate-podcert: %s", strings.TrimSpace(output))
 	}
 
 	if !skipDatabaseSetup {
 		s.Suffix = " Preparing bundled PostgreSQL"
 		if err := prepareBundledPostgres(ctx, cfg.Namespace); err != nil {
-			s.Stop()
-			fmt.Fprintln(os.Stderr, "Error preparing bundled PostgreSQL:", err)
-			return nil
+			return fmt.Errorf("prepare bundled PostgreSQL: %w", err)
 		}
 		substrateHelmConfig.values = append(substrateHelmConfig.values, "postgres.clientCertificates.enabled=true")
 	}
 
 	s.Suffix = " Installing substrate from " + substrateHelmConfig.registry
 	if output, err := installChart(ctx, "substrate", substrateNamespace, substrateHelmConfig.registry, substrateHelmConfig.version, substrateHelmConfig.values, ""); err != nil {
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error installing substrate:", output)
-		return nil
+		return fmt.Errorf("install substrate: %s", strings.TrimSpace(output))
 	}
 
 	// Update status
@@ -310,22 +294,20 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.inlineValues); err != nil {
-		// Always stop the spinner before printing error messages
-		s.Stop()
-		fmt.Fprintln(os.Stderr, "Error installing kagent:", output)
-		return nil
+		return fmt.Errorf("install kagent: %s", strings.TrimSpace(output))
 	}
 
 	// Stop the spinner completely before printing the success message
 	s.Stop()
 	fmt.Fprintln(os.Stdout, "kagent installed successfully")
 
+	// The port-forward only proves the API is reachable; later commands open their own.
 	pf, err := connection.NewPortForward(ctx, cfg, cfg.APIURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-		return nil
+		return fmt.Errorf("start port-forward: %w", err)
 	}
-	return pf
+	pf.Stop()
+	return nil
 }
 
 // deleteCRDs manually deletes Kubernetes CRDs for kagent
@@ -455,8 +437,7 @@ func NewInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			runInstall(cmd.Context(), options, cfg)
-			return nil
+			return runInstall(cmd.Context(), options, cfg)
 		},
 	}
 	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal)")
