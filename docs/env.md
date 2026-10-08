@@ -96,7 +96,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `GEMINI_API_KEY` | String | `(none)` | Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs. |
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
-| `KAGENT_BUNDLED_POSTGRES_IMAGE` | String | `postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15` | Image for the development PostgreSQL that kagent install deploys. Point it at a mirror for air-gapped clusters. |
+| `KAGENT_BUNDLED_POSTGRES_IMAGE` | String | `postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15` | PostgreSQL image that kagent install deploys. Point it at a mirror for air-gapped clusters. |
 | `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_DEFAULT_MODEL_PROVIDER` | String | `openAI` | Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI). |
 | `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Kagent chart. |

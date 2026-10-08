@@ -248,7 +248,7 @@ A direct Helm installation requires a prepared database, a `kagent-postgres`
 connection Secret in the Kagent namespace, and a separately installed Substrate.
 The optional addons above provide observability components.
 
-> **pgvector:** The development PostgreSQL image does not include the pgvector
+> **pgvector:** The PostgreSQL image `kagent install` deploys does not include the pgvector
 > extension. Vector features require a PostgreSQL deployment with pgvector and
 > `database.postgres.vectorEnabled=true`.
 

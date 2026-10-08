@@ -47,7 +47,7 @@ func bundledPostgresSetupSQL() string {
 	return "BEGIN;\n" + bundledPostgresSQL + "\n" + postgressetup.SQL() + "\nCOMMIT;\n"
 }
 
-// bundledPostgresManifest renders the development PostgreSQL manifest. Both values are
+// bundledPostgresManifest renders the PostgreSQL manifest kagent install applies. Both values are
 // substituted into YAML, so they are validated rather than escaped.
 func bundledPostgresManifest(namespace, image string) (string, error) {
 	if problems := validation.IsDNS1123Label(namespace); len(problems) != 0 {

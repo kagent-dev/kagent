@@ -33,7 +33,7 @@ var (
 	KagentBundledPostgresImage = RegisterStringVar(
 		"KAGENT_BUNDLED_POSTGRES_IMAGE",
 		"postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15",
-		"Image for the development PostgreSQL that kagent install deploys. Point it at a mirror for air-gapped clusters.",
+		"PostgreSQL image that kagent install deploys. Point it at a mirror for air-gapped clusters.",
 		ComponentCLI,
 	)
 
