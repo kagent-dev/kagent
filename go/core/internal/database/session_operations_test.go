@@ -299,7 +299,7 @@ func TestFailSessionReleasesHeldIdleWork(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, failed.State)
 	require.ErrorIs(t, client.RenewSessionQuiescence(t.Context(), work, testClaimLease), ErrNotFound, "the claim is released")
-	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work), "the holder's late release records nothing")
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work, testQuiescenceFailure), "the holder's late release records nothing")
 	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/late", ContentScope: "DATA"}
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, snapshot), "the holder's late finish records nothing")
 	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)

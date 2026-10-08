@@ -206,8 +206,9 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 
 // A Pause or Quiesce that fails without an answer leaves the claim held while
 // the Actor is still in transition, and the Actor's state then settles it: a
-// boundary that landed is recorded, any other state releases the claim without
-// a snapshot. Either way the next turn is admitted.
+// boundary that landed is recorded, a running Actor gets the request once more,
+// and any other state, or a retry that fails too, releases the claim without a
+// snapshot and records why on the session. Either way the next turn is admitted.
 func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 	suspend := func(a *lifecycleTestActors, space, name string) {
 		_, _ = a.SuspendActor(context.Background(), space, name)
@@ -221,18 +222,28 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 	gone := func(a *lifecycleTestActors, space, name string) {
 		_ = a.DeleteActor(context.Background(), space, name, true)
 	}
+	running := become(ateapipb.ActorState_ACTOR_STATE_RUNNING)
+	retryFails := status.Error(codes.DeadlineExceeded, "sandbox teardown outlived the retry")
 	for _, test := range []struct {
-		name     string
-		waiting  bool
-		settle   func(*lifecycleTestActors, string, string)
-		snapshot bool
+		name         string
+		waiting      bool
+		settle       func(*lifecycleTestActors, string, string)
+		retryErr     error
+		retryCrashes bool
+		snapshot     bool
+		requests     int32
+		failure      string
+		failedMsg    string
 	}{
-		{name: "suspend lands", settle: suspend, snapshot: true},
-		{name: "suspend did not happen", settle: become(ateapipb.ActorState_ACTOR_STATE_RUNNING)},
-		{name: "runtime crashed", settle: become(ateapipb.ActorState_ACTOR_STATE_CRASHED)},
-		{name: "actor gone", settle: gone},
-		{name: "pause lands", waiting: true, settle: pause},
-		{name: "pause did not happen", waiting: true, settle: become(ateapipb.ActorState_ACTOR_STATE_RUNNING)},
+		{name: "suspend lands", settle: suspend, snapshot: true, requests: 1},
+		{name: "suspend did not happen and its retry lands", settle: running, snapshot: true, requests: 2},
+		{name: "suspend did not happen and its retry fails", settle: running, retryErr: retryFails, requests: 2, failure: "SuspendFailed", failedMsg: "sandbox teardown outlived the retry"},
+		{name: "suspend did not happen and the runtime crashed during its retry", settle: running, retryErr: retryFails, retryCrashes: true, requests: 2, failure: "RuntimeUnavailable", failedMsg: "ACTOR_STATE_CRASHED"},
+		{name: "runtime crashed", settle: become(ateapipb.ActorState_ACTOR_STATE_CRASHED), requests: 1, failure: "RuntimeUnavailable", failedMsg: "ACTOR_STATE_CRASHED"},
+		{name: "actor gone", settle: gone, requests: 1, failure: "RuntimeUnavailable", failedMsg: "not found"},
+		{name: "pause lands", waiting: true, settle: pause, requests: 1},
+		{name: "pause did not happen and its retry lands", waiting: true, settle: running, requests: 2},
+		{name: "pause did not happen and its retry fails", waiting: true, settle: running, retryErr: retryFails, requests: 2, failure: "PauseFailed", failedMsg: "sandbox teardown outlived the retry"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
@@ -253,7 +264,7 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
 
-			actors := &unsettledActors{lifecycleTestActors: base, pending: pending, settle: test.settle, release: make(chan struct{}), reads: make(chan struct{}, 1)}
+			actors := &unsettledActors{lifecycleTestActors: base, pending: pending, settle: test.settle, retryErr: test.retryErr, retryCrashes: test.retryCrashes, release: make(chan struct{}), reads: make(chan struct{}, 1)}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			workflow.settleDelay = time.Millisecond
 			work, err := store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
@@ -270,9 +281,20 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 
 			close(actors.release)
 			workflow.settling.Wait()
-			require.EqualValues(t, 1, actors.mutations.Load(), "settling never repeats the runtime request")
+			require.Equal(t, test.requests, actors.mutations.Load(), "only a running Actor gets the request once more")
 			_, err = store.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 			require.ErrorIs(t, err, database.ErrNotFound, "the settled boundary is not claimed again")
+			settled, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			if test.failure == "" {
+				require.Nil(t, settled.GetLastQuiescenceFailure(), "a settled boundary records no failure")
+			} else {
+				failure := settled.GetLastQuiescenceFailure()
+				require.Equal(t, string(task.ID), failure.GetTaskId())
+				require.Equal(t, test.failure, failure.GetReason())
+				require.Contains(t, failure.GetMessage(), test.failedMsg)
+				require.NotNil(t, failure.GetFailedAt())
+			}
 			if test.snapshot {
 				checkpoint := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 				_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
@@ -287,8 +309,9 @@ func TestFailedBoundarySettlesFromTheActor(t *testing.T) {
 
 // A worker that stops while its claim is unsettled, during the runtime request
 // or while it reads the Actor again, leaves the claim to another worker once
-// the lease has run out. The other worker settles it from the Actor's state
-// without repeating the request; a live holder keeps its claim past the lease.
+// the lease has run out. The other worker settles it from the Actor's state,
+// repeating the request only on a running Actor; a live holder keeps its claim
+// past the lease.
 func TestStoppedHolderBoundaryIsSettledByAnotherWorker(t *testing.T) {
 	suspend := func(a *lifecycleTestActors, space, name string) {
 		_, _ = a.SuspendActor(context.Background(), space, name)
@@ -297,17 +320,18 @@ func TestStoppedHolderBoundaryIsSettledByAnotherWorker(t *testing.T) {
 		_, _ = a.PauseActor(context.Background(), space, name)
 	}
 	for _, test := range []struct {
-		name    string
-		waiting bool
-		hang    bool
-		settle  func(*lifecycleTestActors, string, string)
+		name     string
+		waiting  bool
+		hang     bool
+		settle   func(*lifecycleTestActors, string, string)
+		requests int32
 	}{
-		{name: "stopped while settling a suspend", settle: suspend},
-		{name: "stopped while settling a pause", waiting: true, settle: pause},
-		{name: "stopped during the suspend request", hang: true, settle: suspend},
+		{name: "stopped while settling a suspend", settle: suspend, requests: 1},
+		{name: "stopped while settling a pause", waiting: true, settle: pause, requests: 1},
+		{name: "stopped during the suspend request", hang: true, settle: suspend, requests: 1},
 		{name: "stopped while settling an unfinished suspend", settle: func(a *lifecycleTestActors, space, name string) {
 			a.setState(space, name, ateapipb.ActorState_ACTOR_STATE_RUNNING)
-		}},
+		}, requests: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			const lease = 300 * time.Millisecond
@@ -359,16 +383,16 @@ func TestStoppedHolderBoundaryIsSettledByAnotherWorker(t *testing.T) {
 			require.Eventually(t, func() bool {
 				return store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next") == nil
 			}, 10*time.Second, 20*time.Millisecond, "the boundary is settled by the second worker and admits the next turn")
-			require.EqualValues(t, 1, actors.mutations.Load(), "the second worker never repeats the runtime request")
+			require.Equal(t, test.requests, actors.mutations.Load(), "the second worker repeats the runtime request only on a running Actor")
 		})
 	}
 }
 
 // A holder whose Pause is in flight when it freezes past its lease is taken
-// over: the successor fences the running Actor and releases the claim, and the
-// late Pause is refused, so the Actor stays running and the next turn is
-// admitted. A live holder renewing its lease keeps its claim and its slow Pause
-// lands.
+// over: the successor finds the Actor running and pauses it with a newer
+// fencing token, and the late Pause is refused, so the boundary is settled once
+// and the next turn is admitted. A live holder renewing its lease keeps its
+// claim and its slow Pause lands.
 func TestLatePauseOfATakenOverHolderIsRefused(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -439,20 +463,25 @@ func TestLatePauseOfATakenOverHolderIsRefused(t *testing.T) {
 			<-holding
 			actor, err := base.GetActor(t.Context(), atespace, name)
 			require.NoError(t, err)
-			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.GetStatus().GetState(), "the Actor the next turn takes stays running")
+			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_PAUSED, actor.GetStatus().GetState(), "the successor's own Pause settled the boundary")
 		})
 	}
 }
 
 // delayedPauseActors holds the first Pause until land is closed, as a request
 // in flight while its sender freezes, and reports what Substrate made of it.
+// Later Pauses pass straight through.
 type delayedPauseActors struct {
 	*lifecycleTestActors
 	issued, land chan struct{}
 	landed       chan error
+	first        atomic.Bool
 }
 
 func (a *delayedPauseActors) PauseActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	if !a.first.CompareAndSwap(false, true) {
+		return a.lifecycleTestActors.PauseActor(ctx, space, name)
+	}
 	close(a.issued)
 	<-a.land
 	actor, err := a.lifecycleTestActors.PauseActor(ctx, space, name)
@@ -470,19 +499,23 @@ func (*frozenRenewalStore) RenewSessionQuiescence(context.Context, *database.Ses
 	return nil
 }
 
-// unsettledActors fails the boundary request after Substrate took it: the Actor
-// reports pending until release is closed, and then what settle made of it.
-// With hang, the request does not return until its caller stops.
+// unsettledActors fails the first boundary request after Substrate took it: the
+// Actor reports pending until release is closed, and then what settle made of
+// it. With hang, the request does not return until its caller stops. A later
+// request lands, or fails with retryErr leaving the Actor as it is, or crashed
+// with retryCrashes.
 type unsettledActors struct {
 	*lifecycleTestActors
-	hang      bool
-	pending   ateapipb.ActorState
-	settle    func(*lifecycleTestActors, string, string)
-	release   chan struct{}
-	reads     chan struct{}
-	failed    atomic.Bool
-	settled   sync.Once
-	mutations atomic.Int32
+	hang         bool
+	retryErr     error
+	retryCrashes bool
+	pending      ateapipb.ActorState
+	settle       func(*lifecycleTestActors, string, string)
+	release      chan struct{}
+	reads        chan struct{}
+	failed       atomic.Bool
+	settled      sync.Once
+	mutations    atomic.Int32
 }
 
 func (a *unsettledActors) GetActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
@@ -501,15 +534,29 @@ func (a *unsettledActors) GetActor(ctx context.Context, space, name string) (*at
 }
 
 func (a *unsettledActors) SuspendActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	if a.mutations.Add(1) > 1 {
+		if a.retryCrashes {
+			a.setState(space, name, ateapipb.ActorState_ACTOR_STATE_CRASHED)
+		}
+		if a.retryErr != nil {
+			return nil, a.retryErr
+		}
+		return a.lifecycleTestActors.SuspendActor(ctx, space, name)
+	}
 	return nil, a.fail(ctx, space, name)
 }
 
 func (a *unsettledActors) PauseActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	if a.mutations.Add(1) > 1 {
+		if a.retryErr != nil {
+			return nil, a.retryErr
+		}
+		return a.lifecycleTestActors.PauseActor(ctx, space, name)
+	}
 	return nil, a.fail(ctx, space, name)
 }
 
 func (a *unsettledActors) fail(ctx context.Context, space, name string) error {
-	a.mutations.Add(1)
 	a.setState(space, name, a.pending)
 	a.failed.Store(true)
 	if a.hang {

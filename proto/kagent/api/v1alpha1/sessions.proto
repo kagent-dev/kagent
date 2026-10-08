@@ -62,6 +62,22 @@ message Session {
   // Output only. A2A conversation ID, equal to this session's ID.
   // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
+  // Output only. Why the runtime boundary after a turn was released without a
+  // pause or a snapshot, once the suspend or pause and its retry failed or the
+  // runtime was gone. A later turn's snapshot clears it.
+  QuiescenceFailure last_quiescence_failure = 16;
+}
+
+// QuiescenceFailure explains a turn whose runtime could not be paused or
+// suspended after it settled. The turn is stored; without a snapshot it cannot
+// be checkpointed, and the next turn takes the runtime as it is.
+message QuiescenceFailure {
+  // The turn whose boundary was released.
+  string task_id = 1;
+  // SuspendFailed, PauseFailed or RuntimeUnavailable.
+  string reason = 2;
+  string message = 3;
+  google.protobuf.Timestamp failed_at = 4;
 }
 
 message CreateSessionRequest {

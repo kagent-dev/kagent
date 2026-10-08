@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // SessionQuiescence grants one worker permission to pause an idle session or
@@ -26,7 +27,8 @@ type SessionQuiescence struct {
 	Suspend bool
 	// TakenOver marks a claim whose previous holder stopped renewing its lease
 	// while its runtime request's outcome was unknown. The new holder settles
-	// the boundary from the runtime's state and never repeats the request.
+	// the boundary from the runtime's state and repeats the request, fenced,
+	// only on a running runtime.
 	TakenOver bool
 }
 
@@ -242,19 +244,24 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 	if work.State.Terminal() && (snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope == "") {
 		return fmt.Errorf("terminal task quiescence requires a runtime snapshot")
 	}
-	return c.settleSessionQuiescence(ctx, work, snapshot)
+	return c.settleSessionQuiescence(ctx, work, snapshot, nil)
 }
 
 // ReleaseSessionQuiescence settles a claimed boundary whose runtime was neither
 // suspended nor paused, for a caller that found the Actor's state after a failed
 // Quiesce or Pause: the task keeps no snapshot, admission reopens, and the next
-// turn takes the runtime as it is. A terminal task released this way cannot be
-// checkpointed until a later turn records a snapshot.
-func (c *Client) ReleaseSessionQuiescence(ctx context.Context, work *SessionQuiescence) error {
-	return c.settleSessionQuiescence(ctx, work, nil)
+// turn takes the runtime as it is. The session records the failure as its last
+// quiescence failure, so its status explains the missing snapshot. A terminal
+// task released this way cannot be checkpointed until a later turn records a
+// snapshot, which clears the failure.
+func (c *Client) ReleaseSessionQuiescence(ctx context.Context, work *SessionQuiescence, failure *apiv1alpha1.QuiescenceFailure) error {
+	if failure.GetReason() == "" || failure.GetMessage() == "" {
+		return fmt.Errorf("quiescence failure requires a reason and a message: %w", ErrFailedPrecondition)
+	}
+	return c.settleSessionQuiescence(ctx, work, nil, failure)
 }
 
-func (c *Client) settleSessionQuiescence(ctx context.Context, work *SessionQuiescence, snapshot *SessionTaskSnapshot) error {
+func (c *Client) settleSessionQuiescence(ctx context.Context, work *SessionQuiescence, snapshot *SessionTaskSnapshot, failure *apiv1alpha1.QuiescenceFailure) error {
 	if work == nil || work.ExecutorID == uuid.Nil {
 		return fmt.Errorf("claimed task boundary is required")
 	}
@@ -298,8 +305,39 @@ func (c *Client) settleSessionQuiescence(ctx context.Context, work *SessionQuies
 				return err
 			}
 		}
+		if err := recordQuiescenceFailure(ctx, tx, session, work.TaskID, snapshot, failure); err != nil {
+			return err
+		}
 		return execSQL(ctx, tx, `
 			UPDATE session_task_event SET quiescence_pending = FALSE WHERE sequence = $1
 		`, work.Version)
 	})
+}
+
+// recordQuiescenceFailure stores a released boundary's failure on the locked
+// session, or clears an earlier one once a boundary records a snapshot. A pause
+// leaves an earlier failure in place: the turn it explains still has none.
+func recordQuiescenceFailure(ctx context.Context, tx pgx.Tx, row sessionRow, taskID string, snapshot *SessionTaskSnapshot, failure *apiv1alpha1.QuiescenceFailure) error {
+	if failure == nil && snapshot == nil {
+		return nil
+	}
+	session, err := toSession(row)
+	if err != nil {
+		return err
+	}
+	switch {
+	case failure != nil:
+		session.LastQuiescenceFailure = &apiv1alpha1.QuiescenceFailure{
+			TaskId: taskID, Reason: failure.GetReason(), Message: failure.GetMessage(), FailedAt: timestamppb.Now(),
+		}
+	case session.LastQuiescenceFailure == nil:
+		return nil
+	default:
+		session.LastQuiescenceFailure = nil
+	}
+	data, err := marshalSession(session)
+	if err != nil {
+		return err
+	}
+	return execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, data)
 }

@@ -24,7 +24,7 @@ type workflowStore interface {
 	RenewSessionQuiescence(context.Context, *database.SessionQuiescence, time.Duration) error
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
-	ReleaseSessionQuiescence(context.Context, *database.SessionQuiescence) error
+	ReleaseSessionQuiescence(context.Context, *database.SessionQuiescence, *apiv1alpha1.QuiescenceFailure) error
 	NextQuiescenceFencingGeneration(context.Context) (int64, error)
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/list"
@@ -701,6 +702,10 @@ func (m *workspaceModel) renderDetails() {
 
 	if failure := m.current.GetFailure(); failure != nil {
 		fmt.Fprintf(&b, "\nFailure\n%s\n", failure.GetMessage())
+	}
+	if failure := m.current.GetLastQuiescenceFailure(); failure != nil {
+		fmt.Fprintf(&b, "\nNo snapshot of turn %s\n%s: %s\n%s\n", failure.GetTaskId(), failure.GetReason(), failure.GetMessage(),
+			failure.GetFailedAt().AsTime().Format(time.RFC3339))
 	}
 	m.details = b.String()
 }

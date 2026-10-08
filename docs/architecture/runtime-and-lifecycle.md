@@ -229,8 +229,8 @@ Unclaimed idle work survives API restarts. A claim holds a lease (30 seconds,
 in database time) that its worker renews every third of it until the boundary is
 settled. A claim whose lease ran out, because its API replica stopped, crashed or
 was rolled, is claimed again by another worker under a new executor ID. Losing the
-worker does not prove that the suspend stopped, so the new holder never repeats
-the runtime request: it settles the boundary from the Actor's state as below. The
+worker does not prove that the suspend stopped, so the new holder does not repeat
+the runtime request blindly: it settles the boundary from the Actor's state as below. The
 stopped holder cannot renew, finish or release a claim taken over. Uncertain
 claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
@@ -244,12 +244,21 @@ state. The claiming worker reads the Actor again, first after a second and then
 with a backoff up to a minute, and keeps the claim while the Actor is still in
 transition (`SUSPENDING`, `PAUSING`) or Substrate cannot answer. A `SUSPENDED`
 Actor of the session with an external snapshot finishes the claim with that
-snapshot, and a `PAUSED` Actor finishes a pause. Any other state, a running,
-crashed or missing Actor included, releases the claim without a snapshot: the next
-turn takes the runtime as it is, a lost runtime fails the session there, and the
-released boundary cannot be checkpointed. Each read and the resolution are logged
-with `session_id` and `task_id`. A worker that stops while it settles leaves the
-claim to the takeover above.
+snapshot, and a `PAUSED` Actor finishes a pause. A `RUNNING` Actor did not take
+the request, or Substrate abandoned it (the first suspend after a worker restart
+can outlive its deadline this way): the worker sends the pause or suspend once
+more, fenced with a newer token, and settles its outcome the same way, so a
+suspend that missed its deadline still ends with a snapshot once the Actor is
+suspendable again. Any other state, a crashed or missing Actor included, or an
+Actor still running after the retry, releases the claim without a snapshot: the
+next turn takes the runtime as it is, a lost runtime fails the session there, and
+the released boundary cannot be checkpointed. The release records why on the
+session as `last_quiescence_failure` (the turn's task ID, a reason of
+`SuspendFailed`, `PauseFailed` or `RuntimeUnavailable`, a message and the time),
+so `GetSession` and `ListSessions` explain a turn without a snapshot; the next
+boundary that records a snapshot clears it. Each read, the retry and the
+resolution are logged with `session_id` and `task_id`. A worker that stops while
+it settles leaves the claim to the takeover above.
 
 The claim's records fence a stopped holder; a fencing token fences one that is
 frozen (a GC pause, a node stall, a slow network) while its pause or suspend is in

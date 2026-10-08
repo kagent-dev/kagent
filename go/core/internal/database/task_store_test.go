@@ -3,6 +3,7 @@ package database
 import (
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -238,17 +239,46 @@ func TestReleasedTerminalBoundaryAdmitsTheNextTurn(t *testing.T) {
 	_, err = client.CreateRuntimeTask(t.Context(), session.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh), "")
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a held claim refuses the next turn")
 
+	failure := &apiv1alpha1.QuiescenceFailure{Reason: "SuspendFailed", Message: "retry after a failed request: deadline exceeded"}
 	stale := *work
 	stale.ExecutorID = uuid.New()
-	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), &stale), ErrNotFound, "another executor cannot release the claim")
-	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work))
-	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work), "a retried release is harmless")
+	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), &stale, failure), ErrNotFound, "another executor cannot release the claim")
+	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), work, &apiv1alpha1.QuiescenceFailure{}), ErrFailedPrecondition, "a release says why")
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work, failure))
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), work, failure), "a retried release is harmless")
 	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound)
 	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(current.ID)}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a boundary without a snapshot cannot be checkpointed")
-	_, err = client.CreateRuntimeTask(t.Context(), session.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh), "")
+
+	// The session's status and its listing explain the missing snapshot.
+	got, err := client.GetSessionByID(t.Context(), session.Id)
 	require.NoError(t, err)
+	recorded := got.GetLastQuiescenceFailure()
+	require.Equal(t, string(current.ID), recorded.GetTaskId())
+	require.Equal(t, failure.Reason, recorded.GetReason())
+	require.Equal(t, failure.Message, recorded.GetMessage())
+	require.WithinDuration(t, time.Now(), recorded.GetFailedAt().AsTime(), time.Minute)
+	listed, err := client.ListSessions(t.Context(), SessionQuery{AllUsers: true, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, failure.Reason, listed[0].GetLastQuiescenceFailure().GetReason())
+
+	// The next turn's snapshot clears the failure.
+	next := a2a.NewSubmittedTask(fresh, fresh)
+	nextVersion, err := client.CreateRuntimeTask(t.Context(), session.Id, hash[:], next, "")
+	require.NoError(t, err)
+	next.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted}
+	nextHash := sha256.Sum256([]byte("snapshotted"))
+	nextVersion, err = client.UpdateSessionTask(t.Context(), session.Id, nextVersion, nextHash[:], next, next, "")
+	require.NoError(t, err)
+	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(next.ID), nextVersion))
+	work, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
+	require.NoError(t, err)
+	require.NoError(t, client.FinishSessionQuiescence(t.Context(), work, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/next", ContentScope: "DATA"}))
+	got, err = client.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Nil(t, got.GetLastQuiescenceFailure())
 }
 
 func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {

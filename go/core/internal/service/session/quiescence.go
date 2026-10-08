@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -166,7 +167,7 @@ func (w *ActorWorkflow) issueIdleWork(ctx context.Context, work *database.Sessio
 			return true
 		}
 	}
-	if work.State.Terminal() || work.Suspend {
+	if wantsSnapshot(work) {
 		snapshot, err = w.Quiesce(runtimeCtx, work.Session)
 	} else {
 		err = w.Pause(runtimeCtx, work.Session)
@@ -194,13 +195,17 @@ func (w *ActorWorkflow) issueIdleWork(ctx context.Context, work *database.Sessio
 // A suspended Actor's external snapshot finishes the claim as Quiesce would
 // have, and a paused Actor finishes a pause. While the Actor is still in
 // transition, or Substrate cannot answer, the claim is kept and read again with
-// a backoff. Any other state, a running, crashed or missing Actor included,
-// releases the claim without a snapshot: the next send takes the runtime as it
-// is, and a lost one fails the session there; a running Actor is fenced first.
-// A worker that stops while it settles leaves the claim to another once the
-// lease has run out.
+// a backoff. A running Actor did not take the request, or Substrate abandoned
+// it: the request is sent once more, fenced, and its outcome settled the same
+// way. Any other state, a crashed or missing Actor included, or an Actor still
+// running after the retry, releases the claim without a snapshot and records
+// why on the session: the next send takes the runtime as it is, and a lost one
+// fails the session there; a running Actor is fenced first. A worker that stops
+// while it settles leaves the claim to another once the lease has run out.
 func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.SessionQuiescence) {
 	log := logging.FromContext(ctx).With("session_id", work.Session.Id, "task_id", work.TaskID, "version", work.Version)
+	var retryErr error
+	retried := false
 	for delay := w.settleDelay; ; delay = min(2*delay, time.Minute) {
 		readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		actor, snapshot, err := w.boundaryActor(readCtx, work.Session)
@@ -219,8 +224,22 @@ func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.Sessi
 			log.InfoContext(ctx, "runtime boundary settled from paused Actor")
 			w.finishIdleWork(ctx, work, nil)
 			return
+		case state == ateapipb.ActorState_ACTOR_STATE_RUNNING && !retried:
+			retried = true
+			log.InfoContext(ctx, "runtime boundary retried on running Actor")
+			snapshot, retryErr = w.retryIdleWork(ctx, work)
+			switch {
+			case status.Code(retryErr) == codes.FailedPrecondition:
+				log.WarnContext(ctx, "runtime boundary superseded by a newer holder", "error", retryErr)
+				return
+			case retryErr == nil:
+				log.InfoContext(ctx, "runtime boundary settled by its retry")
+				w.finishIdleWork(ctx, work, snapshot)
+				return
+			}
+			log.WarnContext(ctx, "runtime boundary retry failed", "error", retryErr, "retry_in", delay)
 		default:
-			if w.releaseIdleWork(ctx, log, work, actor, delay) {
+			if w.releaseIdleWork(ctx, log, work, actor, quiescenceFailure(work, actor, retryErr), delay) {
 				return
 			}
 		}
@@ -237,7 +256,7 @@ func (w *ActorWorkflow) settleIdleWork(ctx context.Context, work *database.Sessi
 // this claim's holders sent, by a fenced Resume that leaves the runtime as it
 // is, so a Pause or Suspend still in flight cannot land after the release. It
 // reports false when the fence could not be set yet and is tried again.
-func (w *ActorWorkflow) releaseIdleWork(ctx context.Context, log *slog.Logger, work *database.SessionQuiescence, actor *ateapipb.Actor, delay time.Duration) bool {
+func (w *ActorWorkflow) releaseIdleWork(ctx context.Context, log *slog.Logger, work *database.SessionQuiescence, actor *ateapipb.Actor, failure *apiv1alpha1.QuiescenceFailure, delay time.Duration) bool {
 	state := actor.GetStatus().GetState()
 	if state == ateapipb.ActorState_ACTOR_STATE_RUNNING {
 		err := w.fenceRunning(ctx, work, actor)
@@ -250,12 +269,51 @@ func (w *ActorWorkflow) releaseIdleWork(ctx context.Context, log *slog.Logger, w
 			return false
 		}
 	}
-	log.WarnContext(ctx, "runtime boundary released without snapshot", "actor_state", state, "actor_found", actor != nil)
+	log.WarnContext(ctx, "runtime boundary released without snapshot", "actor_state", state, "actor_found", actor != nil, "reason", failure.GetReason(), "message", failure.GetMessage())
 	if work.Suspend {
 		w.deferred.add(work.Session.Id, time.Now().Add(w.pausedRuntimeTTL))
 	}
-	w.recordIdleWork(ctx, work, func(ctx context.Context) error { return w.store.ReleaseSessionQuiescence(ctx, work) })
+	w.recordIdleWork(ctx, work, func(ctx context.Context) error { return w.store.ReleaseSessionQuiescence(ctx, work, failure) })
 	return true
+}
+
+// retryIdleWork sends work's Pause or Quiesce once more, fenced with a newer
+// token, after the Actor was found running again. A FailedPrecondition answer
+// means another holder took the claim over.
+func (w *ActorWorkflow) retryIdleWork(ctx context.Context, work *database.SessionQuiescence) (*database.SessionTaskSnapshot, error) {
+	runtimeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	runtimeCtx, err := w.fence(runtimeCtx, work)
+	if err != nil {
+		return nil, err
+	}
+	if wantsSnapshot(work) {
+		return w.Quiesce(runtimeCtx, work.Session)
+	}
+	return nil, w.Pause(runtimeCtx, work.Session)
+}
+
+// wantsSnapshot reports whether work's boundary is a suspend with an external
+// snapshot rather than a pause.
+func wantsSnapshot(work *database.SessionQuiescence) bool {
+	return work.State.Terminal() || work.Suspend
+}
+
+// quiescenceFailure explains a boundary released without a pause or a
+// snapshot: a crashed or missing Actor by its state, a running one by the
+// error of the request sent again.
+func quiescenceFailure(work *database.SessionQuiescence, actor *ateapipb.Actor, retryErr error) *apiv1alpha1.QuiescenceFailure {
+	state := actor.GetStatus().GetState()
+	switch {
+	case actor == nil:
+		return &apiv1alpha1.QuiescenceFailure{Reason: "RuntimeUnavailable", Message: "the runtime's Actor was not found"}
+	case state != ateapipb.ActorState_ACTOR_STATE_RUNNING || retryErr == nil:
+		return &apiv1alpha1.QuiescenceFailure{Reason: "RuntimeUnavailable", Message: fmt.Sprintf("the runtime's Actor is %s", state)}
+	case wantsSnapshot(work):
+		return &apiv1alpha1.QuiescenceFailure{Reason: "SuspendFailed", Message: fmt.Sprintf("retry after a failed request: %v", retryErr)}
+	default:
+		return &apiv1alpha1.QuiescenceFailure{Reason: "PauseFailed", Message: fmt.Sprintf("retry after a failed request: %v", retryErr)}
+	}
 }
 
 // fenceRunning records a new fencing token of work's holder on the running

@@ -464,6 +464,23 @@ func TestWorkspaceRenders(t *testing.T) {
 			},
 			want: []string{id, "reporter", "READY"},
 		},
+		{
+			name: "details explain a turn released without a snapshot",
+			sessions: []*apiv1alpha1.Session{func() *apiv1alpha1.Session {
+				session := readySession(id, "reporter")
+				session.LastQuiescenceFailure = &apiv1alpha1.QuiescenceFailure{
+					TaskId: "task-7", Reason: "SuspendFailed", Message: "retry after a failed request: deadline exceeded",
+					FailedAt: timestamppb.New(time.Date(2026, 10, 7, 7, 22, 0, 0, time.UTC)),
+				}
+				return session
+			}()},
+			render: func(m *workspaceModel) string {
+				m.current = m.all[0]
+				m.renderDetails()
+				return m.details
+			},
+			want: []string{"No snapshot of turn task-7", "SuspendFailed: retry after a failed request: deadline exceeded", "2026-10-07T07:22:00Z"},
+		},
 	}
 
 	for _, tt := range tests {

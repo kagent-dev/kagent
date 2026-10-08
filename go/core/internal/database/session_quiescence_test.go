@@ -13,6 +13,8 @@ import (
 // testClaimLease outlives every test that does not wait for a claim to expire.
 const testClaimLease = time.Hour
 
+var testQuiescenceFailure = &apiv1alpha1.QuiescenceFailure{Reason: "RuntimeUnavailable", Message: "the runtime's Actor is ACTOR_STATE_CRASHED"}
+
 // completedBoundaryFixture settles a completed turn whose boundary waits for
 // its idle suspend.
 func completedBoundaryFixture(t *testing.T, client *Client) (*apiv1alpha1.Session, *a2a.Task) {
@@ -58,14 +60,14 @@ func TestExpiredQuiescenceClaimIsTakenOver(t *testing.T) {
 	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot/stale", ContentScope: "DATA"}
 	require.ErrorIs(t, client.RenewSessionQuiescence(t.Context(), work, testClaimLease), ErrNotFound)
 	require.ErrorIs(t, client.FinishSessionQuiescence(t.Context(), work, snapshot), ErrNotFound)
-	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), work), ErrNotFound)
+	require.ErrorIs(t, client.ReleaseSessionQuiescence(t.Context(), work, testQuiescenceFailure), ErrNotFound)
 	fresh := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("next"))
 	fresh.ContextID = session.ContextId
 	hash := sha256.Sum256([]byte("next"))
 	_, err = client.CreateRuntimeTask(t.Context(), session.Id, hash[:], a2a.NewSubmittedTask(fresh, fresh), "")
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a taken-over claim still refuses the next turn")
 
-	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), taken))
+	require.NoError(t, client.ReleaseSessionQuiescence(t.Context(), taken, testQuiescenceFailure))
 	require.ErrorIs(t, client.RenewSessionQuiescence(t.Context(), taken, testClaimLease), ErrNotFound, "a settled claim is not renewed")
 	_, err = client.ClaimSessionQuiescence(t.Context(), testClaimLease, 0, nil)
 	require.ErrorIs(t, err, ErrNotFound)
