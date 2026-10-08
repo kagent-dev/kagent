@@ -51,7 +51,6 @@ type SubstrateSummary struct {
 	WorkerCount       int64
 	RunningActorCount int64
 	BusyWorkerCount   int64
-	SharedWorkerCount int64
 	ActorStatusCounts []SubstrateActorStatusCount
 	ComputedAt        time.Time
 }
@@ -130,9 +129,6 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 		result.WorkerCount++
 		if worker.GetStatus().GetAllocated().GetActors() > 0 {
 			result.BusyWorkerCount++
-		}
-		if worker.GetStatus().GetAllocated().GetActors() > 1 {
-			result.SharedWorkerCount++
 		}
 	}); err != nil {
 		result.recordATEError(ctx, err)

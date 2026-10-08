@@ -604,7 +604,6 @@ describe("the cluster", () => {
           workerCount: 900n,
           runningActorCount: 12n,
           busyWorkerCount: 11n,
-          sharedWorkerCount: 3n,
           actorStatusCounts: [
             { state: ActorState.CRASHED, count: 410098n },
             { state: ActorState.RUNNING, count: 12n },
@@ -622,7 +621,6 @@ describe("the cluster", () => {
     expect(summary.actorCount).toBe(410110);
     expect(summary.runningActorCount).toBe(12);
     expect(summary.busyWorkerCount).toBe(11);
-    expect(summary.sharedWorkerCount).toBe(3);
     expect(summary.actorStatusCounts).toEqual([
       { status: "ACTOR_STATE_CRASHED", count: 410098 },
       { status: "Running", count: 12 },

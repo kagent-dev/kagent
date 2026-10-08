@@ -1375,7 +1375,6 @@ const cluster: Pick<
       workerCount: toNumber(response.workerCount) ?? 0,
       runningActorCount: toNumber(response.runningActorCount) ?? 0,
       busyWorkerCount: toNumber(response.busyWorkerCount) ?? 0,
-      sharedWorkerCount: toNumber(response.sharedWorkerCount) ?? 0,
       actorStatusCounts: list(response.actorStatusCounts).map((entry) => ({
         status: ACTOR_STATUS_LABELS[entry.state] ?? String(entry.state),
         count: toNumber(entry.count) ?? 0,

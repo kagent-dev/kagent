@@ -67,8 +67,6 @@ export interface SubstrateSummary extends Timed {
   runningActorCount: number;
   /** Workers reporting a positive allocated actor count. */
   busyWorkerCount: number;
-  /** Workers reporting more than one allocated actor. */
-  sharedWorkerCount: number;
   /**
    * Every actor status present, with how many hold it, ordered by status.
    *

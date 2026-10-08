@@ -71,7 +71,6 @@ func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1al
 		WorkerCount:       result.WorkerCount,
 		RunningActorCount: result.RunningActorCount,
 		BusyWorkerCount:   result.BusyWorkerCount,
-		SharedWorkerCount: result.SharedWorkerCount,
 		ActorStatusCounts: make([]*apiv1alpha1.SubstrateActorStatusCount, 0, len(result.ActorStatusCounts)),
 		ComputedAt:        timestamppb.New(result.ComputedAt),
 	}

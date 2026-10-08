@@ -331,7 +331,6 @@ func TestGetSubstrateSummary(t *testing.T) {
 		// Two actors share worker-0, so one worker is busy rather than two: the count
 		// is of workers, not of placements.
 		assert.Equal(t, int64(1), result.BusyWorkerCount)
-		assert.Equal(t, int64(1), result.SharedWorkerCount)
 		assert.Equal(t, []system.SubstrateActorStatusCount{
 			{State: ateapipb.ActorState_ACTOR_STATE_RUNNING, Count: 2},
 			{State: ateapipb.ActorState_ACTOR_STATE_PAUSED, Count: 1},
@@ -493,7 +492,6 @@ func TestBusyWorkerWithOutOfScopeActor(t *testing.T) {
 	require.Equal(t, int64(0), summary.ActorCount)
 	require.Equal(t, int64(1), summary.WorkerCount)
 	assert.Equal(t, int64(1), summary.BusyWorkerCount, "worker-0 is assigned even though its actor's template is in team")
-	assert.Equal(t, int64(0), summary.SharedWorkerCount, "one actor does not share its worker")
 }
 
 type failingActorsATEClient struct{ fakeATEClient }

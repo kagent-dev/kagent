@@ -1440,7 +1440,8 @@ export function SubstratePage() {
             emptyText="No actors in this scope."
           />
 
-          {inventory && inventory.sharedWorkerCount > 0 ? (
+          {/* Summary counts cover every worker: more running actors than busy workers means sharing. */}
+          {inventory && inventory.runningActorCount > inventory.busyWorkerCount ? (
             <Alert
               type="info"
               showIcon
