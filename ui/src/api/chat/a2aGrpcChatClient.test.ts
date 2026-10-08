@@ -575,6 +575,42 @@ describe("A2AGrpcChatClient.send", () => {
     ]);
   });
 
+  it("associates executed parameters with their invocation by call id", async () => {
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: "tools", parts },
+          append,
+        },
+      },
+    });
+    const events = await turn([
+      frame([
+        data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
+        data({ id: "call-2", name: "alerts_list_alerts", args: {} }),
+      ]),
+      frame([
+        data({
+          id: "call-2",
+          name: "alerts_list_alerts",
+          response: { data: "observed alert", params: { query: { page_size: 1 } } },
+        }),
+      ], true),
+    ]);
+    const messages = events.filter((event) => event.type === "message");
+    expect(messages[0].message.parts).toMatchObject([
+      { data: { id: "call-1", args: {} } },
+      { data: { id: "call-2", args: {} } },
+    ]);
+    expect(transcript(events)[0].parts).toMatchObject([
+      { data: { id: "call-1", args: {} } },
+      { data: { id: "call-2", args: { query: { page_size: 1 } } } },
+      { data: { id: "call-2" } },
+    ]);
+  });
+
   it("does not double the answer when the last chunk repeats what was streamed", async () => {
     // The closing frame carries the whole reply rather than the last increment, and
     // is not flagged `append` — so it is a replacement. Appending it instead would
@@ -819,6 +855,33 @@ describe("A2AGrpcChatClient.send", () => {
 });
 
 describe("A2AGrpcChatClient.history", () => {
+  it("restores executed tool parameters when reopening a conversation", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED },
+        artifacts: [{
+          artifactId: "call-1",
+          parts: [
+            data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
+            data({
+              id: "call-1",
+              name: "alerts_list_alerts",
+              response: { data: "observed alert", params: { query: { page_size: 1 } } },
+            }),
+          ],
+        }],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0].parts[0]).toMatchObject({
+      dataKind: "tool_call",
+      data: { id: "call-1", name: "alerts_list_alerts", args: { query: { page_size: 1 } } },
+    });
+  });
+
   it("routes history and cancellation to the conversation's Agent", async () => {
     const seen: unknown[] = [];
     serve(({ service }) => {
