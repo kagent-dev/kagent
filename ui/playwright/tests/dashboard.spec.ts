@@ -20,7 +20,7 @@ test("dashboard: recent conversations read as names, not as ids", async ({ page 
   await expect(card).toBeVisible({ timeout: 30_000 });
 
   await test.step("1. the card says what it lists", async () => {
-    await expect(card).toContainText("Recent agent conversations");
+    await expect(card).toContainText("Recent agent chat sessions");
 
     // And Refresh confirms here too — wired up on the page being worked on and
     // forgotten on the four beside it is exactly how this goes wrong. Counted rather
