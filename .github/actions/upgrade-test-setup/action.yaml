@@ -2,7 +2,7 @@ name: Upgrade Test Setup
 
 description: >-
   Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: resolve
-  the upgrade-from version, skip redundant and pre-Goose legs, and bring up the
+  the upgrade-from version, skip redundant legs and releases older than the CLI-managed database, and bring up the
   build/cluster toolchain. Exposes the resolved version and skip flag so the
   caller can gate its test step. The caller MUST run actions/checkout (with
   fetch-depth: 0 + fetch-tags) before this action — a local action is loaded
@@ -15,7 +15,7 @@ inputs:
 
 outputs:
   skip:
-    description: '"true" when this leg is redundant or predates Goose and the caller should skip its test step.'
+    description: '"true" when this leg is redundant or predates the CLI-managed database and the caller should skip its test step.'
     value: ${{ steps.resolve.outputs.skip }}
   version:
     description: The resolved upgrade-from version (empty when skip is true).
@@ -69,8 +69,9 @@ runs:
           fi
           V="$(./scripts/upgrade-from-version.sh)"
         fi
-        if [[ "$V" == 0.10.* ]]; then
-          echo "previous release v$V predates Goose; skipping upgrade tests."
+        # Keep in sync with CLI_DATABASE_SENTINEL in the Makefile.
+        if ! git cat-file -e "v$V:go/core/cli/internal/commands/bundled_postgres.sql" 2>/dev/null; then
+          echo "previous release v$V predates the database kagent install manages; skipping upgrade tests."
           echo "skip=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
