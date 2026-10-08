@@ -24,14 +24,18 @@ const (
 	// AttributeOperationName is the GenAI operation. An invocation span carries
 	// OperationInvokeAgent; model and tool spans come from the runtime itself.
 	AttributeOperationName = string(conv.GenAIOperationNameKey)
-	// AttributeRuntime names the runtime behind an invocation. A Harness
-	// object's configurable name is not its runtime.
+	// AttributeRuntime names the runtime on the resource. A Harness object's
+	// configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
 	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.
 	AttributeAgentID = string(conv.GenAIAgentIDKey)
+	// AttributeMainAgentName and AttributeMainAgentID carry the same identity
+	// on the resource, where the conventions keep gen_ai.agent.* off.
+	AttributeMainAgentName = string(conv.GenAIMainAgentNameKey)
+	AttributeMainAgentID   = string(conv.GenAIMainAgentIDKey)
 	// AttributeProviderName is the model provider the agent is compiled against,
 	// in the GenAI conventions' vocabulary.
 	AttributeProviderName = string(conv.GenAIProviderNameKey)
@@ -208,21 +212,35 @@ func (t RuntimeTelemetry) AgentID() string {
 }
 
 // Identity returns the trusted static attributes stamped on every invocation
-// span and on the runtime resource.
+// span.
 func (t RuntimeTelemetry) Identity() []attribute.KeyValue {
-	attributes := make([]attribute.KeyValue, 0, 5)
-	for _, entry := range []struct{ key, value string }{
-		{AttributeRuntime, string(t.Runtime)},
-		{AttributeAgentName, t.AgentName},
-		{AttributeAgentID, t.AgentID()},
-		{AttributeProviderName, t.Provider},
-		{AttributeRequestModel, t.Model},
-	} {
-		if entry.value != "" {
-			attributes = append(attributes, attribute.String(entry.key, entry.value))
+	return nonEmpty(
+		attribute.String(AttributeAgentName, t.AgentName),
+		attribute.String(AttributeAgentID, t.AgentID()),
+		attribute.String(AttributeProviderName, t.Provider),
+		attribute.String(AttributeRequestModel, t.Model),
+	)
+}
+
+// ResourceIdentity returns the same identity in its resource form.
+func (t RuntimeTelemetry) ResourceIdentity() []attribute.KeyValue {
+	return nonEmpty(
+		attribute.String(AttributeRuntime, string(t.Runtime)),
+		attribute.String(AttributeMainAgentName, t.AgentName),
+		attribute.String(AttributeMainAgentID, t.AgentID()),
+		attribute.String(AttributeProviderName, t.Provider),
+		attribute.String(AttributeRequestModel, t.Model),
+	)
+}
+
+func nonEmpty(attributes ...attribute.KeyValue) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attributes))
+	for _, attr := range attributes {
+		if attr.Value.AsString() != "" {
+			result = append(result, attr)
 		}
 	}
-	return attributes
+	return result
 }
 
 // ResourceDefaults names the service when the environment does not.
@@ -242,7 +260,7 @@ func (t RuntimeTelemetry) ResourceDefaults(fallbackName string) []attribute.KeyV
 // namespace, so both producers group under one service.namespace. The child
 // keeps its own service.name.
 func (t RuntimeTelemetry) ChildResource() []attribute.KeyValue {
-	attributes := t.Identity()
+	attributes := t.ResourceIdentity()
 	if t.AgentNamespace != "" {
 		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
 	}

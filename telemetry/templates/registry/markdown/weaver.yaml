@@ -11,8 +11,10 @@ templates:
       ([.registry.attribute_groups[].attributes[].key] + $params.span_attributes) as $kagent
       | {
           attributes: [.registry.attributes[] | row],
-          metrics: [.registry.metrics[] | {name, instrument, unit, brief: (.brief | text), note: (.note | text), attributes: [(.attributes // [])[] | row]}],
+          metrics: [.refinements.metrics[] | select(.id | startswith("kagent.")) | {id, name, instrument, unit, brief: (.brief | text), note: (.note | text), attributes: [(.attributes // [])[] | row]}],
           groups: [.registry.attribute_groups[] | {id, brief: (.brief | text), note: (.note | text), attributes: [.attributes[] | row]}],
-          spans: [.refinements.spans[] | {id, type, kind, brief: (.brief | text), note: (.note | text), attributes: [.attributes[] | select(.key as $k | $kagent | index($k)) | row]}],
-          entities: [.registry.entities[] | {type, brief: (.brief | text), note: (.note | text), identity: [.identity[] | row], description: [.description[] | row]}]
+          spans: [.refinements.spans[] | select(.id | startswith("kagent.")) | {id, type, kind, brief: (.brief | text), note: (.note | text), attributes: [.attributes[] | select(.key as $k | $kagent | index($k)) | row]}],
+          imported_spans: [.registry.spans[] | select(.type | startswith("kagent.") | not) | .type],
+          imported_metrics: [.registry.metrics[] | select(.name | startswith("kagent.") | not) | .name],
+          entities: [(.registry.entities + .refinements.entities)[] | {id: (.id // .type), type, brief: (.brief | text), note: (.note | text), identity: [.identity[] | row], description: [.description[] | row]}]
         }

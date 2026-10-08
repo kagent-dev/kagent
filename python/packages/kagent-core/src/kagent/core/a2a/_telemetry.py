@@ -1,8 +1,10 @@
 """The invocation span of one A2A request, mirroring go/adk/pkg/a2a/server/tracing.go."""
 
 import asyncio
+import functools
 import importlib.metadata
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,7 +13,7 @@ from a2a.server.context import ServerCallContext
 from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.types import a2a_pb2
 from opentelemetry import context as otel_context
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from ..telemetry import _boot
@@ -19,7 +21,11 @@ from ..telemetry._conv import (
     A2A_METHOD,
     A2A_TASK_ID,
     A2A_TASK_STATE,
+    GEN_AI_AGENT_NAME,
     GEN_AI_CONVERSATION_ID,
+    GEN_AI_INVOKE_AGENT_DURATION,
+    GEN_AI_INVOKE_AGENT_DURATION_DESCRIPTION,
+    GEN_AI_INVOKE_AGENT_DURATION_UNIT,
     GEN_AI_OPERATION_NAME,
     KAGENT_INVOCATION_DISPOSITION,
     KAGENT_INVOCATION_SEGMENT,
@@ -57,11 +63,13 @@ class Result:
 
 
 class Invocation:
-    def __init__(self, span: trace.Span):
+    def __init__(self, span: trace.Span, start_ns: int = 0, duration_attributes: dict[str, str] | None = None):
         self.span = span
         self.context = trace.set_span_in_context(span)
         self.adopted = False
         self.finished = False
+        self.start_ns = start_ns
+        self.duration_attributes = duration_attributes
 
     async def end(self, result: Result) -> None:
         await self._end(result, owner=True)
@@ -82,17 +90,36 @@ class Invocation:
         if result.error:
             message = f"{result.error}: {result.detail}" if result.detail else result.error
             self.span.set_status(Status(StatusCode.ERROR, message))
-        self.span.end()
+        end_ns = time.time_ns()
+        self.span.end(end_time=end_ns)
+        if self.duration_attributes is not None:
+            attributes = dict(self.duration_attributes)
+            if result.error:
+                attributes[ERROR_TYPE] = result.error
+            _invoke_agent_duration().record((end_ns - self.start_ns) / 1e9, attributes)
         if _boot.current() is not None:
             await asyncio.to_thread(_boot.force_flush)
 
 
-def _tracer() -> trace.Tracer:
+def _version() -> str:
     try:
-        version = importlib.metadata.version("kagent-core")
+        return importlib.metadata.version("kagent-core")
     except importlib.metadata.PackageNotFoundError:
-        version = ""
-    return trace.get_tracer(_SCOPE, version, schema_url=_boot.SCHEMA_URL)
+        return ""
+
+
+def _tracer() -> trace.Tracer:
+    return trace.get_tracer(_SCOPE, _version(), schema_url=_boot.SCHEMA_URL)
+
+
+@functools.cache
+def _invoke_agent_duration() -> metrics.Histogram:
+    meter = metrics.get_meter(_SCOPE, _version(), schema_url=_boot.SCHEMA_URL)
+    return meter.create_histogram(
+        GEN_AI_INVOKE_AGENT_DURATION,
+        unit=GEN_AI_INVOKE_AGENT_DURATION_UNIT,
+        description=GEN_AI_INVOKE_AGENT_DURATION_DESCRIPTION,
+    )
 
 
 def _user_id(call_context: ServerCallContext | None) -> str:
@@ -122,6 +149,7 @@ def _state_name(event: Any) -> str:
 def _start(method: str, call_context: ServerCallContext) -> Invocation:
     attributes: dict[str, str] = {A2A_METHOD: method}
     name = TRANSPORT_SPAN_NAME
+    duration_attributes = None
     providers = _boot.current()
     if providers is not None:
         attributes.update(providers.identity.attributes())
@@ -129,16 +157,20 @@ def _start(method: str, call_context: ServerCallContext) -> Invocation:
             operation = GenAiOperationNameValues.INVOKE_AGENT.value
             name = f"{operation} {providers.identity.agent_name}".strip()
             attributes[GEN_AI_OPERATION_NAME] = operation
+            agent_name = providers.identity.agent_name
+            duration_attributes = {GEN_AI_AGENT_NAME: agent_name} if agent_name else {}
     if user := _user_id(call_context):
         attributes[ENDUSER_ID] = user
+    start_ns = time.time_ns()
     span = _tracer().start_span(
         name,
         kind=SpanKind.INTERNAL,
         attributes=attributes,
+        start_time=start_ns,
         record_exception=False,
         set_status_on_exception=False,
     )
-    invocation = Invocation(span)
+    invocation = Invocation(span, start_ns, duration_attributes)
     call_context.state[_INVOCATION_STATE] = invocation
     return invocation
 

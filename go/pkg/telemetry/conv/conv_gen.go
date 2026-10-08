@@ -20,6 +20,12 @@ const (
 	GenAIConversationIDKey = attribute.Key("gen_ai.conversation.id")
 	// GenAIInputMessagesKey is "gen_ai.input.messages". The chat history provided to the model as an input.
 	GenAIInputMessagesKey = attribute.Key("gen_ai.input.messages")
+	// GenAIMainAgentDescriptionKey is "gen_ai.main_agent.description". The free-form description of the top-level Generative AI agent in the process.
+	GenAIMainAgentDescriptionKey = attribute.Key("gen_ai.main_agent.description")
+	// GenAIMainAgentIDKey is "gen_ai.main_agent.id". The unique and stable identifier of the top-level Generative AI agent in the process
+	GenAIMainAgentIDKey = attribute.Key("gen_ai.main_agent.id")
+	// GenAIMainAgentNameKey is "gen_ai.main_agent.name". The human-readable name of the top-level Generative AI agent in the process.
+	GenAIMainAgentNameKey = attribute.Key("gen_ai.main_agent.name")
 	// GenAIOperationNameKey is "gen_ai.operation.name". The name of the operation being performed.
 	GenAIOperationNameKey = attribute.Key("gen_ai.operation.name")
 	// GenAIOutputMessagesKey is "gen_ai.output.messages". Messages returned by the model where each message represents a specific model response (choice, candidate).
@@ -198,6 +204,13 @@ const (
 	KagentRuntimeOpenAIAgents = "openai-agents"
 	// KagentRuntimeBYO: A bring-your-own image built on kagent-core.
 	KagentRuntimeBYO = "byo"
+)
+
+// GenAIInvokeAgentDuration: The duration of one execution segment of a kagent agent.
+const (
+	GenAIInvokeAgentDuration            = "gen_ai.invoke_agent.duration"
+	GenAIInvokeAgentDurationUnit        = "s"
+	GenAIInvokeAgentDurationDescription = "The duration of one execution segment of a kagent agent."
 )
 
 // KagentRuntimeRevisionGCDuration: Duration of a runtime revision garbage collection attempt.

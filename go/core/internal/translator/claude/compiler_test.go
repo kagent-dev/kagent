@@ -156,7 +156,7 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
 		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
 		"OTEL_SERVICE_NAME":        "runnable-agent",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
+		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.main_agent.id=test/runnable-agent,gen_ai.main_agent.name=runnable-agent,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
 		"KAGENT_NAME":              "runnable-agent",
 		"KAGENT_NAMESPACE":         "test",
 	} {
@@ -314,7 +314,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 			attributes = append(attributes, variable.Value)
 		}
 	}
-	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.agent.name=runnable-agent") {
+	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.main_agent.name=runnable-agent") {
 		t.Fatalf("harness resource attributes = %q, want one value keeping them beside the identity", attributes)
 	}
 }

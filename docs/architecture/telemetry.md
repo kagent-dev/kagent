@@ -9,19 +9,20 @@ The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/regi
 - [Telemetry contract reference](telemetry-contract.md), the attribute, span and resource tables
 - `go/pkg/telemetry/conv`, the Go constants
 - `kagent.core.telemetry.conv`, the Python constants
-- `telemetry/resolved.yaml`, the resolved registry, so a contract change shows up in review
+- `telemetry/resolved.yaml`, the resolved kagent definitions and the names of the imported upstream signals, so a contract change shows up in review
 
 | Concept | Attributes | Where |
 | --- | --- | --- |
 | Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime emits none of its own |
 | Runtime | `kagent.runtime` | Resource |
-| Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | Resource and invoke_agent span |
+| Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | invoke_agent and request spans. The resource carries the same identity as `gen_ai.main_agent.name` and `gen_ai.main_agent.id` |
 | Provider and model | `gen_ai.provider.name`, `gen_ai.request.model` | Resource and invoke_agent span, for harnesses compiled against one model |
 | Conversation, task, user | `gen_ai.conversation.id`, `a2a.task.id`, `enduser.id` | Request spans. Never on a resource or a metric |
 | Segment | `kagent.invocation.segment`, `kagent.invocation.disposition`, link `kagent.invocation.relationship` | Request spans |
 | Outcome | status, `error.type`, `a2a.task.state` | Request spans |
 | Content | `gen_ai.input.messages`, `gen_ai.output.messages`, `kagent.capture.*_truncated` | invoke_agent and inference spans, under the capture opt-in |
 | Usage | `gen_ai.usage.*` | Inference spans, from the runtime's own instrumentation |
+| Duration | `gen_ai.invoke_agent.duration` | Recorded with every invoke_agent span kagent opens |
 
 The registry describes the contract the runtimes are moving to. The next section says what each runtime emits today, and [Blind spots](#blind-spots) lists where the two still differ.
 
@@ -53,7 +54,7 @@ Configuration uses the OpenTelemetry SDK variables only. The chart renders them 
 
 The chart has no sampler setting. Runtimes stay parent-based AlwaysOn and sampling belongs in the collector. An invalid value is reported as a warning and turns its signal off, so an observability setting cannot invalidate an AgentTemplate.
 
-Each runtime receives `OTEL_SERVICE_NAME=<agent>` and an `OTEL_RESOURCE_ATTRIBUTES` that carries `service.namespace`, `gen_ai.agent.name`, `gen_ai.agent.id`, the provider and model for a harness, the operator's attributes, and `service.version`, the short revision id added when the ActorTemplate is built. A `Harness.spec.env` `OTEL_RESOURCE_ATTRIBUTES` is kept, with the agent identity winning. The controller reports itself as `kagent-controller` with `service.session.id` and `k8s.*` from the downward API.
+Each runtime receives `OTEL_SERVICE_NAME=<agent>` and an `OTEL_RESOURCE_ATTRIBUTES` that carries `service.namespace`, `gen_ai.main_agent.name`, `gen_ai.main_agent.id`, the provider and model for a harness, the operator's attributes, and `service.version`, the short revision id added when the ActorTemplate is built. A `Harness.spec.env` `OTEL_RESOURCE_ATTRIBUTES` is kept, with the agent identity winning. The controller reports itself as `kagent-controller` with `service.instance.id` and `k8s.*` from the downward API.
 
 kagent runtimes apply three defaults when the environment leaves them unset: `OTEL_PROPAGATORS=tracecontext`, so a caller's baggage never reaches tools or model providers, `OTEL_EXPORTER_OTLP_COMPRESSION=gzip`, and base-2 exponential histograms. The Go runtimes set them in `go/pkg/telemetry`, which also hands them to the Claude and Codex processes. The Python runtimes set them in `kagent.core`, which also defaults the exporters to `otlp`, adds `http` to `OTEL_SEMCONV_STABILITY_OPT_IN` so FastAPI and httpx report the stable HTTP conventions, sets `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED=false` to drop the a2a-sdk's internal spans, and excludes health and agent card paths through `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`. Each `kagent.*` framework package imports these defaults before the a2a-sdk, which reads its switch at import time. A BYO image gets them compiled in, together with the rest of the kagent telemetry, only while kagent telemetry is on, and its own `Harness.spec.env` values win, so an image that exports to its own backend keeps doing so. The Python ADK also defaults `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`, so captured content lands only on the GenAI convention keys and is not repeated in ADK's legacy `gcp.vertex.agent.*` keys, and the CrewAI package sets `CREWAI_DISABLE_TELEMETRY=true` before CrewAI loads, since CrewAI otherwise installs a global tracer provider that exports to its own endpoint.
 
@@ -65,7 +66,7 @@ The capture variable is rendered whether or not the controller exports, so a run
 
 ## Metrics and logs
 
-kagent defines no metrics of its own. It exports otelgrpc's `rpc.server.call.duration` and `rpc.client.call.duration` and otelhttp's `http.*.request.duration`, in seconds, over OTLP. The controller also serves them on `/metrics` when `controller.metrics.enabled` is on, so ingest one path per backend. `rpc_server_call_duration_seconds` replaces the removed `kagent_grpc_server_*` metrics.
+kagent records `gen_ai.invoke_agent.duration` with every invoke_agent span it opens, with the same start and end, carrying `gen_ai.agent.name`, the compiled `gen_ai.request.model` and, on failure, `error.type`. A runtime that emits its own invoke_agent span reports its own metric, if any; the [reference collector](#reference-collector) derives it for the ADK. The controller records `kagent.runtime_revision.gc.*`. Everything else comes from instrumentation: kagent exports otelgrpc's `rpc.server.call.duration` and `rpc.client.call.duration` and otelhttp's `http.*.request.duration`, in seconds, over OTLP. The controller also serves them on `/metrics` when `controller.metrics.enabled` is on, so ingest one path per backend. `rpc_server_call_duration_seconds` replaces the removed `kagent_grpc_server_*` metrics.
 
 The Python runtimes export the same HTTP metrics from FastAPI and httpx and the GenAI client metrics of their instrumentations. The Python gRPC server instrumentation records no metrics.
 
@@ -73,7 +74,7 @@ Go and Python logs are single-line JSON. Records inside a span carry `trace_id`,
 
 ## Conventions and versioning
 
-The registry depends on the core semantic conventions at v1.44.0 and on the GenAI conventions, which live in their own repository and have no release yet, pinned by commit in `telemetry/registry/manifest.yaml`. The `gen_ai.*` names in the generated constants come from that pin. Core names such as `service.*`, `enduser.id` and `error.type` come from the newest core Go package, `semconv/v1.43.0`, which is also the version the OpenTelemetry SDK uses, and every tracer kagent creates declares its schema URL. Only the `kagent.*` and `a2a.*` names are kagent's own. All of them are `development` until the v1.x contract is declared stable.
+The registry depends on the core semantic conventions at v1.44.0 and on the GenAI conventions, which live in their own repository and have no release yet, pinned by commit in `telemetry/registry/manifest.yaml`. `telemetry/registry/imports.yaml` imports the upstream spans and metrics the runtimes emit through their instrumentation, so live-check can compare them. The `gen_ai.*` names in the generated constants come from that pin. Core names such as `service.*`, `enduser.id` and `error.type` come from the newest core Go package, `semconv/v1.43.0`, which is also the version the OpenTelemetry SDK uses, and every tracer kagent creates declares its schema URL. Only the `kagent.*` and `a2a.*` names are kagent's own. All of them are `development` until the v1.x contract is declared stable.
 
 ## The invocation span
 
@@ -85,11 +86,11 @@ For the ADK runtime the ADK emits `invoke_agent` spans of its own, carrying `gen
 
 `a2a.request` stays separate from the SERVER span because it can end and export before a quiescent event leaves the process. The gateway may suspend the Actor on that event while the SERVER span is still open.
 
-The attributes, their values and their requirement levels are in the [contract reference](telemetry-contract.md). Today the request span also carries `kagent.runtime`, which the contract keeps on the resource only.
+The attributes, their values and their requirement levels are in the [contract reference](telemetry-contract.md). The registry defines `a2a.request` as the span `kagent.a2a.request`.
 
 The provider and model on this span stand in for what a native runtime does not report. Codex records token usage on a span that names no model, so without the compiled model a consumer cannot attribute that usage without walking the trace. The conventions allow the model on an agent span when the agent is bound to one model, which a compiled kagent agent is.
 
-The runtime resource carries `service.name` and `service.namespace` from the compiled agent identity, plus the same `kagent.runtime`, `gen_ai.agent.name`, `gen_ai.agent.id`, `gen_ai.provider.name` and `gen_ai.request.model`. The harness adapters merge those, with `service.namespace`, into `OTEL_RESOURCE_ATTRIBUTES` for the native child process, so its spans report the same agent, model and namespace while keeping its own `service.name`. Conversation, task, and user identity never appear on a resource, since one runtime process serves many of each.
+The runtime resource carries `service.name` and `service.namespace` from the compiled agent identity, plus `kagent.runtime`, `gen_ai.provider.name`, `gen_ai.request.model` and the agent identity as the GenAI conventions' `gen_ai.main_agent` entity: `gen_ai.main_agent.name` and `gen_ai.main_agent.id`. The conventions keep `gen_ai.agent.*` for the agent a span invokes, which in a process with sub-agents is not always the main one. The harness adapters merge those, with `service.namespace`, into `OTEL_RESOURCE_ATTRIBUTES` for the native child process, so its spans report the same agent, model and namespace while keeping its own `service.name`. Conversation, task, and user identity never appear on a resource, since one runtime process serves many of each.
 
 The Go ADK stamps `gen_ai.conversation.id`, `a2a.task.id` and a trusted `enduser.id` on the spans beneath the request span. `enduser.id` is the gateway-forwarded user name. Hashing it is an operator decision.
 
@@ -143,6 +144,30 @@ The kagent policies in `telemetry/policies` enforce that kagent defines attribut
 
 A rename or removal shows up as a diff in `telemetry/resolved.yaml` and the generated files. Once an attribute is declared stable, the check also runs the upstream backwards-compatibility policy against the last release.
 
+## Conformance
+
+The e2e suite checks what the controller and the Go runtimes emit against the registry with `weaver registry live-check`. Its OTLP receiver keeps every trace and metric export and, with `KAGENT_E2E_LIVE_CHECK_ENDPOINT` set, replays them to live-check after the tests. The replay leaves out native child processes, recognized by a `service.name` that differs from `gen_ai.main_agent.name`, since kagent does not own the shape of Claude Code and Codex telemetry. Replaying also strips gzip, which the live-check listener does not accept, so a runtime cannot export to it directly.
+
+[`telemetry/conformance/live-check.toml`](../../telemetry/conformance/live-check.toml) holds the matchers that bind each sample to a signal: kagent's `a2a.request` and `invoke_agent` spans by scope, other GenAI spans by `gen_ai.operation.name`, HTTP and RPC spans by kind, and runtime resources to the `kagent.resource` group, whose requirement levels are enforced. Metrics match by name. Expected findings are lowered to information there, each with the upstream issue that removes it.
+
+```bash
+telemetry/live-check.sh start
+KAGENT_E2E_OTLP_LISTEN_ADDRESS=:14317 KAGENT_E2E_LIVE_CHECK_ENDPOINT=127.0.0.1:4319 make -C go e2e
+telemetry/live-check.sh stop    # prints violations; the report is in telemetry/conformance/report
+```
+
+CI runs it in the e2e job and uploads the report with the e2e logs. It reports only for now; set `fail_on = "violation"` once a release passes clean.
+
+## Reference collector
+
+[`examples/observability/collector-values.yaml`](../../examples/observability/collector-values.yaml) is a reference OpenTelemetry Collector, as values for the upstream Helm chart. `make otel-collector-kind` installs it into the kind cluster with a debug exporter. It:
+
+- associates Kubernetes metadata by `k8s.pod.uid` only, which only the controller sets. A runtime on Substrate runs inside a worker pod, so a connection IP would name the worker;
+- deletes `gen_ai.usage.*` from the Python ADK's `call_llm` spans, so usage is counted once per model call;
+- deletes captured content and the Go ADK's legacy payload keys, as a backstop for an installation with capture off. Remove `transform/genai_content` from the pipelines when capture is on;
+- derives `gen_ai.invoke_agent.duration` from invoke_agent spans that kagent did not open, before any sampling;
+- exports over gzip OTLP with a `file_storage` sending queue, so a collector restart keeps what it has accepted.
+
 ## Lint exceptions
 
 - `a2a.*` is not a registered OpenTelemetry namespace. kagent owns it until the conventions define A2A attributes.
@@ -161,7 +186,8 @@ A rename or removal shows up as a diff in `telemetry/resolved.yaml` and the gene
 - The Python SDK always adds a generated `service.instance.id`. An Actor restored from a shared snapshot keeps the value generated before the snapshot, so treat it as unreliable on Substrate and take Actor identity from what the Substrate relay or the Collector attaches.
 - The Python ADK records no tool arguments or results, even with capture on. ADK writes them only to its legacy `gcp.vertex.agent.tool_call_args` and `tool_response` keys, which kagent turns off, and has no GenAI convention keys for them yet. Set `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true` in `Harness.spec.env` to get the legacy keys back, along with a second copy of every model request and response on `call_llm`.
 - CrewAI reports no crew, agent or task spans until `opentelemetry-instrumentation-genai-crewai` is published. Its model calls are traced through the OpenAI and Anthropic SDKs.
-- Nothing yet compares emitted telemetry with the registry. The registry checks names, the Go and Python code uses the generated constants, and a live check against end-to-end telemetry is planned.
+- Live-check covers the controller and the Go runtimes only, since no Python runtime runs in the e2e suite. The Python GenAI instrumentations still record `gen_ai.client.token.usage` and `gen_ai.client.operation.duration` for inference, which the pinned GenAI conventions replaced with `gen_ai.client.inference.*`.
+- The Go ADK records no `gen_ai.invoke_agent.duration` for its own invoke_agent spans. The reference collector derives it.
 - Runtimes on Substrate set no `service.session.id`. An Actor can be restored from a snapshot, so an identity generated in the process would be wrong or shared.
 - Native span export completeness at process shutdown is a separate concern from the Go wrapper's export, and is tracked against the native runtimes.
 - Ownership of native work started after an approval is ambiguous by construction and is expressed as a link rather than asserted as a parent.

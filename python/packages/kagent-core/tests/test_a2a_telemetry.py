@@ -5,6 +5,8 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.context import ServerCallContext
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import a2a_pb2 as a2a
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -68,6 +70,31 @@ def spans(monkeypatch):
     monkeypatch.setattr(_telemetry, "_tracer", lambda: provider.get_tracer("kagent.core.a2a"))
     exporter.tracer = provider.get_tracer("test")
     return exporter
+
+
+@pytest.fixture
+def durations(monkeypatch):
+    reader = InMemoryMetricReader()
+    histogram = (
+        MeterProvider(metric_readers=[reader])
+        .get_meter("kagent.core.a2a")
+        .create_histogram("gen_ai.invoke_agent.duration")
+    )
+    monkeypatch.setattr(_telemetry, "_invoke_agent_duration", lambda: histogram)
+
+    def points():
+        data = reader.get_metrics_data()
+        if data is None:
+            return []
+        return [
+            point
+            for resource in data.resource_metrics
+            for scope in resource.scope_metrics
+            for metric in scope.metrics
+            for point in metric.data.data_points
+        ]
+
+    return points
 
 
 @pytest.fixture
@@ -136,7 +163,7 @@ def assert_trace_shape(exporter):
             assert span.status.description, f"{span.name} has no status message"
 
 
-async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, log):
+async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, log, durations):
     use(monkeypatch, KagentRuntimeValues.ADK_PYTHON)
     agent = Agent(spans.tracer, log)
     handler = handler_for(agent)
@@ -147,6 +174,7 @@ async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, 
     span = kagent_span(spans)
     assert span.name == "a2a.request"
     assert span.kind is SpanKind.INTERNAL
+    assert durations() == []
     attributes = dict(span.attributes)
     task_id = attributes["a2a.task.id"]
     assert attributes == {
@@ -169,7 +197,7 @@ async def test_adk_turn_gets_a_transport_span_with_identity(monkeypatch, spans, 
     assert_trace_shape(spans)
 
 
-async def test_runtime_without_its_own_invoke_agent_gets_kagents(monkeypatch, spans, log):
+async def test_runtime_without_its_own_invoke_agent_gets_kagents(monkeypatch, spans, log, durations):
     use(monkeypatch, KagentRuntimeValues.LANGGRAPH)
     handler = handler_for(Agent(spans.tracer, log))
 
@@ -180,6 +208,9 @@ async def test_runtime_without_its_own_invoke_agent_gets_kagents(monkeypatch, sp
     assert span.name == "invoke_agent researcher"
     assert span.attributes["gen_ai.operation.name"] == "invoke_agent"
     assert not LEGACY_KEYS & set(span.attributes)
+    (point,) = durations()
+    assert dict(point.attributes) == {"gen_ai.agent.name": "researcher"}
+    assert point.sum == (span.end_time - span.start_time) / 1e9
 
 
 async def test_flush_runs_before_the_quiescent_event_leaves(monkeypatch, spans, log):
@@ -227,7 +258,7 @@ async def test_reply_to_a_paused_task_is_a_resumed_segment(monkeypatch, spans, l
     assert_trace_shape(spans)
 
 
-async def test_runtime_failure_sets_error_type_and_message(monkeypatch, spans, log):
+async def test_runtime_failure_sets_error_type_and_message(monkeypatch, spans, log, durations):
     use(monkeypatch, KagentRuntimeValues.BYO)
     handler = handler_for(Agent(spans.tracer, log, error=ValueError("provider said no")))
 
@@ -239,6 +270,8 @@ async def test_runtime_failure_sets_error_type_and_message(monkeypatch, spans, l
     assert span.attributes["error.type"] == "runtime_error"
     assert span.status.status_code is StatusCode.ERROR
     assert span.status.description == "runtime_error: ValueError"
+    (point,) = durations()
+    assert dict(point.attributes) == {"gen_ai.agent.name": "researcher", "error.type": "runtime_error"}
     assert "provider said no" not in span.status.description
     assert_trace_shape(spans)
 

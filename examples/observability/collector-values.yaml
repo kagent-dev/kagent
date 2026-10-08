@@ -1,0 +1,196 @@
+# Reference OpenTelemetry Collector for kagent, as values for the
+# open-telemetry/opentelemetry-collector Helm chart. See
+# docs/architecture/telemetry.md#reference-collector.
+#
+# Point kagent at it with
+#   --set-string otel.exporter.otlp.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317
+# and set OTLP_ENDPOINT and OTLP_AUTHORIZATION (a Secret) for the backend.
+
+mode: statefulset
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: 0.162.0
+
+command:
+  name: otelcol-contrib
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: [pods, namespaces, nodes]
+      verbs: [get, watch, list]
+    - apiGroups: [apps]
+      resources: [replicasets]
+      verbs: [get, watch, list]
+
+statefulset:
+  volumeClaimTemplates:
+    - metadata:
+        name: queue
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+
+extraVolumeMounts:
+  - name: queue
+    mountPath: /var/lib/otelcol/queue
+
+extraEnvs:
+  - name: OTLP_ENDPOINT
+    value: ""
+  - name: OTLP_AUTHORIZATION
+    valueFrom:
+      secretKeyRef:
+        name: otlp-backend
+        key: authorization
+        optional: true
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    jaeger: null
+    zipkin: null
+    prometheus: null
+
+  extensions:
+    health_check:
+      endpoint: 0.0.0.0:13133
+    file_storage:
+      directory: /var/lib/otelcol/queue
+      create_directory: true
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_mib: 410
+      spike_limit_mib: 100
+
+    # Only the controller sets k8s.pod.uid. Runtimes on Substrate run inside a
+    # worker pod, so a connection IP would name the worker, not the agent.
+    k8sattributes:
+      passthrough: false
+      pod_association:
+        - sources:
+            - from: resource_attribute
+              name: k8s.pod.uid
+      extract:
+        metadata:
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.replicaset.name
+
+    # The Python ADK repeats the usage of each model call on call_llm, beside
+    # generate_content. Keep it on the operation span only.
+    transform/adk_call_llm_usage:
+      error_mode: ignore
+      trace_statements:
+        - context: span
+          conditions:
+            - instrumentation_scope.name == "gcp.vertex.agent" and span.name == "call_llm"
+          statements:
+            - delete_matching_keys(span.attributes, "^gen_ai\\.usage\\.")
+
+    # Content backstop for an installation with otel.capture.messageContent
+    # off. Remove it from the pipelines when capture is on. It also drops the
+    # Go ADK tool payloads it writes regardless of capture (google/adk-go#1634).
+    transform/genai_content:
+      error_mode: ignore
+      trace_statements:
+        - context: span
+          statements:
+            - delete_matching_keys(span.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")
+            - delete_matching_keys(span.attributes, "^gcp\\.vertex\\.agent\\.(llm_request|llm_response|tool_call_args|tool_response|data)$")
+        - context: spanevent
+          statements:
+            - delete_matching_keys(spanevent.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")
+      log_statements:
+        - context: log
+          statements:
+            - delete_matching_keys(log.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")
+
+  connectors:
+    # kagent records gen_ai.invoke_agent.duration on the invoke_agent spans it
+    # opens. This derives it from the invoke_agent spans the runtimes open
+    # themselves, before any sampling.
+    signaltometrics:
+      spans:
+        - name: gen_ai.invoke_agent.duration
+          description: The duration of one agent invocation, derived from its span.
+          unit: s
+          conditions:
+            - span.attributes["gen_ai.operation.name"] == "invoke_agent" and instrumentation_scope.name != "github.com/kagent-dev/kagent/go/adk/pkg/a2a/server" and instrumentation_scope.name != "kagent.core.a2a"
+          attributes:
+            - key: gen_ai.agent.name
+              optional: true
+            - key: gen_ai.request.model
+              optional: true
+            - key: error.type
+              optional: true
+          include_resource_attributes:
+            - key: service.name
+            - key: service.namespace
+              optional: true
+            - key: service.version
+              optional: true
+            - key: kagent.runtime
+              optional: true
+            - key: gen_ai.main_agent.id
+              optional: true
+            - key: deployment.environment.name
+              optional: true
+            - key: k8s.cluster.name
+              optional: true
+          exponential_histogram:
+            max_size: 160
+            value: Seconds(span.end_time - span.start_time)
+
+  exporters:
+    otlp/backend:
+      endpoint: ${env:OTLP_ENDPOINT}
+      headers:
+        authorization: ${env:OTLP_AUTHORIZATION}
+      compression: gzip
+      sending_queue:
+        enabled: true
+        queue_size: 5000
+        storage: file_storage
+
+  service:
+    extensions: [health_check, file_storage]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, transform/adk_call_llm_usage, transform/genai_content]
+        exporters: [signaltometrics, otlp/backend]
+      metrics:
+        receivers: [otlp, signaltometrics]
+        processors: [memory_limiter, k8sattributes]
+        exporters: [otlp/backend]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, transform/genai_content]
+        exporters: [otlp/backend]

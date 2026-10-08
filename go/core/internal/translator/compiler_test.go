@@ -656,7 +656,7 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
 		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
 		"OTEL_SERVICE_NAME":        "runnable-agent",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.agent.id=test/runnable-agent,gen_ai.agent.name=runnable-agent,service.namespace=test",
+		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.main_agent.id=test/runnable-agent,gen_ai.main_agent.name=runnable-agent,service.namespace=test",
 	} {
 		if found[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)
@@ -945,7 +945,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 							require.Equal(t, agent.Namespace, environment["KAGENT_NAMESPACE"])
 						}
 						require.Equal(t, name, environment["OTEL_SERVICE_NAME"])
-						require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.agent.id=test/"+name)
+						require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.id=test/"+name)
 						require.Equal(t, strings.ReplaceAll(name, "-", "_"), result.AgentCard.Name)
 						if kind == v2translator.HarnessTypeKagent {
 							var config adk.AgentConfig

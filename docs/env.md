@@ -201,6 +201,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_DOCKER_REGISTRY` | String | `localhost:5001` | Image registry for upgrade tests; supplied by make from DOCKER_REGISTRY. |
 | `KAGENT_E2E_KIND_CLUSTER_NAME` | String | `kagent` | Kind cluster used by upgrade tests; supplied by make from KIND_CLUSTER_NAME. |
 | `KAGENT_E2E_KUBE_CONTEXT` | String | `(none)` | Kubernetes context for upgrade tests. Defaults to kind- followed by KAGENT_E2E_KIND_CLUSTER_NAME. |
+| `KAGENT_E2E_LIVE_CHECK_ENDPOINT` | String | `(none)` | gRPC address of a Weaver live-check OTLP listener. After the tests, the suite replays every trace and metric export its receiver got, except those of native child processes, to this address. Unset disables the replay. |
 | `KAGENT_E2E_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
 | `KAGENT_E2E_NAMESPACE` | String | `kagent` | Kubernetes namespace used by upgrade tests. |
 | `KAGENT_E2E_OTLP_LISTEN_ADDRESS` | String | `(none)` | Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver. |
