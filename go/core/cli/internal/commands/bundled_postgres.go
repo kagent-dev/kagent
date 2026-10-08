@@ -16,6 +16,7 @@ package commands
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
@@ -23,6 +24,8 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/postgressetup"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -44,6 +47,22 @@ func bundledPostgresSetupSQL() string {
 	return "BEGIN;\n" + bundledPostgresSQL + "\n" + postgressetup.SQL() + "\nCOMMIT;\n"
 }
 
+// bundledPostgresManifest renders the development PostgreSQL manifest. Both values are
+// substituted into YAML, so they are validated rather than escaped.
+func bundledPostgresManifest(namespace, image string) (string, error) {
+	if problems := validation.IsDNS1123Label(namespace); len(problems) != 0 {
+		return "", fmt.Errorf("invalid namespace %q: %s", namespace, strings.Join(problems, ", "))
+	}
+	if _, err := name.ParseReference(image); err != nil {
+		return "", fmt.Errorf("invalid PostgreSQL image %q: %w", image, err)
+	}
+	return strings.NewReplacer(
+		"${NAMESPACE}", namespace,
+		"${SUBSTRATE_NAMESPACE}", substrateNamespace,
+		"${POSTGRES_IMAGE}", image,
+	).Replace(bundledPostgresYAML), nil
+}
+
 func kubectl(ctx context.Context, stdin string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	if stdin != "" {
@@ -57,8 +76,10 @@ func kubectl(ctx context.Context, stdin string, args ...string) ([]byte, error) 
 }
 
 func prepareBundledPostgres(ctx context.Context, namespace string) error {
-	if problems := validation.IsDNS1123Label(namespace); len(problems) != 0 {
-		return fmt.Errorf("invalid namespace %q: %s", namespace, strings.Join(problems, ", "))
+	image := cmp.Or(env.KagentBundledPostgresImage.Get(), env.KagentBundledPostgresImage.DefaultValue())
+	manifest, err := bundledPostgresManifest(namespace, image)
+	if err != nil {
+		return err
 	}
 	for _, targetNamespace := range []string{namespace, substrateNamespace} {
 		ns := strings.ReplaceAll(bundledPostgresNamespaceYAML, "${NAMESPACE}", targetNamespace)
@@ -67,7 +88,6 @@ func prepareBundledPostgres(ctx context.Context, namespace string) error {
 		}
 	}
 
-	manifest := strings.NewReplacer("${NAMESPACE}", namespace, "${SUBSTRATE_NAMESPACE}", substrateNamespace).Replace(bundledPostgresYAML)
 	if _, err := kubectl(ctx, manifest, "apply", "--server-side", "--field-manager=kagent-cli", "-f", "-"); err != nil {
 		return fmt.Errorf("deploy bundled PostgreSQL: %w", err)
 	}
