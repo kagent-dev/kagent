@@ -196,32 +196,20 @@ message ExternalSnapshot {
 
 // LocalSnapshot records information about a node-local snapshot.
 message LocalSnapshot {
-  // The name of the local checkpoint on each of the nodes below. Checkpoint
-  // names are server-generated UUIDs, but any resource name is valid here.
+  // The name of the local checkpoint on the node. Checkpoint names are
+  // server-generated UUIDs, but any resource name is valid here.
   //
   // +k8s:optional
   // +k8s:format=k8s-short-name
   string snapshot_name = 1;
 
-  // Node VMs that have local snapshots for this actor, while it's PAUSED.
-  // Each node appears at most once.
-  //
-  // TODO: revisit this design; a snapshot propagated to every node would
-  // grow this list with the fleet, and the bound below is provisional.
-  //
-  // +k8s:optional
-  // +k8s:maxItems=256
-  // +k8s:listType=set
-  // +k8s:eachVal=+k8s:format=k8s-long-name
-  repeated string node_vms_with_local_snapshots = 2;
-
-  // Scope the pause checkpoint captured (the template's onPause at pause
-  // time). UNSPECIFIED is tolerated for compatibility and reads as FULL.
+  // Scope the pause checkpoint captured (the template's onCommit at pause
+  // time).
   //
   // +k8s:optional
   // +k8s:minimum=1
   // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
-  SnapshotContentScope content_scope = 3;
+  SnapshotContentScope content_scope = 2;
 }
 
 enum SnapshotContentScope {
@@ -617,6 +605,13 @@ message HttpRuleEffects {
   // the requests that ask for it. Header names must be unique
   // case-insensitively.
   //
+  // Replacement is supported on HTTP and HTTPS. On HTTP, the gateway does
+  // not originate TLS to the destination. Without separate transport
+  // protection, observers can read the credential and attackers on the path
+  // can modify the request. Deployments may encrypt traffic outside the
+  // gateway; policy authors must account for any unprotected segments
+  // between credential injection and the intended destination.
+  //
   // +k8s:optional
   // +k8s:maxItems=16
   // +k8s:listType=map
@@ -756,6 +751,14 @@ message ActorStatus {
   //
   // +k8s:optional
   ActorCrash crash = 9;
+
+  // assigned_node is the Kubernetes node the Actor is currently attached to
+  // (hosting its active worker or its node-local snapshots). Unset when the
+  // Actor is detached from any node.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-long-name
+  string assigned_node = 10;
 }
 
 // ActorCrash describes the failure that moved an Actor to CRASHED.
@@ -1052,20 +1055,9 @@ message SandboxConfig {
 // stored. A FULL snapshot resumes from its own content. A DATA snapshot
 // resumes by starting the containers afresh from the OCI image, with the
 // durable-dir volumes populated from the snapshot.
-//
-// +k8s:customValidation # on_commit must be a subset of on_pause
 message SnapshotConfig {
-  // on_pause defines the scope of the snapshot captured when an actor
-  // is paused. Defaults to FULL when unset.
-  //
-  // +k8s:required
-  // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
-  SnapshotContentScope on_pause = 1;
-
-  // on_commit defines the scope of the actor snapshot captured when an actor
-  // is suspended.
-  // Must be a subset of on_pause: FULL allows FULL or DATA, DATA allows DATA.
+  // on_commit defines the scope of every snapshot taken of an actor, both
+  // the node-local one captured on pause and the one uploaded on suspend.
   // Defaults to FULL when unset.
   //
   // +k8s:required
@@ -1387,11 +1379,15 @@ message TrustBundleDataSource {
   // * egress-mitm.ate.dev --- The trust anchors for the Substrate egress
   //   gateway TLS man-in-the-middle interceptor.
   //
+  // * system-roots.ate.dev --- A selection of well-known public CA root certificates,
+  //   built into Substrate
+  //
   // +k8s:required
   // +k8s:minItems=1
-  // +k8s:maxItems=1
+  // +k8s:maxItems=8
   // +k8s:eachVal=+k8s:minLength=1
   // +k8s:eachVal=+k8s:maxLength=253
+  // +k8s:listType=set
   repeated string names = 3;
 
   // path must be a clean relative Unix path: at most 16 '/'-separated
@@ -1699,13 +1695,6 @@ message MintActorJWTRequest {
   //
   // +k8s:required
   ObjectRef actor = 5;
-
-  // The UID of the actor --- used to guard against deletion and recreation of
-  // an actor with the same name.
-  //
-  // +k8s:required
-  // +k8s:format=k8s-uuid
-  string actor_uid = 7;
 
   // The audiences the minted JWT is bound to. Tokens are only issued with
   // audience bindings, so at least one is required.
@@ -2153,6 +2142,24 @@ message WorkerStatus {
   // +k8s:optional
   // +k8s:minimum=0
   int64 observed_epoch = 4;
+
+  // Hardware identity reported by the Worker at registration.
+  //
+  // +k8s:optional
+  HardwareIdentity hardware = 5;
+}
+
+// HardwareIdentity identifies the hardware of a Worker or the Worker a
+// snapshot was captured on.
+message HardwareIdentity {
+  // Key-value pairs describing hardware properties (currently
+  // "architecture"; TODO: add "cpu_vendor", "cpu_model", etc.).
+  //
+  // +k8s:optional
+  // +k8s:maxProperties=32
+  // +k8s:eachKey=+k8s:maxLength=128
+  // +k8s:eachVal=+k8s:maxLength=256
+  map<string, string> attributes = 1;
 }
 
 // WorkerResources represents a set of resources.
@@ -2196,13 +2203,6 @@ message ActorAssignment {
   // +k8s:format=k8s-uuid
   string actor_uid = 3;
 
-  // actor_template_ref names the ActorTemplate resource the assigned Actor
-  // uses.
-  //
-  // +k8s:required
-  // +k8s:subfield(atespace)=+k8s:required
-  ObjectRef actor_template_ref = 4;
-
   // The resources allocated to the Actor when it was assigned.
   //
   // +k8s:optional
@@ -2220,14 +2220,17 @@ message ActorAssignment {
 // authorization: Control is the client-facing API, while these RPCs are served
 // only to an atelet, and only for the Workers on its own node.
 service WorkerService {
-  // SetWorkerCapacity records what a Worker can hold. Capacity is the Worker's
-  // to report rather than the control plane's to infer: it is what the ateom
-  // can actually supply, only its node can observe it, and a fleet may run
+  // RegisterWorker records what a Worker can hold and its hardware identity in
+  // one write, so a Worker is never schedulable without hardware to match
+  // snapshots against. Capacity and hardware are the Worker's to report rather
+  // than the control plane's to infer: they are what the ateom can actually
+  // supply and expose, only its node can observe them, and a fleet may run
   // mixed ateom versions.
   //
   // atelet calls this with its own client certificate, as it does for
-  // MintCert. Idempotent: re-sending the same capacity is not a write.
-  rpc SetWorkerCapacity(SetWorkerCapacityRequest) returns (SetWorkerCapacityResponse);
+  // MintCert. Idempotent: re-sending the same capacity and hardware is not a
+  // write.
+  rpc RegisterWorker(RegisterWorkerRequest) returns (RegisterWorkerResponse);
 
   // Create a Substrate-issued SPIFFE certificate that asserts an ateom acting
   // on behalf of a particular actor.
@@ -2245,7 +2248,7 @@ service WorkerService {
   // that races a resume, pause, or delete loses to it.
   //
   // atelet calls this with its own client certificate, as it does for
-  // SetWorkerCapacity, naming the Worker its caller proved itself to be. The
+  // RegisterWorker, naming the Worker its caller proved itself to be. The
   // control plane serves it only for an Actor that is assigned to that Worker.
   //
   // Not idempotent, unlike Control.SuspendActor, which reports an
@@ -2257,8 +2260,8 @@ service WorkerService {
   rpc RequestActorSuspend(RequestActorSuspendRequest) returns (RequestActorSuspendResponse);
 }
 
-message SetWorkerCapacityRequest {
-  // The Worker being reported on. atespace is always empty; Workers are
+message RegisterWorkerRequest {
+  // The Worker being registered. atespace is always empty; Workers are
   // global-scoped.
   //
   // +k8s:required
@@ -2271,9 +2274,15 @@ message SetWorkerCapacityRequest {
   //
   // +k8s:required
   WorkerResources capacity = 2;
+
+  // Hardware identity reported by the Worker. Like capacity, this replaces
+  // what is recorded on the Worker.
+  //
+  // +k8s:required
+  HardwareIdentity hardware = 3;
 }
 
-message SetWorkerCapacityResponse {
+message RegisterWorkerResponse {
   // The Worker as recorded, so a caller sees what its report resolved to.
   Worker worker = 1;
 }

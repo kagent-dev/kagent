@@ -11,7 +11,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
+Substrate v0.5.0-alpha2 requires protocol-specific egress policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
 protocols on the same host and port are rejected before Actor creation. Literal
@@ -213,8 +213,10 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Templates capture Full snapshots when paused and Data snapshots when suspended.
-Substrate v0.4.0-alpha1 resumes a Data snapshot by starting fresh containers from
+Templates capture Data snapshots when paused and when suspended. Substrate
+v0.5.0-alpha2 removed the separate pause scope, so a pause no longer keeps
+process memory.
+Substrate v0.5.0-alpha2 resumes a Data snapshot by starting fresh containers from
 the OCI image with the saved durable directories. Data restores no longer combine
 Golden memory with the Actor's saved data.
 

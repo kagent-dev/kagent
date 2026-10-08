@@ -27,7 +27,6 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	require.Equal(t, []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"}, actor.Containers[0].Command)
 	require.Equal(t, policy.GuestImage, actor.Volumes[1].Image.Reference)
 	require.Equal(t, "1Gi", actor.Resources.Limits[1].Quantity)
-	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, actor.GetSnapshotConfig().GetOnPause())
 	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actor.GetSnapshotConfig().GetOnCommit())
 	trust := actor.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
 	require.Equal(t, []string{"egress-mitm.ate.dev"}, trust.GetNames())

@@ -114,7 +114,7 @@ controller rollouts. Subsequent calls keep their normal failure and retry behavi
 fixture setup does not retry mutations or suppress errors returned by the server.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate
-v0.4.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
+v0.5.0-alpha2 enables multiple actors per worker by default (`--max-actors=1000`),
 so test concurrency is no longer limited to the worker count. A scenario may need
 multiple actors for subagents or template preparation; four scenarios is not a
 four-actor cap. Parallel harness subtests share the same `-parallel` budget as
@@ -130,7 +130,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=0.4.0-alpha1 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=0.5.0-alpha2 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release to use its asset installer and caches
 the downloaded assets under `.cache/substrate/microvm-assets/`.
 
