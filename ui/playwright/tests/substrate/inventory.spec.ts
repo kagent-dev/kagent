@@ -152,7 +152,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
 
     // Three actors on one worker is expected, and the note says so beside the table.
     await expect(page.getByTestId("substrate-workers-note")).toHaveText(
-      "One worker can run many actors at the same time, up to the limit in the Actors column.",
+      "One worker can run many actors at once, until it runs out of actor slots, CPU or memory.",
     );
     await expect(
       workers.getByRole("row").filter({ hasText: "ateom-kagent-default-0" }).getByRole("cell").last(),

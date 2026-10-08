@@ -1534,7 +1534,7 @@ export function SubstratePage() {
             css={{ ...muted, display: "block", marginBottom: theme.space(3) }}
             data-testid="substrate-workers-note"
           >
-            One worker can run many actors at the same time, up to the limit in the Actors column.
+            One worker can run many actors at once, until it runs out of actor slots, CPU or memory.
           </Text>
 
           <Table<SubstrateWorkerEntry>
