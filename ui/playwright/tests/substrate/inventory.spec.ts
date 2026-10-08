@@ -150,9 +150,9 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(workers).toContainText("kagent-default");
     await expect(workers).toContainText("10.42.1.19");
 
-    // Three actors on one worker is expected, and the note says so beside the table.
-    await expect(page.getByTestId("substrate-workers-note")).toHaveText(
-      "One worker can run many actors at once, until it runs out of actor slots, CPU or memory.",
+    // Worker 0 holds three actors, so the Actors section explains sharing.
+    await expect(page.getByTestId("substrate-actors-shared-note")).toHaveText(
+      "Multiple actors are running on one worker. One worker can run many actors at once, until it runs out of actor slots, CPU or memory.",
     );
     await expect(
       workers.getByRole("row").filter({ hasText: "ateom-kagent-default-0" }).getByRole("cell").last(),
@@ -275,6 +275,7 @@ test("substrate: an empty inventory is shown without errors", async ({
   await expect(page.getByTestId("substrate-workers-table")).toContainText(
     "No worker assignments in this namespace scope on this page.",
   );
+  await expect(page.getByTestId("substrate-actors-shared-note")).toHaveCount(0);
   await expect(page.getByTestId("substrate-pools-table")).toContainText(
     "Create one in the cluster",
   );

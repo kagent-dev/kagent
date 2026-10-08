@@ -906,6 +906,12 @@ export function SubstratePage() {
     [workers.data?.workers, workers.error],
   );
 
+  // allocatedActors counts every atespace; no rows (loading or error) means no note.
+  const isWorkerShared = useMemo(
+    () => workerRows.some((worker) => (worker.allocatedActors ?? 0) > 1),
+    [workerRows],
+  );
+
   /*
    * The tiles, from the summary's own counts.
    *
@@ -1447,6 +1453,16 @@ export function SubstratePage() {
             emptyText="No actors in this scope."
           />
 
+          {isWorkerShared ? (
+            <Text
+              css={{ ...muted, display: "block", marginBottom: theme.space(3) }}
+              data-testid="substrate-actors-shared-note"
+            >
+              Multiple actors are running on one worker. One worker can run many actors at
+              once, until it runs out of actor slots, CPU or memory.
+            </Text>
+          ) : null}
+
           <Table<SubstrateActorEntry>
             data-testid="substrate-actors-table"
             rowKey={(actor) => `${actor.atespace}/${actor.actorId}`}
@@ -1529,13 +1545,6 @@ export function SubstratePage() {
               testId="substrate-workers-partial"
             />
           ) : null}
-
-          <Text
-            css={{ ...muted, display: "block", marginBottom: theme.space(3) }}
-            data-testid="substrate-workers-note"
-          >
-            One worker can run many actors at once, until it runs out of actor slots, CPU or memory.
-          </Text>
 
           <Table<SubstrateWorkerEntry>
             data-testid="substrate-workers-table"
