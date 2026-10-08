@@ -2,25 +2,26 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.
-// URL must be a resolved connection string — use ResolveURL to resolve from
-// a file path before constructing this config.
-//
+// URL is a PostgreSQL connection string.
 // Pool fields are optional: nil leaves the corresponding pgxpool.Config value
 // from ParseConfig unchanged (pgx library defaults).
+// Role, when set, is assumed on every connection after authentication.
 type PostgresConfig struct {
 	URL             string
+	Role            string
 	VectorEnabled   bool
 	MaxConns        *int32
 	MinConns        *int32
@@ -33,6 +34,8 @@ const (
 	defaultInitialDelay = 500 * time.Millisecond
 	defaultMaxDelay     = 5 * time.Second
 )
+
+var errInvalidDatabaseURL = errors.New("invalid PostgreSQL connection string")
 
 // Connect returns a PostgreSQL pool after a successful ping, retrying until the
 // context is canceled or two minutes elapse. Invalid configuration fails immediately.
@@ -65,6 +68,71 @@ func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) error {
 	return nil
 }
 
+// ValidateURL validates a PostgreSQL connection string without disclosing it in errors.
+func ValidateURL(url string) error {
+	_, err := parsePoolConfig(url)
+	return err
+}
+
+func parsePoolConfig(url string) (*pgxpool.Config, error) {
+	config, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		// pgx parse errors retain the input string, so wrapping err here could
+		// disclose the password read from a Secret.
+		return nil, fmt.Errorf("parse database connection source: %w", errInvalidDatabaseURL)
+	}
+	return config, nil
+}
+
+func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
+	config, err := parsePoolConfig(cfg.URL)
+	if err != nil {
+		return nil, err
+	}
+	if err := applyPoolConfig(config, cfg); err != nil {
+		return nil, err
+	}
+
+	if usesTLS(config.ConnConfig) {
+		// pgx reads TLS files once at parse time. Reparse before each new physical
+		// connection so rotated client certificates take effect without a restart.
+		config.BeforeConnect = func(_ context.Context, connConfig *pgx.ConnConfig) error {
+			fresh, err := parsePoolConfig(cfg.URL)
+			if err != nil {
+				return err
+			}
+			refreshed := fresh.ConnConfig.Config.Copy()
+			connConfig.TLSConfig = refreshed.TLSConfig
+			connConfig.Fallbacks = refreshed.Fallbacks
+			return nil
+		}
+	}
+
+	if cfg.Role != "" || cfg.VectorEnabled {
+		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if cfg.Role != "" {
+				if _, err := conn.Exec(ctx, "SELECT set_config('role', $1, false)", cfg.Role); err != nil {
+					return fmt.Errorf("assuming PostgreSQL role %q: %w", cfg.Role, err)
+				}
+			}
+			if cfg.VectorEnabled {
+				return pgvectorpgx.RegisterTypes(ctx, conn)
+			}
+			return nil
+		}
+	}
+	return config, nil
+}
+
+func usesTLS(config *pgx.ConnConfig) bool {
+	if config.TLSConfig != nil {
+		return true
+	}
+	return slices.ContainsFunc(config.Fallbacks, func(fallback *pgconn.FallbackConfig) bool {
+		return fallback.TLSConfig != nil
+	})
+}
+
 // retryDBConnection opens and verifies a pool, registering vector types when enabled.
 // Failed pings retry with exponential backoff until cancellation or the two-minute
 // timeout; an unsuccessful pool is closed before returning the error.
@@ -72,17 +140,9 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
 	defer cancel()
 
-	config, err := pgxpool.ParseConfig(cfg.URL)
+	config, err := poolConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse database URL: %w", err)
-	}
-	if err := applyPoolConfig(config, cfg); err != nil {
 		return nil, err
-	}
-	if cfg.VectorEnabled {
-		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-			return pgvectorpgx.RegisterTypes(ctx, conn)
-		}
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
@@ -109,28 +169,4 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 			delay = defaultMaxDelay
 		}
 	}
-}
-
-// ResolveURL returns url unless urlFile is set, in which case it returns the file's
-// trimmed contents. An unreadable or empty file returns an error without falling
-// back to url.
-func ResolveURL(url, urlFile string) (string, error) {
-	if urlFile != "" {
-		return resolveURLFile(urlFile)
-	}
-	return url, nil
-}
-
-// resolveURLFile reads a database connection URL from a file and returns the
-// trimmed contents. Returns an error if the file cannot be read or is empty.
-func resolveURLFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("reading URL file: %w", err)
-	}
-	url := strings.TrimSpace(string(content))
-	if url == "" {
-		return "", fmt.Errorf("URL file %s is empty or contains only whitespace", path)
-	}
-	return url, nil
 }

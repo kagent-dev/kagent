@@ -88,6 +88,8 @@ the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes 
 
 ## Forking
 
+Forks are currently unavailable. Substrate 0.5.0-alpha1 applies one snapshot scope to pause and suspend, and templates use Full so paused Actors keep their process memory. A Full checkpoint restored into a new Actor would resume processes that still hold the source session's IDs, so `ForkSession` rejects it with `FAILED_PRECONDITION`. Forking returns when Substrate's lifecycle v2 lets templates take Data snapshots on suspend again. The rest of this section describes forks of Data checkpoints.
+
 Forking creates a new Session and context ID. It copies events through the
 saved cutoff and reconstructs task views without reading the source's current task
 views. During that copy, the store assigns fresh task IDs and rewrites typed A2A

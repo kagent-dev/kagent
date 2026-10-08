@@ -187,6 +187,16 @@ func TestMCPCheckpointFork(t *testing.T) {
 			t.Fatalf("listed checkpoints = %#v", listed)
 		}
 
+		if !checkpointForksSupported {
+			result := mcpCall(t, endpoint, "tools/call", map[string]any{
+				"name":      "fork_session",
+				"arguments": map[string]any{"checkpoint_id": checkpointID},
+			}, false)["result"].(map[string]any)
+			if result["isError"] != true {
+				t.Fatalf("fork_session accepted a process-memory checkpoint: %#v", result)
+			}
+			return
+		}
 		forked := mcpCall(t, endpoint, "tools/call", map[string]any{
 			"name":      "fork_session",
 			"arguments": map[string]any{"checkpoint_id": checkpointID},

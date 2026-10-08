@@ -1,10 +1,12 @@
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
+SUBSTRATE_VERSION ?= $(shell awk '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go.mod)
 
 LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VERSION)    \
            -X github.com/kagent-dev/kagent/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE)
+           -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE) \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))

@@ -288,6 +288,10 @@ func TestSessionCheckpoint(t *testing.T) {
 		if err := deleteIdleSession(fixture.ctx, fixture.sessions, fixture.sessionID); err != nil {
 			t.Fatalf("delete checkpoint source: %v", err)
 		}
+		if !checkpointForksSupported {
+			requireForkRejected(fixture.ctx, t, fixture.checkpoints, checkpoint.GetId())
+			return
+		}
 		forked, err := fixture.checkpoints.ForkSession(fixture.ctx, &apiv1alpha1.ForkSessionRequest{
 			CheckpointId: checkpoint.GetId(), RequestId: uuid.NewString(),
 		})
