@@ -521,6 +521,60 @@ describe("A2AGrpcChatClient.send", () => {
     ).toEqual([" beta", " gamma"]);
   });
 
+  it("delivers appended tool results before the turn completes", async () => {
+    const call = data({ id: "call-1", name: "alerts_list_alerts", args: {} });
+    const result = data({
+      id: "call-1",
+      name: "alerts_list_alerts",
+      response: { result: "disk full", error: null },
+    });
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "call-1", parts },
+          append,
+        },
+      },
+    });
+    // No terminal frame: each update must be visible while the task is working.
+    const events = await turn([frame([call]), frame([result], true)]);
+    const messages = events.filter((event) => event.type === "message");
+    expect(messages).toHaveLength(2);
+    expect(messages[0].message.parts).toHaveLength(1);
+    expect(messages[1].message.parts).toMatchObject([
+      { kind: "data", dataKind: "tool_call" },
+      { kind: "data", dataKind: "tool_result", data: { response: { result: "disk full" } } },
+    ]);
+    expect(transcript(events)).toHaveLength(1);
+  });
+
+  it("preserves structured parts when text is appended to a mixed artifact", async () => {
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: "mixed", parts },
+          append,
+        },
+      },
+    });
+    const events = await turn([
+      frame([text("Checking ")]),
+      frame([data({ id: "call-1", name: "alerts_list_alerts", args: {} })], true),
+      frame([text("done")], true),
+    ]);
+    const messages = transcript(events);
+    expect(messages[0].parts).toMatchObject([
+      { kind: "text", text: "Checking " },
+      { kind: "data", dataKind: "tool_call" },
+      { kind: "text", text: "done" },
+    ]);
+  });
+
   it("does not double the answer when the last chunk repeats what was streamed", async () => {
     // The closing frame carries the whole reply rather than the last increment, and
     // is not flagged `append` — so it is a replacement. Appending it instead would
