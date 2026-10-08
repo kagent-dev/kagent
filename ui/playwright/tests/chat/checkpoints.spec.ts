@@ -247,7 +247,8 @@ test("chat: a conversation is duplicated from the rail menu, and the copy opens"
   });
   await row.hover();
   await row.getByTestId(`chat-session-menu-${instances.ready}`).click();
-  await openMenu(page).getByRole("menuitem", { name: "Duplicate chat" }).click();
+  // The dropdown zooms in, and a click computed mid-zoom misses the item.
+  await pressOnce(openMenu(page).getByRole("menuitem", { name: "Duplicate chat" }));
 
   await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {
     timeout: 30_000,

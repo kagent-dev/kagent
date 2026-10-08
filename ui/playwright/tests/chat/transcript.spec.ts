@@ -394,9 +394,8 @@ test("chat: the composer stays put when switching conversations", async ({ page 
   const rail = page.getByTestId("chat-sessions");
   await rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`).click();
   await page.waitForURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
-  await expect(page.getByTestId("chat-composer")).toBeVisible();
-  // Settled, not mid-transition — the assertion is about where it ends up.
-  await page.waitForTimeout(1000);
+  // Settled, not mid-transition: the sibling has no messages, so wait for its empty state.
+  await expect(page.getByTestId("chat-empty")).toBeVisible();
 
   expect(
     Math.abs((await composerTop()) - before),
