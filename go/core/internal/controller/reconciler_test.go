@@ -19,7 +19,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,7 +35,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
-	revision := &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
+	revision := &translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
 	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
 	revisionID, err := revision.Digest()
 	if err != nil {
@@ -114,7 +114,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
 	state.Target.ActorTemplate.Metadata.Name = "assistant-next-revision"
-	state.Target.Revision = v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
+	state.Target.Revision = translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
 	state.Target.RevisionID, err = state.Target.Revision.Digest()
 	require.NoError(t, err)
 	templates.template = nil
@@ -164,7 +164,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				},
 				templates: templates, store: store,
 			}
-			revision := &v2translator.Revision{
+			revision := &translator.Revision{
 				AgentCard: &a2apb.AgentCard{Name: "assistant"}, Provenance: []byte("{}"), EgressDestinations: []string{},
 			}
 			id, err := revision.Digest()

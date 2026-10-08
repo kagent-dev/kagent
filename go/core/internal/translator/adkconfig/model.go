@@ -7,7 +7,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	corev1 "k8s.io/api/core/v1"
@@ -24,7 +24,7 @@ type modelDeploymentData struct {
 	VolumeMounts []corev1.VolumeMount
 }
 
-// modelRuntime is the provider-neutral result consumed by the rest of the v2
+// modelRuntime is the provider-neutral result consumed by the rest of the
 // compiler.
 type modelRuntime struct {
 	Model                 adk.Model
@@ -34,7 +34,7 @@ type modelRuntime struct {
 
 // resolveModel collapses provider-specific translation output into the subset
 // needed to compile a runtime revision.
-func resolveModel(resolved *v2translator.ResolvedModelConfig) (*modelRuntime, error) {
+func resolveModel(resolved *translator.ResolvedModelConfig) (*modelRuntime, error) {
 	model, data, err := translateModel(resolved)
 	if err != nil {
 		return nil, err
@@ -59,11 +59,10 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) 
 	baseModel.TLSInsecureSkipVerify = tlsInsecureSkipVerify(tlsConfig)
 }
 
-// translateModel owns the v2 ModelConfig-to-ADK mapping. The provider branches
-// are intentionally local rather than calling the legacy translator: v2 can
-// now evolve and eventually replace that code without a compatibility layer.
+// translateModel owns the ModelConfig-to-ADK mapping. The provider branches
+// are intentionally local so runtime-specific requirements stay explicit.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
+func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
 	if resolved == nil || resolved.Config == nil {
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}

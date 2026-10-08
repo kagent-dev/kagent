@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -21,14 +21,14 @@ type Compiler struct {
 	config *adkconfig.Builder
 }
 
-var _ v2translator.HarnessCompiler = (*Compiler)(nil)
+var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
 	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
-	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
+	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
 	compiled, err := c.config.Build(ctx, input)
 	if err != nil {
 		return nil, err
@@ -38,14 +38,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, template))
+	card, err := pbconv.ToProtoAgentCard(translator.ManagedAgentCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
-	harnessAttributes := v2translator.HarnessResourceAttributes(harness)
+	harnessAttributes := translator.HarnessResourceAttributes(harness)
 	harnessEnvironment := slices.DeleteFunc(adkconfig.HarnessEnvironment(harness), func(variable corev1.EnvVar) bool {
-		return v2translator.OwnsTelemetryEnvironment(variable.Name)
+		return translator.OwnsTelemetryEnvironment(variable.Name)
 	})
 	environment := append(compiled.Environment, harnessEnvironment...)
 	environment = append(environment,
@@ -63,7 +63,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, err := v2translator.CompileCredentials(input, compiled.Models, environment)
+	environment, credentials, err := translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	compiled.Egress = append(compiled.Egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)
-	return &v2translator.CompileResult{Revision: v2translator.Revision{
+	return &translator.CompileResult{Revision: translator.Revision{
 		Namespace: template.Namespace,
 		Image:     harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,

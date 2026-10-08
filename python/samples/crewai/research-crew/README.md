@@ -43,7 +43,7 @@ If you wish to use the memory persistence integration with KAgent, edit `crew.py
    ```
 
 4. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   API v2 examples and E2E fixtures for the current resource shape.
+   current examples and E2E fixtures for the resource shape.
 
 ## Local Development
 

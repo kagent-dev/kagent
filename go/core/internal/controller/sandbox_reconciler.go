@@ -57,10 +57,10 @@ func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRe
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
 
 func (s *SandboxReconciler) Start(ctx context.Context) error {
-	preparations := newReconciliationQueue("v2-sandbox-preparation", func(item any) error {
+	preparations := newReconciliationQueue("sandbox-preparation", func(item any) error {
 		return s.reconcile(ctx, item.(string))
 	})
-	statuses := newReconciliationQueue("v2-sandbox-status", func(item any) error {
+	statuses := newReconciliationQueue("sandbox-status", func(item any) error {
 		return s.reconcileStatus(ctx, item.(string))
 	})
 	handler := s.collections.states.Register(func(event krt.Event[sandboxReconciliation]) {

@@ -23,14 +23,14 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
-	v2controller "github.com/kagent-dev/kagent/go/core/internal/controller"
+	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	v2mcp "github.com/kagent-dev/kagent/go/core/internal/mcp"
+	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -43,7 +43,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -167,7 +167,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
-	_, telemetryWarnings := v2translator.TelemetryConfigFromProcess()
+	_, telemetryWarnings := translator.TelemetryConfigFromProcess()
 	for _, warning := range telemetryWarnings {
 		logger.WarnContext(ctx, "invalid agent telemetry configuration; disabling signal", "error", warning)
 	}
@@ -270,7 +270,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := v2controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done())
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done())
 	if err != nil {
 		return err
 	}
@@ -284,14 +284,14 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer actors.Close()
-	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
+	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		return err
 	}
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	runtimeGC, err := v2controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get(), otel.GetMeterProvider())
+	runtimeGC, err := controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get(), otel.GetMeterProvider())
 	if err != nil {
 		return fmt.Errorf("create runtime revision GC: %w", err)
 	}
@@ -378,7 +378,7 @@ func Run(ctx context.Context, opts Options) error {
 		CPU:        kagentenv.SandboxCPU.Get(),
 		Memory:     kagentenv.SandboxMemory.Get(),
 	}
-	preparation, err := v2controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
+	preparation, err := controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
 	if err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(sandboxes); err != nil {
 		return err
 	}
-	mcpHandler, err := v2mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
+	mcpHandler, err := mcp.New(sessions, checkpoints, gateway, sandboxes, sandboxTemplates)
 	if err != nil {
 		return err
 	}
