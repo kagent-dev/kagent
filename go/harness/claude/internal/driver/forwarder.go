@@ -38,10 +38,11 @@ type CallerCredentialBinder interface {
 }
 
 // CredentialForwarder fronts the compiled MCP servers on loopback and adds the
-// caller's credential of the current turn to every request it forwards. Claude
-// receives the loopback address and a per-process token only; the caller's
-// credential never enters its environment, its configuration files or the
-// Actor's filesystem, and it is held in this process for one turn at a time.
+// caller's credential of the current turn to every request it forwards to a
+// server that configures no Authorization of its own. Claude receives the
+// loopback address and a per-process token only; the caller's credential never
+// enters its environment, its configuration files or the Actor's filesystem,
+// and it is held in this process for one turn at a time.
 type CredentialForwarder struct {
 	token    string
 	maxBody  int64
@@ -54,9 +55,10 @@ type CredentialForwarder struct {
 }
 
 type forwardTarget struct {
-	url     *url.URL
-	headers map[string]string
-	proxy   *httputil.ReverseProxy
+	url                 *url.URL
+	headers             map[string]string
+	callerAuthorization bool
+	proxy               *httputil.ReverseProxy
 }
 
 // NewCredentialForwarder binds an authenticated loopback endpoint per server.
@@ -87,11 +89,11 @@ func NewCredentialForwarder(servers map[string]UpstreamMCPServer, maxBodyBytes i
 		for header, value := range server.Headers {
 			headers[http.CanonicalHeaderKey(header)] = value
 		}
-		// The forwarder carries the caller's credential only: a static
-		// Authorization never leaves it, and a Secret-backed one is set by the
-		// egress gateway outside the sandbox.
-		delete(headers, "Authorization")
-		entry := &forwardTarget{url: target, headers: headers}
+		// A server that configures Authorization owns it: the egress gateway
+		// replaces its placeholder with the Secret, and only when the request
+		// carries one. Every other server takes the caller's credential.
+		_, ownsAuthorization := headers["Authorization"]
+		entry := &forwardTarget{url: target, headers: headers, callerAuthorization: !ownsAuthorization}
 		entry.proxy = &httputil.ReverseProxy{
 			Rewrite:       forwarder.rewrite(entry),
 			FlushInterval: -1,
@@ -205,6 +207,11 @@ func (f *CredentialForwarder) rewrite(target *forwardTarget) func(*httputil.Prox
 		for header, value := range target.headers {
 			out.Header.Set(header, value)
 		}
+		if !target.callerAuthorization {
+			return
+		}
+		// A turn without a caller credential reaches the upstream without
+		// Authorization, never with another credential in its place.
 		if credential := f.current(); credential != "" {
 			out.Header.Set("Authorization", credential)
 		}

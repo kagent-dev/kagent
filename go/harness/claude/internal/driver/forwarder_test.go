@@ -64,9 +64,7 @@ func callForwarder(t *testing.T, forwarder *CredentialForwarder, url string, aut
 func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 	upstream, requests := newRecordingUpstream(t)
 	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
-		"tools": {URL: upstream.URL + "/mcp?tenant=test", Headers: map[string]string{
-			"X-Toolset": "preset:read-only", "Authorization": "Bearer static-service",
-		}},
+		"tools": {URL: upstream.URL + "/mcp?tenant=test", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
 	}, 1<<20)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +101,52 @@ func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 	require.Equal(t, []recordedRequest{
 		{Path: "/mcp", Query: "tenant=test", Authorization: "Bearer person-token", Toolset: "preset:read-only", Host: host},
 		{Path: "/mcp/session", Query: "tenant=test&id=7", Toolset: "preset:read-only", Host: host},
-	}, seen, "the static Authorization and the loopback token must never leave the process")
+	}, seen, "the loopback token must never leave the process")
+}
+
+func TestCredentialForwarderAuthorizationHasOneOwner(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		headers    map[string]string
+		credential string
+		want       []string
+	}{
+		{
+			name:       "gateway-owned keeps the placeholder over the caller credential",
+			headers:    map[string]string{"authorization": "kagent-credential-injected"},
+			credential: "Bearer person-token",
+			want:       []string{"kagent-credential-injected"},
+		},
+		{
+			name:    "gateway-owned keeps the placeholder without a caller credential",
+			headers: map[string]string{"Authorization": "kagent-credential-injected"},
+			want:    []string{"kagent-credential-injected"},
+		},
+		{
+			name:       "caller-owned sends the caller credential",
+			credential: "Bearer person-token",
+			want:       []string{"Bearer person-token"},
+		},
+		{
+			name: "caller-owned sends nothing without a caller credential",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream, requests := newRecordingUpstream(t)
+			forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
+				"tools": {URL: upstream.URL + "/mcp", Headers: test.headers},
+			}, 1<<20)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = forwarder.Close() })
+			if test.credential != "" {
+				forwarder.Bind(test.credential)
+			}
+			require.Equal(t, http.StatusOK, callForwarder(t, forwarder, forwarder.URL("tools"), true).StatusCode)
+			seen := requests()
+			require.Len(t, seen, 1)
+			require.Equal(t, test.want, seen[0].Header.Values("Authorization"))
+		})
+	}
 }
 
 func TestCredentialForwarderRejectsUnknownServersAndInputs(t *testing.T) {

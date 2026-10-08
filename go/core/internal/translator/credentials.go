@@ -3,6 +3,7 @@ package translator
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -24,6 +25,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
 	boundArtifacts := map[string]bool{}
+	var callerOwnedMCP []*v1alpha3.RemoteMCPServer
 	bind := func(rawURL, header, prefix, namespace, name, key string) error {
 		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
@@ -40,6 +42,11 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			models = append(models, agent.ResolvedModelConfig)
 		}
 		for _, tool := range agent.MCPTools {
+			if !slices.ContainsFunc(tool.Server.Spec.HeadersFrom, func(ref v1alpha3.ValueRef) bool {
+				return strings.EqualFold(ref.Name, "authorization")
+			}) {
+				callerOwnedMCP = append(callerOwnedMCP, tool.Server)
+			}
 			for _, ref := range tool.Server.Spec.HeadersFrom {
 				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
 					boundMCP[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
@@ -128,6 +135,23 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			}
 		}
 	}
+	// With KAGENT_PROPAGATE_TOKEN a server that configures no Authorization
+	// receives the caller's token. The gateway replaces a header the request
+	// carries, so an Authorization binding on the same host would overwrite it.
+	if propagatesCallerToken(environment) {
+		for _, server := range callerOwnedMCP {
+			u, err := url.Parse(strings.TrimSpace(server.Spec.URL))
+			if err != nil {
+				return nil, nil, NewValidationError("invalid MCP server URL for %q", server.Name)
+			}
+			hostname := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+			for _, binding := range bindings {
+				if binding.Hostname == hostname && binding.Header == "authorization" {
+					return nil, nil, NewValidationError("MCP server %q: destination %q cannot combine caller-token propagation with a gateway Authorization credential", server.Name, hostname)
+				}
+			}
+		}
+	}
 	result := append([]corev1.EnvVar(nil), environment...)
 	for i, variable := range result {
 		if variable.ValueFrom == nil {
@@ -142,6 +166,16 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
 	return result, bindings, nil
+}
+
+func propagatesCallerToken(environment []corev1.EnvVar) bool {
+	propagates := false
+	for _, variable := range environment {
+		if variable.Name == env.KagentPropagateToken.Name() {
+			propagates = strings.EqualFold(strings.TrimSpace(variable.Value), "true")
+		}
+	}
+	return propagates
 }
 
 func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {

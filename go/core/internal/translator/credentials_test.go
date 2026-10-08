@@ -79,6 +79,65 @@ func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
 	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
 }
 
+func TestCompileCredentialsRejectsPropagationWithGatewayAuthorization(t *testing.T) {
+	secretHeader := func(name string) v1alpha3.ValueRef {
+		return v1alpha3.ValueRef{Name: name, ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "mcp-auth", Key: "token"}}
+	}
+	server := func(name, rawURL string, headers ...v1alpha3.ValueRef) ResolvedMCPTool {
+		return ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "team"},
+			Spec:       v1alpha3.RemoteMCPServerSpec{URL: rawURL, HeadersFrom: headers},
+		}}
+	}
+	propagate := corev1.EnvVar{Name: "KAGENT_PROPAGATE_TOKEN", Value: "true"}
+	for _, test := range []struct {
+		name        string
+		tools       []ResolvedMCPTool
+		environment []corev1.EnvVar
+		wantErr     string
+	}{
+		{
+			name:        "caller-owned server shares the host of a gateway Authorization",
+			tools:       []ResolvedMCPTool{server("gateway", "https://mcp.example.com/a", secretHeader("Authorization")), server("caller", "https://MCP.example.com./b")},
+			environment: []corev1.EnvVar{propagate},
+			wantErr:     `MCP server "caller": destination "mcp.example.com" cannot combine caller-token propagation with a gateway Authorization credential`,
+		},
+		{
+			name:        "propagation is off",
+			tools:       []ResolvedMCPTool{server("gateway", "https://mcp.example.com/a", secretHeader("authorization")), server("caller", "https://mcp.example.com/b")},
+			environment: []corev1.EnvVar{{Name: "KAGENT_PROPAGATE_TOKEN", Value: "false"}},
+		},
+		{
+			name:        "gateway-owned server only",
+			tools:       []ResolvedMCPTool{server("gateway", "https://mcp.example.com/a", secretHeader("authorization"))},
+			environment: []corev1.EnvVar{propagate},
+		},
+		{
+			name:        "caller-owned server on another host",
+			tools:       []ResolvedMCPTool{server("gateway", "https://mcp.example.com/a", secretHeader("Authorization")), server("caller", "https://other.example.com/b")},
+			environment: []corev1.EnvVar{propagate},
+		},
+		{
+			name:        "gateway credential in another header",
+			tools:       []ResolvedMCPTool{server("caller", "https://mcp.example.com/a", secretHeader("X-Api-Key"))},
+			environment: []corev1.EnvVar{propagate},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := credentialInput(v1alpha3.ModelConfigSpec{})
+			input.Root.MCPTools = test.tools
+			_, _, err := CompileCredentials(input, nil, test.environment)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, test.wantErr)
+			var validation *ValidationError
+			require.ErrorAs(t, err, &validation)
+		})
+	}
+}
+
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
 	resolved := &ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: spec}}
 	if spec.Foundry != nil {

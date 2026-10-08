@@ -163,7 +163,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	if holdsCallerCredential {
-		forwarder, err = frontMCPServers(&cfg)
+		forwarder, err = frontMCPServers(&cfg, input.Environment)
 		if err != nil {
 			return nil, err
 		}
@@ -249,10 +249,14 @@ func propagateCallerToken(environment []string) bool {
 // frontMCPServers starts the credential forwarder for the compiled MCP servers
 // and rewrites them to their loopback endpoints, so the written configuration
 // carries no upstream URL, no static header and no credential.
-func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
+func frontMCPServers(cfg *config.Config, environment []string) (*driver.CredentialForwarder, error) {
 	upstream := make(map[string]driver.UpstreamMCPServer, len(cfg.MCPServers))
 	for name, server := range cfg.MCPServers {
-		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: server.Headers}
+		headers, err := resolveCredentialHeaders(server.Headers, environment)
+		if err != nil {
+			return nil, fmt.Errorf("MCP server %q: %w", name, err)
+		}
+		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: headers}
 	}
 	forwarder, err := driver.NewCredentialForwarder(upstream, cfg.MaxEventBytes)
 	if err != nil {
@@ -267,6 +271,27 @@ func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
 	}
 	cfg.MCPServers = fronted
 	return forwarder, nil
+}
+
+// resolveCredentialHeaders replaces the compiler's "${KAGENT_CLAUDE_MCP_CREDENTIAL_*}"
+// header values with the Actor environment's value, which Claude would
+// otherwise expand itself: the gateway placeholder of a Secret-backed header.
+func resolveCredentialHeaders(headers map[string]string, environment []string) (map[string]string, error) {
+	resolved := make(map[string]string, len(headers))
+	for header, value := range headers {
+		name, opens := strings.CutPrefix(value, "${")
+		name, closes := strings.CutSuffix(name, "}")
+		if !opens || !closes || !strings.HasPrefix(name, config.MCPCredentialEnvPrefix) {
+			resolved[header] = value
+			continue
+		}
+		credential := environmentValue(environment, name)
+		if credential == "" {
+			return nil, fmt.Errorf("header %q references %s, which the environment does not set", header, name)
+		}
+		resolved[header] = credential
+	}
+	return resolved, nil
 }
 
 // validateForwardedServers refuses the servers the credential forwarder cannot

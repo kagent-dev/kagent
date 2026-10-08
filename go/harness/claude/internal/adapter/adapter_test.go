@@ -302,3 +302,21 @@ func skipAsRoot(t *testing.T) {
 		t.Skip("a root harness writes its files for the unprivileged user")
 	}
 }
+
+func TestResolveCredentialHeaders(t *testing.T) {
+	credential := config.MCPCredentialEnvPrefix + "0123456789ABCDEF"
+	resolved, err := resolveCredentialHeaders(map[string]string{
+		"Authorization": "${" + credential + "}",
+		"X-Tenant":      "${HOME}",
+		"X-Literal":     "${" + config.MCPCredentialEnvPrefix,
+	}, []string{"HOME=/home/kagent", credential + "=kagent-credential-injected"})
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{
+		"Authorization": "kagent-credential-injected",
+		"X-Tenant":      "${HOME}",
+		"X-Literal":     "${" + config.MCPCredentialEnvPrefix,
+	}, resolved)
+
+	_, err = resolveCredentialHeaders(map[string]string{"Authorization": "${" + credential + "}"}, []string{"HOME=/home/kagent"})
+	require.ErrorContains(t, err, credential+", which the environment does not set")
+}
