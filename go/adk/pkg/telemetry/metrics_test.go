@@ -3,6 +3,7 @@ package telemetry
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -13,8 +14,143 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRecordTokenUsage_RecordsHistogram verifies input/output token counts are
-// recorded as two separate series on the gen_ai_client_token_usage histogram.
+func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	cases := []struct {
+		name              string
+		input             TokenUsage
+		wantResponseModel string
+	}{
+		{
+			name: "response model fallback",
+			input: TokenUsage{
+				RequestModel: "gpt-4o", Provider: "openai", AgentName: "openai-agent",
+				InputTokens: 100, OutputTokens: 42, CachedTokens: 30,
+			},
+			wantResponseModel: "gpt-4o",
+		},
+		{
+			name: "explicit response model and error",
+			input: TokenUsage{
+				RequestModel: "claude-sonnet-4", ResponseModel: "claude-sonnet-4-20250514",
+				Provider: "anthropic", AgentName: "anthropic-agent", ErrorType: "overloaded_error",
+				InputTokens: 200, OutputTokens: 12, CachedTokens: 75,
+			},
+			wantResponseModel: "claude-sonnet-4-20250514",
+		},
+		{
+			name: "cached only",
+			input: TokenUsage{
+				RequestModel: "gemini-2.5-flash", Provider: "gcp.vertex_ai", AgentName: "gemini-agent",
+				CachedTokens: 10,
+			},
+			wantResponseModel: "gemini-2.5-flash",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tokenUsage.Reset()
+			t.Cleanup(tokenUsage.Reset)
+			registry := prometheus.NewPedanticRegistry()
+			registry.MustRegister(tokenUsage)
+
+			const workers = 8
+			const callsPerWorker = 10
+			var workersDone sync.WaitGroup
+			for range workers {
+				workersDone.Go(func() {
+					for range callsPerWorker {
+						RecordTokenUsage(testCase.input)
+					}
+				})
+			}
+			workersDone.Wait()
+
+			families, err := registry.Gather()
+			require.NoError(t, err)
+			require.Len(t, families, 1)
+			require.Equal(t, metricGenAIClientTokenUsage, families[0].GetName())
+			// The emitted series are additive: input excludes the cached portion
+			// when the prompt count includes it, so input + cached equals the
+			// prompt tokens the model reported.
+			wantInput := testCase.input.InputTokens
+			wantCached := testCase.input.CachedTokens
+			if wantCached > 0 && wantCached <= wantInput {
+				wantInput -= wantCached
+			}
+			wantTokens := map[string]int64{}
+			if wantInput > 0 {
+				wantTokens[tokenTypeInput] = wantInput
+			}
+			if wantCached > 0 {
+				wantTokens[tokenTypeCached] = wantCached
+			}
+			if testCase.input.OutputTokens > 0 {
+				wantTokens[tokenTypeOutput] = testCase.input.OutputTokens
+			}
+			require.Len(t, families[0].GetMetric(), len(wantTokens))
+			for _, series := range families[0].GetMetric() {
+				labels := make(map[string]string)
+				for _, label := range series.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				tokenType := labels[labelGenAITokenType]
+				require.Contains(t, wantTokens, tokenType)
+				require.Equal(t, map[string]string{
+					labelGenAITokenType: tokenType, labelGenAIOperationName: operationChat,
+					labelGenAIProviderName: testCase.input.Provider, labelGenAIRequestModel: testCase.input.RequestModel,
+					labelGenAIResponseModel: testCase.wantResponseModel, labelGenAIAgentName: testCase.input.AgentName,
+					labelErrorType: testCase.input.ErrorType,
+				}, labels)
+				require.NotNil(t, series.Histogram)
+				require.Equal(t, uint64(workers*callsPerWorker), series.GetHistogram().GetSampleCount())
+				require.Equal(t, float64(workers*callsPerWorker*wantTokens[tokenType]), series.GetHistogram().GetSampleSum())
+				delete(wantTokens, tokenType)
+			}
+			require.Empty(t, wantTokens)
+		})
+	}
+}
+
+// TestRecordTokenUsage_CachedSeriesAdditive ensures summing the token-type
+// series yields the prompt total instead of double counting cache hits.
+func TestRecordTokenUsage_CachedSeriesAdditive(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	tokenUsage.Reset()
+	t.Cleanup(tokenUsage.Reset)
+
+	// Prompt count includes cached tokens: the input series must exclude them
+	// so input + cached equals the 100 prompt tokens the model reported.
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, CachedTokens: 30})
+	body := serveMetrics(t)
+	want := map[string]string{tokenTypeInput: "70", tokenTypeCached: "30"}
+	for tokenType, sum := range want {
+		pattern := `gen_ai_client_token_usage_sum[{][^}]*gen_ai_token_type="` + tokenType + `"[}] ([0-9]+)`
+		m := regexp.MustCompile(pattern).FindStringSubmatch(body)
+		if m == nil {
+			t.Fatalf("no %s series in metrics output:\n%s", tokenType, body)
+		}
+		if m[1] != sum {
+			t.Fatalf("%s series sum = %s, want %s\n%s", tokenType, m[1], sum, body)
+		}
+	}
+}
+
+func TestRecordTokenUsage_SkipsNonPositiveCached(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	tokenUsage.Reset()
+
+	// Zero cached tokens emits no cached series.
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", CachedTokens: 0, InputTokens: 10})
+	// Negative cached tokens also emit no cached series.
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", CachedTokens: -5, InputTokens: 10})
+
+	body := serveMetrics(t)
+	if strings.Contains(body, "gen_ai_token_type=\"cached\"") {
+		t.Fatalf("expected no cached series for non-positive CachedTokens")
+	}
+}
+
 func TestRecordTokenUsage_RecordsHistogram(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
 	tokenUsage.Reset()
@@ -44,7 +180,7 @@ func TestRecordTokenUsage_Disabled(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "false")
 	tokenUsage.Reset()
 
-	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100})
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, OutputTokens: 42, CachedTokens: 30})
 
 	if got := testutil.CollectAndCount(tokenUsage); got != 0 {
 		t.Fatalf("expected no series when metrics are disabled, got %d", got)
