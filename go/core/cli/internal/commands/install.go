@@ -37,6 +37,8 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 		namespace,
 		"--create-namespace",
 		"--wait",
+		// Substrate creates its snapshot bucket in a Job; agents fail to snapshot until it finishes.
+		"--wait-for-jobs",
 		"--history-max",
 		"2",
 		"--timeout",

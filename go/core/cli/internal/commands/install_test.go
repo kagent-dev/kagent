@@ -162,10 +162,10 @@ cat >/dev/null
 	commands, err := os.ReadFile(logPath)
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --history-max 2 --timeout 5m",
-		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --history-max 2 --timeout 5m",
-		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_user",
-		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --history-max 2 --timeout 5m --set credentialProvider.namespacePolicies[0].atespace=kagent --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent --set postgres.clientCertificates.enabled=true",
-		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --history-max 2 --timeout 5m --set substrateWorkerPool.create=true --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v2 --set database.postgres.clientCertificate.enabled=true",
+		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
+		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
+		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_user",
+		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set credentialProvider.namespacePolicies[0].atespace=kagent --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent --set postgres.clientCertificates.enabled=true",
+		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set substrateWorkerPool.create=true --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v2 --set database.postgres.clientCertificate.enabled=true",
 	}, strings.Split(strings.TrimSpace(string(commands)), "\n"))
 }
