@@ -33,6 +33,10 @@ type Source struct {
 type GitSource struct {
 	URL    string `json:"url"`
 	Commit string `json:"commit"`
+	// Authenticated marks a source whose credential the egress gateway
+	// supplies: the gateway replaces an Authorization header the request
+	// carries, so git must send one with a placeholder value.
+	Authenticated bool `json:"authenticated,omitempty"`
 }
 
 // S3Source identifies one immutable S3 object version.

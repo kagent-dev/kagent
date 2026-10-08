@@ -1068,6 +1068,16 @@ func TestCompileAgentTemplateKeepsSkillCredentialsOutOfConfig(t *testing.T) {
 	require.NotNil(t, config.AgentPlugins)
 	require.Len(t, config.AgentPlugins.Skills, 2)
 	require.Len(t, config.AgentPlugins.Plugins, 1)
+	authenticated := map[string]bool{}
+	for _, skill := range config.AgentPlugins.Skills {
+		authenticated[skill.Source.Git.URL] = skill.Source.Git.Authenticated
+	}
+	authenticated[config.AgentPlugins.Plugins[0].Source.Git.URL] = config.AgentPlugins.Plugins[0].Source.Git.Authenticated
+	require.Equal(t, map[string]bool{
+		"https://github.com/acme/private-skills":  true,
+		"https://github.com/acme/public-skills":   false,
+		"https://github.com/acme/private-plugins": true,
+	}, authenticated, "only a source with a credentialRef sends the placeholder the gateway replaces")
 
 	var artifactCredentials []corev1.EnvVar
 	for _, variable := range spec.Environment {

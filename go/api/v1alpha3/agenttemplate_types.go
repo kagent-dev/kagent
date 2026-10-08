@@ -114,9 +114,11 @@ type GitArtifact struct {
 	Commit string `json:"commit"`
 	// CredentialRef references a key in a same-namespace Secret whose value is
 	// the base64 of "<username>:<token>" for the URL's host (GitHub takes
-	// "x-access-token:<token>"). The egress gateway sends it as
-	// "Authorization: Basic" on every request the actor makes to that host;
-	// the actor never holds it.
+	// "x-access-token:<token>"). The egress gateway replaces the Authorization
+	// header of a request the actor sends to that host with "Basic <value>",
+	// and the fetch of this source sends a placeholder for it to replace. A
+	// request without the header gets no credential, and the actor never
+	// holds the value.
 	// +optional
 	CredentialRef *corev1.SecretKeySelector `json:"credentialRef,omitempty"`
 }

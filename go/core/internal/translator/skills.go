@@ -82,6 +82,7 @@ func compileArtifactSource(namespace string, source v1alpha3.ArtifactSource) (ag
 	if source.Git != nil {
 		result.Git = &agentplugin.GitSource{URL: source.Git.URL, Commit: source.Git.Commit}
 		if ref := source.Git.CredentialRef; ref != nil {
+			result.Git.Authenticated = true
 			sum := sha256.Sum256([]byte(namespace + "\x00" + ref.Name + "\x00" + ref.Key))
 			name := ArtifactCredentialEnvPrefix + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
 			credential = &corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: ref.DeepCopy()}}
