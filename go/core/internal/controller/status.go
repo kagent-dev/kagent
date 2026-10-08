@@ -117,8 +117,10 @@ func newHarnessStatuses(
 // the golden boots of the Agents that run on it. Every Agent revision boots
 // the Harness's workload, so one successful golden boot proves the Harness
 // boots; a failed boot fails it only while no Agent booted, since a single
-// Agent's own configuration can fail its boot too. Without a booted or failed
-// Agent nothing has tried the workload yet and readiness is Unknown.
+// Agent's own configuration can fail its boot too. Before any golden boot
+// finished the resolved WorkerPool keeps it True: Helm and Flux read a Ready
+// condition other than True as a rollout in progress, so a Harness without
+// Agents would hold every release of its chart.
 func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFound bool, agents []AgentReconciliation) metav1.Condition {
 	condition := func(status metav1.ConditionStatus, reason, message string) metav1.Condition {
 		return metav1.Condition{
@@ -129,7 +131,8 @@ func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFoun
 		return condition(metav1.ConditionFalse, "WorkerPoolNotFound", fmt.Sprintf("WorkerPool %q not found", pool.String()))
 	}
 	slices.SortFunc(agents, func(a, b AgentReconciliation) int { return strings.Compare(a.ResourceName(), b.ResourceName()) })
-	var failed, retrying, pending *metav1.Condition
+	var failed, retrying *metav1.Condition
+	var pending string
 	for _, state := range agents {
 		if state.Target == nil || state.CompilationFailure != nil {
 			continue
@@ -151,16 +154,18 @@ func harnessReadyCondition(generation int64, pool types.NamespacedName, poolFoun
 		case state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil:
 			return condition(metav1.ConditionTrue, "Booted", fmt.Sprintf("golden boot of Agent %s succeeded", agent))
 		default:
-			if pending == nil {
-				c := condition(metav1.ConditionUnknown, "BootPending", fmt.Sprintf("waiting for the golden boot of Agent %s", agent))
-				pending = &c
+			if pending == "" {
+				pending = agent
 			}
 		}
 	}
-	for _, c := range []*metav1.Condition{failed, retrying, pending} {
+	for _, c := range []*metav1.Condition{failed, retrying} {
 		if c != nil {
 			return *c
 		}
 	}
-	return condition(metav1.ConditionUnknown, "NoAgents", "no Agent runs on this Harness yet")
+	if pending != "" {
+		return condition(metav1.ConditionTrue, "WorkerPoolResolved", fmt.Sprintf("WorkerPool %q resolves; waiting for the golden boot of Agent %s", pool.String(), pending))
+	}
+	return condition(metav1.ConditionTrue, "WorkerPoolResolved", fmt.Sprintf("WorkerPool %q resolves; no Agent has booted on the Harness yet", pool.String()))
 }

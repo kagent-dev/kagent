@@ -73,10 +73,10 @@ func TestHarnessReadyCondition(t *testing.T) {
 	}{
 		{name: "missing worker pool", agents: []AgentReconciliation{harnessAgentState("a", booted)},
 			wantStatus: metav1.ConditionFalse, wantReason: "WorkerPoolNotFound", wantMessage: `WorkerPool "team-a/gvisor" not found`},
-		{name: "no agents", poolFound: true,
-			wantStatus: metav1.ConditionUnknown, wantReason: "NoAgents", wantMessage: "no Agent runs on this Harness yet"},
+		{name: "no agents yet", poolFound: true,
+			wantStatus: metav1.ConditionTrue, wantReason: "WorkerPoolResolved", wantMessage: "WorkerPool \"team-a/gvisor\" resolves; no Agent has booted on the Harness yet"},
 		{name: "boot pending", poolFound: true, agents: []AgentReconciliation{harnessAgentState("a", nil)},
-			wantStatus: metav1.ConditionUnknown, wantReason: "BootPending", wantMessage: "waiting for the golden boot of Agent team-a/a"},
+			wantStatus: metav1.ConditionTrue, wantReason: "WorkerPoolResolved", wantMessage: "WorkerPool \"team-a/gvisor\" resolves; waiting for the golden boot of Agent team-a/a"},
 		{name: "booted", poolFound: true, agents: []AgentReconciliation{harnessAgentState("a", booted)},
 			wantStatus: metav1.ConditionTrue, wantReason: "Booted", wantMessage: "golden boot of Agent team-a/a succeeded"},
 		{name: "failed boot", poolFound: true, agents: []AgentReconciliation{harnessAgentState("a", bootFailed)},
@@ -98,7 +98,7 @@ func TestHarnessReadyCondition(t *testing.T) {
 				s.PreparationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid"}
 			}),
 		},
-			wantStatus: metav1.ConditionUnknown, wantReason: "NoAgents", wantMessage: "no Agent runs on this Harness yet"},
+			wantStatus: metav1.ConditionTrue, wantReason: "WorkerPoolResolved", wantMessage: "WorkerPool \"team-a/gvisor\" resolves; no Agent has booted on the Harness yet"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
