@@ -41,6 +41,8 @@ var (
 	_                         = RegisterStringVar("KAGENT_E2E_CODEX_IMAGE", "", "Digest-pinned Codex harness image substituted into E2E lifecycle manifests.", ComponentTesting)
 	E2ESandboxNamespace       = RegisterStringVar("KAGENT_E2E_SANDBOX_NAMESPACE", "kagent", "Namespace for sandbox E2E resources.", ComponentTesting)
 	E2ESandboxWorkerPool      = RegisterStringVar("KAGENT_E2E_SANDBOX_WORKER_POOL", "kagent-default", "Worker pool used by sandbox E2E resources.", ComponentTesting)
+	E2EEgressCAFile           = RegisterStringVar("KAGENT_E2E_EGRESS_CA_FILE", "", "PEM CA certificate that Substrate's egress gateway trusts on upstream HTTPS (atenetEgress.upstreamTrust.caBundle). Egress credential E2E tests sign their HTTPS upstreams with it and fail when it is unset.", ComponentTesting)
+	E2EEgressCAKeyFile        = RegisterStringVar("KAGENT_E2E_EGRESS_CA_KEY_FILE", "", "PEM private key of KAGENT_E2E_EGRESS_CA_FILE.", ComponentTesting)
 	E2EOTLPListenAddress      = RegisterStringVar("KAGENT_E2E_OTLP_LISTEN_ADDRESS", "", "Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver.", ComponentTesting)
 	E2ELiveCheckEndpoint      = RegisterStringVar("KAGENT_E2E_LIVE_CHECK_ENDPOINT", "", "gRPC address of a Weaver live-check OTLP listener. After the tests, the suite replays every trace and metric export its receiver got, except those of native child processes, to this address. Unset disables the replay.", ComponentTesting)
 	E2ERequireTracing         = RegisterStringVar("KAGENT_E2E_REQUIRE_TRACING", "false", "Fail instead of skip when expected native harness tracing support is unavailable. Enabled by true, ignoring case and surrounding whitespace.", ComponentTesting)

@@ -33,7 +33,7 @@ const (
 	// nonce, and returns the signing error before the request leaves the
 	// process when that key is absent — as it is in an agent pod. api.ollama.com
 	// misses that special case, so the Bearer token we set is the one used.
-	ollamaCloudURL = "https://api.ollama.com"
+	OllamaCloudURL = "https://api.ollama.com"
 )
 
 // OllamaCloudModels names the models served by api.ollama.com, as returned by
@@ -165,7 +165,7 @@ func resolveOllamaEndpoint(config *OllamaConfig, host string) string {
 		return host
 	}
 	if OllamaReachesCloud(config.Model, host, config.APIKey != "") {
-		return ollamaCloudURL
+		return OllamaCloudURL
 	}
 	return ollamaLocalURL
 }

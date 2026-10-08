@@ -214,6 +214,7 @@ jobs:
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
           export KAGENT_E2E_API_URL="$KAGENT_API_URL"
           export KAGENT_E2E_LOCAL_HOST=172.17.0.1
+          export KAGENT_E2E_EGRESS_CA_FILE="$RUNNER_TEMP/egress-ca.crt" KAGENT_E2E_EGRESS_CA_KEY_FILE="$RUNNER_TEMP/egress-ca.key"
           envsubst < core/test/e2e/manifests/tracing.yaml.tmpl | kubectl apply -f -
           # TestMain keeps the receiver alive for every runtime's response flush.
           export KAGENT_E2E_OTLP_LISTEN_ADDRESS=:14317

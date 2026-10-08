@@ -142,8 +142,12 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
     ``think`` is sent as the chat request's top-level ``think`` field. None sends
     none, so a model with the thinking capability thinks (Ollama's default).
 
-    Ollama does not require an API key; api_key_passthrough is accepted in the
-    config for interface compatibility but has no effect.
+    A local daemon takes no API key. For Ollama Cloud the controller sets
+    ``OLLAMA_API_BASE`` to api.ollama.com and ``OLLAMA_API_KEY`` to the egress
+    gateway's placeholder; the Ollama SDK sends the key as a Bearer
+    ``Authorization`` header, and the gateway replaces it with the Secret.
+    api_key_passthrough is accepted in the config for interface compatibility
+    but has no effect.
     """
 
     type: Literal["ollama"] = "ollama"

@@ -8,6 +8,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -58,15 +59,16 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 }
 
 // The Ollama key reaches the agent as an environment variable read from a
-// Secret, never serialized into the agent config, and the host is written only
-// when the operator set one — an empty value lets the runtime apply its own
-// cloud/local routing instead of looking like a chosen endpoint.
+// Secret, never serialized into the agent config. The host is the operator's,
+// or the cloud endpoint for a model the routing predicate sends there, since
+// the Python runtime does no routing of its own.
 func TestTranslateOllamaEnvironment(t *testing.T) {
 	tests := []struct {
 		name      string
 		spec      v1alpha3.ModelConfigSpec
 		wantNames []string
 		noEnv     string
+		wantHost  string
 	}{
 		{
 			name: "cloud model mounts the key from a Secret",
@@ -75,8 +77,8 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
 				Ollama: &v1alpha3.OllamaConfig{},
 			},
-			wantNames: []string{env.OllamaAPIKey.Name()},
-			noEnv:     env.OllamaAPIBase.Name(),
+			wantNames: []string{env.OllamaAPIBase.Name(), env.OllamaAPIKey.Name()},
+			wantHost:  "https://api.ollama.com",
 		},
 		{
 			name: "an explicit host is passed through",
@@ -179,6 +181,9 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			}
 			require.ElementsMatch(t, tt.wantNames, names)
 			require.NotContains(t, names, tt.noEnv)
+			if tt.wantHost != "" {
+				require.Contains(t, data.EnvVars, corev1.EnvVar{Name: env.OllamaAPIBase.Name(), Value: tt.wantHost})
+			}
 		})
 	}
 }

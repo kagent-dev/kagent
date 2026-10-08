@@ -165,6 +165,14 @@ atelet:
     - --localhost-registry-replacement=kind-registry:5000
 ```
 
+The egress credential tests also need a CA that the egress gateway trusts on
+upstream HTTPS. Create one, install Substrate with
+`--set-file atenetEgress.upstreamTrust.caBundle=egress-ca.crt`, and export
+`KAGENT_E2E_EGRESS_CA_FILE` and `KAGENT_E2E_EGRESS_CA_KEY_FILE` with the paths
+of its certificate and key, as the CI job does on every run. Golden boots fetch
+git sources in atespace `ate-golden`, so its credential provider policy must
+allow namespace `kagent`, next to the `kagent` atespace's.
+
 ```bash
 KAGENT_E2E_RUNTIME_IMAGE=<registry>/kagent-dev/kagent/golang-adk@sha256:<digest> \
 KAGENT_E2E_BYO_IMAGE=<registry>/kagent-dev/kagent/byo-a2a@sha256:<digest> \
@@ -187,6 +195,19 @@ reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
+
+The credential tests prove the egress credential contract through Substrate's
+egress gateway for every client kind: model keys (`Authorization` and
+Anthropic `X-Api-Key`), `RemoteMCPServer` `headersFrom` on every harness and on
+Claude with `KAGENT_PROPAGATE_TOKEN` (with and without a caller token, which
+must not displace the Secret), and git skill and plugin sources with a
+`credentialRef`. A client sends its binding's header carrying a placeholder,
+and the gateway replaces the value with the Secret's. The gateway replaces only
+a header the request carries, so each test records what its upstream received
+and requires the Secret value on every request and the placeholder on none; a
+client that sends no header fails. The git upstream is `git http-backend` on
+the test host (which needs `git`), served over HTTPS under a cluster Service
+name the binding matches, with a certificate from the CA above.
 
 `TestSessionContextCompaction` clones the `kagent` Harness into one whose
 `spec.kagent.compaction` fires a sliding window after two turns, with a

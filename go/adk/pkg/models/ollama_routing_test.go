@@ -28,11 +28,11 @@ func TestResolveOllamaEndpoint(t *testing.T) {
 			name: "local model with a key exported stays local", model: "qwen3.8:27b-mlx",
 			apiKey: key, want: ollamaLocalURL,
 		},
-		{name: "cloud tag with a key goes to the cloud", model: "minimax-m3:cloud", apiKey: key, want: ollamaCloudURL},
+		{name: "cloud tag with a key goes to the cloud", model: "minimax-m3:cloud", apiKey: key, want: OllamaCloudURL},
 		{
 			// The form most of the cloud catalog uses.
 			name: "sized cloud tag goes to the cloud", model: "deepseek-v4-flash:0731-cloud",
-			apiKey: key, want: ollamaCloudURL,
+			apiKey: key, want: OllamaCloudURL,
 		},
 		{
 			// Unauthenticated api.ollama.com answers 401 before it looks at the
@@ -119,7 +119,7 @@ func TestOllamaReachesCloud(t *testing.T) {
 
 func TestIsOllamaCloudEndpoint(t *testing.T) {
 	cloud := []string{
-		ollamaCloudURL,
+		OllamaCloudURL,
 		"https://api.ollama.com/",
 		"https://ollama.com",
 		"api.ollama.com", // no scheme, as a host is often written
@@ -161,15 +161,15 @@ func TestWithOllamaAuthorization(t *testing.T) {
 		headers map[string]string
 		want    string
 	}{
-		{name: "cloud endpoint takes the placeholder", host: ollamaCloudURL, apiKey: "placeholder", want: "Bearer placeholder"},
+		{name: "cloud endpoint takes the placeholder", host: OllamaCloudURL, apiKey: "placeholder", want: "Bearer placeholder"},
 		{name: "bare cloud host takes the placeholder", host: "api.ollama.com", apiKey: "placeholder", want: "Bearer placeholder"},
-		{name: "cloud endpoint without a key sends nothing", host: ollamaCloudURL},
+		{name: "cloud endpoint without a key sends nothing", host: OllamaCloudURL},
 		{name: "local daemon never takes the key", host: ollamaLocalURL, apiKey: "placeholder"},
 		{name: "operator host never takes the key", host: "http://gpu-box.lan:11434", apiKey: "placeholder"},
 		{
 			// The placeholder is the credential; a stale default header would
 			// silently replace it.
-			name: "placeholder replaces a stale authorization", host: ollamaCloudURL, apiKey: "placeholder",
+			name: "placeholder replaces a stale authorization", host: OllamaCloudURL, apiKey: "placeholder",
 			headers: map[string]string{"Authorization": "stale"}, want: "Bearer placeholder",
 		},
 	}
@@ -201,7 +201,7 @@ func TestWithOllamaAuthorizationReachesTheWire(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := BuildHTTPClient(withOllamaAuthorization(TransportConfig{}, ollamaCloudURL, "placeholder"))
+	client, err := BuildHTTPClient(withOllamaAuthorization(TransportConfig{}, OllamaCloudURL, "placeholder"))
 	if err != nil {
 		t.Fatalf("BuildHTTPClient: %v", err)
 	}

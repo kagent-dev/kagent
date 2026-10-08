@@ -317,23 +317,28 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 		if model.Spec.Ollama == nil {
 			return nil, nil, fmt.Errorf("ollama model config is required")
 		}
-		// Only set a host when the operator gave one. An empty value keeps
-		// OLLAMA_API_BASE unset so the runtime applies its own cloud/local
-		// routing; writing a default here would look operator-chosen and pin
-		// every cloud model to the local daemon.
-		if model.Spec.Ollama.Host != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.OllamaAPIBase.Name(),
-				Value: withDefaultScheme(model.Spec.Ollama.Host),
-			})
-		}
 		// Bind the Secret only when the model reaches api.ollama.com; the
 		// gateway injects the key at egress, while the agent sees only a
 		// placeholder. The same predicate decides the credential binding.
 		// Local models and operator-supplied daemon hosts have no cloud
 		// binding, so they must not receive a Secret-backed environment ref.
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
-			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
+		cloud := !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
+			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true)
+		// OLLAMA_API_BASE is the operator's host, or the cloud endpoint when
+		// the predicate routes there: the Python runtime has no routing of its
+		// own and would send a cloud model to the local daemon. A local model
+		// without a host leaves it unset for the runtime's default.
+		host := model.Spec.Ollama.Host
+		if host == "" && cloud {
+			host = models.OllamaCloudURL
+		}
+		if host != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.OllamaAPIBase.Name(),
+				Value: withDefaultScheme(host),
+			})
+		}
+		if cloud {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OllamaAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{

@@ -67,6 +67,23 @@ class TestKAgentOllamaLlm:
             _ = llm._client
             assert mock_client.call_args.kwargs["headers"] == {"X-Custom": "val"}
 
+    def test_cloud_client_sends_the_gateway_placeholder(self):
+        # The egress gateway replaces only an Authorization the request
+        # carries, so the client must send the placeholder it is given.
+        llm = KAgentOllamaLlm(model="gpt-oss:120b-cloud")
+        environment = {"OLLAMA_API_BASE": "https://api.ollama.com", "OLLAMA_API_KEY": "kagent-credential-injected"}
+        with mock.patch.dict(os.environ, environment):
+            client = llm._client
+        assert str(client._client.base_url).startswith("https://api.ollama.com")
+        assert client._client.headers["authorization"] == "Bearer kagent-credential-injected"
+
+    def test_local_client_sends_no_authorization(self):
+        llm = KAgentOllamaLlm(model="llama3.2:latest")
+        environment = {k: v for k, v in os.environ.items() if k not in ("OLLAMA_API_BASE", "OLLAMA_API_KEY")}
+        with mock.patch.dict(os.environ, environment, clear=True):
+            client = llm._client
+        assert "authorization" not in client._client.headers
+
     def test_ollama_options_stored(self):
         opts = {"temperature": 0.8, "top_k": 40, "num_ctx": 4096}
         llm = KAgentOllamaLlm(model="llama3.2:latest", ollama_options=opts)
