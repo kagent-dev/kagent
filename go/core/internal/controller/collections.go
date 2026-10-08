@@ -32,6 +32,7 @@ type Collections struct {
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
 	ResolvedModelConfigs     krt.Collection[translator.ResolvedModelConfig]
 	AgentStatuses            krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
+	HarnessStatuses          krt.StatusCollection[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus]
 }
 
 // AgentRuntimeObservation records a Agent's preparation. The revision prevents a
@@ -86,6 +87,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	}
 	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
+	harnessStatuses := newHarnessStatuses(harnesses, workerPools, reconciliations, opts)
 
 	return Collections{
 		SandboxTemplates:         sandboxTemplates,
@@ -102,6 +104,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		ModelConfigStatuses:      modelConfigStatuses,
 		ResolvedModelConfigs:     resolvedModelConfigs,
 		AgentStatuses:            statuses,
+		HarnessStatuses:          harnessStatuses,
 	}
 }
 

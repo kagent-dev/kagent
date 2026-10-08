@@ -387,6 +387,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		Agents:               krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
 		Reconciliations:      krttest.GetMockCollection[AgentReconciliation](mock),
 		AgentStatuses:        krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]](mock),
+		HarnessStatuses:      krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus]](mock),
 	}
 
 	statusClient := kagentfake.NewSimpleClientset(modelConfig.DeepCopy()).ApiV1alpha3()
