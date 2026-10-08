@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Alert, Button, Card, Empty, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { formatDistanceToNow } from "date-fns";
@@ -9,9 +10,12 @@ import { ToolsPerServerChart } from "@/components/dashboard/ToolsPerServerChart"
 import { ExtensionSlot } from "@/appExtensions";
 import { buildPath, paths } from "@/router/routes";
 import {
+  agentRevisionState,
   useAgentInstances,
+  useAgentsAcrossNamespaces,
   useMcpServers,
   useModels,
+  useNamespaces,
   useTools,
   type AgentInstance,
 } from "@/api";
@@ -34,7 +38,7 @@ function byNewest(a: AgentInstance, b: AgentInstance): number {
 /**
  * What the cluster currently holds, and what changed in it most recently.
  *
- * Four independent reads back this page, and they are deliberately *not* merged
+ * Several independent reads back this page, and they are deliberately *not* merged
  * into one all-or-nothing state: if the model list fails, the agent counts
  * already fetched are still true and still worth showing. Each figure reports
  * only what it knows, and the banner names exactly which reads failed.
@@ -42,13 +46,22 @@ function byNewest(a: AgentInstance, b: AgentInstance): number {
 export function DashboardPage() {
   const theme = useTheme();
 
+  const namespaces = useNamespaces();
+  const namespaceNames = useMemo(
+    () => namespaces.data?.map((entry) => entry.name),
+    [namespaces.data],
+  );
+  // Agent resources for the tile; conversations for the recent card.
+  const definitions = useAgentsAcrossNamespaces(namespaceNames);
   const agents = useAgentInstances();
   const models = useModels();
   const servers = useMcpServers();
   const tools = useTools();
 
   const resources = [
-    { label: "agents", resource: agents },
+    { label: "namespaces", resource: namespaces },
+    { label: "agents", resource: definitions },
+    { label: "conversations", resource: agents },
     { label: "model configurations", resource: models },
     { label: "MCP servers", resource: servers },
     { label: "tools", resource: tools },
@@ -64,6 +77,9 @@ export function DashboardPage() {
   // failed read must not be rendered as "there is nothing here".
   const agentRows = agents.error ? [] : (agents.data ?? []);
   const readyCount = agentRows.filter((row) => row.state === "ready").length;
+  const agentsError = namespaces.error ?? definitions.error;
+  const agentList = agentsError ? undefined : definitions.data?.agents;
+  const readyAgents = agentList?.filter((agent) => agentRevisionState(agent) === "ready").length;
   const recent = [...agentRows].sort(byNewest).slice(0, 5);
   /*
    * Titles for the unnamed ones among those five.
@@ -117,13 +133,9 @@ export function DashboardPage() {
           <StatTile
             label="Agents"
             testId="stat-agents"
-            value={agents.error ? undefined : agents.data?.length}
-            isLoading={agents.isLoading}
-            hint={agentsHint(
-              agents.error !== undefined,
-              agents.data,
-              readyCount,
-            )}
+            value={agentList?.length}
+            isLoading={namespaces.isLoading || definitions.isLoading}
+            hint={agentsError ? UNREADABLE : readyAgents === undefined ? undefined : `${readyAgents} ready`}
           />
           <StatTile
             label="Model configurations"
@@ -174,14 +186,14 @@ export function DashboardPage() {
                   data-testid="recent-agents-unavailable"
                   css={{ color: theme.color.textMuted }}
                 >
-                  Recent activity is unavailable while the agent list cannot be read.
+                  Recent activity is unavailable while conversations cannot be read.
                 </Text>
               ) : recent.length === 0 ? (
                 agents.isLoading ? null : (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     data-testid="recent-agents-empty"
-                    description="No agents yet."
+                    description="No conversations yet."
                   />
                 )
               ) : (
@@ -210,17 +222,6 @@ export function DashboardPage() {
 }
 
 const UNREADABLE = "Could not be read";
-
-/** The agent tile's sub-line: readiness when known, why not when it is not. */
-function agentsHint(
-  hasError: boolean,
-  data: AgentInstance[] | undefined,
-  readyCount: number,
-): string | undefined {
-  if (hasError) return UNREADABLE;
-  if (!data) return undefined;
-  return `${readyCount} ready`;
-}
 
 /** One row of the recent-activity list: which agent it is, whether it came up, and when. */
 function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: string }) {

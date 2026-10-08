@@ -70,3 +70,17 @@ test("dashboard: recent conversations read as names, not as ids", async ({ page 
     ).toBe(true);
   });
 });
+
+// The tile counts Agent resources, so it matches the Agents page, not the conversation count.
+test("dashboard: the Agents tile matches the Agents page", async ({ page }) => {
+  await loadPage(page, routes.agents, { title: "Agents" });
+  const summaryText = page.getByTestId("agents-summary");
+  await expect(summaryText).toHaveText(/of [1-9]\d* agents/);
+  const summary = await summaryText.textContent();
+  const total = summary?.match(/of (\d+) agents/)?.[1];
+  expect(total, `unexpected summary ${JSON.stringify(summary)}`).toBeDefined();
+
+  await loadPage(page, routes.dashboard);
+  await expectSettled(page);
+  await expect(page.getByTestId("stat-agents-value")).toHaveText(total!);
+});
