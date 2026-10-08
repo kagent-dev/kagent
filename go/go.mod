@@ -495,4 +495,4 @@ require (
 
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
-replace github.com/agent-substrate/substrate => github.com/giantswarm/substrate v1.5.0
+replace github.com/agent-substrate/substrate => github.com/giantswarm/substrate v1.6.0
