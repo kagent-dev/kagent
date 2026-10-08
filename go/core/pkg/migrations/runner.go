@@ -243,14 +243,8 @@ func withProvider(ctx context.Context, url, role string, src Source, fn func(*go
 	}()
 
 	if src.Schema != "" {
-		var exists bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", src.Schema).Scan(&exists); err != nil {
-			return fmt.Errorf("check schema %s: %w", src.Schema, err)
-		}
-		if !exists {
-			if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(src.Schema)); err != nil {
-				return fmt.Errorf("create schema %s: %w", src.Schema, err)
-			}
+		if err := ensureSchema(ctx, db, src.Schema); err != nil {
+			return err
 		}
 	}
 
@@ -319,6 +313,37 @@ func rejectOldTrackingTable(ctx context.Context, db *sql.DB, schema string, src 
 	}
 	if old {
 		return fmt.Errorf("source %s uses an unsupported migration table. Use a new PostgreSQL database", src.Name)
+	}
+	return nil
+}
+
+// ensureSchema creates schema when it is missing and the role may. An existing
+// schema needs no CREATE privilege on the database. The advisory lock matches
+// Substrate's, so concurrent starts do not race CREATE SCHEMA.
+func ensureSchema(ctx context.Context, db *sql.DB, schema string) (retErr error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin schema %s transaction: %w", schema, err)
+	}
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, tx.Rollback())
+		}
+	}()
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", "kagent:create-schema:"+schema); err != nil {
+		return fmt.Errorf("lock schema %s: %w", schema, err)
+	}
+	var exists bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", schema).Scan(&exists); err != nil {
+		return fmt.Errorf("check schema %s: %w", schema, err)
+	}
+	if !exists {
+		if _, err := tx.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(schema)); err != nil {
+			return fmt.Errorf("create schema %s: %w", schema, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit schema %s: %w", schema, err)
 	}
 	return nil
 }

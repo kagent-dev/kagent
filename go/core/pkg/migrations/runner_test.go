@@ -396,6 +396,30 @@ func TestConcurrentRunUp(t *testing.T) {
 	}
 }
 
+func TestConcurrentRunUpCreatesMissingSchemaOnce(t *testing.T) {
+	dsn := startTestDB(t)
+	source := testSource(twoMigrationFS)
+	source.Schema = "created_concurrently"
+	const runs = 4
+	start := make(chan struct{})
+	errs := make(chan error, runs)
+	for range runs {
+		go func() {
+			<-start
+			errs <- RunUp(context.Background(), dsn, []Source{source})
+		}()
+	}
+	close(start)
+	for range runs {
+		if err := <-errs; err != nil {
+			t.Fatalf("RunUp: %v", err)
+		}
+	}
+	if !testTableExists(t, dsn, "created_concurrently.migration_test") {
+		t.Fatal("migrations did not run in the created schema")
+	}
+}
+
 func TestRunUpContinuesAfterLaterSourceFailure(t *testing.T) {
 	dsn := startTestDB(t)
 	first := testSource(fstest.MapFS{
