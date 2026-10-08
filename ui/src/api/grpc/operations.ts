@@ -1321,6 +1321,8 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
     ip: orUndefined(worker.ips[0]),
+    actorCapacity: worker.status?.capacity?.actors,
+    allocatedActors: worker.status?.allocated?.actors,
     version: toNumber(worker.metadata?.version),
   };
 }

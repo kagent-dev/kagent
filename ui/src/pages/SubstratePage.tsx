@@ -1056,35 +1056,42 @@ export function SubstratePage() {
     [mono, muted, qualified],
   );
 
-  /*
-   * The same, for the workers.
-   *
-   * There is no Actor column, and that is not an omission. ate-api's `Worker` carries
-   * capacity and allocation and no actor reference: the binding lives on the *actor*,
-   * so the only way to fill that column is to read every actor and join. How much of
-   * the fleet is busy is on a tile instead, using reported worker allocation.
-   */
+  // The same, for the workers. A worker reports actor counts but not which actors it
+  // runs; that binding lives on each actor.
   const workerColumns: ColumnsType<SubstrateWorkerEntry> = useMemo(
     () => [
       {
         title: "Pod",
         key: "pod",
-        width: 420,
+        width: 360,
         render: (_, worker) => qualified(worker.workerNamespace, worker.workerPod),
       },
       {
         title: "Pool",
         key: "pool",
-        width: 260,
+        width: 220,
         render: (_, worker) => worker.workerPool,
       },
       {
         title: "IP",
         key: "ip",
-        width: 200,
+        width: 180,
         render: (_, worker) =>
           worker.ip ? (
             <Text css={{ ...mono, ...muted }}>{worker.ip}</Text>
+          ) : (
+            <Text css={muted}>—</Text>
+          ),
+      },
+      {
+        title: "Actors",
+        key: "actors",
+        width: 140,
+        render: (_, worker) =>
+          worker.actorCapacity !== undefined ? (
+            `${(worker.allocatedActors ?? 0).toLocaleString()} of ${worker.actorCapacity.toLocaleString()}`
+          ) : worker.allocatedActors ? (
+            worker.allocatedActors.toLocaleString()
           ) : (
             <Text css={muted}>—</Text>
           ),
@@ -1523,6 +1530,13 @@ export function SubstratePage() {
             />
           ) : null}
 
+          <Text
+            css={{ ...muted, display: "block", marginBottom: theme.space(3) }}
+            data-testid="substrate-workers-note"
+          >
+            One worker can run many actors at the same time, up to the limit in the Actors column.
+          </Text>
+
           <Table<SubstrateWorkerEntry>
             data-testid="substrate-workers-table"
             rowKey={(worker) =>
@@ -1532,7 +1546,7 @@ export function SubstratePage() {
             dataSource={workerRows}
             loading={workers.isLoading}
             pagination={false}
-            scroll={{ x: 880 }}
+            scroll={{ x: 900 }}
             size="small"
             locale={{
               emptyText: workers.error

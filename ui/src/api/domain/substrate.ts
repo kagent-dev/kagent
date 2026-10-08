@@ -38,6 +38,10 @@ export interface SubstrateWorkerEntry {
   workerPool: string;
   workerPod: string;
   ip?: string;
+  /** Most actors the worker accepts at once; unset when it reports no capacity. */
+  actorCapacity?: number;
+  /** Actors assigned to the worker now, from every atespace. */
+  allocatedActors?: number;
   version?: number;
 }
 

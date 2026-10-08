@@ -143,22 +143,26 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     ).toHaveAttribute("data-tone", "danger");
   });
 
-  await test.step("6. the workers, and no claim about which actor is on them", async () => {
+  await test.step("6. the workers show how many actors each runs, not which", async () => {
     const workers = page.getByTestId("substrate-workers-table");
     await expect(workers).toBeVisible();
     await expect(workers).toContainText("kagent/ateom-kagent-default-0");
     await expect(workers).toContainText("kagent-default");
     await expect(workers).toContainText("10.42.1.19");
 
-    /*
-     * No Actor column, and this pins its absence. ate-api's `Worker` carries capacity
-     * and allocation and no actor reference: the controller has nothing to fill that
-     * column from, so it read "idle" for every worker on every real cluster and looked
-     * populated only here, against a fixture that had invented the field. How much of
-     * the fleet is busy is a tile, counted once by the summary.
-     */
+    // Three actors on one worker is expected, and the note says so beside the table.
+    await expect(page.getByTestId("substrate-workers-note")).toHaveText(
+      "One worker can run many actors at the same time, up to the limit in the Actors column.",
+    );
+    await expect(
+      workers.getByRole("row").filter({ hasText: "ateom-kagent-default-0" }).getByRole("cell").last(),
+    ).toHaveText("3 of 1,000");
+    await expect(
+      workers.getByRole("row").filter({ hasText: "ateom-kagent-default-1" }).getByRole("cell").last(),
+    ).toHaveText("—");
+
+    // Worker has no actor reference, so the table never names one.
     await expect(workers).not.toContainText("actor-7f21");
-    await expect(workers).not.toContainText("idle");
     await expect(page.getByTestId("substrate-stat-workers")).toContainText("1/2");
   });
 

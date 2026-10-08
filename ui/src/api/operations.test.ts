@@ -696,7 +696,12 @@ describe("the cluster", () => {
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateWorkers: () => ({
-          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
+          workers: [{
+            workerNamespace: "kagent",
+            workerPool: "pool",
+            workerPod: "w0",
+            status: { capacity: { actors: 1000 }, allocated: { actors: 4 } },
+          }],
           page: { nextPageToken: "" },
         }),
       });
@@ -705,6 +710,7 @@ describe("the cluster", () => {
     const page = await apiClient.substrate.workers({ limit: 100 });
     expect(page.nextPageToken).toBeUndefined();
     expect(page.workers).toHaveLength(1);
+    expect(page.workers[0]).toMatchObject({ actorCapacity: 1000, allocatedActors: 4 });
   });
 });
 
