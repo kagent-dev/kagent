@@ -15,6 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -221,16 +222,25 @@ func mcpEndpoint(t *testing.T) string {
 	return "http://" + interactionTarget(t) + "/mcp"
 }
 
+// mcpInvoke follows the gateway's rejection contract as sendMessageWithRetry
+// does: a completed task can precede the session settling its turn, and the
+// MCP tool reports the refusal that proves the input was not accepted as its
+// error text. Only that refusal is sent again.
 func mcpInvoke(t *testing.T, endpoint, sessionID, message string, tasks bool) map[string]any {
 	t.Helper()
-	response := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name": "invoke_session",
-		"arguments": map[string]any{
-			"session_id": sessionID, "message": message,
-		},
-	}, tasks)
+	var response map[string]any
+	err := wait.PollUntilContextTimeout(t.Context(), 250*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
+		response = mcpCall(t, endpoint, "tools/call", map[string]any{
+			"name": "invoke_session",
+			"arguments": map[string]any{
+				"session_id": sessionID, "message": message,
+			},
+		}, tasks)
+		result, ok := response["result"].(map[string]any)
+		return !ok || result["isError"] != true || mcpResultText(result) != sessionsvc.ErrSendNotAccepted.Error(), nil
+	})
 	result, ok := response["result"].(map[string]any)
-	if !ok || result["isError"] == true || (tasks && result["taskId"] == nil) {
+	if err != nil || !ok || result["isError"] == true || (tasks && result["taskId"] == nil) {
 		t.Fatalf("MCP invocation failed: %#v", response)
 	}
 	return result
