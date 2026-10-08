@@ -207,6 +207,11 @@ spec:
                               used by Substrate.
                             pattern: ^[^[:space:]]+$
                             type: string
+                          preserveMemory:
+                            description: |-
+                              PreserveMemory captures process memory and rootfs with durable data at
+                              settlement, allowing the runtime to resume without a cold start.
+                            type: boolean
                         required:
                         - location
                         type: object

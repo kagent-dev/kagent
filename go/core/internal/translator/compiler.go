@@ -165,6 +165,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	}
 	result.AgentName = agentName
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	result.PreserveMemory = harness.Spec.Substrate.SnapshotPolicy.PreserveMemory
 	if timeout := harness.Spec.Workload.StartupTimeoutSeconds; timeout != nil {
 		result.StartupTimeoutSeconds = *timeout
 	}

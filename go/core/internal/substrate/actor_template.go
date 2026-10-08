@@ -111,11 +111,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			},
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
-		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: spec.SnapshotLocation,
-			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
-		},
+		SnapshotConfig: snapshotConfig(spec.SnapshotLocation, spec.PreserveMemory),
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
 			// Substrate regenerates this projection on Run and Restore. A fork

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -37,10 +38,12 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 	for _, tt := range []struct {
 		name           string
 		startupTimeout *int32
+		preserveMemory bool
 		command        []string
 		args           []string
 	}{
 		{name: "image defaults"},
+		{name: "warm runtime", preserveMemory: true},
 		{name: "slow startup", startupTimeout: new(int32(90))},
 		{name: "command", command: []string{"/runtime"}},
 		{name: "args", args: []string{"--verbose"}},
@@ -60,7 +63,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 						StartupTimeoutSeconds: tt.startupTimeout,
 					},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots", PreserveMemory: tt.preserveMemory},
 					},
 				},
 			}
@@ -99,6 +102,13 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			} else {
 				require.Equal(t, *tt.startupTimeout, result.StartupTimeoutSeconds)
 				require.Equal(t, *tt.startupTimeout, container.GetWakeupProbe().GetTimeoutSeconds())
+			}
+
+			require.Equal(t, tt.preserveMemory, result.PreserveMemory)
+			if tt.preserveMemory {
+				require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, actorTemplate.GetSnapshotConfig().GetOnCommit())
+			} else {
+				require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actorTemplate.GetSnapshotConfig().GetOnCommit())
 			}
 
 			if len(result.Command) > 0 {

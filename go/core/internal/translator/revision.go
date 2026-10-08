@@ -58,6 +58,7 @@ type Revision struct {
 	// WorkerPoolName, SandboxClass and SnapshotLocation control Substrate placement and state.
 	WorkerPoolName   string
 	SandboxClass     atev1alpha1.SandboxClass
+	PreserveMemory   bool
 	SnapshotLocation string
 
 	// Provenance identifies non-secret Kubernetes inputs. Gateway-fetched
@@ -101,6 +102,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Environment           []corev1.EnvVar          `json:"environment"`
 		ConfigJSON            json.RawMessage          `json:"config"`
 		WorkerPoolName        string                   `json:"workerPoolName"`
+		PreserveMemory        bool                     `json:"preserveMemory,omitempty"`
 		SnapshotLocation      string                   `json:"snapshotLocation"`
 		Provenance            json.RawMessage          `json:"provenance"`
 		Credentials           []egress.Credential      `json:"credentials,omitempty"`
@@ -110,6 +112,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		StartupTimeoutSeconds: r.StartupTimeoutSeconds,
+		PreserveMemory:        r.PreserveMemory,
 		WorkerPoolName:        r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass,

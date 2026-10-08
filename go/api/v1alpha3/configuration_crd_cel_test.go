@@ -75,6 +75,13 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		wantReject string
 	}{
 		{
+			name: "Harness accepts memory retention",
+			object: validHarness(namespace, "harness-full-snapshot", HarnessSpec{
+				Kagent:    &KagentHarness{},
+				Substrate: RuntimeSubstratePolicy{SnapshotPolicy: RuntimeSnapshotPolicy{PreserveMemory: true}},
+			}),
+		},
+		{
 			name: "Harness accepts extended startup timeout",
 			object: validHarness(namespace, "harness-slow-startup", HarnessSpec{
 				Kagent:   &KagentHarness{},

@@ -52,6 +52,13 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 			require.NotEqual(t, digest, changed)
 		})
 	}
+	warm := template.DeepCopy()
+	warm.Spec.Substrate.SnapshotPolicy.PreserveMemory = true
+	full, fullID, _, err := SandboxActorTemplate(warm, "", policy)
+	require.NoError(t, err)
+	require.NotEqual(t, digest, fullID)
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, full.GetSnapshotConfig().GetOnCommit())
+
 	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: "/untrusted"}}
 	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "reserved")

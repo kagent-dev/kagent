@@ -146,3 +146,13 @@ func TestRevisionDigestIncludesStartupTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before, restored)
 }
+
+func TestRevisionDigestIncludesMemoryRetention(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentName: "helper"}
+	before, err := revision.Digest()
+	require.NoError(t, err)
+	revision.PreserveMemory = true
+	after, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, before, after)
+}

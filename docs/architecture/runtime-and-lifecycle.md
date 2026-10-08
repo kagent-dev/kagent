@@ -186,6 +186,10 @@ sequenceDiagram
   `Harness.spec.workload.startupTimeoutSeconds` sets the readiness budget from
   1 to 300 seconds; omission uses 30 seconds. Changing the budget creates a new
   immutable runtime revision.
+- `substrate.snapshotPolicy.preserveMemory: true` retains process memory and
+  rootfs in committed snapshots for warm resume. The default commits durable
+  data only and cold-starts the runtime on resume. The policy applies to both
+  Harnesses and SandboxTemplates and participates in revision identity.
 - ate-api defaults to `dns:///api.ate-system.svc:443`.
 
 Clients never receive Actor addresses. The gateway derives and dials them through
