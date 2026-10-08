@@ -148,7 +148,7 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.Session) 
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	client := database.NewClient(pool)
+	client := database.NewClient(pool, "public")
 	revision := &database.RuntimeRevision{
 		Revision: "revision-1", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
 		SourceSnapshot: []byte("{}"),

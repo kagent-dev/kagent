@@ -11,7 +11,7 @@ import (
 )
 
 func TestToolCatalogLifecycle(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	connected := time.Now().UTC().Truncate(time.Microsecond)
 	server := &ToolServer{Name: "shared", GroupKind: "remote", Description: "original", LastConnected: &connected}
@@ -70,7 +70,7 @@ func TestToolCatalogLifecycle(t *testing.T) {
 func TestConcurrentToolCatalogReplacement(t *testing.T) {
 	for _, initial := range []string{"missing", "empty", "deleted"} {
 		t.Run(initial, func(t *testing.T) {
-			client := NewClient(setupTestDB(t))
+			client := NewClient(setupTestDB(t), "public")
 			ctx := t.Context()
 			if initial != "missing" {
 				require.NoError(t, client.RefreshToolServer(ctx, &ToolServer{Name: "server", GroupKind: "kind"}))
@@ -118,7 +118,7 @@ func TestConcurrentToolCatalogReplacement(t *testing.T) {
 
 func TestToolCatalogWritesRollbackTogether(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := t.Context()
 	server := &ToolServer{Name: "server", GroupKind: "kind", Description: "original"}
 	require.NoError(t, client.RefreshToolServer(ctx, server, &v1alpha3.MCPTool{Name: "original"}))

@@ -16,6 +16,7 @@ DO $setup$
 DECLARE
     managed record;
     role_attrs record;
+    schema_owner text;
 BEGIN
     PERFORM pg_advisory_xact_lock(hashtextextended('kagent-install:database-setup', 0));
 
@@ -43,8 +44,14 @@ BEGIN
 
     GRANT kagent_owner TO kagent_user;
 
-    -- Kagent's tables live in public. Only its role may create objects there.
+    SELECT pg_get_userbyid(nspowner) INTO schema_owner FROM pg_namespace WHERE nspname = 'kagent';
+    IF NOT FOUND THEN
+        CREATE SCHEMA kagent AUTHORIZATION kagent_owner;
+    ELSIF schema_owner <> 'kagent_owner' THEN
+        RAISE EXCEPTION 'PostgreSQL schema "kagent" is owned by "%", not "kagent_owner"', schema_owner;
+    END IF;
+
     REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-    GRANT USAGE, CREATE ON SCHEMA public TO kagent_owner;
+    REVOKE ALL ON SCHEMA kagent FROM PUBLIC;
 END
 $setup$;

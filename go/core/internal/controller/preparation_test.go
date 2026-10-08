@@ -45,7 +45,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			store := database.NewClient(pool)
+			store := database.NewClient(pool, "public")
 			collections, harnesses := newPreparationTestCollections(t, "gvisor")
 			initial := collections.Reconciliations.List()[0]
 			templates := &fakeActorTemplates{template: proto.CloneOf(initial.Target.ActorTemplate)}

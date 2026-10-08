@@ -194,6 +194,7 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME", "1m")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME", "10m")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_ROLE", "kagent_app")
+	t.Setenv("KAGENT_POSTGRES_DATABASE_SCHEMA", "kagent_test")
 
 	config := postgresConfigFromEnv("postgres://user:password@database/app", true)
 	if config.URL != "postgres://user:password@database/app" || !config.VectorEnabled {
@@ -201,6 +202,9 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	}
 	if config.Role != "kagent_app" {
 		t.Fatalf("Role = %q, want kagent_app", config.Role)
+	}
+	if config.Schema != "kagent_test" {
+		t.Fatalf("Schema = %q, want kagent_test", config.Schema)
 	}
 	if config.MaxConns == nil || *config.MaxConns != 8 {
 		t.Fatalf("MaxConns = %v, want 8", config.MaxConns)
@@ -219,8 +223,11 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 // The built-in tracks must reach their final version before a library consumer's,
 // which may reference them, so order is the contract here -- not membership.
 func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
-	extra := []migrations.Source{{Name: "custom-track"}}
-	sources := append(migrations.BuiltinSources(false), extra...)
+	extra := []migrations.Source{{Name: "custom-track", Schema: "custom"}}
+	sources, err := migrationSources(false, extra)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(sources) != len(migrations.BuiltinSources(false))+len(extra) {
 		t.Fatalf("sources = %d entries, want builtins + %d", len(sources), len(extra))
@@ -230,6 +237,13 @@ func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
 	}
 	if got := sources[len(sources)-1].Name; got != "custom-track" {
 		t.Errorf("last source = %q, want the extra track", got)
+	}
+}
+
+func TestExtraMigrationsRequireSchema(t *testing.T) {
+	_, err := migrationSources(false, []migrations.Source{{Name: "custom-track"}})
+	if err == nil || err.Error() != `extra migration source "custom-track" must set Schema` {
+		t.Fatalf("migrationSources error = %v", err)
 	}
 }
 

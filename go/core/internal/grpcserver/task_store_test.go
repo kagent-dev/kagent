@@ -123,7 +123,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
-	store := &lostRuntimeSaveResponse{Client: database.NewClient(db), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}
+	store := &lostRuntimeSaveResponse{Client: database.NewClient(db, "public"), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}
 	session := createTaskStoreSession(t, store.Client)
 	id := session.Id
 	listener := bufconn.Listen(DefaultMaxMessageSize)

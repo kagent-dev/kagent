@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
@@ -36,27 +37,44 @@ var (
 type Source struct {
 	Name          string
 	Schema        string
+	VectorSchema  string
 	TrackingTable string
 	FS            fs.FS
 	Dir           string
 	PreCheck      func(url string) error
 }
 
-// BuiltinSources returns the built-in migration sources.
+// BuiltinSources returns the built-in migration sources in the default schemas.
 func BuiltinSources(vectorEnabled bool) []Source {
+	return BuiltinSourcesInSchema(vectorEnabled, consts.DefaultPostgresTableSchema, consts.DefaultPgvectorSchema)
+}
+
+// BuiltinSourcesInSchema returns the built-in sources with their table and
+// pgvector schemas selected independently. Empty values use the defaults.
+func BuiltinSourcesInSchema(vectorEnabled bool, schema, vectorSchema string) []Source {
+	if schema == "" {
+		schema = consts.DefaultPostgresTableSchema
+	}
+	if vectorSchema == "" {
+		vectorSchema = consts.DefaultPgvectorSchema
+	}
 	sources := []Source{{
 		Name:          "core",
+		Schema:        schema,
 		TrackingTable: coreTrackingTable,
 		FS:            FS,
 		Dir:           "core",
 	}}
 	if vectorEnabled {
+		sources[0].VectorSchema = vectorSchema
 		sources = append(sources, Source{
 			Name:          "vector",
+			Schema:        schema,
+			VectorSchema:  vectorSchema,
 			TrackingTable: vectorTrackingTable,
 			FS:            FS,
 			Dir:           "vector",
-			PreCheck:      checkPgvector,
+			PreCheck:      pgvectorPreCheck(vectorSchema),
 		})
 	}
 	return sources
@@ -124,6 +142,13 @@ func VerifyMigratedAsRole(ctx context.Context, url, role string, sources []Sourc
 	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
 		return err
 	}
+	for _, src := range sources {
+		if src.PreCheck != nil {
+			if err := src.PreCheck(url); err != nil {
+				return fmt.Errorf("%s precheck: %w", src.Name, err)
+			}
+		}
+	}
 
 	db, err := openDB(url, role)
 	if err != nil {
@@ -186,7 +211,7 @@ func VerifyMigratedAsRole(ctx context.Context, url, role string, sources []Sourc
 }
 
 // WithProvider runs fn while one source lock is held.
-func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Provider) error) error {
+func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Provider) error) (retErr error) {
 	return withProvider(ctx, url, "", src, fn)
 }
 
@@ -201,9 +226,9 @@ func withProvider(ctx context.Context, url, role string, src Source, fn func(*go
 		return err
 	}
 	connURL := url
-	if src.Schema != "" {
+	if src.Schema != "" || src.VectorSchema != "" {
 		var err error
-		connURL, err = withSearchPath(url, src.Schema)
+		connURL, err = withSearchPath(url, src.Schema, src.VectorSchema)
 		if err != nil {
 			return fmt.Errorf("set search path for %s: %w", src.Name, err)
 		}
@@ -218,8 +243,14 @@ func withProvider(ctx context.Context, url, role string, src Source, fn func(*go
 	}()
 
 	if src.Schema != "" {
-		if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(src.Schema)); err != nil {
-			return fmt.Errorf("create schema %s: %w", src.Schema, err)
+		var exists bool
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", src.Schema).Scan(&exists); err != nil {
+			return fmt.Errorf("check schema %s: %w", src.Schema, err)
+		}
+		if !exists {
+			if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(src.Schema)); err != nil {
+				return fmt.Errorf("create schema %s: %w", src.Schema, err)
+			}
 		}
 	}
 
@@ -227,6 +258,9 @@ func withProvider(ctx context.Context, url, role string, src Source, fn func(*go
 	var schemaName sql.NullString
 	if err := db.QueryRowContext(ctx, "SELECT current_database(), current_schema()").Scan(&databaseName, &schemaName); err != nil {
 		return fmt.Errorf("resolve database identity: %w", err)
+	}
+	if src.Schema != "" && schemaName.String != src.Schema {
+		return fmt.Errorf("migration schema %q is not accessible (current schema is %q)", src.Schema, schemaName.String)
 	}
 	if !schemaName.Valid {
 		return errors.New("the connection has no current schema")
@@ -305,6 +339,14 @@ func validateSources(sources []Source) error {
 		if src.Schema != "" {
 			if err := validateIdentifier("schema", src.Schema); err != nil {
 				return fmt.Errorf("source %s: %w", src.Name, err)
+			}
+		}
+		if src.VectorSchema != "" {
+			if err := validateIdentifier("pgvector schema", src.VectorSchema); err != nil {
+				return fmt.Errorf("source %s: %w", src.Name, err)
+			}
+			if src.Schema == "" {
+				return fmt.Errorf("source %s needs a table schema when pgvector is enabled", src.Name)
 			}
 		}
 		if err := validateIdentifier("tracking table", src.TrackingTable); err != nil {
@@ -449,23 +491,29 @@ func openDB(url, role string) (*sql.DB, error) {
 	})), nil
 }
 
-func checkPgvector(url string) error {
-	db, err := openDB(url, "")
-	if err != nil {
-		return fmt.Errorf("open database: %w", err)
+func pgvectorPreCheck(expectedSchema string) func(string) error {
+	return func(url string) error {
+		db, err := openDB(url, "")
+		if err != nil {
+			return fmt.Errorf("open database: %w", err)
+		}
+		defer db.Close()
+		var schema string
+		err = db.QueryRow(`SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'vector'`).Scan(&schema)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("pgvector is not installed in schema %q", expectedSchema)
+		}
+		if err != nil {
+			return fmt.Errorf("check pgvector schema: %w", err)
+		}
+		if schema != expectedSchema {
+			return fmt.Errorf("pgvector is installed in schema %q, expected %q", schema, expectedSchema)
+		}
+		return nil
 	}
-	defer db.Close()
-	var available bool
-	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'vector')").Scan(&available); err != nil {
-		return fmt.Errorf("check pgvector: %w", err)
-	}
-	if !available {
-		return errors.New("pgvector is unavailable. Install it or disable database vectors")
-	}
-	return nil
 }
 
-func withSearchPath(dbURL, schema string) (string, error) {
+func withSearchPath(dbURL, schema, vectorSchema string) (string, error) {
 	u, err := nurl.Parse(dbURL)
 	if err != nil {
 		return "", fmt.Errorf("parse database URL: %w", err)
@@ -474,7 +522,12 @@ func withSearchPath(dbURL, schema string) (string, error) {
 		return "", fmt.Errorf("database URL has unsupported scheme %q", u.Scheme)
 	}
 	query := u.Query()
-	query.Set("search_path", schema)
+	if schema != "" {
+		query.Set("search_path", pgx.Identifier{schema}.Sanitize())
+	}
+	if vectorSchema != "" {
+		query.Set("kagent.vector_schema", vectorSchema)
+	}
 	u.RawQuery = query.Encode()
 	return u.String(), nil
 }

@@ -153,7 +153,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			store := database.NewClient(pool)
+			store := database.NewClient(pool, "public")
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
@@ -237,7 +237,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.NoError(t, err)
 			_, _, err = store.CreateSession(ctx, request, "replacement-session")
 			require.ErrorIs(t, err, database.ErrNotFound)
-			restarted, restartedRegistry := newTestRuntimeRevisionGC(t, database.NewClient(pool), templates)
+			restarted, restartedRegistry := newTestRuntimeRevisionGC(t, database.NewClient(pool, "public"), templates)
 			_, err = restarted.discover(ctx)
 			require.NoError(t, err)
 			afterRestart := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)

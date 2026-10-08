@@ -37,11 +37,11 @@ kubectl delete secret -n ate-system actor-id-ca-pool actor-id-ca-certs egress-mi
 kubectl delete secret -n podcertificate-controller-system service-dns-ca-pool pod-identity-ca-pool postgres-ca-pool
 ```
 
-Kagent and Substrate share one database with separate identities. Kagent's tables stay in `public`; Substrate uses its own `substrate` schema:
+Kagent and Substrate share one database with separate identities and schemas:
 
 | Access | Login user | Assumed role | Schema |
 | --- | --- | --- | --- |
-| Kagent | `kagent_user` | `kagent_owner` | `public` |
+| Kagent | `kagent_user` | `kagent_owner` | `kagent` |
 | Substrate migrations | `substrate_owner_user` | `substrate_owner` | `substrate` |
 | Substrate runtime | `substrate_readwrite_user` | `substrate_readwrite` | `substrate` |
 
@@ -56,6 +56,10 @@ database:
       key: connectionString
     # Role assumed on every connection. Set to "" to use the login user directly.
     role: kagent_owner
+    # Schema for Kagent tables. It must exist, or the role must be able to create it.
+    schema: kagent
+    # Schema where pgvector is installed. Used only when vectorEnabled is true.
+    vectorSchema: extensions
     vectorEnabled: false
     # Project the kagent_user Pod Certificate at /run/postgres.podcert.ate.dev.
     # Only for databases that trust the Substrate postgres CA.
@@ -63,7 +67,9 @@ database:
       enabled: false
 ```
 
-With an external database, either create the `kagent_owner` role, grant it to the login user, and grant it `USAGE, CREATE` on `public`, or set `role: ""`.
+With an external database, either create the `kagent_owner` role and grant it to the login user, or set `role: ""`.
+
+When vectors are enabled, install pgvector into `vectorSchema` before Kagent starts, and grant the Kagent role `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 
 The Substrate chart reads its own connection Secrets. See that chart's `postgres.ownerConnectionStringSecretRef` and `postgres.readWriteConnectionStringSecretRef` values.
 
@@ -85,7 +91,7 @@ database:
       key: connectionString
 ```
 
-The chart no longer deploys PostgreSQL, so upgrading an installation that used the chart's database removes that database. Only clean installs are supported.
+Kagent 1.x also stores its tables in the `kagent` schema instead of `public`, so an upgraded installation starts with empty tables. Only clean installs are supported.
 
 #### OIDC authentication
 

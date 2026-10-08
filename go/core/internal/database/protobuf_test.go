@@ -103,7 +103,7 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 
 func TestProtobufPersistenceLifecycle(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	q := pool
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
@@ -227,7 +227,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 
 func TestSandboxProtobufPersistenceLifecycle(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	ctx := t.Context()
 	input, options := sandboxFixture(t, client, "revision")
 	addUnknown(input)
@@ -261,7 +261,7 @@ func TestSandboxProtobufPersistenceLifecycle(t *testing.T) {
 
 func TestSandboxCorruptPayloadRollsBackOperation(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	ctx := t.Context()
 	input, options := sandboxFixture(t, client, "revision")
 	created, _, err := client.CreateSandbox(ctx, input, "create", options)
@@ -279,7 +279,7 @@ func TestSandboxCorruptPayloadRollsBackOperation(t *testing.T) {
 
 func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	ctx := t.Context()
 	card, err := pbconv.ToProtoAgentCard(&a2a.AgentCard{Name: "assistant", Description: "assistant", Version: "v1", SupportedInterfaces: []*a2a.AgentInterface{a2a.NewAgentInterface("http://runtime", a2a.TransportProtocolGRPC)}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}, Skills: []a2a.AgentSkill{{ID: "skill", Name: "skill", Description: "skill", Tags: []string{"tag"}}}, Capabilities: a2a.AgentCapabilities{Streaming: true}})
 	require.NoError(t, err)

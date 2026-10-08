@@ -114,6 +114,11 @@ database:
       enabled: false
     # -- Role assumed on each Kagent connection. Set a distinct role for each install sharing a database.
     role: kagent_owner
+    # -- Schema for Kagent tables.
+    schema: kagent
+    # -- Schema for the shared pgvector extension. Existing installations must match this value.
+    # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
+    vectorSchema: extensions
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.

@@ -37,7 +37,7 @@ func finishSandbox(t *testing.T, client *Client, id string, kind apiv1alpha1.Run
 }
 
 func TestSandboxCreationPinsRetriesAndRetainsTombstones(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	input, options := sandboxFixture(t, client, "revision-1")
 	original := proto.CloneOf(input)
@@ -89,7 +89,7 @@ func TestSandboxConcurrentCreation(t *testing.T) {
 		{name: "conflicting retries", conflicts: true, wantCount: 1, wantErrors: requests / 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			client := NewClient(setupTestDB(t))
+			client := NewClient(setupTestDB(t), "public")
 			input, options := sandboxFixture(t, client, "revision")
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
@@ -148,7 +148,7 @@ func TestSandboxConcurrentCreation(t *testing.T) {
 }
 
 func TestSandboxExpirationPaginationAndFailureGeneration(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	input, options := sandboxFixture(t, client, "revision")
 	live, _, err := client.CreateSandbox(ctx, input, "live", options)
@@ -190,7 +190,7 @@ func TestSandboxExpirationPaginationAndFailureGeneration(t *testing.T) {
 }
 
 func TestSandboxLifecycleSupersedesEndedAttempts(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	input, options := sandboxFixture(t, client, "revision")
 	created, _, err := client.CreateSandbox(ctx, input, "create", options)

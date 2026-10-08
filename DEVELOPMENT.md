@@ -174,8 +174,8 @@ runs `kagent install`. The Make target selects the Kind context, and the CLI the
 1. Installs the Kagent and Substrate CRDs.
 2. Creates the certificate-authority material required by Substrate.
 3. Installs the Substrate PodCertificate controller.
-4. Creates a development PostgreSQL deployment, the Kagent and Substrate
-   roles, and Substrate's schema.
+4. Creates a development PostgreSQL deployment and initializes the Kagent and
+   Substrate schemas and roles.
 5. Installs Substrate and Kagent with certificate-authenticated connections to
    that PostgreSQL deployment.
 
