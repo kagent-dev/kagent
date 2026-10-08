@@ -6,6 +6,7 @@ import (
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 // Matcher is a validated authorization scope that can be applied to Kubernetes objects.
@@ -70,20 +71,91 @@ func (m Matcher) Matches(object metav1.Object) bool {
 		return true
 	}
 	for _, clause := range m.scope.AnyOf {
-		matches := true
-		for _, predicate := range clause.All {
-			value := object.GetNamespace()
-			if predicate.Attribute == apiauthorization.AttributeName {
-				value = object.GetName()
-			}
-			matches = value != "" && slices.Contains(predicate.Values, value)
-			if !matches {
-				break
-			}
-		}
-		if matches {
+		if matchesClause(clause, object.GetNamespace(), object.GetName()) {
 			return true
 		}
 	}
 	return false
+}
+
+func matchesClause(clause apiauthorization.ScopeClause, namespace, name string) bool {
+	for _, predicate := range clause.All {
+		value := namespace
+		if predicate.Attribute == apiauthorization.AttributeName {
+			value = name
+		}
+		if value == "" || !slices.Contains(predicate.Values, value) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesAnyName reports whether the scope contains any valid Kubernetes
+// resource name in namespace.
+func (m Matcher) matchesAnyName(namespace string) bool {
+	names, all := m.namesInNamespace(namespace)
+	return all || len(names) != 0
+}
+
+func (m Matcher) overlapsNamespace(other Matcher, namespace string) bool {
+	names, all := m.namesInNamespace(namespace)
+	if all {
+		return other.matchesAnyName(namespace)
+	}
+	if len(names) == 0 {
+		return false
+	}
+	otherNames, otherAll := other.namesInNamespace(namespace)
+	if otherAll {
+		return true
+	}
+	for name := range names {
+		if _, ok := otherNames[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// namesInNamespace returns the permitted names, or true if all names are permitted.
+func (m Matcher) namesInNamespace(namespace string) (map[string]struct{}, bool) {
+	if m.scope.Kind == apiauthorization.ScopeAll {
+		return nil, true
+	}
+	var permitted map[string]struct{}
+clauses:
+	for _, clause := range m.scope.AnyOf {
+		for _, predicate := range clause.All {
+			if predicate.Attribute == apiauthorization.AttributeNamespace && !slices.Contains(predicate.Values, namespace) {
+				continue clauses
+			}
+		}
+		var names map[string]struct{}
+		for _, predicate := range clause.All {
+			if predicate.Attribute != apiauthorization.AttributeName {
+				continue
+			}
+			intersection := make(map[string]struct{}, len(predicate.Values))
+			for _, name := range predicate.Values {
+				if _, ok := names[name]; names == nil || ok {
+					intersection[name] = struct{}{}
+				}
+			}
+			names = intersection
+		}
+		if names == nil {
+			return nil, true
+		}
+		for name := range names {
+			if len(utilvalidation.IsDNS1123Subdomain(name)) != 0 {
+				continue
+			}
+			if permitted == nil {
+				permitted = make(map[string]struct{})
+			}
+			permitted[name] = struct{}{}
+		}
+	}
+	return permitted, false
 }

@@ -18,6 +18,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
@@ -68,6 +69,7 @@ type Config struct {
 	ScheduledRunService    *scheduledrun.Service
 	A2AHandler             a2asrv.RequestHandler
 	SandboxTemplateService *kubecrud.Service[*v1alpha3.SandboxTemplate, *v1alpha3.SandboxTemplateList]
+	AuthorizationService   *kubeauth.AccessReviewer
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
 	RegisterServices func(grpc.ServiceRegistrar)
@@ -148,6 +150,7 @@ func New(config Config) (*Server, error) {
 	apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
 	apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
 	a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
+	apiv1alpha1.RegisterAuthorizationServiceServer(grpcServer, &authorizationServer{reviewer: config.AuthorizationService})
 	// After core's own, so reflection sees them and a consumer registering a
 	// duplicate service name panics here rather than silently taking over.
 	if config.RegisterServices != nil {

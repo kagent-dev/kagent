@@ -90,7 +90,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 	// A2A delegates Session share authorization to the Session service. Retain
 	// the coarse read-only gate for other RPCs, including non-Session services.
 	a2aMethod := strings.HasPrefix(fullMethod, "/"+a2apb.A2AService_ServiceDesc.ServiceName+"/")
-	if !a2aMethod && share.ReadOnly && access != auth.AccessRead {
+	if !a2aMethod && !share.AllowsAccess(access) {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
 	return auth.ShareContextTo(authenticatedContext, share), nil

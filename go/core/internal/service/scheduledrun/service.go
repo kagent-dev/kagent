@@ -210,7 +210,7 @@ func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1alpha1.Sch
 	session, _ := auth.AuthSessionFrom(ctx) // Each public operation authorizes before target access.
 	principal := session.Principal()
 	if err := s.authorizer.Check(ctx, principal, auth.VerbGet, auth.Resource{
-		Type: "Agent", Namespace: schedule.Agent.Namespace, Name: schedule.Agent.Name,
+		Type: auth.ResourceAgent, Namespace: schedule.Agent.Namespace, Name: schedule.Agent.Name,
 	}); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized to run Agent", err)
 	}
