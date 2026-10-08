@@ -33,6 +33,7 @@ func newTokenUsagePlugin(modelConfig *configv1.ADKModelConfig) (*plugin.Plugin, 
 				ErrorType:     response.ErrorCode,
 				InputTokens:   int64(usage.PromptTokenCount),
 				OutputTokens:  int64(usage.CandidatesTokenCount) + int64(usage.ThoughtsTokenCount),
+				CachedTokens:  int64(usage.CachedContentTokenCount),
 			})
 			return nil, nil
 		},
