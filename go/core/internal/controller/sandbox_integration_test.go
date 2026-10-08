@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,9 @@ import (
 // Exercise the real registered SandboxTemplate informer, API resource versions,
 // status writes, and restart cleanup. Only the external DB/Substrate work is fake.
 func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is not set: run `make test` in go/, or export KUBEBUILDER_ASSETS=\"$(make -s envtest-path)\"")
+	}
 	testEnv := &envtest.Environment{CRDDirectoryPaths: []string{"../../../api/config/crd/bases/api.kagent.dev_sandboxtemplates.yaml"}, ErrorIfCRDPathMissing: true}
 	config, err := testEnv.Start()
 	require.NoError(t, err)

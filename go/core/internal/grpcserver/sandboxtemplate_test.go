@@ -4,6 +4,7 @@
 package grpcserver
 
 import (
+	"os"
 	"testing"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -24,8 +25,11 @@ import (
 )
 
 // TestSandboxTemplateCatalog exercises the transport and persistence against the
-// actual CRD schema. The normal Go test job supplies KUBEBUILDER_ASSETS.
+// actual CRD schema. It skips without KUBEBUILDER_ASSETS, which `make test` sets.
 func TestSandboxTemplateCatalog(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is not set: run `make test` in go/, or export KUBEBUILDER_ASSETS=\"$(make -s envtest-path)\"")
+	}
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{"../../../api/config/crd/bases"}, ErrorIfCRDPathMissing: true,
 	}

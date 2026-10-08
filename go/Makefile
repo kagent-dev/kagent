@@ -125,7 +125,8 @@ run: fmt vet ## Run a controller from your host.
 	go run ./core/cmd/controller/main.go
 
 .PHONY: test
-test: ## Run all unit tests.
+test: setup-envtest ## Run all unit tests.
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
 	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
 # Pin e2e tests to the kind cluster so a stray current-context (or an
