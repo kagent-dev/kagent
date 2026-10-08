@@ -92,10 +92,13 @@ func TestServe(t *testing.T) {
 	processes := ateenvv1alpha.NewProcessServiceClient(conn)
 	started, err := processes.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "printf initialized > first.txt"}})
 	require.NoError(t, err, "first operation must not depend on a preceding file write")
+	// The bound measures the guest, not the runner: a loaded runner takes over a
+	// second to start the shell, while a passing run returns at the first COMPLETED.
+	const processWait = 5 * time.Second
 	require.Eventually(t, func() bool {
 		result, err := processes.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: started.ProcessId})
 		return err == nil && result.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED
-	}, time.Second, 10*time.Millisecond)
+	}, processWait, 10*time.Millisecond)
 	first, err := os.ReadFile(filepath.Join(cfg.Workspace, "first.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "initialized", string(first))
