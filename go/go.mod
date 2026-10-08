@@ -1,6 +1,6 @@
 module github.com/kagent-dev/kagent/go
 
-go 1.27.0
+go 1.27.2
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
@@ -64,8 +64,8 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.22.0
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
-	go.opentelemetry.io/proto/otlp v1.11.1
-	golang.org/x/net v0.59.0
+	go.opentelemetry.io/proto/otlp v1.11.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
