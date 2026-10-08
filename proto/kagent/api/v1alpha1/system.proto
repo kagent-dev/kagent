@@ -85,6 +85,8 @@ message GetSubstrateSummaryResponse {
   int64 running_actor_count = 7;
   // A worker is busy when its reported allocated actor count is positive.
   int64 busy_worker_count = 8;
+  // Workers reporting more than one allocated actor.
+  int64 shared_worker_count = 12;
   // Every actor status present, with how many hold it: knowing 12 of 410,110 are
   // running says nothing about the other 410,098.
   repeated SubstrateActorStatusCount actor_status_counts = 9;

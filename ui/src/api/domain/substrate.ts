@@ -38,10 +38,6 @@ export interface SubstrateWorkerEntry {
   workerPool: string;
   workerPod: string;
   ip?: string;
-  /** Most actors the worker accepts at once; unset when it reports no capacity. */
-  actorCapacity?: number;
-  /** Actors assigned to the worker now, from every atespace. */
-  allocatedActors?: number;
   version?: number;
 }
 
@@ -71,6 +67,8 @@ export interface SubstrateSummary extends Timed {
   runningActorCount: number;
   /** Workers reporting a positive allocated actor count. */
   busyWorkerCount: number;
+  /** Workers reporting more than one allocated actor. */
+  sharedWorkerCount: number;
   /**
    * Every actor status present, with how many hold it, ordered by status.
    *

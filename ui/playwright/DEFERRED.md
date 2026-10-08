@@ -233,8 +233,8 @@ Two capabilities remain deferred until Substrate supports them:
 
 **Which actor is on a worker is not deferred; it is not available.** ate-api's `Worker`
 carries capacity and allocation and no actor reference — the binding lives on the actor —
-so the workers table shows each worker's allocated and capacity actor counts, not actor names. `busyWorkerCount` counts workers with a positive
-allocated actor count reported by Substrate. A column naming actors would need the
+so the workers table has no Actor column. `busyWorkerCount` counts workers with a positive
+allocated actor count reported by Substrate. A column would need the
 walk per page.
 
 **A single-message read is defensible only while the message really holds everything.**

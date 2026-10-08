@@ -129,6 +129,7 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * - `system.proto`  — `GetSubstrateSummaryResponse.worker_count`        (the same)
  * - `system.proto`  — `GetSubstrateSummaryResponse.running_actor_count` (the same)
  * - `system.proto`  — `GetSubstrateSummaryResponse.busy_worker_count`   (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.shared_worker_count` (the same)
  * - `memory.proto:38`   — `MemorySummary.access_count` (no operation id yet)
  * - `checkpoints.proto:32` — `Checkpoint.history_sequence` (no operation id yet)
  *

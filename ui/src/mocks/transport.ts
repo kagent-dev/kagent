@@ -1406,7 +1406,6 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     ips: worker.ip ? [worker.ip] : [],
     metadata: { version: BigInt(worker.version ?? 0) },
     status: {
-      capacity: worker.actorCapacity === undefined ? undefined : { actors: worker.actorCapacity },
       allocated: {
         // Worker allocation includes actors from every atespace.
         actors: mockSubstrateInventory.actors.filter((actor) =>
@@ -1444,6 +1443,9 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
   const busyWorkerCount = workers.filter((worker) =>
     (substrateWorkerMessage(worker).status?.allocated?.actors ?? 0) > 0
   ).length;
+  const sharedWorkerCount = workers.filter((worker) =>
+    (substrateWorkerMessage(worker).status?.allocated?.actors ?? 0) > 1
+  ).length;
 
   /*
    * The error and the complete counts together, which is a state the controller really
@@ -1471,6 +1473,7 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
       actors.filter((actor) => actor.status.toLowerCase() === "running").length,
     ),
     busyWorkerCount: BigInt(busyWorkerCount),
+    sharedWorkerCount: BigInt(sharedWorkerCount),
     actorStatusCounts: [...statusCounts]
       .sort(([left], [right]) => left - right)
       .map(([state, count]) => ({ state, count: BigInt(count) })),

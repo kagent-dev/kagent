@@ -906,12 +906,6 @@ export function SubstratePage() {
     [workers.data?.workers, workers.error],
   );
 
-  // allocatedActors counts every atespace; no rows (loading or error) means no note.
-  const isWorkerShared = useMemo(
-    () => workerRows.some((worker) => (worker.allocatedActors ?? 0) > 1),
-    [workerRows],
-  );
-
   /*
    * The tiles, from the summary's own counts.
    *
@@ -1062,42 +1056,35 @@ export function SubstratePage() {
     [mono, muted, qualified],
   );
 
-  // The same, for the workers. A worker reports actor counts but not which actors it
-  // runs; that binding lives on each actor.
+  /*
+   * The same, for the workers.
+   *
+   * There is no Actor column, and that is not an omission. ate-api's `Worker` carries
+   * capacity and allocation and no actor reference: the binding lives on the *actor*,
+   * so the only way to fill that column is to read every actor and join. How much of
+   * the fleet is busy is on a tile instead, using reported worker allocation.
+   */
   const workerColumns: ColumnsType<SubstrateWorkerEntry> = useMemo(
     () => [
       {
         title: "Pod",
         key: "pod",
-        width: 360,
+        width: 420,
         render: (_, worker) => qualified(worker.workerNamespace, worker.workerPod),
       },
       {
         title: "Pool",
         key: "pool",
-        width: 220,
+        width: 260,
         render: (_, worker) => worker.workerPool,
       },
       {
         title: "IP",
         key: "ip",
-        width: 180,
+        width: 200,
         render: (_, worker) =>
           worker.ip ? (
             <Text css={{ ...mono, ...muted }}>{worker.ip}</Text>
-          ) : (
-            <Text css={muted}>—</Text>
-          ),
-      },
-      {
-        title: "Actors",
-        key: "actors",
-        width: 140,
-        render: (_, worker) =>
-          worker.actorCapacity !== undefined ? (
-            `${(worker.allocatedActors ?? 0).toLocaleString()} of ${worker.actorCapacity.toLocaleString()}`
-          ) : worker.allocatedActors ? (
-            worker.allocatedActors.toLocaleString()
           ) : (
             <Text css={muted}>—</Text>
           ),
@@ -1453,7 +1440,7 @@ export function SubstratePage() {
             emptyText="No actors in this scope."
           />
 
-          {isWorkerShared ? (
+          {inventory && inventory.sharedWorkerCount > 0 ? (
             <Alert
               type="info"
               showIcon
@@ -1555,7 +1542,7 @@ export function SubstratePage() {
             dataSource={workerRows}
             loading={workers.isLoading}
             pagination={false}
-            scroll={{ x: 900 }}
+            scroll={{ x: 880 }}
             size="small"
             locale={{
               emptyText: workers.error

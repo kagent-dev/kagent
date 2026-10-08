@@ -128,6 +128,10 @@ test("substrate: the inventory renders, and partial runtime data says so", async
   await test.step("5. the actors placed right now, and the pods holding them", async () => {
     const actors = page.getByTestId("substrate-actors-table");
     await expect(actors).toBeVisible();
+    // The first worker holds two actors, so the page explains sharing.
+    await expect(page.getByTestId("substrate-actors-shared-note")).toContainText(
+      "Multiple actors are running on the same worker.",
+    );
     await expect(actors).toContainText("actor-7f21");
     await expect(actors).toContainText("kagent/coder-template");
     // The pod, with its IP appended — the two facts an operator needs to go and look.
@@ -143,26 +147,22 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     ).toHaveAttribute("data-tone", "danger");
   });
 
-  await test.step("6. the workers show how many actors each runs, not which", async () => {
+  await test.step("6. the workers, and no claim about which actor is on them", async () => {
     const workers = page.getByTestId("substrate-workers-table");
     await expect(workers).toBeVisible();
     await expect(workers).toContainText("kagent/ateom-kagent-default-0");
     await expect(workers).toContainText("kagent-default");
     await expect(workers).toContainText("10.42.1.19");
 
-    // Worker 0 holds three actors, so the Actors section explains sharing.
-    await expect(page.getByTestId("substrate-actors-shared-note")).toContainText(
-      "Multiple actors are running on the same worker. Each individual worker can run many actors at once, until it runs out of actor slots, CPU or memory.",
-    );
-    await expect(
-      workers.getByRole("row").filter({ hasText: "ateom-kagent-default-0" }).getByRole("cell").last(),
-    ).toHaveText("3 of 1,000");
-    await expect(
-      workers.getByRole("row").filter({ hasText: "ateom-kagent-default-1" }).getByRole("cell").last(),
-    ).toHaveText("—");
-
-    // Worker has no actor reference, so the table never names one.
+    /*
+     * No Actor column, and this pins its absence. ate-api's `Worker` carries capacity
+     * and allocation and no actor reference: the controller has nothing to fill that
+     * column from, so it read "idle" for every worker on every real cluster and looked
+     * populated only here, against a fixture that had invented the field. How much of
+     * the fleet is busy is a tile, counted once by the summary.
+     */
     await expect(workers).not.toContainText("actor-7f21");
+    await expect(workers).not.toContainText("idle");
     await expect(page.getByTestId("substrate-stat-workers")).toContainText("1/2");
   });
 
@@ -272,10 +272,10 @@ test("substrate: an empty inventory is shown without errors", async ({
   await expect(page.getByTestId("substrate-actors-table")).toContainText(
     "No actors on this page.",
   );
+  await expect(page.getByTestId("substrate-actors-shared-note")).toHaveCount(0);
   await expect(page.getByTestId("substrate-workers-table")).toContainText(
     "No worker assignments in this namespace scope on this page.",
   );
-  await expect(page.getByTestId("substrate-actors-shared-note")).toHaveCount(0);
   await expect(page.getByTestId("substrate-pools-table")).toContainText(
     "Create one in the cluster",
   );

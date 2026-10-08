@@ -510,6 +510,8 @@ type GetSubstrateSummaryResponse struct {
 	RunningActorCount int64                  `protobuf:"varint,7,opt,name=running_actor_count,json=runningActorCount,proto3" json:"running_actor_count,omitempty"`
 	// A worker is busy when its reported allocated actor count is positive.
 	BusyWorkerCount int64 `protobuf:"varint,8,opt,name=busy_worker_count,json=busyWorkerCount,proto3" json:"busy_worker_count,omitempty"`
+	// Workers reporting more than one allocated actor.
+	SharedWorkerCount int64 `protobuf:"varint,12,opt,name=shared_worker_count,json=sharedWorkerCount,proto3" json:"shared_worker_count,omitempty"`
 	// Every actor status present, with how many hold it: knowing 12 of 410,110 are
 	// running says nothing about the other 410,098.
 	ActorStatusCounts []*SubstrateActorStatusCount `protobuf:"bytes,9,rep,name=actor_status_counts,json=actorStatusCounts,proto3" json:"actor_status_counts,omitempty"`
@@ -589,6 +591,13 @@ func (x *GetSubstrateSummaryResponse) GetRunningActorCount() int64 {
 func (x *GetSubstrateSummaryResponse) GetBusyWorkerCount() int64 {
 	if x != nil {
 		return x.BusyWorkerCount
+	}
+	return 0
+}
+
+func (x *GetSubstrateSummaryResponse) GetSharedWorkerCount() int64 {
+	if x != nil {
+		return x.SharedWorkerCount
 	}
 	return 0
 }
@@ -892,7 +901,7 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"[\n" +
 	"\x19SubstrateActorStatusCount\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\x12(\n" +
-	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\"\x8b\x04\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\"\xbb\x04\n" +
 	"\x1bGetSubstrateSummaryResponse\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12K\n" +
 	"\fworker_pools\x18\x03 \x03(\v2(.kagent.api.v1alpha1.SubstrateWorkerPoolR\vworkerPools\x12\x1f\n" +
@@ -900,7 +909,8 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"actorCount\x12!\n" +
 	"\fworker_count\x18\x06 \x01(\x03R\vworkerCount\x12.\n" +
 	"\x13running_actor_count\x18\a \x01(\x03R\x11runningActorCount\x12*\n" +
-	"\x11busy_worker_count\x18\b \x01(\x03R\x0fbusyWorkerCount\x12^\n" +
+	"\x11busy_worker_count\x18\b \x01(\x03R\x0fbusyWorkerCount\x12.\n" +
+	"\x13shared_worker_count\x18\f \x01(\x03R\x11sharedWorkerCount\x12^\n" +
 	"\x13actor_status_counts\x18\t \x03(\v2..kagent.api.v1alpha1.SubstrateActorStatusCountR\x11actorStatusCounts\x12;\n" +
 	"\vcomputed_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +

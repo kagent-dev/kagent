@@ -604,6 +604,7 @@ describe("the cluster", () => {
           workerCount: 900n,
           runningActorCount: 12n,
           busyWorkerCount: 11n,
+          sharedWorkerCount: 3n,
           actorStatusCounts: [
             { state: ActorState.CRASHED, count: 410098n },
             { state: ActorState.RUNNING, count: 12n },
@@ -621,6 +622,7 @@ describe("the cluster", () => {
     expect(summary.actorCount).toBe(410110);
     expect(summary.runningActorCount).toBe(12);
     expect(summary.busyWorkerCount).toBe(11);
+    expect(summary.sharedWorkerCount).toBe(3);
     expect(summary.actorStatusCounts).toEqual([
       { status: "ACTOR_STATE_CRASHED", count: 410098 },
       { status: "Running", count: 12 },
@@ -696,12 +698,7 @@ describe("the cluster", () => {
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateWorkers: () => ({
-          workers: [{
-            workerNamespace: "kagent",
-            workerPool: "pool",
-            workerPod: "w0",
-            status: { capacity: { actors: 1000 }, allocated: { actors: 4 } },
-          }],
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
           page: { nextPageToken: "" },
         }),
       });
@@ -710,7 +707,6 @@ describe("the cluster", () => {
     const page = await apiClient.substrate.workers({ limit: 100 });
     expect(page.nextPageToken).toBeUndefined();
     expect(page.workers).toHaveLength(1);
-    expect(page.workers[0]).toMatchObject({ actorCapacity: 1000, allocatedActors: 4 });
   });
 });
 
