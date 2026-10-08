@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -29,6 +30,7 @@ import (
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -605,13 +607,21 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 	if desired == nil || modelConfig == nil {
 		return nil
 	}
-	updated := (*modelConfig).DeepCopy()
-	updated.Status = modelConfigStatusWithTransitionTimes(desired.Status, updated.Status)
-	if apiequality.Semantic.DeepEqual(updated.Status, (*modelConfig).Status) {
+	current := (*modelConfig).Status
+	status := modelConfigStatusWithTransitionTimes(desired.Status, current)
+	if apiequality.Semantic.DeepEqual(status, current) {
 		return nil
 	}
-	if _, err := r.status.ModelConfigs(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update ModelConfig %s status: %w", key, err)
+	patch, err := statusMergePatch(map[string]any{
+		"observedGeneration": status.ObservedGeneration,
+		"secretHash":         status.SecretHash,
+		"conditions":         status.Conditions,
+	})
+	if err != nil {
+		return fmt.Errorf("patch ModelConfig %s status: %w", key, err)
+	}
+	if _, err := r.status.ModelConfigs((*modelConfig).Namespace).Patch(ctx, (*modelConfig).Name, types.MergePatchType, patch, metav1.PatchOptions{}, "status"); err != nil {
+		return fmt.Errorf("patch ModelConfig %s status: %w", key, err)
 	}
 	return nil
 }
@@ -622,15 +632,32 @@ func (r *Reconciler) reconcileHarnessStatus(ctx context.Context, key string) err
 	if desired == nil || harness == nil {
 		return nil
 	}
-	updated := (*harness).DeepCopy()
-	updated.Status = harnessStatusWithTransitionTimes(desired.Status, updated.Status)
-	if apiequality.Semantic.DeepEqual(updated.Status, (*harness).Status) {
+	current := (*harness).Status
+	status := harnessStatusWithTransitionTimes(desired.Status, current)
+	if apiequality.Semantic.DeepEqual(status, current) {
 		return nil
 	}
-	if _, err := r.status.Harnesses(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update Harness %s status: %w", key, err)
+	// status.capabilities is not the controller's to write here, so the patch
+	// never carries it.
+	patch, err := statusMergePatch(map[string]any{
+		"observedGeneration": status.ObservedGeneration,
+		"conditions":         status.Conditions,
+	})
+	if err != nil {
+		return fmt.Errorf("patch Harness %s status: %w", key, err)
+	}
+	if _, err := r.status.Harnesses((*harness).Namespace).Patch(ctx, (*harness).Name, types.MergePatchType, patch, metav1.PatchOptions{}, "status"); err != nil {
+		return fmt.Errorf("patch Harness %s status: %w", key, err)
 	}
 	return nil
+}
+
+// statusMergePatch builds a JSON merge patch of the status subresource that
+// carries no resourceVersion: the controller's fields replace the live ones
+// whatever else changed on the object since the cache last observed it, and
+// fields the patch omits keep their live values.
+func statusMergePatch(fields map[string]any) ([]byte, error) {
+	return json.Marshal(map[string]any{"status": fields})
 }
 
 func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentStatus) kagentv1alpha3.AgentStatus {

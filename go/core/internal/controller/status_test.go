@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,9 +15,12 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestStatusForPairPublishesCompilationWarnings(t *testing.T) {
@@ -155,4 +159,100 @@ func TestReconcilerWritesHarnessReady(t *testing.T) {
 	require.False(t, ready.LastTransitionTime.IsZero())
 	require.Equal(t, int64(2), updated.Status.ObservedGeneration)
 	require.Equal(t, harness.Status.Capabilities, updated.Status.Capabilities, "the status write keeps the capabilities")
+}
+
+func TestReconcilerStatusWriteAfterConcurrentHarnessUpdate(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test", nil)
+
+	cached := &kagentv1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "claude", Generation: 1, ResourceVersion: "1"},
+		Spec: kagentv1alpha3.HarnessSpec{Substrate: kagentv1alpha3.RuntimeSubstratePolicy{
+			WorkerPoolRef: corev1.LocalObjectReference{Name: "gvisor"},
+		}},
+		Status: kagentv1alpha3.HarnessStatus{Capabilities: &kagentv1alpha3.HarnessCapabilities{Version: "v1"}},
+	}
+	live := cached.DeepCopy()
+	live.ResourceVersion = "2"
+	live.Status.Capabilities = &kagentv1alpha3.HarnessCapabilities{Version: "v2", Streaming: true}
+
+	mock := krttest.NewMock(t, []any{
+		cached,
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}},
+		harnessAgentState("assistant", booted),
+	})
+	harnesses := krttest.GetMockCollection[*kagentv1alpha3.Harness](mock)
+	collections := Collections{
+		Harnesses:       harnesses,
+		HarnessStatuses: newHarnessStatuses(harnesses, krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock), krttest.GetMockCollection[AgentReconciliation](mock), opts),
+	}
+	require.Eventually(t, func() bool { return collections.HarnessStatuses.GetKey("team-a/claude") != nil }, 3*time.Second, 10*time.Millisecond)
+	clientset := kagentfake.NewSimpleClientset(live)
+	conflictOnStaleUpdate(clientset)
+	statusClient := clientset.ApiV1alpha3()
+	reconciler := &Reconciler{collections: collections, status: statusClient}
+
+	require.NoError(t, reconciler.reconcileHarnessStatus(t.Context(), "team-a/claude"))
+
+	updated, err := statusClient.Harnesses("team-a").Get(t.Context(), "claude", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.True(t, apimeta.IsStatusConditionTrue(updated.Status.Conditions, kagentv1alpha3.HarnessConditionTypeReady))
+	require.Equal(t, int64(1), updated.Status.ObservedGeneration)
+	require.Equal(t, live.Status.Capabilities, updated.Status.Capabilities, "the status write keeps the live capabilities")
+}
+
+func TestReconcilerStatusWriteAfterConcurrentModelConfigUpdate(t *testing.T) {
+	cached := &kagentv1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "sonnet", Generation: 1, ResourceVersion: "1"},
+	}
+	live := cached.DeepCopy()
+	live.ResourceVersion = "2"
+	live.Annotations = map[string]string{"example.com/touched": "true"}
+	desired := kagentv1alpha3.ModelConfigStatus{
+		ObservedGeneration: 1,
+		SecretHash:         "hash",
+		Conditions: []metav1.Condition{{
+			Type: kagentv1alpha3.ModelConfigConditionTypeResolvedRefs, Status: metav1.ConditionTrue, Reason: "Resolved", ObservedGeneration: 1,
+		}},
+	}
+
+	mock := krttest.NewMock(t, []any{
+		cached,
+		krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]{Obj: cached, Status: desired},
+	})
+	collections := Collections{
+		ModelConfigs:        krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock),
+		ModelConfigStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
+	}
+	clientset := kagentfake.NewSimpleClientset(live)
+	conflictOnStaleUpdate(clientset)
+	statusClient := clientset.ApiV1alpha3()
+	reconciler := &Reconciler{collections: collections, status: statusClient}
+
+	require.NoError(t, reconciler.reconcileModelConfigStatus(t.Context(), "team-a/sonnet"))
+
+	updated, err := statusClient.ModelConfigs("team-a").Get(t.Context(), "sonnet", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "hash", updated.Status.SecretHash)
+	require.Equal(t, int64(1), updated.Status.ObservedGeneration)
+	require.True(t, apimeta.IsStatusConditionTrue(updated.Status.Conditions, kagentv1alpha3.ModelConfigConditionTypeResolvedRefs))
+	require.Equal(t, live.Annotations, updated.Annotations)
+}
+
+// conflictOnStaleUpdate makes the fake reject an update whose resourceVersion
+// is not the stored one, as the API server does.
+func conflictOnStaleUpdate(clientset *kagentfake.Clientset) {
+	clientset.PrependReactor("update", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		update := action.(k8stesting.UpdateAction)
+		object := update.GetObject().(metav1.Object)
+		stored, err := clientset.Tracker().Get(update.GetResource(), update.GetNamespace(), object.GetName())
+		if err != nil {
+			return false, nil, nil
+		}
+		if stored.(metav1.Object).GetResourceVersion() != object.GetResourceVersion() {
+			return true, nil, apierrors.NewConflict(update.GetResource().GroupResource(), object.GetName(), errors.New("the object has been modified"))
+		}
+		return false, nil, nil
+	})
 }
