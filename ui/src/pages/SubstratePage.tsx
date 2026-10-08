@@ -1454,13 +1454,13 @@ export function SubstratePage() {
           />
 
           {isWorkerShared ? (
-            <Text
-              css={{ ...muted, display: "block", marginBottom: theme.space(3) }}
+            <Alert
+              type="info"
+              showIcon
+              css={{ marginBottom: theme.space(3) }}
               data-testid="substrate-actors-shared-note"
-            >
-              Multiple actors are running on one worker. One worker can run many actors at
-              once, until it runs out of actor slots, CPU or memory.
-            </Text>
+              title="Multiple actors are running on the same worker. Each individual worker can run many actors at once, until it runs out of actor slots, CPU or memory."
+            />
           ) : null}
 
           <Table<SubstrateActorEntry>

@@ -151,8 +151,8 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(workers).toContainText("10.42.1.19");
 
     // Worker 0 holds three actors, so the Actors section explains sharing.
-    await expect(page.getByTestId("substrate-actors-shared-note")).toHaveText(
-      "Multiple actors are running on one worker. One worker can run many actors at once, until it runs out of actor slots, CPU or memory.",
+    await expect(page.getByTestId("substrate-actors-shared-note")).toContainText(
+      "Multiple actors are running on the same worker. Each individual worker can run many actors at once, until it runs out of actor slots, CPU or memory.",
     );
     await expect(
       workers.getByRole("row").filter({ hasText: "ateom-kagent-default-0" }).getByRole("cell").last(),
