@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -24,6 +25,8 @@ type Client struct {
 	ateapipb.ControlClient
 	conn *grpc.ClientConn
 	cfg  Config
+	// fencingUnsupported is set once ate-api refused the fencing token.
+	fencingUnsupported atomic.Bool
 }
 
 // Dial connects to the ate-api server.
@@ -189,7 +192,9 @@ func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmp
 func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{Actor: actorRef(atespace, actorID), FencingToken: FencingTokenFrom(ctx)})
+	resp, err := fenced(ctx, c, func(token *ateapipb.FencingToken) (*ateapipb.ResumeActorResponse, error) {
+		return c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{Actor: actorRef(atespace, actorID), FencingToken: token})
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +226,9 @@ func (c *Client) RepointActor(ctx context.Context, atespace, actorID, tmplNS, tm
 func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID), FencingToken: FencingTokenFrom(ctx)})
+	resp, err := fenced(ctx, c, func(token *ateapipb.FencingToken) (*ateapipb.PauseActorResponse, error) {
+		return c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID), FencingToken: token})
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +238,9 @@ func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ate
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID), FencingToken: FencingTokenFrom(ctx)})
+	resp, err := fenced(ctx, c, func(token *ateapipb.FencingToken) (*ateapipb.SuspendActorResponse, error) {
+		return c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID), FencingToken: token})
+	})
 	if err != nil {
 		return nil, err
 	}

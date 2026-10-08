@@ -265,6 +265,12 @@ refused this way was superseded: it stops renewing and leaves the claim to its
 successor. Requests without a token, from lifecycle operations and the gateway's
 resume of a turn, are admitted as before.
 
+A Substrate whose Actor API predates the token refuses it as an unknown field
+(`InvalidArgument`, protobuf tag 10001). The Substrate client then remembers that
+its ate-api takes no token, logs one warning, and sends that request and every
+later one unfenced: the boundary works as it did before the token, without the
+fence against a frozen holder's late request.
+
 ```mermaid
 sequenceDiagram
     participant Client

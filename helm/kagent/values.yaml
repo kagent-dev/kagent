@@ -418,6 +418,9 @@ controller:
 
   # Agent Substrate. Requires ate-system installed. kagent creates ate-api
   # ActorTemplates and references an existing Kubernetes WorkerPool.
+  # The quiescence fence needs a Substrate whose Actor API takes the fencing
+  # token (the chart's substrate dependency version or newer); with an older one
+  # the controller logs a warning and pauses and suspends without the fence.
   substrate:
     enabled: false
     ateApiEndpoint: ""
