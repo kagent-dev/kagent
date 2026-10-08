@@ -165,7 +165,7 @@ func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
 
 func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 	store, session := lifecycleFixture(t)
-	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}).Create(t.Context(), session)
+	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
 	require.NoError(t, err)
 	events := make(chan json.RawMessage, 4)
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
