@@ -49,6 +49,12 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
+# Written by use-kind-cluster. CLI installs use it so they always target the Kind
+# cluster, whatever the current kubectl context is.
+KIND_KUBECONFIG ?= /tmp/kind-config
+# Substrate settings for Kind: workers pull localhost:5001 images through the
+# registry container, and templates reconcile at the minimum interval.
+KIND_SUBSTRATE_HELM_ARGS = --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000 --set ateApi.extraArgs[0]=--template-resync-interval=250ms
 KAGENT_POSTGRES_SECRET ?= kagent-postgres
 
 CONTROLLER_IMAGE_NAME ?= controller
@@ -432,8 +438,8 @@ create-kind-cluster: ## Create a local kind cluster with MetalLB
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
-	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
-	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > $(KIND_KUBECONFIG)
+	KUBECONFIG=~/.kube/config:$(KIND_KUBECONFIG) kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
 	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
 
@@ -646,16 +652,22 @@ helm-publish: helm-version
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
-kagent-cli-install: use-kind-cluster build-cli-local helm-version
+kagent-cli-install: kagent-cli-deploy
+	KUBECONFIG=$(KIND_KUBECONFIG) KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
+
+.PHONY: kagent-cli-deploy
+kagent-cli-deploy: ## Build CLI locally and install kagent with Substrate and the development database
+kagent-cli-deploy: use-kind-cluster build-cli-local helm-version
+	KUBECONFIG=$(KIND_KUBECONFIG) \
 	KAGENT_HELM_REPO=./helm/ \
 	KAGENT_HELM_VERSION=$(VERSION) \
 	KAGENT_SUBSTRATE_HELM_REPO=$(SUBSTRATE_REPO)/ \
 	KAGENT_SUBSTRATE_HELM_VERSION=$(SUBSTRATE_VERSION) \
 	KAGENT_SUBSTRATE_PODCERT_HELM_REPO=$(SUBSTRATE_PODCERT_REPO)/ \
 	KAGENT_SUBSTRATE_PODCERT_HELM_VERSION=$(SUBSTRATE_PODCERT_VERSION) \
+	KAGENT_SUBSTRATE_HELM_EXTRA_ARGS="$(KIND_SUBSTRATE_HELM_ARGS) $(KAGENT_SUBSTRATE_HELM_EXTRA_ARGS)" \
 	KAGENT_HELM_EXTRA_ARGS="--set registry=$(DOCKER_REGISTRY) --set tag=$(VERSION) --set imagePullPolicy=Always --set controller.image.pullPolicy=Always --set ui.image.pullPolicy=Always $(KAGENT_HELM_EXTRA_ARGS)" \
 	./go/core/bin/kagent-local install
-	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083
