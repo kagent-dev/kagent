@@ -3,7 +3,6 @@ package models
 import (
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/ollama/ollama/api"
@@ -265,11 +264,43 @@ func names(t *testing.T, tools []*genai.Tool) []string {
 	return out
 }
 
-func TestConvertGenaiContentsToOllamaMessages_ImageOnlyUserTurnKeepsNote(t *testing.T) {
-	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", DisplayName: "cat.png"}}}}}
+func TestConvertGenaiContentsToOllamaMessages_ImageOnlyUserTurnSendsImage(t *testing.T) {
+	data := []byte("png-bytes")
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", Data: data, DisplayName: "cat.png"}}}}}
 	msgs, _ := convertGenaiContentsToOllamaMessages(contents, nil)
-	if len(msgs) != 1 || msgs[0].Role != "user" || !strings.Contains(msgs[0].Content, `[Image "cat.png" was not sent`) {
-		t.Errorf("messages = %+v, want one user message with the image note", msgs)
+	want := []api.Message{{Role: "user", Images: []api.ImageData{data}}}
+	if !reflect.DeepEqual(msgs, want) {
+		t.Errorf("messages = %+v, want %+v", msgs, want)
+	}
+}
+
+func TestConvertGenaiContentsToOllamaMessages_UnsupportedImageKeepsNote(t *testing.T) {
+	for name, blob := range map[string]*genai.Blob{
+		"svg":   {MIMEType: "image/svg+xml", Data: []byte("<svg/>"), DisplayName: "x.svg"},
+		"gif":   {MIMEType: "image/gif", Data: []byte("GIF89a"), DisplayName: "x.gif"},
+		"empty": {MIMEType: "image/png", DisplayName: "x.png"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: blob}}}}
+			msgs, _ := convertGenaiContentsToOllamaMessages(contents, nil)
+			want := []api.Message{{Role: "user", Content: unsupportedImageNote(blob)}}
+			if !reflect.DeepEqual(msgs, want) {
+				t.Errorf("messages = %+v, want %+v", msgs, want)
+			}
+		})
+	}
+}
+
+func TestConvertGenaiContentsToOllamaMessages_TextAndImageInOneTurn(t *testing.T) {
+	data := []byte("png-bytes")
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{
+		{Text: "what is this?"},
+		{InlineData: &genai.Blob{MIMEType: "image/png", Data: data, DisplayName: "cat.png"}},
+	}}}
+	msgs, _ := convertGenaiContentsToOllamaMessages(contents, nil)
+	want := []api.Message{{Role: "user", Content: "what is this?", Images: []api.ImageData{data}}}
+	if !reflect.DeepEqual(msgs, want) {
+		t.Errorf("messages = %+v, want %+v", msgs, want)
 	}
 }
 

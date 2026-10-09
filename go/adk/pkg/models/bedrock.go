@@ -694,7 +694,19 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 			}
 
 			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: unsupportedImageNote(part.InlineData)})
+				// Converse takes images in user messages only, up to bedrockMaxImageBytes each.
+				// Anything else keeps the note, so a rejected image cannot fail every replayed turn.
+				data := part.InlineData.Data
+				if f := nativeImageFormat(part.InlineData.MIMEType); f != "" && role == types.ConversationRoleUser && len(data) > 0 && len(data) <= bedrockMaxImageBytes {
+					contentBlocks = append(contentBlocks, &types.ContentBlockMemberImage{
+						Value: types.ImageBlock{
+							Format: types.ImageFormat(f),
+							Source: &types.ImageSourceMemberBytes{Value: data},
+						},
+					})
+				} else {
+					contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: unsupportedImageNote(part.InlineData)})
+				}
 				continue
 			}
 
@@ -745,6 +757,9 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 
 	return messages, mergeSystemInstructionFromConfig(systemInstruction, config)
 }
+
+// bedrockMaxImageBytes is the Converse limit for one image (3.75 MB).
+const bedrockMaxImageBytes = 3_750_000
 
 // convertGenaiToolsToBedrock converts genai.Tool to Bedrock Tool format.
 // It sanitizes tool names to satisfy Bedrock's [a-zA-Z0-9_-]+ constraint and

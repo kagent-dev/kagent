@@ -252,6 +252,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 		}
 
 		var textParts []string
+		var images []api.ImageData
 		var toolCalls []api.ToolCall
 		var toolResults []struct {
 			content string
@@ -298,7 +299,11 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 			}
 
 			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				textParts = append(textParts, unsupportedImageNote(part.InlineData))
+				if f := nativeImageFormat(part.InlineData.MIMEType); f != "" && f != "gif" && len(part.InlineData.Data) > 0 {
+					images = append(images, api.ImageData(part.InlineData.Data))
+				} else {
+					textParts = append(textParts, unsupportedImageNote(part.InlineData))
+				}
 			}
 		}
 
@@ -323,7 +328,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 			}
 		}
 
-		if len(textParts) > 0 {
+		if len(textParts) > 0 || len(images) > 0 {
 			// Regular text message
 			// Check if this is a system message
 			if content.Role == "system" {
@@ -332,6 +337,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 				msg := api.Message{
 					Role:    role,
 					Content: strings.Join(textParts, "\n"),
+					Images:  images,
 				}
 				messages = append(messages, msg)
 			}

@@ -973,14 +973,84 @@ func TestBedrockGuardrailStreamConfig(t *testing.T) {
 	})
 }
 
-func TestConvertGenaiContentsToBedrockMessages_ImageOnlyUserTurnKeepsNote(t *testing.T) {
-	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", DisplayName: "cat.png"}}}}}
+func TestConvertGenaiContentsToBedrockMessages_ImageOnlyUserTurnSendsImage(t *testing.T) {
+	data := []byte("png-bytes")
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", Data: data, DisplayName: "cat.png"}}}}}
 	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
 	if len(msgs) != 1 || msgs[0].Role != types.ConversationRoleUser || len(msgs[0].Content) != 1 {
 		t.Fatalf("messages = %+v, want one user message", msgs)
 	}
+	img, ok := msgs[0].Content[0].(*types.ContentBlockMemberImage)
+	if !ok {
+		t.Fatalf("content = %+v, want an image block", msgs[0].Content[0])
+	}
+	if img.Value.Format != types.ImageFormatPng {
+		t.Errorf("Format = %q, want png", img.Value.Format)
+	}
+	src, ok := img.Value.Source.(*types.ImageSourceMemberBytes)
+	if !ok || string(src.Value) != string(data) {
+		t.Errorf("Source = %+v, want the image bytes", img.Value.Source)
+	}
+}
+
+func TestConvertGenaiContentsToBedrockMessages_UnsupportedImageTypeKeepsNote(t *testing.T) {
+	contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/svg+xml", Data: []byte("<svg/>"), DisplayName: "x.svg"}}}}}
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
+	if len(msgs) != 1 || len(msgs[0].Content) != 1 {
+		t.Fatalf("messages = %+v, want one message with one block", msgs)
+	}
 	text, ok := msgs[0].Content[0].(*types.ContentBlockMemberText)
-	if !ok || !strings.Contains(text.Value, `[Image "cat.png" was not sent`) {
+	if !ok || !strings.Contains(text.Value, `[Image "x.svg" was not sent`) {
 		t.Errorf("content = %+v, want the image note", msgs[0].Content[0])
+	}
+}
+
+func TestConvertGenaiContentsToBedrockMessages_ImageSizeLimit(t *testing.T) {
+	for name, tt := range map[string]struct {
+		size      int
+		wantImage bool
+	}{
+		"empty":        {0, false},
+		"at the limit": {bedrockMaxImageBytes, true},
+		"over":         {bedrockMaxImageBytes + 1, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", Data: make([]byte, tt.size), DisplayName: "x.png"}}}}}
+			msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
+			if len(msgs) != 1 || len(msgs[0].Content) != 1 {
+				t.Fatalf("messages = %+v, want one message with one block", msgs)
+			}
+			_, isImage := msgs[0].Content[0].(*types.ContentBlockMemberImage)
+			if isImage != tt.wantImage {
+				t.Errorf("content = %T, want image %v", msgs[0].Content[0], tt.wantImage)
+			}
+		})
+	}
+}
+
+func TestConvertGenaiContentsToBedrockMessages_ModelRoleImageKeepsNote(t *testing.T) {
+	contents := []*genai.Content{{Role: genai.RoleModel, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", Data: []byte("png-bytes"), DisplayName: "made.png"}}}}}
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
+	if len(msgs) != 1 || msgs[0].Role != types.ConversationRoleAssistant || len(msgs[0].Content) != 1 {
+		t.Fatalf("messages = %+v, want one assistant message with one block", msgs)
+	}
+	if _, ok := msgs[0].Content[0].(*types.ContentBlockMemberText); !ok {
+		t.Errorf("content = %T, want the image note", msgs[0].Content[0])
+	}
+}
+
+func TestNativeImageFormat(t *testing.T) {
+	for mime, want := range map[string]string{
+		"image/png":     "png",
+		"image/jpeg":    "jpeg",
+		"image/jpg":     "jpeg",
+		"image/gif":     "gif",
+		"image/webp":    "webp",
+		"image/svg+xml": "",
+		"IMAGE/PNG":     "png",
+	} {
+		if got := nativeImageFormat(mime); got != want {
+			t.Errorf("nativeImageFormat(%q) = %q, want %q", mime, got, want)
+		}
 	}
 }

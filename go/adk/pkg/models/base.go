@@ -191,14 +191,32 @@ func parametersJsonSchemaToMap(v any) map[string]any {
 	return m
 }
 
-// unsupportedImageNote stands in for an image a text-only adapter cannot send,
-// so an image-only turn is not dropped.
+// unsupportedImageNote stands in for an image an adapter cannot send, so an
+// image-only turn is not dropped.
 func unsupportedImageNote(blob *genai.Blob) string {
 	name := blob.DisplayName
 	if name == "" {
 		name = "image"
 	}
-	return fmt.Sprintf("[Image %q was not sent: this provider integration cannot pass images.]", name)
+	return fmt.Sprintf("[Image %q was not sent: this provider integration cannot pass this image.]", name)
+}
+
+// nativeImageFormat maps an image MIME type to the Bedrock Converse format name
+// (png, jpeg, gif, webp). Empty when unsupported. Ollama takes the same set
+// without gif, which its own CLI rejects.
+func nativeImageFormat(mime string) string {
+	switch strings.ToLower(mime) {
+	case "image/png":
+		return "png"
+	case "image/jpeg", "image/jpg":
+		return "jpeg"
+	case "image/gif":
+		return "gif"
+	case "image/webp":
+		return "webp"
+	default:
+		return ""
+	}
 }
 
 // extractFunctionResponseContent converts a tool/function response value to a plain string:
