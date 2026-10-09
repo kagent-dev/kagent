@@ -4,7 +4,7 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 It follows the standard CrewAI project structure and developer experience, allowing you to define your agents and tasks in Python.
 
-If you wish to use the memory persistence integration with KAgent, edit `crew.py` and set `memory=True` when creating the crew.
+`KAgentApp` does not configure or persist CrewAI memory. Configure CrewAI memory and its backing storage explicitly when needed.
 
 ## Features
 
@@ -43,7 +43,8 @@ If you wish to use the memory persistence integration with KAgent, edit `crew.py
    ```
 
 4. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   API v2 examples and E2E fixtures for the current resource shape.
+   API v2 examples and E2E fixtures for the current resource shape. The sample
+   does not configure Kagent-backed task history or CrewAI memory persistence.
 
 ## Local Development
 
@@ -86,7 +87,7 @@ The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for LLM access
 - `SERPER_API_KEY`: Required for web search functionality
-- `KAGENT_API_URL`: Required KAgent control-plane API URL (typically `http://localhost:8083`)
-- `KAGENT_GATEWAY_URL`: Required KAgent A2A and MCP gateway URL (typically `http://localhost:8083`)
+- `KAGENT_API_URL`: Required by `KAgentConfig`; not used by this wrapper for outbound control-plane calls
+- `KAGENT_GATEWAY_URL`: Required by `KAgentConfig`; not used by this wrapper for outbound gateway calls
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)

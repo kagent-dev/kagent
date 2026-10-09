@@ -19,7 +19,7 @@ lint:
 
 .PHONY: test
 test: update generate-test-certs
-	uv run pytest ./packages/**/tests/
+	uv run pytest --import-mode=importlib ./packages/**/tests/ ./samples/langgraph/currency/tests/ ./samples/openai/basic_agent/tests/ ./samples/langgraph/hitl-tools/tests/ ./samples/langgraph/kebab/tests/ ./samples/adk/basic/tests/ ./samples/crewai/research-crew/tests/ ./samples/crewai/poem_flow/tests/
 
 .PHONY: build
 build: update format
