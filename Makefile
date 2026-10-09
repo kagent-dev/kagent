@@ -125,6 +125,8 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
+	@echo "Tools Python : $(TOOLS_PYTHON_VERSION)"
+	@echo "Tools Buf    : $(BUF_VERSION)"
 	@echo "Tools Weaver : $(WEAVER_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
