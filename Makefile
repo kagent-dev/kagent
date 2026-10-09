@@ -134,6 +134,11 @@ print-tools-versions: ## Print tools versions
 
 ##@ Protobuf
 
+# Builds regenerate protobuf code so local proto edits take effect. CI builds use
+# the committed output instead: proto-check verifies it, and every regeneration
+# spends Buf Schema Registry remote-plugin requests, which are rate limited.
+BUILD_PROTO_GENERATE := $(if $(filter true,$(CI)),,proto-generate)
+
 .PHONY: proto-generate
 proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
 	cd proto && $(BUF) generate
@@ -299,7 +304,7 @@ endif
 .PHONY: build-all
 build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
-build-all: proto-generate buildx-create
+build-all: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/claude/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/codex/Dockerfile ./go
@@ -330,12 +335,12 @@ endif
 
 .PHONY: build-cli
 build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
-build-cli: proto-generate
+build-cli: $(BUILD_PROTO_GENERATE)
 	make -C go build
 
 .PHONY: build-cli-local
 build-cli-local: ## Build the kagent CLI binary for the local machine
-build-cli-local: proto-generate
+build-cli-local: $(BUILD_PROTO_GENERATE)
 	make -C go clean
 	make -C go core/bin/kagent-local
 
@@ -364,19 +369,19 @@ build-controller: buildx-create
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
-build-ui: proto-generate buildx-create
+build-ui: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-kagent-adk
 build-kagent-adk: ## Build and push the Python kagent ADK image
-build-kagent-adk: proto-generate buildx-create
+build-kagent-adk: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
-build-golang-adk: proto-generate buildx-create
+build-golang-adk: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
