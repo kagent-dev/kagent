@@ -153,8 +153,8 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 15
-            initialDelaySeconds: 15
+            periodSeconds: 1
+            failureThreshold: 60
           {{- end }}
           {{- if .Values.controller.readinessProbe }}
           readinessProbe:
@@ -164,7 +164,7 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 30
+            periodSeconds: 2
           {{- end }}
           {{- if or (gt (len .Values.controller.volumeMounts) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
           volumeMounts:

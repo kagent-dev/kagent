@@ -378,8 +378,13 @@ func TestSandboxControllerRestart(t *testing.T) {
 	after, err := findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
 	require.NoError(t, err)
 	require.Equal(t, actor.GetMetadata().GetUid(), after.GetMetadata().GetUid(), "controller restart must preserve compute")
-	finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.NoError(t, err)
+	// The controller may be back before the process finishes its sleep.
+	var finished *guestpb.Process
+	require.Eventually(t, func() bool {
+		finished, err = f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+		require.NoError(t, err)
+		return finished.Status != guestpb.ProcessStatus_PROCESS_STATUS_RUNNING
+	}, 10*time.Second, 100*time.Millisecond)
 	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, finished.Status)
 	require.Equal(t, "once", string(f.read(t, instance.Id, "restart-count")))
 }

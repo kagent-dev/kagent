@@ -67,6 +67,9 @@ jobs:
         uses: actions/checkout@v6
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
+        with:
+          # Blacksmith runners start with ample free disk.
+          free-disk-space: "false"
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -107,29 +110,6 @@ jobs:
           version: v0.33.0
           install_only: true
 
-      - name: Create Kind cluster
-        run: make create-kind-cluster
-
-      - name: Install Agent Substrate
-        run: |
-          curl -fsSL -o kubectl-ate "https://github.com/kagent-dev/substrate/releases/download/v${SUBSTRATE_VERSION}/kubectl-ate-linux-amd64"
-          chmod +x kubectl-ate
-          helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
-          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system \
-            --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
-            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms' \
-            --set 'credentialProvider.namespacePolicies[0].atespace=kagent' \
-            --set 'credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent'
-          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
-          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
-          ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
-          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
-          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
-          actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
-          kubectl create secret generic actor-id-ca-certs -n ate-system --from-literal=ca.crt="${actor_id_ca_root}"
-          kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
-          helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values --wait --timeout 5m
-
       - name: Cache Cloud Hypervisor assets
         if: matrix.sandbox_class == 'microvm'
         uses: actions/cache@v6
@@ -137,11 +117,7 @@ jobs:
           path: .cache/substrate/microvm-assets/amd64
           key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
 
-      - name: Install Cloud Hypervisor runtime
-        if: matrix.sandbox_class == 'microvm'
-        run: bash scripts/kind/setup-microvm.sh
-
-      - name: Install Kagent
+      - name: Set up e2e cluster
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
@@ -163,26 +139,7 @@ jobs:
             --set otel.traces.enabled=true
             --set otel.metrics.enabled=true
             --set-string otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
-        run: |
-          # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
-          # otherwise selects a fresh local builder, discarding that cache.
-          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
-          test -n "$BUILDX_BUILDER_NAME"
-          export BUILDX_BUILDER_NAME
-          make buildx-create
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
-            image="$1"
-            DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
-              make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
-          ' _
-          # Resolve the guest on the runner: localhost:5001 is not reachable
-          # from the controller pod. Substrate rewrites registry pulls on workers.
-          GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
-          test -n "$GUEST_DIGEST"
-          export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set-string controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
-          make helm-install-provider
-          kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
-          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
+        run: scripts/kind/setup-e2e-ci.sh
 
       - name: Run e2e tests
         if: success()

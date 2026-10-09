@@ -474,13 +474,13 @@ controller:
   # -- Custom startup probe for the controller container.
   # Setting a value replaces the default probe entirely — include a handler
   # (httpGet / exec / tcpSocket / grpc) when overriding.
-  # @default -- httpGet /health on port http, periodSeconds=15, initialDelaySeconds=15
+  # @default -- httpGet /health on port http, periodSeconds=1, failureThreshold=60
   startupProbe: {}
 
   # -- Custom readiness probe for the controller container.
   # Setting a value replaces the default probe entirely — include a handler
   # (httpGet / exec / tcpSocket / grpc) when overriding.
-  # @default -- httpGet /health on port http, periodSeconds=30
+  # @default -- httpGet /health on port http, periodSeconds=2
   readinessProbe: {}
 
 # -- Optional Agent Substrate WorkerPool installed by this chart. This is platform
