@@ -8,7 +8,8 @@ import grpc
 import pytest
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.context import ServerCallContext
-from a2a.server.events.event_queue import DEFAULT_MAX_QUEUE_SIZE
+from a2a.server.events import event_queue_v2
+from a2a.server.events.event_queue import create_async_queue
 from a2a.types import a2a_pb2 as a2a
 from a2a.utils.errors import InternalError, UnsupportedOperationError
 from kagent.api.v1alpha1 import task_store_pb2 as storepb
@@ -304,16 +305,24 @@ async def test_cancel_parked_task(runtime):
     assert runner.calls == 1
 
 
-async def test_slow_observer_does_not_block_persistence(runtime):
+async def test_slow_observer_does_not_block_persistence(runtime, monkeypatch):
     service, store, runner, handler = runtime
-    runner.progress_events = 4 * DEFAULT_MAX_QUEUE_SIZE
+    # Keep real bounded queues, but saturate every stage without requiring
+    # thousands of serialized gRPC commits within the test's timeout.
+    queue_size = 8
+    monkeypatch.setattr(
+        event_queue_v2,
+        "create_async_queue",
+        lambda *, maxsize: create_async_queue(maxsize=min(maxsize, queue_size)),
+    )
+    runner.progress_events = 4 * queue_size
     stream = handler.on_message_send_stream(send("slow-observer"), ServerCallContext())
-    async with asyncio.timeout(30):
+    async with asyncio.timeout(10):
         await anext(stream)
         runner.release.set()
         # Keep the observer attached without reading until every queue would
         # have filled. Persistence and native settlement must still finish.
-        await eventually(lambda: bool(service.settlements), timeout=25)
+        await eventually(lambda: bool(service.settlements))
         task = await store.get(service.task.id, ServerCallContext())
         assert task.status.state == a2a.TASK_STATE_INPUT_REQUIRED
         assert len(service.receipts) == runner.progress_events + 3

@@ -444,8 +444,12 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 				}
 				send := func() error {
 					if streaming {
+						// Drain the response so deferred dispatch cleanup finishes before
+						// the next request reads or changes the shared test doubles.
 						for _, err := range transport.SendStreamingMessage(t.Context(), params, request()) {
-							return err
+							if err != nil {
+								return err
+							}
 						}
 						return nil
 					}
