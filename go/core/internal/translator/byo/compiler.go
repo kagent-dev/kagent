@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -37,7 +38,17 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template))
+	// The BYO Port setting (default 80) is the single knob for the A2A
+	// endpoint: it drives both the agent card URL and the injected PORT env
+	// entry so the advertised port and the image's listener always agree
+	// (#2758). As the last entry it wins DedupeEnv's last-wins precedence
+	// over a spec.env PORT; the compiler never reads the harness's env for
+	// the port itself.
+	port := 80
+	if harness.Spec.BYO != nil && harness.Spec.BYO.Port != nil {
+		port = int(*harness.Spec.BYO.Port)
+	}
+	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template, port))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
@@ -53,6 +64,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
 	environment = adkconfig.DedupeEnv(append(environment,
+		corev1.EnvVar{Name: "PORT", Value: strconv.Itoa(port)},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	))
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
@@ -75,10 +87,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}}, nil
 }
 
-func agentTemplateCard(agentName string, template *v2translator.TemplateConfiguration) *a2atype.AgentCard {
+func agentTemplateCard(agentName string, template *v2translator.TemplateConfiguration, port int) *a2atype.AgentCard {
 	return &a2atype.AgentCard{
 		Name: strings.ReplaceAll(agentName, "-", "_"), Description: template.Spec.Description, Version: "v1",
-		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
+		SupportedInterfaces: []*a2atype.AgentInterface{{URL: fmt.Sprintf("http://127.0.0.1:%d", port), ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
 		Capabilities:        a2atype.AgentCapabilities{Streaming: true}, Skills: []a2atype.AgentSkill{},
 		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
 	}
