@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -1218,6 +1219,9 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 	}
 	if err := discoveryv1.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register discovery API: %v", err)
+	}
+	if err := batchv1.AddToScheme(clientScheme); err != nil {
+		t.Fatalf("register batch API: %v", err)
 	}
 	if err := v1alpha3.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register kagent API: %v", err)

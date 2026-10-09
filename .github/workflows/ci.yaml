@@ -121,6 +121,11 @@ jobs:
       - name: Create Kind cluster
         run: make create-kind-cluster
 
+      - name: Install CSI volume snapshots
+        # The workspace fixture provisions, snapshots and restores its volumes
+        # on the CSI hostpath driver (core/test/e2e/README.md).
+        run: bash scripts/kind/setup-csi-snapshots.sh
+
       - name: Install Kagent
         id: install-kagent
         env:

@@ -209,6 +209,50 @@ client that sends no header fails. The git upstream is `git http-backend` on
 the test host (which needs `git`), served over HTTPS under a cluster Service
 name the binding matches, with a certificate from the CA above.
 
+### Workspace fixture
+
+A Session started in a clone of a snapshotted volume needs a volume holding git
+repositories, its CSI snapshot, and a signed grant admitting the caller to it.
+The lane installs the external snapshotter (its CRDs and the snapshot
+controller) and the CSI hostpath driver with the `csi-hostpath-snapclass`
+VolumeSnapshotClass and the `csi-hostpath-sc` StorageClass
+(`scripts/kind/setup-csi-snapshots.sh`, also for a local Kind cluster).
+
+`newWorkspaceFixture` (`workspace_test.go`) builds the rest per test:
+
+- an origin serving `e2e/alpha.git` and `e2e/beta.git` through `git
+  http-backend` over HTTPS, the same fixture `TestGitArtifactCredentialDelivery`
+  uses: it requires a Basic credential and records every request per
+  repository (`Origin`, `OriginURL`, `Authorization`);
+- a `csi-hostpath-sc` volume a Job fills with full clones of both, checked out
+  on `main` under `/<owner>/<repository>` (`e2e/alpha`, `e2e/beta`), each
+  `origin` remote pointing at `OriginURL` and no credential kept in the clone;
+- a VolumeSnapshot of it (`SnapshotName`), waited for until `readyToUse`, and
+  the CSI driver and snapshot handle of its bound VolumeSnapshotContent
+  (`Snapshot`), which a grant names and a Session volume source carries;
+- the commit each clone holds (`Heads`); after the snapshot a commit is pushed
+  to `e2e/beta` (`Changed`), so a test tells a repository that moved since the
+  snapshot from one that did not.
+
+`TestWorkspaceSnapshotFixture` proves it: a volume restored from the snapshot
+holds the same heads on `main` and no credential, and only the changed
+repository's origin moved. It needs `git` on the test host and the egress CA
+variables above.
+
+The grant signer (`go/core/test/grant`) stands in for the workspace issuer:
+`grant.NewSigner(issuer, audience)` generates an ES256 key,
+`SignGrant(subject, snapshot, changed, providers, ttl)` returns the JWT a
+Session admission verifies, and `Serve` (loopback) or `Handler` (served where
+the cluster reaches it, as `startHostServer` and `reachableServerURL` do)
+publishes its JWKS at `/.well-known/jwks.json`. A negative `ttl` yields an
+expired grant.
+
+Tests built on the fixture assert with `requireNoTokenInSandbox`, which runs
+`env` and a search of `/data` and `/workspace` through a `sandboxShell` and
+fails on the token or a missing path, and `requireNoOriginRequest`, which fails
+when the origin logged any request for a repository, such as a fetch of one
+that did not change.
+
 `TestSessionContextCompaction` clones the `kagent` Harness into one whose
 `spec.kagent.compaction` fires a sliding window after two turns, with a
 dedicated summarizer `ModelConfig` pointing at the same mock LLM behind a

@@ -281,15 +281,23 @@ const (
 
 // gitFixture serves smart-HTTP repositories through git http-backend and
 // answers 401 to any request without the expected Authorization, as a private
-// forge does. Both repositories hold the same commit: a standalone skill under
-// skills/ and an Agent Plugins package under plugin/.
+// forge does. Every repository starts on the same commit on main: a standalone
+// skill under skills/ and an Agent Plugins package under plugin/.
 type gitFixture struct {
-	commit    string
-	handler   http.Handler
-	recorders map[string]*requestRecorder
+	commit       string
+	repositories string
+	handler      http.Handler
+	recorders    map[string]*requestRecorder
 }
 
 func newGitFixture(t *testing.T, authorization string) *gitFixture {
+	t.Helper()
+	return newGitFixtureOf(t, authorization, gitSkillRepository, gitPluginRepository)
+}
+
+// newGitFixtureOf serves the named bare repositories, each a path ending in
+// .git such as "owner/name.git".
+func newGitFixtureOf(t *testing.T, authorization string, names ...string) *gitFixture {
 	t.Helper()
 	gitPath, err := exec.LookPath("git")
 	require.NoError(t, err, "the git fixture needs git and its http-backend")
@@ -307,9 +315,9 @@ func newGitFixture(t *testing.T, authorization string) *gitFixture {
 	runFixtureGit(t, work, "init", "--quiet", "--initial-branch=main")
 	runFixtureGit(t, work, "add", ".")
 	runFixtureGit(t, work, "-c", "user.name=kagent e2e", "-c", "user.email=e2e@kagent.dev", "commit", "--quiet", "--message", "Egress credential fixture")
-	fixture := &gitFixture{commit: strings.TrimSpace(runFixtureGit(t, work, "rev-parse", "HEAD")), recorders: map[string]*requestRecorder{}}
-	for _, repository := range []string{gitSkillRepository, gitPluginRepository} {
-		bare := filepath.Join(repositories, repository)
+	fixture := &gitFixture{commit: strings.TrimSpace(runFixtureGit(t, work, "rev-parse", "HEAD")), repositories: repositories, recorders: map[string]*requestRecorder{}}
+	for _, repository := range names {
+		bare := filepath.Join(repositories, filepath.FromSlash(repository))
 		runFixtureGit(t, root, "clone", "--quiet", "--bare", work, bare)
 		// The runtime fetches its pinned commit by ID, not by ref.
 		runFixtureGit(t, bare, "config", "uploadpack.allowAnySHA1InWant", "true")
@@ -320,8 +328,7 @@ func newGitFixture(t *testing.T, authorization string) *gitFixture {
 		Env: append(isolatedGitEnvironment(), "GIT_PROJECT_ROOT="+repositories, "GIT_HTTP_EXPORT_ALL=1"),
 	}
 	fixture.handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		repository, _, _ := strings.Cut(strings.TrimPrefix(request.URL.Path, "/"), "/")
-		recorder := fixture.recorders[repository]
+		recorder := fixture.recorders[gitRepositoryOf(request.URL.Path)]
 		if recorder == nil {
 			http.NotFound(w, request)
 			return
@@ -338,8 +345,39 @@ func newGitFixture(t *testing.T, authorization string) *gitFixture {
 	return fixture
 }
 
+// gitRepositoryOf returns the repository a smart-HTTP request path names: the
+// path up to its first segment ending in .git.
+func gitRepositoryOf(path string) string {
+	path = strings.TrimPrefix(path, "/")
+	end := strings.Index(path+"/", ".git/")
+	if end < 0 {
+		return ""
+	}
+	return path[:end+len(".git")]
+}
+
 func (f *gitFixture) received(repository string) []mockmcp.RecordedRequest {
 	return f.recorders[repository].Requests()
+}
+
+// head returns the commit main of repository points at.
+func (f *gitFixture) head(t *testing.T, repository string) string {
+	t.Helper()
+	return strings.TrimSpace(runFixtureGit(t, filepath.Join(f.repositories, filepath.FromSlash(repository)), "rev-parse", "main"))
+}
+
+// push commits path with content on top of main of repository, as a push to
+// the forge would, and returns the new head.
+func (f *gitFixture) push(t *testing.T, repository, path, content string) string {
+	t.Helper()
+	bare, work := filepath.Join(f.repositories, filepath.FromSlash(repository)), t.TempDir()
+	runFixtureGit(t, work, "clone", "--quiet", bare, ".")
+	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(work, filepath.FromSlash(path))), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(work, filepath.FromSlash(path)), []byte(content), 0o644))
+	runFixtureGit(t, work, "add", ".")
+	runFixtureGit(t, work, "-c", "user.name=kagent e2e", "-c", "user.email=e2e@kagent.dev", "commit", "--quiet", "--message", "Change "+path)
+	runFixtureGit(t, work, "push", "--quiet", "origin", "HEAD:main")
+	return f.head(t, repository)
 }
 
 // serveThroughEgress serves the fixture over HTTPS on the host under a cluster
