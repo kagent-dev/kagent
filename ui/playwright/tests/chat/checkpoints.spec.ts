@@ -107,7 +107,8 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
   });
 
   await test.step("and the mark's own delete asks first, then takes it", async () => {
-    await page.keyboard.press("Escape");
+    // Not Escape: antd hands it to the newest overlay, which can be the row's late tooltip.
+    await pressOnce(page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }));
     await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
@@ -118,7 +119,7 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
     await expect(dividers(page)).toHaveCount(1);
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
-    await page.getByTestId(`chat-checkpoint-delete-confirm-${id}`).click();
+    await pressOnce(page.getByTestId(`chat-checkpoint-delete-confirm-${id}`));
     await expect(dividers(page)).toHaveCount(0);
   });
 });
@@ -210,9 +211,9 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
 
   await test.step("asks before deleting, and cancelling leaves both", async () => {
     await openSnapshot(page, page.getByTestId(`chat-checkpoint-mark-${id}`));
-    await page.getByTestId("snapshot-details-delete").click();
+    // The record zooms in, and a press on a moving button can miss: wait for it to hold still.
+    await pressOnce(page.getByTestId("snapshot-details-delete"));
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    // The modal animates in like the popconfirm above: press once it has stopped arriving.
     await pressOnce(page.getByTestId("snapshot-details-delete-cancel"));
     await expect(page.getByText("Delete this snapshot?")).toBeHidden();
     await expect(dividers(page)).toHaveCount(2);
@@ -220,7 +221,7 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
 
   await test.step("confirming takes that line, closes the record and leaves the other", async () => {
     await page.getByTestId("snapshot-details-delete").click();
-    await page.getByTestId("snapshot-details-delete-confirm").click();
+    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
     await expect(page.getByTestId(`chat-checkpoint-mark-${id}`)).toHaveCount(0);
     await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
     await expect(dividers(page)).toHaveCount(1);

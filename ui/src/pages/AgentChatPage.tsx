@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useHref, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Tooltip } from "antd";
 import { FileText, PanelRightClose, PanelRightOpen, Share2 } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -92,6 +92,8 @@ export function AgentChatPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
+  // Includes the base path, so it compares with `window.location`.
+  const here = useHref(location.pathname);
 
   const instance = useAgentInstance(id);
   /*
@@ -459,6 +461,9 @@ export function AgentChatPage() {
       chat.isLoadingHistory
     )
       return;
+    // The reader can leave before this page unmounts. A send would be aborted, and the
+    // clear below would replace their new address with this one.
+    if (window.location.pathname !== here) return;
     sentInitial.current = true;
     /*
      * Sent before the history entry is cleared, not after.

@@ -9,7 +9,6 @@ import {
   loadPage,
   pageTitle,
   rowNamed,
-  routes,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
 import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
@@ -43,19 +42,10 @@ import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
 test("agents: one agent lists its own conversations, and only its own", async ({
   page,
 }) => {
-  await test.step("1. the agents list leads here", async () => {
-    await loadPage(page, routes.agents, { title: "Agents" });
-    await expectSettled(page);
-
-    // Clicked rather than navigated to: what is under test is that the list is a way
-    // in, which a `page.goto` to the destination could never fail on.
-    //
-    // Through the agent's name and then the rail. The name opens a new conversation,
-    // which is what a reader clicking an agent wants; the agent's own page — what it
-    // already has — is one step further, reached from the rail that page carries.
-    await page.getByTestId("agent-link-kagent-shared-brain").click();
-    await page.getByTestId("agent-nav-agent-conversations").click();
-    await expect(page).toHaveURL(new RegExp(`${agentPage(agents.sharedOnK8s)}$`));
+  await test.step("1. the agent's page opens", async () => {
+    // Opened directly: `agent-chat-entry.spec.ts` and the template-link test below own
+    // the clicks from the list and the rail.
+    await loadPage(page, agentPage(agents.sharedOnK8s));
     await expectSettled(page);
   });
 
@@ -86,6 +76,14 @@ test("agents: one agent lists its own conversations, and only its own", async ({
     await expect(page.getByTestId("conversations-table")).not.toContainText(
       "Drafting the runbook",
     );
+  });
+
+  await test.step("5. its twin, with identical refs, lists none of them in its rail", async () => {
+    // Same template and harness as `shared-brain`, so only the agent's own name can tell them apart.
+    await loadPage(page, agentNewChat({ name: "shared-brain-twin", template: "", harness: "" }));
+    await expect(page.getByTestId("agent-rail-identity")).toContainText("shared-brain-twin");
+    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible();
+    await expect(page.getByTestId("chat-session-1d4f7a92-0c38-4e61-b25a-7f930e6c8b14")).toHaveCount(0);
   });
 });
 

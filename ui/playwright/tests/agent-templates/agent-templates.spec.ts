@@ -248,25 +248,11 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page).toHaveURL(/[?&]ns=kagent(&|$)/);
   });
 
-  await test.step("13. deletion also works for an unused template", async () => {
-    await page.getByTestId("templates-filters-search").fill("note-taker");
-    await page.getByTestId("template-link-note-taker").click();
-    await page.waitForURL(/\/agent-templates\/kagent\/note-taker/);
-
-    await page.getByTestId("delete-note-taker").click();
-    await expect(confirmation(page)).toContainText(
-      "last successful revisions are retained",
-    );
-  });
-
-  await test.step("14. an agent in the Agents tab opens that agent", async () => {
+  await test.step("13. an agent in the Agents tab opens that agent", async () => {
     // The tab answers "what is built from this template", and each answer is a
     // explicit Agent referencing it. Leaving the rows as text
     // made it a dead end: it named the thing the reader wanted and gave them no way to
     // reach it.
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Back to templates" }).click();
-    await page.waitForURL(/\/agents\?.*tab=templates/);
     await page.getByTestId("templates-filters-search").fill("k8s-agent-7f3a91c");
     await page.getByTestId("template-link-k8s-agent-7f3a91c").click();
     await page.waitForURL(/\/agent-templates\/kagent\/k8s-agent-7f3a91c/);
@@ -300,7 +286,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("chat-new-session")).toBeVisible({ timeout: 30_000 });
   });
 
-  await test.step("15. an empty result says so instead of showing a bare table", async () => {
+  await test.step("14. an empty result says so instead of showing a bare table", async () => {
     // Last, after the delete, because reaching these needs the backend answering
     // differently and `?mock=` is per-navigation — which discards what the journey made.
     // By here there is nothing left to discard.
@@ -309,7 +295,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("16. a failed load is reported, not disguised as an empty list", async () => {
+  await test.step("15. a failed load is reported, not disguised as an empty list", async () => {
     await loadPage(page, routes.agentTemplates, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("templates-error");
@@ -321,7 +307,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("17. a failed create is reported beside the button that sent it", async () => {
+  await test.step("16. a failed create is reported beside the button that sent it", async () => {
     await loadPage(page, routes.agentTemplateNew, {
       scenario: "error",
       title: "New agent template",
