@@ -63,9 +63,7 @@ const fragmentValue = (page: Page, index: number) =>
  * `LIFECYCLE_TIMEOUT`. Set per file rather than across the suite, so the tight default
  * keeps doing its job everywhere else.
  */
-// 30s more than other lifecycles: its page loads run on the Vite dev server, and a
-// cold Firefox run comes close to the shared budget.
-test.describe.configure({ timeout: LIFECYCLE_TIMEOUT + 30_000 });
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("prompts: a library is created, read, changed and deleted", async ({
   page,
