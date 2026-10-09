@@ -160,15 +160,17 @@ func (s *gatewayTestStore) GetSettledSessionTask(ctx context.Context, sessionID,
 	return s.GetSessionTask(ctx, sessionID, taskID, historyLength)
 }
 
+// Streaming sends revoke after the client sees the stream end, so Check can overlap the next request.
 type gatewayTestAuthorizer struct {
-	principal auth.Principal
-	err       error
-	verb      auth.Verb
-	resource  auth.Resource
+	mu   sync.Mutex
+	err  error
+	verb auth.Verb
 }
 
-func (a *gatewayTestAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	a.principal, a.verb, a.resource = principal, verb, resource
+func (a *gatewayTestAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, _ auth.Resource) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.verb = verb
 	return a.err
 }
 
