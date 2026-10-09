@@ -5,10 +5,11 @@ import pytest
 from agents.tracing import get_trace_provider
 from agents.tracing.processors import BackendSpanExporter
 from agents.tracing.traces import NoOpTrace
-from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
-from opentelemetry.instrumentation.openai_agents._hooks import OpenTelemetryTracingProcessor
+from kagent.core.telemetry import _boot
+from opentelemetry.instrumentation.genai.openai_agents import OpenAIAgentsInstrumentor
+from opentelemetry.instrumentation.genai.openai_agents.processor import GenAITracingProcessor
 
-from kagent.openai._a2a import _configure_openai_agents_tracing
+from kagent.openai._a2a import _openai_agents_instrument_options
 
 
 def _reset():
@@ -24,9 +25,14 @@ def _reset():
 def reset_agents_tracing(monkeypatch):
     monkeypatch.delenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", raising=False)
     monkeypatch.delenv("OPENAI_AGENTS_DISABLE_TRACING", raising=False)
+    monkeypatch.setattr(_boot, "_current", None)
     _reset()
     yield
     _reset()
+
+
+def _instrument():
+    OpenAIAgentsInstrumentor().instrument(**_openai_agents_instrument_options()["openai_agents"])
 
 
 def _processors():
@@ -43,30 +49,25 @@ def test_default_provider_exports_to_openai():
 
 
 def test_native_exporter_dropped_by_default():
-    _configure_openai_agents_tracing()
+    _instrument()
 
     processors = _processors()
     assert not _exports_to_openai(processors)
-    assert [type(p) for p in processors] == [OpenTelemetryTracingProcessor]
+    assert [type(p) for p in processors] == [GenAITracingProcessor]
 
 
 def test_repeat_configuration_keeps_opentelemetry_processor():
-    """BaseInstrumentor.instrument() no-ops once instrumented.
-
-    Anything that cleared processors outside _instrument would wipe the
-    OpenTelemetry processor on a second call with nothing to reinstall it.
-    """
-    _configure_openai_agents_tracing()
-    _configure_openai_agents_tracing()
+    _instrument()
+    _instrument()
 
     processors = _processors()
     assert not _exports_to_openai(processors)
-    assert [type(p) for p in processors] == [OpenTelemetryTracingProcessor]
+    assert [type(p) for p in processors] == [GenAITracingProcessor]
 
 
 def test_spans_still_reach_opentelemetry():
     """Dropping the native exporter must not disable SDK tracing altogether."""
-    _configure_openai_agents_tracing()
+    _instrument()
 
     assert not isinstance(get_trace_provider().create_trace("test"), NoOpTrace)
 
@@ -74,14 +75,14 @@ def test_spans_still_reach_opentelemetry():
 def test_native_exporter_kept_when_opted_in(monkeypatch):
     monkeypatch.setenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", "true")
 
-    _configure_openai_agents_tracing()
+    _instrument()
 
     processors = _processors()
     assert _exports_to_openai(processors)
-    assert any(isinstance(p, OpenTelemetryTracingProcessor) for p in processors)
+    assert any(isinstance(p, GenAITracingProcessor) for p in processors)
 
 
-def test_build_drops_native_exporter_even_if_configure_tracing_fails(monkeypatch):
+def test_build_never_leaves_native_exporter_when_opentelemetry_fails(monkeypatch):
     """A broken OTLP setup must not leave the SDK shipping traces to OpenAI."""
     from agents import Agent
     from kagent.core import KAgentConfig
@@ -93,7 +94,7 @@ def test_build_drops_native_exporter_even_if_configure_tracing_fails(monkeypatch
     def boom(*args, **kwargs):
         raise RuntimeError("no collector")
 
-    monkeypatch.setattr(_a2a, "configure_tracing", boom)
+    monkeypatch.setattr(_boot.OpenTelemetryConfigurator, "configure", boom)
 
     agent_card = {
         "name": "test",
@@ -117,13 +118,13 @@ def test_build_drops_native_exporter_even_if_configure_tracing_fails(monkeypatch
     )
     app.build()
 
-    assert not _exports_to_openai(_processors())
+    assert isinstance(get_trace_provider().create_trace("test"), NoOpTrace)
 
 
 def test_warns_when_sdk_tracing_disabled_by_env(monkeypatch, caplog):
     monkeypatch.setenv("OPENAI_AGENTS_DISABLE_TRACING", "1")
 
     with caplog.at_level("WARNING"):
-        _configure_openai_agents_tracing()
+        _openai_agents_instrument_options()
 
     assert "OPENAI_AGENTS_DISABLE_TRACING" in caplog.text

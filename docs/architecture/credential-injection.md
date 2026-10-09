@@ -1,6 +1,6 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.3.0-alpha3**. The compiler turns ModelConfig API
+Kagent requires Substrate **v0.4.0-alpha1**. The compiler turns ModelConfig API
 keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
 bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 replaces the outgoing HTTP header when the request carries a placeholder. SDKs
@@ -63,7 +63,7 @@ hostname and header. Different credentials for the same hostname and header
 are rejected, including conflicts between models, memory embeddings, and MCP
 servers. Use distinct DNS names for
 origins requiring different credentials. IP-address destinations are unsupported
-by alpha3 egress policies.
+by Substrate egress policies.
 
 Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on

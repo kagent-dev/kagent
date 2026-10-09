@@ -22,7 +22,7 @@ import (
 const (
 	// sessionCountMetric is the Prometheus name of claude_code.session.count,
 	// which Claude Code increments only after its telemetry initializes. That
-	// ordering is an implementation detail, verified on 2.1.260 and 2.1.282, and
+	// ordering is an implementation detail, verified on 2.1.260, 2.1.282 and 2.1.285, and
 	// can change without notice. Once a release waits for telemetry
 	// initialization in print mode, the gate can likely be removed.
 	sessionCountMetric = "claude_code_session_count"

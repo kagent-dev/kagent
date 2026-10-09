@@ -670,6 +670,15 @@ otel-local: ## Start a local Jaeger container for OpenTelemetry tracing (UI at l
 	$(CONTAINER_RUNTIME) run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
 	@echo "Jaeger UI available at http://localhost:16686/"
 
+OTEL_COLLECTOR_CHART_VERSION ?= 0.175.1
+
+.PHONY: otel-collector-kind
+otel-collector-kind: ## Install the reference OpenTelemetry Collector into the kind cluster with a debug exporter
+	helm upgrade --install kagent-otel opentelemetry-collector --repo https://open-telemetry.github.io/opentelemetry-helm-charts \
+		--version $(OTEL_COLLECTOR_CHART_VERSION) --kube-context kind-$(KIND_CLUSTER_NAME) --namespace observability --create-namespace \
+		-f examples/observability/collector-values.yaml -f examples/observability/collector-local.yaml
+	@echo "Point kagent at it with --set-string otel.exporter.otlp.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317"
+
 .PHONY: kind-debug
 kind-debug: ## Install btop/htop inside the kind control-plane container and launch btop
 	@echo "Debugging the kind cluster..."

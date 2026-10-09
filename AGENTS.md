@@ -114,13 +114,12 @@ Common commands:
 | Create a Kind cluster | `make create-kind-cluster` |
 | Install into Kind | `make helm-install` |
 
-## 8. Git and Review
+## 8. Contribution Requirements
 
-- Use Conventional Commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`, `perf:`, or `ci:`.
-- Sign off commits with `git commit -s`.
-- Do not commit or push unless asked.
-- Do not open a pull request, including a draft, without explicit approval.
-- Keep PRs focused. Explain non-obvious invariants and operational tradeoffs, not line-by-line implementation details.
+- Every commit must include the DCO sign-off required by
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- Use Conventional Commit prefixes in pull request titles so repository
+  automation can classify changes.
 
 ## 9. References
 

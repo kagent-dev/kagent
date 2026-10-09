@@ -11,7 +11,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.3.0-alpha3 requires protocol-specific egress policies. Kagent allows
+Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
 protocols on the same host and port are rejected before Actor creation. Literal
@@ -146,6 +146,25 @@ database transaction. Successful snapshot references are retried on database fai
 without repeating the Substrate operation. Checkpoint creation requires the matching
 snapshot and can return FailedPrecondition after task completion while it is pending.
 
+After settlement commits, a bounded, nonblocking in-memory signal wakes the local
+workers. Signals coalesce; four workers drain durable claims, handing off a wake-up
+before runtime I/O so a burst can use all four workers. PostgreSQL claims coordinate
+replicas. Each worker scans at startup and, when idle, every minute by default
+(`KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL`). A crash between commit and signaling can
+leave an actor running until a surviving replica's next recovery scan; increasing
+the interval increases that delay and the time until its snapshot is available.
+Ordinary committed settlements do not wait for the recovery interval.
+
+An empty claim is followed by a check for unclaimed work on ready sessions. If
+dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
+work, workers retry within one second until it becomes eligible or is superseded.
+Database errors also use this short retry. Explicit lifecycle completion wakes
+workers when it returns a session to READY. Suspended/deleted sessions and claimed
+work do not keep the short retry active. Idle workers make one claim attempt and
+one pending-work check per recovery interval, rather than querying every second.
+Other background workers and connection-pool idle settings still affect whether
+PostgreSQL can become idle.
+
 Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
 never expires: losing the worker does not prove that the suspend stopped. Uncertain
 claims still block new work, but completed results remain readable. The recorded
@@ -167,6 +186,7 @@ sequenceDiagram
     API-->>Actor: committed version
     Actor->>API: settle after native cleanup
     API->>DB: publish task/history atomically
+    API-->>Worker: nonblocking local wake-up
     Actor-->>Gateway: final event
     Gateway->>Actor: close observer connection
     Gateway->>DB: observe publication
@@ -193,9 +213,39 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
+Templates capture Full snapshots when paused and Data snapshots when suspended.
+Substrate v0.4.0-alpha1 resumes a Data snapshot by starting fresh containers from
+the OCI image with the saved durable directories. Data restores no longer combine
+Golden memory with the Actor's saved data.
+
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest
 memory while rematerializing `/data`, so a connection opened before the snapshot
 can retain a stale file identity and reject writes with `SQLITE_READONLY_DBMOVED`.
 Closing connections when returned to the pool keeps quiescent snapshots free of
 database handles; each later operation opens the current backing file.
+
+## Runtime revision cleanup metrics
+
+GC uses the controller's shared OpenTelemetry provider and configured OTLP export.
+Prometheus scraping is opt-in through `controller.metrics.enabled`.
+
+| OTel metric | Instrument / unit | Prometheus name | Meaning |
+| --- | --- | --- | --- |
+| `kagent.runtime_revision.gc.pending` | Observable integer gauge / `{revision}` | `kagent_runtime_revision_gc_pending` | Eligible persisted revisions from the last successful discovery. No application attributes. |
+| `kagent.runtime_revision.gc.duration` | Histogram / `s` | `kagent_runtime_revision_gc_duration_seconds` | Each discovery or collection attempt, including claim, Substrate read/delete, and finalization. `kagent.gc.stage=discovery\|collection`; `error.type` only on failure: a Substrate gRPC code name or `_OTHER`. Parent cancellation is excluded; operation deadlines count as failures. |
+
+Pending is absent before successful discovery, on standby replicas, and after GC
+stops. Do not fill absence with zero: zero means a successful empty discovery.
+Discovery errors retain the last count. Scrapes only read the cache; restart
+reconstructs pending from PostgreSQL and resets process-local histogram totals.
+
+- **Growing pending:** compare attempt rates, failure ratios, and latency on the
+  active controller before diagnosing churn versus slow or failing cleanup.
+  Let GC retry; never bypass reference/UID protections or clear deletion markers.
+- **Rising failure ratio or latency:** use reset-aware `rate` on histogram
+  `_count` (failed attempts have `error_type`), grouped by `kagent_gc_stage`,
+  and `_bucket` quantiles. Discovery errors point to the database; collection
+  errors require checking the bounded error type and logs (`revision`,
+  `actor_template_atespace`, `actor_template_name`, `error`) to identify the
+  failing dependency and repeated same-object failures.

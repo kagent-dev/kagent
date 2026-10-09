@@ -1,4 +1,42 @@
 file_format: definition/2
+metrics:
+  - name: kagent.runtime_revision.gc.pending
+    requirement_level: recommended
+    instrument: gauge
+    unit: "{revision}"
+    brief: Number of cleanup-eligible runtime revisions in the last successful discovery.
+    note: >
+      An observable integer gauge over a cached count, without collection-time
+      database or network access. Absent before successful discovery and while
+      inactive; zero means a successful empty discovery. Discovery errors retain
+      the previous count while garbage collection is active.
+    stability: development
+    attributes: []
+
+  - name: kagent.runtime_revision.gc.duration
+    requirement_level: recommended
+    instrument: histogram
+    unit: s
+    brief: Duration of a runtime revision garbage collection attempt.
+    note: >
+      Records each discovery and each collection attempt, including the database
+      claim, Substrate read and deletion, and database finalization. A no-op claim
+      is a successful attempt. Parent cancellation is excluded; an operation
+      deadline while the parent remains active is recorded as a failure.
+      Explicit bucket boundaries in seconds are 0.005, 0.01, 0.025, 0.05, 0.1,
+      0.25, 0.5, 1, 2.5, 5, 10, 30, and 60.
+    stability: development
+    attributes:
+      - ref: kagent.gc.stage
+        requirement_level: required
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The attempt failed.
+        note: >
+          The gRPC status code name for Substrate errors, or `_OTHER` for other
+          failures. Absent on success. Never raw error text or revision, template,
+          UID, or namespace identity.
+
 attribute_groups:
   - id: kagent.identity
     visibility: public
@@ -93,6 +131,56 @@ attribute_groups:
         requirement_level:
           conditionally_required: gen_ai.output.messages is present.
 
+  - id: kagent.resource
+    visibility: public
+    brief: The resource of a kagent runtime.
+    note: >
+      The `kagent.main_agent` entity and the service identity the controller
+      compiles. Live-check compares a resource with this group, since a resource
+      is never compared with an entity.
+    stability: development
+    attributes:
+      - ref: kagent.runtime
+        requirement_level: required
+      - ref: gen_ai.main_agent.id
+        requirement_level: required
+      - ref: gen_ai.main_agent.name
+        requirement_level: required
+      - ref: gen_ai.provider.name
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - ref: service.name
+        requirement_level: required
+        note: The compiled agent identity, `<agent>`.
+      - ref: service.namespace
+        requirement_level: required
+        note: The agent namespace.
+      - ref: service.version
+        requirement_level: required
+        note: The short revision id.
+
+spans:
+  - type: kagent.a2a.request
+    requirement_level: recommended
+    kind: internal
+    name:
+      note: The constant `a2a.request`.
+    brief: One execution segment of a runtime that emits its own invoke_agent span.
+    note: >
+      The Go ADK, the Python ADK and OpenAI Agents describe the agent invocation
+      themselves, so kagent opens this span instead of an invoke_agent span. It
+      ends and exports before a quiescent event leaves the process, because the
+      gateway may suspend the Actor on that event while the SERVER span is still
+      open. It carries no `gen_ai.operation.name`.
+    stability: development
+    attributes:
+      - ref_group: kagent.identity
+      - ref_group: kagent.request
+      - ref_group: kagent.outcome
+
 span_refinements:
   - id: kagent.invoke_agent.internal
     ref: gen_ai.invoke_agent.internal
@@ -122,42 +210,43 @@ span_refinements:
       - ref_group: kagent.outcome
       - ref_group: kagent.capture
 
-  - id: kagent.a2a.http.server
-    ref: http.server
-    brief: The instrumentation SERVER span of an A2A request over HTTP.
-    note: kagent adds request identity and outcome to the span the HTTP instrumentation opens.
-    stability: development
-    attributes:
-      - ref_group: kagent.request
-      - ref_group: kagent.outcome
-
-  - id: kagent.a2a.rpc.server
-    ref: rpc.call.server
-    brief: The instrumentation SERVER span of an A2A request over gRPC.
-    note: kagent adds request identity and outcome to the span the gRPC instrumentation opens.
-    stability: development
-    attributes:
-      - ref_group: kagent.request
-      - ref_group: kagent.outcome
-
-entities:
-  - type: kagent.agent
-    requirement_level: recommended
-    brief: An agent runtime compiled by kagent.
+metric_refinements:
+  - id: kagent.invoke_agent.duration
+    ref: gen_ai.invoke_agent.duration
+    brief: The duration of one execution segment of a kagent agent.
     note: >
-      Conversation, task and user identity never appear here, since one runtime
-      process serves many of each.
+      Recorded with the invoke_agent span kagent opens, and equal to its
+      duration. A runtime that emits its own invoke_agent span reports its own
+      metric, if any.
     stability: development
-    identity:
-      - ref: gen_ai.agent.id
-        requirement_level: required
-        note: The agent identity qualified by its namespace, `<namespace>/<agent>`.
-    description:
-      - ref: kagent.runtime
-        requirement_level: required
+    attributes:
       - ref: gen_ai.agent.name
         requirement_level: required
         note: The compiled agent identity, `<agent>`.
+      - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The invocation failed.
+        note: The same bounded kagent vocabulary as on the span.
+
+entity_refinements:
+  - id: kagent.main_agent
+    ref: gen_ai.main_agent
+    brief: An agent runtime compiled by kagent.
+    note: >
+      kagent sets `gen_ai.main_agent.id` to `<namespace>/<agent>` and
+      `gen_ai.main_agent.name` to `<agent>`, both stable across revisions.
+      Conversation, task and user identity never appear here, since one runtime
+      process serves many of each.
+    stability: development
+    description:
+      - ref: gen_ai.main_agent.name
+        requirement_level: required
+        note: The compiled agent identity, `<agent>`.
+      - ref: kagent.runtime
+        requirement_level: required
       - ref: gen_ai.provider.name
         requirement_level:
           conditionally_required: The runtime is a harness compiled against one model.

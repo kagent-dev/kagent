@@ -52,6 +52,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -159,6 +160,10 @@ func SetupLogger() error {
 func Run(ctx context.Context, opts Options) error {
 	if err := SetupLogger(); err != nil {
 		return err
+	}
+	quiescenceInterval := kagentenv.SessionQuiescencePollInterval.Get()
+	if quiescenceInterval <= 0 {
+		return fmt.Errorf("%s must be positive", kagentenv.SessionQuiescencePollInterval.Name())
 	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
@@ -286,7 +291,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get())); err != nil {
+	runtimeGC, err := v2controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get(), otel.GetMeterProvider())
+	if err != nil {
+		return fmt.Errorf("create runtime revision GC: %w", err)
+	}
+	if err := manager.Add(runtimeGC); err != nil {
 		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {
@@ -311,8 +320,9 @@ func Run(ctx context.Context, opts Options) error {
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors)
-	runtimeTasks := taskstore.NewService(store)
+	quiescenceWake := make(chan struct{}, 1)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
+	runtimeTasks := taskstore.NewService(store, quiescenceWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
@@ -338,6 +348,16 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions)
+	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
+		kagentenv.A2APushAllowHTTP.Get(), kagentenv.A2APushAllowPrivateNetworks.Get())
+	pushIssuer := cmp.Or(kagentenv.A2APushIssuer.Get(), kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083")
+	pushSigner, err := sessionsvc.NewPushJWTSigner(kagentenv.A2APushSigningSeed.Get(), strings.TrimRight(pushIssuer, "/"))
+	if err != nil {
+		return fmt.Errorf("configure push JWT signing: %w", err)
+	}
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner)); err != nil {
+		return fmt.Errorf("failed to add push worker: %w", err)
+	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store, kagentenv.ScheduledRunPollInterval.Get())); err != nil {
@@ -385,6 +405,7 @@ func Run(ctx context.Context, opts Options) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.Handle("GET /.well-known/jwks.json", pushSigner)
 	mux.Handle("/mcp", otelhttp.NewHandler(auth.AuthnMiddleware(authenticator)(mcpHandler), "/mcp"))
 	mux.Handle(a2agateway.HTTPPathPrefix, otelhttp.NewHandler(a2agateway.NewHTTPHandler(gateway, authenticator, store), a2agateway.HTTPPathPrefix))
 	server, err := grpcserver.New(grpcserver.Config{

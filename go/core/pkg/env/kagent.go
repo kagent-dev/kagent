@@ -64,6 +64,31 @@ var (
 		ComponentAgentRuntime, ComponentController,
 	)
 
+	A2APushAllowPrivateNetworks = RegisterBoolVar(
+		"KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS",
+		false,
+		"Allow A2A push callbacks to private, loopback, and link-local destinations.",
+		ComponentController,
+	)
+	A2APushAllowHTTP = RegisterBoolVar(
+		"KAGENT_A2A_PUSH_ALLOW_HTTP",
+		false,
+		"Allow HTTP A2A push callbacks. HTTPS is required by default.",
+		ComponentController,
+	)
+	A2APushSigningSeed = RegisterStringVar(
+		"KAGENT_A2A_PUSH_SIGNING_SEED",
+		"",
+		"Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret.",
+		ComponentController,
+	)
+	A2APushIssuer = RegisterStringVar(
+		"KAGENT_A2A_PUSH_ISSUER",
+		"",
+		"Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL.",
+		ComponentController,
+	)
+
 	KagentSkillsFolder = RegisterStringVar(
 		"KAGENT_SKILLS_FOLDER",
 		"/skills",

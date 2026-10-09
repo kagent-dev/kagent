@@ -33,11 +33,12 @@ type Store interface {
 var _ Store = (*database.Client)(nil)
 
 type Service struct {
-	store Store
+	store          Store
+	quiescenceWake chan<- struct{}
 }
 
-func NewService(store Store) *Service {
-	return &Service{store: store}
+func NewService(store Store, quiescenceWake chan<- struct{}) *Service {
+	return &Service{store: store, quiescenceWake: quiescenceWake}
 }
 
 func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.Session, error) {
@@ -166,6 +167,12 @@ func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	}
 	if err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version); err != nil {
 		return nil, storageError(err)
+	}
+	// Publication is committed before waking local workers. The durable claim
+	// remains discoverable if this process exits before delivering the hint.
+	select {
+	case s.quiescenceWake <- struct{}{}:
+	default:
 	}
 	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
 }

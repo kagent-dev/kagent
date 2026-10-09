@@ -10,7 +10,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `(none)` | Python Google ADK span content capture. When absent, derived from OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT (true for SPAN_ONLY or SPAN_AND_EVENT, false otherwise). |
+| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `false` | Python Google ADK content on its legacy gcp.vertex.agent.* span keys, including tool arguments and results. kagent keeps it off; captured content uses the GenAI convention keys. |
 | `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN` | String | `2` | Python Google ADK telemetry schema version; set by kagent when absent. |
 | `ANTHROPIC_API_KEY` | String | `(none)` | API key for Anthropic. |
 | `AWS_ACCESS_KEY_ID` | String | `(none)` | AWS access key ID for IAM authentication with Bedrock. |
@@ -22,6 +22,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_AD_TOKEN` | String | `(none)` | Azure Active Directory authentication token for Azure OpenAI. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `AZURE_OPENAI_ENDPOINT` | String | `(none)` | Endpoint URL for Azure OpenAI service. |
+| `CREWAI_DISABLE_TELEMETRY` | String | `true` | CrewAI anonymous telemetry, which exports to CrewAI's own endpoint; kagent turns it off when absent. |
 | `FOUNDRY_API_KEY` | String | `(none)` | API key for Azure AI Foundry. |
 | `FOUNDRY_API_VERSION` | String | `2024-10-21` | Azure AI Foundry OpenAI-compatible data-plane API version. |
 | `FOUNDRY_DEPLOYMENT` | String | `(none)` | Azure AI Foundry model deployment name. |
@@ -72,13 +73,16 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Trace endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Trace protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
 | `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Trace SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
+| `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED` | String | `false` | Python a2a-sdk internal spans; kagent turns them off when absent. |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `NO_CONTENT` | SPAN_ONLY records prompts and responses on agent spans. NO_CONTENT disables capture. Managed runtimes support these two modes; standalone Python ADK also recognizes SPAN_AND_EVENT. Captured content may be sensitive. |
 | `OTEL_LOGS_EXPORTER` | String | `(none)` | Log exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `OTEL_METRICS_EXPORTER` | String | `(none)` | Metric exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `OTEL_PROPAGATORS` | String | `tracecontext` | SDK trace propagators. Kagent defaults to W3C tracecontext without baggage and supplies that default to managed runtimes. |
+| `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` | String | `(none)` | Python instrumentation entry point names to skip, such as httpx or openai. |
+| `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS` | String | `/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json` | Python inbound HTTP paths left untraced; set by kagent when absent. |
 | `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated SDK resource attributes for the current process. Helm injects controller identity; kagent constructs runtime identity separately. Use KAGENT_OTEL_RESOURCE_ATTRIBUTES for attributes shared with managed agents. |
 | `OTEL_SDK_DISABLED` | String | `false` | Disable SDK telemetry and forwarding to managed runtimes when true (case-insensitive). Other values are treated as false. |
-| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental` | Python Google ADK semantic-convention opt-in; set by kagent when absent. |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental,http` | Python semantic-convention opt-in for GenAI and stable HTTP; set by kagent when absent. |
 | `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
 | `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `SAP_AI_CORE_CLIENT_ID` | String | `(none)` | OAuth2 client ID for SAP AI Core authentication. |
@@ -107,6 +111,10 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
+| `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `false` | Allow HTTP A2A push callbacks. HTTPS is required by default. |
+| `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `false` | Allow A2A push callbacks to private, loopback, and link-local destinations. |
+| `KAGENT_A2A_PUSH_ISSUER` | String | `(none)` | Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL. |
+| `KAGENT_A2A_PUSH_SIGNING_SEED` | String | `(none)` | Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
@@ -139,6 +147,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
 | `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
 | `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
+| `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second. |
 | `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
@@ -196,6 +205,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_DOCKER_REGISTRY` | String | `localhost:5001` | Image registry for upgrade tests; supplied by make from DOCKER_REGISTRY. |
 | `KAGENT_E2E_KIND_CLUSTER_NAME` | String | `kagent` | Kind cluster used by upgrade tests; supplied by make from KIND_CLUSTER_NAME. |
 | `KAGENT_E2E_KUBE_CONTEXT` | String | `(none)` | Kubernetes context for upgrade tests. Defaults to kind- followed by KAGENT_E2E_KIND_CLUSTER_NAME. |
+| `KAGENT_E2E_LIVE_CHECK_ENDPOINT` | String | `(none)` | gRPC address of a Weaver live-check OTLP listener. After the tests, the suite replays every trace and metric export its receiver got, except those of native child processes, to this address. Unset disables the replay. |
 | `KAGENT_E2E_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
 | `KAGENT_E2E_NAMESPACE` | String | `kagent` | Kubernetes namespace used by upgrade tests. |
 | `KAGENT_E2E_OTLP_LISTEN_ADDRESS` | String | `(none)` | Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver. |
