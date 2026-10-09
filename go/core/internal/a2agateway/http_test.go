@@ -444,8 +444,12 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 				}
 				send := func() error {
 					if streaming {
+						// The first event can arrive before deferred dispatch cleanup.
+						// Drain the stream before inspecting or mutating shared fixtures.
 						for _, err := range transport.SendStreamingMessage(t.Context(), params, request()) {
-							return err
+							if err != nil {
+								return err
+							}
 						}
 						return nil
 					}
