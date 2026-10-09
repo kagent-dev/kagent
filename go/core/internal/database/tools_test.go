@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -127,6 +128,10 @@ func TestToolCatalogWritesRollbackTogether(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Exec(ctx, `ALTER TABLE tool ADD CONSTRAINT reject_bad_description CHECK (description <> 'reject')`)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := db.Exec(context.Background(), `ALTER TABLE tool DROP CONSTRAINT reject_bad_description`)
+		require.NoError(t, err)
+	})
 	server.Description = "changed"
 	require.Error(t, client.RefreshToolServer(ctx, server, &v1alpha3.MCPTool{Name: "new", Description: "reject"}))
 	servers, err := client.ListToolServers(ctx)
@@ -138,6 +143,10 @@ func TestToolCatalogWritesRollbackTogether(t *testing.T) {
 
 	_, err = db.Exec(ctx, `ALTER TABLE tool ADD CONSTRAINT reject_delete CHECK (deleted_at IS NULL)`)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := db.Exec(context.Background(), `ALTER TABLE tool DROP CONSTRAINT reject_delete`)
+		require.NoError(t, err)
+	})
 	require.Error(t, client.DeleteToolServer(ctx, server.Name, server.GroupKind))
 	servers, err = client.ListToolServers(ctx)
 	require.NoError(t, err)
