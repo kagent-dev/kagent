@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
 func TestExecuteCommand_TimeoutKillsChildProcesses(t *testing.T) {
@@ -108,4 +111,62 @@ func readPid(t *testing.T, path string) int {
 	}
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	return pid
+}
+
+// A command started in one turn is not running when the next turn begins.
+func TestExecuteCommand_TurnEndKillsBackgroundJobs(t *testing.T) {
+	dir := t.TempDir()
+	ctx, processes := turn.Begin(context.Background())
+
+	result, err := NewCommandExecutor().ExecuteCommand(ctx, "echo $$ > pgid; sleep 600 & echo started", dir)
+	if err != nil || result != "started" {
+		t.Fatalf("ExecuteCommand() = %q, %v; want started", result, err)
+	}
+	pgid := readProcessGroup(t, filepath.Join(dir, "pgid"))
+	if !groupRunning(pgid) {
+		t.Fatalf("background sleep of group %d exited before the turn ended", pgid)
+	}
+
+	processes.End()
+	deadline := time.Now().Add(2 * time.Second)
+	for groupRunning(pgid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("process group %d is still running after the turn ended", pgid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// readProcessGroup reads the process group ID a test command wrote, and kills
+// the group when the test ends so nothing it started outlives the test.
+func readProcessGroup(t *testing.T, path string) int {
+	t.Helper()
+	pgid := readPid(t, path)
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	return pgid
+}
+
+// groupRunning reports whether a live process is left in the group pgid. An
+// exited process its parent has not reaped yet counts as gone.
+func groupRunning(pgid int) bool {
+	if syscall.Kill(-pgid, 0) != nil {
+		return false
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		// No procfs (macOS): the signal check is all there is.
+		return true
+	}
+	for _, entry := range entries {
+		stat, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		// After the parenthesised command name: state, ppid, pgrp.
+		fields := strings.Fields(string(stat[strings.LastIndexByte(string(stat), ')')+1:]))
+		if len(fields) > 2 && fields[2] == strconv.Itoa(pgid) && fields[0] != "Z" {
+			return true
+		}
+	}
+	return false
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
 type CommandExecutor struct{}
@@ -313,7 +315,8 @@ func NewCommandExecutor() *CommandExecutor {
 	return &CommandExecutor{}
 }
 
-// ExecuteCommand executes a shell command.
+// ExecuteCommand executes a shell command. A process the command leaves
+// running in the background ends with the turn of ctx.
 func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
 	timeout := 30 * time.Second
 	if strings.Contains(command, "python") {
@@ -355,6 +358,11 @@ func (e *CommandExecutor) executeCommand(ctx context.Context, command string, wo
 		stdoutR.Close()
 		stderrR.Close()
 		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+	// The command leads its own process group, whose ID is its PID.
+	if processes := turn.FromContext(ctx); processes != nil {
+		processes.Track(cmd.Process.Pid)
+		defer processes.Settle(cmd.Process.Pid)
 	}
 	stdout := readCommandOutput(stdoutR)
 	stderr := readCommandOutput(stderrR)
