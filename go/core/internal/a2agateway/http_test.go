@@ -444,8 +444,8 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 				}
 				send := func() error {
 					if streaming {
-						// Drain the response so deferred dispatch cleanup finishes before
-						// the next request reads or changes the shared test doubles.
+						// Drain the response so dispatch cleanup finishes before the
+						// next request reads or changes the shared test doubles.
 						for _, err := range transport.SendStreamingMessage(t.Context(), params, request()) {
 							if err != nil {
 								return err
@@ -457,6 +457,7 @@ func TestEmbeddedPushAcrossTransports(t *testing.T) {
 					return err
 				}
 				require.NoError(t, send())
+				require.Equal(t, 1, store.revokeCalls, "dispatch cleanup must finish before the response ends")
 				require.NotNil(t, store.pushConfig)
 				require.NotEmpty(t, store.pushConfig.ID)
 				configID := store.pushConfig.ID

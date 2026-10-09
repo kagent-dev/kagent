@@ -155,7 +155,18 @@ func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.Namespac
 			return
 		}
 		ctx := a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.DispatchHeader: {dispatchID.String()}})
-		defer g.finishSend(ctx, agent, req.Message, dispatchID, nil)
+		// A finished runtime stream releases the attempt before the final event,
+		// so no cleanup runs after the caller has the response.
+		released := false
+		release := func(err error) error {
+			released = true
+			return g.finishSend(ctx, agent, req.Message, dispatchID, err)
+		}
+		defer func() {
+			if !released {
+				_ = release(nil)
+			}
+		}()
 		client, err := g.dial(ctx, session)
 		if err != nil {
 			yield(nil, err)
@@ -164,14 +175,14 @@ func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.Namespac
 		events := func(next func(a2atype.Event, error) bool) {
 			for event, err := range client.SendStreamingMessage(ctx, req) {
 				if err != nil {
-					next(nil, g.finishSend(ctx, agent, req.Message, dispatchID, err))
+					next(nil, release(err))
 					return
 				}
 				if !next(event, nil) {
 					return
 				}
 			}
-			next(nil, g.finishSend(ctx, agent, req.Message, dispatchID, a2atype.ErrInternalError))
+			next(nil, release(a2atype.ErrInternalError))
 		}
 		g.observe(ctx, agent, session, req.Message.TaskID, req.Message, historyLength, client, events)(yield)
 	}
