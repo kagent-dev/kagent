@@ -386,3 +386,22 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("changing the capture policy did not change the revision digest")
 	}
 }
+
+func TestCompilePreservesWorkloadOverrides(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Harness.Spec.Workload.Command = []string{"/adapter"}
+	input.Harness.Spec.Workload.Args = []string{"--log-level", "debug"}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(revision.Command, []string{"/adapter"}) || !reflect.DeepEqual(revision.Args, []string{"--log-level", "debug"}) {
+		t.Fatalf("command = %q, args = %q", revision.Command, revision.Args)
+	}
+}
