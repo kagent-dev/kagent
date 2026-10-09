@@ -31,12 +31,6 @@ import (
 
 const substrateNamespace = "ate-system"
 
-const bundledPostgresNamespaceYAML = `apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${NAMESPACE}
-`
-
 //go:embed bundled_postgres.yaml
 var bundledPostgresYAML string
 
@@ -81,13 +75,6 @@ func prepareBundledPostgres(ctx context.Context, namespace string) error {
 	if err != nil {
 		return err
 	}
-	for _, targetNamespace := range []string{namespace, substrateNamespace} {
-		ns := strings.ReplaceAll(bundledPostgresNamespaceYAML, "${NAMESPACE}", targetNamespace)
-		if _, err := kubectl(ctx, ns, "apply", "--server-side", "--field-manager=kagent-cli", "-f", "-"); err != nil {
-			return fmt.Errorf("create namespace %q: %w", targetNamespace, err)
-		}
-	}
-
 	if _, err := kubectl(ctx, manifest, "apply", "--server-side", "--field-manager=kagent-cli", "-f", "-"); err != nil {
 		return fmt.Errorf("deploy bundled PostgreSQL: %w", err)
 	}

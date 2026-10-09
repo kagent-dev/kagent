@@ -231,20 +231,12 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	defer s.Stop()
 	s.Start()
 	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, crdChartValues(helmConfig.values), ""); err != nil {
-		// Always stop the spinner before printing error messages
-		s.Stop()
-
-		// Check for various CRD existence scenarios, this is to be compatible with
-		// original kagent installation that had CRDs installed together with the kagent chart
+		// Helm creates the namespaces later steps deploy into, so CRDs it does not
+		// own, such as those left by an old install, stop the install.
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
-			fmt.Fprintln(os.Stderr, "Warning: CRDs exist but aren't managed by helm.")
-			fmt.Fprintln(os.Stderr, "Run `uninstall` or delete them manually to")
-			fmt.Fprintln(os.Stderr, "ensure they're fully managed on next install.")
-			// Restart the spinner
-			s.Start()
-		} else {
-			return fmt.Errorf("install kagent-crds: %s", strings.TrimSpace(output))
+			return fmt.Errorf("install kagent-crds: Kagent CRDs from a previous installation exist outside Helm. Run `kagent uninstall` or delete them, then retry: %s", strings.TrimSpace(output))
 		}
+		return fmt.Errorf("install kagent-crds: %s", strings.TrimSpace(output))
 	}
 
 	s.Suffix = " Installing substrate-crds from " + substrateHelmConfig.registry
