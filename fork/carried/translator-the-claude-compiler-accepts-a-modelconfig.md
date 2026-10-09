@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `fix(translator): the claude compiler accepts a ModelConfig with prompt caching on` | the platform's default ModelConfig turns on `anthropic.promptCaching` with the 5m `cacheTTL` for the Go ADK runtime (kagent-dev/kagent#2788), and the claude compiler rejected it, so a coding agent needed a second ModelConfig. Claude Code caches prompts on its own, so the compiler accepts promptCaching with the default `cacheTTL` on Anthropic and Bedrock, and one ModelConfig serves both runtimes | to file; giantswarm/giantswarm#37742 |

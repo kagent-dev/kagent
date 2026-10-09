@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `fix(helm): keep the chart's kagent-api RemoteMCPServer out of tool discovery under trusted-proxy auth` | under `controller.auth.mode: trusted-proxy` the controller validates a bearer on every call, its own MCP endpoint included, and the discovery it runs on the chart's `kagent-api` RemoteMCPServer carries none: every listing answered 401 and the reconcile backed off forever (agentlab, 2026-10-05). The chart labels the object `kagent.dev/discovery=disabled` under trusted-proxy auth | to file: upstream's chart has the same gap under its trusted-proxy mode (kagent-dev/kagent#2971) |

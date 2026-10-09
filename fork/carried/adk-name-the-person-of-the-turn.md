@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `fix(adk): name the person of the turn as the request span's end user` | the request span took `enduser.id` from `x-user-id`, which names the owner of the session; since a turn a session share authorizes runs in the owner's session (the row "run a shared turn in the instance owner's session" above), the traces of a collaborator's turn named the owner while its model usage named the visitor (giantswarm/giantswarm#38089). The span now takes the person of the turn from `x-kagent-user` and keeps `x-user-id` only for a turn whose caller the gateway did not resolve | to file with row 48, which brings `x-kagent-user` upstream, and row 112; giantswarm/giantswarm#37742 row 113 |

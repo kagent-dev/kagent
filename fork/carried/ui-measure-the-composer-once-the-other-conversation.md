@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `test(ui): measure the composer once the other conversation has loaded` | the composer-position check measured the second conversation while its transcript was still loading on a slow runner (the composer sits under the loading skeleton there, 385 px higher), which the test's own comment rules out of its question for the first measurement; it now waits for the loaded state (the sibling's empty transcript) before measuring, as it does for the first | to file upstream (the test is upstream's, `ui/playwright/tests/chat/transcript.spec.ts`); the UI itself also moves the composer during the load, which is a UX finding to report alongside |

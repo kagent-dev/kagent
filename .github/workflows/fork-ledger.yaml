@@ -1,0 +1,35 @@
+name: Fork ledger
+
+# Fork (giantswarm/kagent-upstream): the carried-commit ledger is one file per
+# change under fork/carried/ (FORK.md, "Which kagent are we running"). Every
+# pull request and push verifies that the files name commits which sit on top
+# of the pin, each once, and the run's summary shows the table in that order.
+on:
+  push:
+    branches: [giantswarm, "sync/**"]
+  pull_request:
+    branches: [giantswarm]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-ledger-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  carried:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # The pin is the merge base with the mirror; the carried commits
+          # sit on top of it.
+          fetch-depth: 0
+      - name: Check the carried files
+        run: scripts/fork/carried.sh --check
+      - name: Show the table
+        run: scripts/fork/carried.sh >> "$GITHUB_STEP_SUMMARY"

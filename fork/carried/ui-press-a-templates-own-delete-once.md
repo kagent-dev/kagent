@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `test(ui): press a template's own Delete, once its page is there` | the agent-templates journey's step 13 was reported flaky on most `ui-tests` runs of both engines: the router renders a new route in a transition, so the address matches while the list is still on screen, and the list row's unlabelled delete carries the page's test id — the press opened the row's confirmation, which left with the list; on Firefox the result link was pressed while the searched list re-rendered, took the focus and navigated nowhere. The step waits for the one row and for the page's labelled Delete, as steps 2 and 11 already did | to file — same branch and row as the line above |

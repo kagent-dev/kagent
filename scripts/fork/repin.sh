@@ -116,7 +116,7 @@ if [ ${#dropped[@]} -gt 0 ]; then
       printf -- '- `%s` %s — empty after the rebase (superseded upstream)\n' "$(short "$c")" "$(subject "$c")"
     fi
   done >> "$REPORT"
-  printf '\nRemove the dropped rows from FORK.md and giantswarm/giantswarm#37742 in a follow-up pull request.\n\n' >> "$REPORT"
+  printf '\nDelete the dropped commits'"'"' files under fork/carried/ (`scripts/fork/carried.sh --check` names them) and their giantswarm/giantswarm#37742 rows in a follow-up pull request.\n\n' >> "$REPORT"
 fi
 
 env_out status rebased

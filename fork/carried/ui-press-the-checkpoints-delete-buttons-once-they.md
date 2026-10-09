@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `test(ui): press the checkpoints' delete buttons once they have arrived` | "a snapshot is deleted from its record" failed its first attempt on loaded Firefox runs of `ui-tests` (twice in five) and passed on retry: the record's Delete was pressed while antd still zoomed the modal in, the raw click was computed then, and the confirmation never opened. The record's Delete and both confirmations' Delete are pressed with the suite's `pressOnce`, as their Cancel already were | to file — same branch and row as the two lines above |
