@@ -129,6 +129,11 @@ use a release tag matching your Substrate version.
 
 Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.
 
+The worker pods run as a ServiceAccount with the name `substrateWorkerPool.name`, which the
+chart creates. To use your own ServiceAccount, set `substrateWorkerPool.serviceAccount.create`
+to `false` and `substrateWorkerPool.serviceAccount.name` to its name. It must exist in the
+release namespace.
+
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 

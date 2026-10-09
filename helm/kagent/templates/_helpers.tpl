@@ -185,6 +185,13 @@ Controller ServiceAccount name
 {{- end }}
 
 {{/*
+Substrate worker ServiceAccount name
+*/}}
+{{- define "kagent.substrateWorkerPool.serviceAccountName" -}}
+{{- default .Values.substrateWorkerPool.name .Values.substrateWorkerPool.serviceAccount.name }}
+{{- end }}
+
+{{/*
 Engine selector labels
 */}}
 {{- define "kagent.engine.selectorLabels" -}}
