@@ -366,21 +366,10 @@ test("agents: a conversation is created by its first message, not by the click",
 
   await test.step("5. and the message is not left behind for a reload to send again", async () => {
     /*
-     * Reported as a defect: reloading a conversation just started sent its opening
-     * message a second time — a whole extra turn, from a page the reader only asked
-     * to redraw.
-     *
-     * The cause is that router state is not in memory. `AgentNewChatPage` hands the
-     * text over in `location.state`, which the browser keeps in the session history
-     * entry, so it came back with the page and the effect that sends it fired again.
-     * The page clears it once the turn is under way.
-     *
-     * Asserted against the history entry rather than by reloading, because the
-     * fixture backend keeps its writes in the page's own memory: a reload starts a
-     * backend that has never heard of this conversation, so there would be no
-     * transcript to count a second message in. The whole entry is searched rather
-     * than a router-specific field, so this keeps holding if the router changes where
-     * it files state.
+     * The opening message is handed over in memory, so nothing in the history entry can
+     * send it again on a reload, Back or forward. Asserted against the entry rather than
+     * by reloading, because a reload starts a fixture backend that has never heard of this
+     * conversation.
      */
     const entry = await page.evaluate(() => JSON.stringify(window.history.state ?? null));
     expect(

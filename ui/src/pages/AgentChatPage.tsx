@@ -31,7 +31,7 @@ import type { Checkpoint } from "@/api";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { messageSummary } from "@/components/chat/messageText";
-import { takeHandedOffFiles } from "@/api/chat/attachments";
+import { handOffFirstMessage, takeFirstMessage, type FirstMessage } from "@/api/chat/attachments";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentUrl } from "@/components/agent/agentUrl";
 import { isMockMode } from "@/api/config";
@@ -430,19 +430,30 @@ export function AgentChatPage() {
    * The message this conversation was created for, sent once on arrival.
    *
    * `AgentNewChatPage` creates the instance from the first message and hands the text
-   * over in router state rather than sending it itself — there is no transcript on that
-   * page to put the answer in. Sending it here means the reader sees their own words in
-   * the conversation they are going to keep reading.
+   * over rather than sending it itself — there is no transcript on that page to put
+   * the answer in. Sending it here means the reader sees their own words in the
+   * conversation they are going to keep reading.
    *
-   * Guarded by a ref *and* by clearing the history entry: a ref alone would re-send if
-   * the component remounted, and clearing alone would re-send on a fast double render
-   * before the navigation settled. Sending a message twice is not a cosmetic fault — it
-   * is two turns, and the second is refused while the first is in flight.
+   * Taken from the handoff on mount, so Back, forward and reload never find it again.
+   * Sending a message twice is not a cosmetic fault — it is two turns, and the second
+   * is refused while the first is in flight.
    */
-  const sentInitial = useRef(false);
+  const firstMessage = useRef<FirstMessage | undefined>(undefined);
   useEffect(() => {
-    const pending = (location.state as { initialMessage?: string } | null)
-      ?.initialMessage;
+    if (!id) return;
+    firstMessage.current ??= takeFirstMessage(id);
+    return () => {
+      // Handed back for a remount on this address; dropped once the reader has left.
+      if (firstMessage.current && window.location.pathname === here) {
+        handOffFirstMessage(id, firstMessage.current);
+      }
+      firstMessage.current = undefined;
+    };
+    // `here` follows `id`, and reading a newer one would hand the message to the wrong page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  useEffect(() => {
+    const message = firstMessage.current;
     /*
      * Held until the transcript has been read, which is not merely tidy.
      *
@@ -453,41 +464,12 @@ export function AgentChatPage() {
      * wire: a conversation showing what you typed, never answering, and no
      * `SendStreamingMessage` in the controller's log at all.
      */
-    // `""` is a real message when files were attached to it.
-    if (
-      pending === undefined ||
-      sentInitial.current ||
-      !conversation ||
-      chat.isLoadingHistory
-    )
-      return;
-    // The reader can leave before this page unmounts. A send would be aborted, and the
-    // clear below would replace their new address with this one.
+    if (!message || !conversation || chat.isLoadingHistory) return;
+    // This can run after the reader has left but before the page unmounts. The send
+    // would be aborted, so the message is left for the cleanup above to drop.
     if (window.location.pathname !== here) return;
-    sentInitial.current = true;
-    /*
-     * Sent before the history entry is cleared, not after.
-     *
-     * Clearing first navigates — a `replace` to the same path — and that re-render
-     * aborted the stream the send had just opened: the reader's message appeared,
-     * because the optimistic append had already happened, and nothing was ever put on
-     * the wire. A conversation that shows what you typed and never answers, with no
-     * `SendStreamingMessage` in the controller's log at all.
-     *
-     * The clear still has to happen, or a reload would send it again; it just belongs
-     * after the turn is under way.
-     */
-    void chat.send(pending, takeHandedOffFiles(conversation.id));
-    /*
-     * And now cleared, because `location.state` is kept in the browser's session
-     * history rather than in memory: it survives a refresh, so a reader who reloaded
-     * a conversation they had just started watched its opening message be sent all
-     * over again — a second turn, from a page they only asked to redraw.
-     *
-     * A `replace` to the same address, which leaves the transcript alone: the read
-     * above is keyed on the conversation, and that has not changed.
-     */
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    firstMessage.current = undefined;
+    void chat.send(message.text, message.files);
     // Keyed on the conversation, not on `chat`: the controller is rebuilt every render
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
