@@ -173,6 +173,8 @@ config:
     push:
       allowHttp: false
       allowPrivateNetworks: false
+      # Recovery scans for missed wake-ups and unbound registration cleanup.
+      recoveryInterval: 60s
   sessions:
     idleTtl: 604800s
     shareMaxTtl: 0s
