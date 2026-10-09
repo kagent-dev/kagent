@@ -14,7 +14,7 @@ import (
 )
 
 func TestPushPendingDeliveryTracksRetriesAndLeases(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	assertPending := func(want bool) {
@@ -49,7 +49,7 @@ func TestPushPendingDeliveryTracksRetriesAndLeases(t *testing.T) {
 func TestPushPendingDeliveryExcludesCanceledWork(t *testing.T) {
 	for _, action := range []string{"delete", "replace"} {
 		t.Run(action, func(t *testing.T) {
-			client := NewClient(setupTestDB(t))
+			client := NewClient(setupTestDB(t), "public")
 			ctx := t.Context()
 			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 			config := &a2a.PushConfig{ID: "callback", URL: "http://receiver"}
@@ -71,7 +71,7 @@ func TestPushPendingDeliveryExcludesCanceledWork(t *testing.T) {
 }
 
 func TestPushOutboxConcurrentClaimsAcrossReplicas(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
@@ -82,7 +82,7 @@ func TestPushOutboxConcurrentClaimsAcrossReplicas(t *testing.T) {
 	for range 8 {
 		workers.Go(func() {
 			<-start
-			delivery, err := NewClient(sharedDB).ClaimDuePushDelivery(ctx)
+			delivery, err := NewClient(sharedDB, "public").ClaimDuePushDelivery(ctx)
 			results <- delivery
 			errors <- err
 		})
