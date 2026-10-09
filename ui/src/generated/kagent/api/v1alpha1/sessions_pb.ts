@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1alpha1/sessions.proto.
  */
 export const file_kagent_api_v1alpha1_sessions: GenFile = /*@__PURE__*/
-  fileDesc("CiJrYWdlbnQvYXBpL3YxYWxwaGExL3Nlc3Npb25zLnByb3RvEhNrYWdlbnQuYXBpLnYxYWxwaGExIioKB0ZhaWx1cmUSDgoGcmVhc29uGAEgASgJEg8KB21lc3NhZ2UYAiABKAki3wMKB1Nlc3Npb24SCgoCaWQYASABKAkSDwoHY3JlYXRvchgCIAEoCRI1CgVhZ2VudBgPIAEoCzImLmthZ2VudC5hcGkudjFhbHBoYTEuUmVzb3VyY2VSZWZlcmVuY2USGQoRcHJlcGFyZWRfcmV2aXNpb24YBSABKAkSFQoNYTJhX2F1dGhvcml0eRgGIAEoCRIwCgVzdGF0ZRgHIAEoDjIhLmthZ2VudC5hcGkudjFhbHBoYTEuUnVudGltZVN0YXRlEjgKCW9wZXJhdGlvbhgIIAEoDjIlLmthZ2VudC5hcGkudjFhbHBoYTEuUnVudGltZU9wZXJhdGlvbhItCgdmYWlsdXJlGAkgASgLMhwua2FnZW50LmFwaS52MWFscGhhMS5GYWlsdXJlEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEgwKBG5hbWUYDSABKAkSEgoKY29udGV4dF9pZBgOIAEoCUoECAMQBEoECAQQBUoECAwQDVIHaGFybmVzc1IOYWdlbnRfdGVtcGxhdGVSBmxhYmVscyLnAQoUQ3JlYXRlU2Vzc2lvblJlcXVlc3QSPQoFYWdlbnQYBSABKAsyJi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc291cmNlUmVmZXJlbmNlQga6SAPIAQESHgoKcmVxdWVzdF9pZBgDIAEoCUIKukgHcgUQARiAARJLCgRuYW1lGAQgASgJQj26SDpyOBjIATIzXig/OiR8W15ccHtafVxwe0NjfV0oPzpbXlxwe0NjfV0qW15ccHtafVxwe0NjfV0pPykkSgQIARACSgQIAhADUgdoYXJuZXNzUg5hZ2VudF90ZW1wbGF0ZSJGChVDcmVhdGVTZXNzaW9uUmVzcG9uc2USLQoHc2Vzc2lvbhgBIAEoCzIcLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvbiIxChFHZXRTZXNzaW9uUmVxdWVzdBIcCgpzZXNzaW9uX2lkGAEgASgJQgi6SAVyA7ABASJDChJHZXRTZXNzaW9uUmVzcG9uc2USLQoHc2Vzc2lvbhgBIAEoCzIcLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvbiLLAQoTTGlzdFNlc3Npb25zUmVxdWVzdBIUCgxhbGxfY3JlYXRvcnMYAiABKAgSLgoEcGFnZRgDIAEoCzIgLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlcXVlc3QSNQoFYWdlbnQYBiABKAsyJi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc291cmNlUmVmZXJlbmNlSgQIARACSgQIBBAFSgQIBRAGUgxtYXRjaF9sYWJlbHNSDmFnZW50X3RlbXBsYXRlUgdoYXJuZXNzIncKFExpc3RTZXNzaW9uc1Jlc3BvbnNlEi4KCHNlc3Npb25zGAEgAygLMhwua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uEi8KBHBhZ2UYAiABKAsyIS5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXNwb25zZSKFAQoYVXBkYXRlU2Vzc2lvbk5hbWVSZXF1ZXN0EhwKCnNlc3Npb25faWQYASABKAlCCLpIBXIDsAEBEksKBG5hbWUYAiABKAlCPbpIOnI4GMgBMjNeKD86JHxbXlxwe1p9XHB7Q2N9XSg/OlteXHB7Q2N9XSpbXlxwe1p9XHB7Q2N9XSk/KSQiSgoZVXBkYXRlU2Vzc2lvbk5hbWVSZXNwb25zZRItCgdzZXNzaW9uGAEgASgLMhwua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uIjUKFVN1c3BlbmRTZXNzaW9uUmVxdWVzdBIcCgpzZXNzaW9uX2lkGAEgASgJQgi6SAVyA7ABASJHChZTdXNwZW5kU2Vzc2lvblJlc3BvbnNlEi0KB3Nlc3Npb24YASABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb24iNAoUUmVzdW1lU2Vzc2lvblJlcXVlc3QSHAoKc2Vzc2lvbl9pZBgBIAEoCUIIukgFcgOwAQEiRgoVUmVzdW1lU2Vzc2lvblJlc3BvbnNlEi0KB3Nlc3Npb24YASABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb24iNAoURGVsZXRlU2Vzc2lvblJlcXVlc3QSHAoKc2Vzc2lvbl9pZBgBIAEoCUIIukgFcgOwAQEiRgoVRGVsZXRlU2Vzc2lvblJlc3BvbnNlEi0KB3Nlc3Npb24YASABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb24izwEKDFNlc3Npb25TaGFyZRIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEj8KCnBlcm1pc3Npb24YAyABKA4yKy5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb25TaGFyZVBlcm1pc3Npb24SLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKZXhwaXJlc19hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiuAEKGUNyZWF0ZVNlc3Npb25TaGFyZVJlcXVlc3QSHAoKc2Vzc2lvbl9pZBgBIAEoCUIIukgFcgOwAQESSwoKcGVybWlzc2lvbhgCIAEoDjIrLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvblNoYXJlUGVybWlzc2lvbkIKukgHggEEEAEgABIwCgN0dGwYAyABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CCLpIBaoBAioAIl0KGkNyZWF0ZVNlc3Npb25TaGFyZVJlc3BvbnNlEjAKBXNoYXJlGAEgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uU2hhcmUSDQoFdG9rZW4YAiABKAkiaAoYTGlzdFNlc3Npb25TaGFyZXNSZXF1ZXN0EhwKCnNlc3Npb25faWQYASABKAlCCLpIBXIDsAEBEi4KBHBhZ2UYAiABKAsyIC5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXF1ZXN0In8KGUxpc3RTZXNzaW9uU2hhcmVzUmVzcG9uc2USMQoGc2hhcmVzGAEgAygLMiEua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uU2hhcmUSLwoEcGFnZRgCIAEoCzIhLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlc3BvbnNlIjcKGVJldm9rZVNlc3Npb25TaGFyZVJlcXVlc3QSGgoIc2hhcmVfaWQYASABKAlCCLpIBXIDsAEBIhwKGlJldm9rZVNlc3Npb25TaGFyZVJlc3BvbnNlKpMBChZTZXNzaW9uU2hhcmVQZXJtaXNzaW9uEigKJFNFU1NJT05fU0hBUkVfUEVSTUlTU0lPTl9VTlNQRUNJRklFRBAAEiYKIlNFU1NJT05fU0hBUkVfUEVSTUlTU0lPTl9SRUFEX09OTFkQARInCiNTRVNTSU9OX1NIQVJFX1BFUk1JU1NJT05fUkVBRF9XUklURRACMs0ICg5TZXNzaW9uU2VydmljZRJmCg1DcmVhdGVTZXNzaW9uEikua2FnZW50LmFwaS52MWFscGhhMS5DcmVhdGVTZXNzaW9uUmVxdWVzdBoqLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEl0KCkdldFNlc3Npb24SJi5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFNlc3Npb25SZXF1ZXN0Gicua2FnZW50LmFwaS52MWFscGhhMS5HZXRTZXNzaW9uUmVzcG9uc2USYwoMTGlzdFNlc3Npb25zEigua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U2Vzc2lvbnNSZXF1ZXN0Gikua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJyChFVcGRhdGVTZXNzaW9uTmFtZRItLmthZ2VudC5hcGkudjFhbHBoYTEuVXBkYXRlU2Vzc2lvbk5hbWVSZXF1ZXN0Gi4ua2FnZW50LmFwaS52MWFscGhhMS5VcGRhdGVTZXNzaW9uTmFtZVJlc3BvbnNlEmkKDlN1c3BlbmRTZXNzaW9uEioua2FnZW50LmFwaS52MWFscGhhMS5TdXNwZW5kU2Vzc2lvblJlcXVlc3QaKy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1c3BlbmRTZXNzaW9uUmVzcG9uc2USZgoNUmVzdW1lU2Vzc2lvbhIpLmthZ2VudC5hcGkudjFhbHBoYTEuUmVzdW1lU2Vzc2lvblJlcXVlc3QaKi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc3VtZVNlc3Npb25SZXNwb25zZRJmCg1EZWxldGVTZXNzaW9uEikua2FnZW50LmFwaS52MWFscGhhMS5EZWxldGVTZXNzaW9uUmVxdWVzdBoqLmthZ2VudC5hcGkudjFhbHBoYTEuRGVsZXRlU2Vzc2lvblJlc3BvbnNlEnUKEkNyZWF0ZVNlc3Npb25TaGFyZRIuLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlU2Vzc2lvblNoYXJlUmVxdWVzdBovLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlU2Vzc2lvblNoYXJlUmVzcG9uc2UScgoRTGlzdFNlc3Npb25TaGFyZXMSLS5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RTZXNzaW9uU2hhcmVzUmVxdWVzdBouLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdFNlc3Npb25TaGFyZXNSZXNwb25zZRJ1ChJSZXZva2VTZXNzaW9uU2hhcmUSLi5rYWdlbnQuYXBpLnYxYWxwaGExLlJldm9rZVNlc3Npb25TaGFyZVJlcXVlc3QaLy5rYWdlbnQuYXBpLnYxYWxwaGExLlJldm9rZVNlc3Npb25TaGFyZVJlc3BvbnNlQklaR2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxYWxwaGExO2FwaXYxYWxwaGExYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_duration, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_common, file_kagent_api_v1alpha1_runtime]);
+  fileDesc("CiJrYWdlbnQvYXBpL3YxYWxwaGExL3Nlc3Npb25zLnByb3RvEhNrYWdlbnQuYXBpLnYxYWxwaGExIioKB0ZhaWx1cmUSDgoGcmVhc29uGAEgASgJEg8KB21lc3NhZ2UYAiABKAkioAQKB1Nlc3Npb24SCgoCaWQYASABKAkSDwoHY3JlYXRvchgCIAEoCRI1CgVhZ2VudBgPIAEoCzImLmthZ2VudC5hcGkudjFhbHBoYTEuUmVzb3VyY2VSZWZlcmVuY2USGQoRcHJlcGFyZWRfcmV2aXNpb24YBSABKAkSFQoNYTJhX2F1dGhvcml0eRgGIAEoCRIwCgVzdGF0ZRgHIAEoDjIhLmthZ2VudC5hcGkudjFhbHBoYTEuUnVudGltZVN0YXRlEjgKCW9wZXJhdGlvbhgIIAEoDjIlLmthZ2VudC5hcGkudjFhbHBoYTEuUnVudGltZU9wZXJhdGlvbhItCgdmYWlsdXJlGAkgASgLMhwua2FnZW50LmFwaS52MWFscGhhMS5GYWlsdXJlEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEgwKBG5hbWUYDSABKAkSEgoKY29udGV4dF9pZBgOIAEoCRI/Cg12b2x1bWVfc291cmNlGBEgASgLMigua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uVm9sdW1lU291cmNlSgQIAxAESgQIBBAFSgQIDBANUgdoYXJuZXNzUg5hZ2VudF90ZW1wbGF0ZVIGbGFiZWxzIp8DChNTZXNzaW9uVm9sdW1lU291cmNlEjoKBnZvbHVtZRgBIAEoCzIiLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvblZvbHVtZUIGukgDyAEBEkMKBm1vdW50cxgCIAMoCzInLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvblZvbHVtZU1vdW50Qgq6SAeSAQQIARAIOoYCukiCAhqCAQoqc2Vzc2lvbl92b2x1bWVfc291cmNlLm9uZV9yZWFkX3dyaXRlX21vdW50EiNhdCBtb3N0IG9uZSBtb3VudCBtYXkgYmUgcmVhZC13cml0ZRovdGhpcy5tb3VudHMuZmlsdGVyKG0sICFtLnJlYWRfb25seSkuc2l6ZSgpIDw9IDEaewooc2Vzc2lvbl92b2x1bWVfc291cmNlLnVuaXF1ZV9tb3VudF9wYXRocxIkZXZlcnkgbW91bnQgbmVlZHMgaXRzIG93biBtb3VudF9wYXRoGil0aGlzLm1vdW50cy5tYXAobSwgbS5tb3VudF9wYXRoKS51bmlxdWUoKSKoAQoNU2Vzc2lvblZvbHVtZRJhCgpjc2lfZHJpdmVyGAEgASgJQk26SEpySBABGD8yQl5bYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyhbLl1bYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPykqJBI0Cg12b2x1bWVfaGFuZGxlGAIgASgJQh26SBpyGBABGIAIMhFeW15ccHtafVxwe0NjfV0rJCLUAwoSU2Vzc2lvblZvbHVtZU1vdW50EsoBCghzdWJfcGF0aBgBIAEoCUK3AbpIswFysAEQARj9ATKoAV4oPzpbQS1aYS16MC05Xy1dW0EtWmEtejAtOS5fLV0qfFwuW0EtWmEtejAtOV8tXVtBLVphLXowLTkuXy1dKnxcJFx7U0VTU0lPTl9JRFx9KSg/Oi8oPzpbQS1aYS16MC05Xy1dW0EtWmEtejAtOS5fLV0qfFwuW0EtWmEtejAtOV8tXVtBLVphLXowLTkuXy1dKnxcJFx7U0VTU0lPTl9JRFx9KSkqJBLdAQoKbW91bnRfcGF0aBgCIAEoCULIAbpIxAG6AXQKIXNlc3Npb25fdm9sdW1lX21vdW50Lm91dHNpZGVfZGF0YRIgbW91bnRfcGF0aCBtdXN0IGJlIG91dHNpZGUgL2RhdGEaLXRoaXMgIT0gJy9kYXRhJyAmJiAhdGhpcy5zdGFydHNXaXRoKCcvZGF0YS8nKXJLEAIY/QEyRF4oPzovW0EtWmEtejAtOV8tXVtBLVphLXowLTkuXy1dKnwvXC5bQS1aYS16MC05Xy1dW0EtWmEtejAtOS5fLV0qKSskEhEKCXJlYWRfb25seRgDIAEoCCLfAgoUQ3JlYXRlU2Vzc2lvblJlcXVlc3QSPQoFYWdlbnQYBSABKAsyJi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc291cmNlUmVmZXJlbmNlQga6SAPIAQESHgoKcmVxdWVzdF9pZBgDIAEoCUIKukgHcgUQARiAARJLCgRuYW1lGAQgASgJQj26SDpyOBjIATIzXig/OiR8W15ccHtafVxwe0NjfV0oPzpbXlxwe0NjfV0qW15ccHtafVxwe0NjfV0pPykkEj8KDXZvbHVtZV9zb3VyY2UYBiABKAsyKC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb25Wb2x1bWVTb3VyY2USNQoPYWRtaXNzaW9uX3Rva2VuGAcgASgJQhy6SBlyFxiAgAEyEV5bXlxwe1p9XHB7Q2N9XSokSgQIARACSgQIAhADUgdoYXJuZXNzUg5hZ2VudF90ZW1wbGF0ZSJGChVDcmVhdGVTZXNzaW9uUmVzcG9uc2USLQoHc2Vzc2lvbhgBIAEoCzIcLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvbiIxChFHZXRTZXNzaW9uUmVxdWVzdBIcCgpzZXNzaW9uX2lkGAEgASgJQgi6SAVyA7ABASJDChJHZXRTZXNzaW9uUmVzcG9uc2USLQoHc2Vzc2lvbhgBIAEoCzIcLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvbiLLAQoTTGlzdFNlc3Npb25zUmVxdWVzdBIUCgxhbGxfY3JlYXRvcnMYAiABKAgSLgoEcGFnZRgDIAEoCzIgLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlcXVlc3QSNQoFYWdlbnQYBiABKAsyJi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc291cmNlUmVmZXJlbmNlSgQIARACSgQIBBAFSgQIBRAGUgxtYXRjaF9sYWJlbHNSDmFnZW50X3RlbXBsYXRlUgdoYXJuZXNzIncKFExpc3RTZXNzaW9uc1Jlc3BvbnNlEi4KCHNlc3Npb25zGAEgAygLMhwua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uEi8KBHBhZ2UYAiABKAsyIS5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXNwb25zZSKFAQoYVXBkYXRlU2Vzc2lvbk5hbWVSZXF1ZXN0EhwKCnNlc3Npb25faWQYASABKAlCCLpIBXIDsAEBEksKBG5hbWUYAiABKAlCPbpIOnI4GMgBMjNeKD86JHxbXlxwe1p9XHB7Q2N9XSg/OlteXHB7Q2N9XSpbXlxwe1p9XHB7Q2N9XSk/KSQiSgoZVXBkYXRlU2Vzc2lvbk5hbWVSZXNwb25zZRItCgdzZXNzaW9uGAEgASgLMhwua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uIjUKFVN1c3BlbmRTZXNzaW9uUmVxdWVzdBIcCgpzZXNzaW9uX2lkGAEgASgJQgi6SAVyA7ABASJHChZTdXNwZW5kU2Vzc2lvblJlc3BvbnNlEi0KB3Nlc3Npb24YASABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb24iNAoUUmVzdW1lU2Vzc2lvblJlcXVlc3QSHAoKc2Vzc2lvbl9pZBgBIAEoCUIIukgFcgOwAQEiRgoVUmVzdW1lU2Vzc2lvblJlc3BvbnNlEi0KB3Nlc3Npb24YASABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb24iNAoURGVsZXRlU2Vzc2lvblJlcXVlc3QSHAoKc2Vzc2lvbl9pZBgBIAEoCUIIukgFcgOwAQEiRgoVRGVsZXRlU2Vzc2lvblJlc3BvbnNlEi0KB3Nlc3Npb24YASABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb24izwEKDFNlc3Npb25TaGFyZRIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEj8KCnBlcm1pc3Npb24YAyABKA4yKy5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb25TaGFyZVBlcm1pc3Npb24SLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKZXhwaXJlc19hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiuAEKGUNyZWF0ZVNlc3Npb25TaGFyZVJlcXVlc3QSHAoKc2Vzc2lvbl9pZBgBIAEoCUIIukgFcgOwAQESSwoKcGVybWlzc2lvbhgCIAEoDjIrLmthZ2VudC5hcGkudjFhbHBoYTEuU2Vzc2lvblNoYXJlUGVybWlzc2lvbkIKukgHggEEEAEgABIwCgN0dGwYAyABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CCLpIBaoBAioAIl0KGkNyZWF0ZVNlc3Npb25TaGFyZVJlc3BvbnNlEjAKBXNoYXJlGAEgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uU2hhcmUSDQoFdG9rZW4YAiABKAkiaAoYTGlzdFNlc3Npb25TaGFyZXNSZXF1ZXN0EhwKCnNlc3Npb25faWQYASABKAlCCLpIBXIDsAEBEi4KBHBhZ2UYAiABKAsyIC5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXF1ZXN0In8KGUxpc3RTZXNzaW9uU2hhcmVzUmVzcG9uc2USMQoGc2hhcmVzGAEgAygLMiEua2FnZW50LmFwaS52MWFscGhhMS5TZXNzaW9uU2hhcmUSLwoEcGFnZRgCIAEoCzIhLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlc3BvbnNlIjcKGVJldm9rZVNlc3Npb25TaGFyZVJlcXVlc3QSGgoIc2hhcmVfaWQYASABKAlCCLpIBXIDsAEBIhwKGlJldm9rZVNlc3Npb25TaGFyZVJlc3BvbnNlKpMBChZTZXNzaW9uU2hhcmVQZXJtaXNzaW9uEigKJFNFU1NJT05fU0hBUkVfUEVSTUlTU0lPTl9VTlNQRUNJRklFRBAAEiYKIlNFU1NJT05fU0hBUkVfUEVSTUlTU0lPTl9SRUFEX09OTFkQARInCiNTRVNTSU9OX1NIQVJFX1BFUk1JU1NJT05fUkVBRF9XUklURRACMs0ICg5TZXNzaW9uU2VydmljZRJmCg1DcmVhdGVTZXNzaW9uEikua2FnZW50LmFwaS52MWFscGhhMS5DcmVhdGVTZXNzaW9uUmVxdWVzdBoqLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEl0KCkdldFNlc3Npb24SJi5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFNlc3Npb25SZXF1ZXN0Gicua2FnZW50LmFwaS52MWFscGhhMS5HZXRTZXNzaW9uUmVzcG9uc2USYwoMTGlzdFNlc3Npb25zEigua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U2Vzc2lvbnNSZXF1ZXN0Gikua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJyChFVcGRhdGVTZXNzaW9uTmFtZRItLmthZ2VudC5hcGkudjFhbHBoYTEuVXBkYXRlU2Vzc2lvbk5hbWVSZXF1ZXN0Gi4ua2FnZW50LmFwaS52MWFscGhhMS5VcGRhdGVTZXNzaW9uTmFtZVJlc3BvbnNlEmkKDlN1c3BlbmRTZXNzaW9uEioua2FnZW50LmFwaS52MWFscGhhMS5TdXNwZW5kU2Vzc2lvblJlcXVlc3QaKy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1c3BlbmRTZXNzaW9uUmVzcG9uc2USZgoNUmVzdW1lU2Vzc2lvbhIpLmthZ2VudC5hcGkudjFhbHBoYTEuUmVzdW1lU2Vzc2lvblJlcXVlc3QaKi5rYWdlbnQuYXBpLnYxYWxwaGExLlJlc3VtZVNlc3Npb25SZXNwb25zZRJmCg1EZWxldGVTZXNzaW9uEikua2FnZW50LmFwaS52MWFscGhhMS5EZWxldGVTZXNzaW9uUmVxdWVzdBoqLmthZ2VudC5hcGkudjFhbHBoYTEuRGVsZXRlU2Vzc2lvblJlc3BvbnNlEnUKEkNyZWF0ZVNlc3Npb25TaGFyZRIuLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlU2Vzc2lvblNoYXJlUmVxdWVzdBovLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlU2Vzc2lvblNoYXJlUmVzcG9uc2UScgoRTGlzdFNlc3Npb25TaGFyZXMSLS5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RTZXNzaW9uU2hhcmVzUmVxdWVzdBouLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdFNlc3Npb25TaGFyZXNSZXNwb25zZRJ1ChJSZXZva2VTZXNzaW9uU2hhcmUSLi5rYWdlbnQuYXBpLnYxYWxwaGExLlJldm9rZVNlc3Npb25TaGFyZVJlcXVlc3QaLy5rYWdlbnQuYXBpLnYxYWxwaGExLlJldm9rZVNlc3Npb25TaGFyZVJlc3BvbnNlQklaR2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxYWxwaGExO2FwaXYxYWxwaGExYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_duration, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_common, file_kagent_api_v1alpha1_runtime]);
 
 /**
  * @generated from message kagent.api.v1alpha1.Failure
@@ -110,6 +110,14 @@ export type Session = Message<"kagent.api.v1alpha1.Session"> & {
    * @generated from field: string context_id = 14;
    */
   contextId: string;
+
+  /**
+   * The workspace volume this session works in and how its actor mounts it,
+   * as given on create. Unset for a session created without one.
+   *
+   * @generated from field: kagent.api.v1alpha1.SessionVolumeSource volume_source = 17;
+   */
+  volumeSource?: SessionVolumeSource | undefined;
 };
 
 /**
@@ -118,6 +126,103 @@ export type Session = Message<"kagent.api.v1alpha1.Session"> & {
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_sessions, 1);
+
+/**
+ * SessionVolumeSource names an existing read-write-many volume and how the
+ * session's actor mounts it: the session's own directory read-write, the rest
+ * read-only. kagent never creates or deletes the volume.
+ *
+ * @generated from message kagent.api.v1alpha1.SessionVolumeSource
+ */
+export type SessionVolumeSource = Message<"kagent.api.v1alpha1.SessionVolumeSource"> & {
+  /**
+   * @generated from field: kagent.api.v1alpha1.SessionVolume volume = 1;
+   */
+  volume?: SessionVolume | undefined;
+
+  /**
+   * The mounts of the volume, each at its own absolute path outside /data.
+   *
+   * @generated from field: repeated kagent.api.v1alpha1.SessionVolumeMount mounts = 2;
+   */
+  mounts: SessionVolumeMount[];
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.SessionVolumeSource.
+ * Use `create(SessionVolumeSourceSchema)` to create a new message.
+ */
+export const SessionVolumeSourceSchema: GenMessage<SessionVolumeSource> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_sessions, 2);
+
+/**
+ * SessionVolume is an existing CSI volume by its driver and the driver's own
+ * handle, such as the handle a PersistentVolume's CSI source reports.
+ *
+ * @generated from message kagent.api.v1alpha1.SessionVolume
+ */
+export type SessionVolume = Message<"kagent.api.v1alpha1.SessionVolume"> & {
+  /**
+   * The name of the CSI driver that serves the volume, such as "efs.csi.aws.com".
+   *
+   * @generated from field: string csi_driver = 1;
+   */
+  csiDriver: string;
+
+  /**
+   * The driver's handle of the volume, opaque to kagent.
+   *
+   * @generated from field: string volume_handle = 2;
+   */
+  volumeHandle: string;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.SessionVolume.
+ * Use `create(SessionVolumeSchema)` to create a new message.
+ */
+export const SessionVolumeSchema: GenMessage<SessionVolume> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_sessions, 3);
+
+/**
+ * SessionVolumeMount mounts one directory of the volume into the session's
+ * actor.
+ *
+ * @generated from message kagent.api.v1alpha1.SessionVolumeMount
+ */
+export type SessionVolumeMount = Message<"kagent.api.v1alpha1.SessionVolumeMount"> & {
+  /**
+   * The directory on the volume: a clean relative path. "${SESSION_ID}" in it
+   * stands for the session's id, so "sessions/${SESSION_ID}" is the session's
+   * own directory.
+   *
+   * @generated from field: string sub_path = 1;
+   */
+  subPath: string;
+
+  /**
+   * Where the actor sees it: a clean absolute path outside /data, the durable
+   * directory its snapshot tars on every commit.
+   *
+   * @generated from field: string mount_path = 2;
+   */
+  mountPath: string;
+
+  /**
+   * Read-only for the directories shared between sessions, such as the
+   * workspace's mirrors; the session's own directory is read-write.
+   *
+   * @generated from field: bool read_only = 3;
+   */
+  readOnly: boolean;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.SessionVolumeMount.
+ * Use `create(SessionVolumeMountSchema)` to create a new message.
+ */
+export const SessionVolumeMountSchema: GenMessage<SessionVolumeMount> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_sessions, 4);
 
 /**
  * @generated from message kagent.api.v1alpha1.CreateSessionRequest
@@ -139,6 +244,24 @@ export type CreateSessionRequest = Message<"kagent.api.v1alpha1.CreateSessionReq
    * @generated from field: string name = 4;
    */
   name: string;
+
+  /**
+   * Optional. The workspace volume the session works in and how its actor
+   * mounts it. The controller's configured admission must admit it; without
+   * an admission every request that names one is refused FailedPrecondition.
+   * Shown on the session.
+   *
+   * @generated from field: kagent.api.v1alpha1.SessionVolumeSource volume_source = 6;
+   */
+  volumeSource?: SessionVolumeSource | undefined;
+
+  /**
+   * Optional. The proof the admission verifies for volume_source, opaque to
+   * kagent. Never stored and never shown.
+   *
+   * @generated from field: string admission_token = 7;
+   */
+  admissionToken: string;
 };
 
 /**
@@ -146,7 +269,7 @@ export type CreateSessionRequest = Message<"kagent.api.v1alpha1.CreateSessionReq
  * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
 export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 2);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 5);
 
 /**
  * @generated from message kagent.api.v1alpha1.CreateSessionResponse
@@ -163,7 +286,7 @@ export type CreateSessionResponse = Message<"kagent.api.v1alpha1.CreateSessionRe
  * Use `create(CreateSessionResponseSchema)` to create a new message.
  */
 export const CreateSessionResponseSchema: GenMessage<CreateSessionResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 3);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 6);
 
 /**
  * @generated from message kagent.api.v1alpha1.GetSessionRequest
@@ -180,7 +303,7 @@ export type GetSessionRequest = Message<"kagent.api.v1alpha1.GetSessionRequest">
  * Use `create(GetSessionRequestSchema)` to create a new message.
  */
 export const GetSessionRequestSchema: GenMessage<GetSessionRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 4);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 7);
 
 /**
  * @generated from message kagent.api.v1alpha1.GetSessionResponse
@@ -197,7 +320,7 @@ export type GetSessionResponse = Message<"kagent.api.v1alpha1.GetSessionResponse
  * Use `create(GetSessionResponseSchema)` to create a new message.
  */
 export const GetSessionResponseSchema: GenMessage<GetSessionResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 5);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 8);
 
 /**
  * @generated from message kagent.api.v1alpha1.ListSessionsRequest
@@ -228,7 +351,7 @@ export type ListSessionsRequest = Message<"kagent.api.v1alpha1.ListSessionsReque
  * Use `create(ListSessionsRequestSchema)` to create a new message.
  */
 export const ListSessionsRequestSchema: GenMessage<ListSessionsRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 6);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 9);
 
 /**
  * @generated from message kagent.api.v1alpha1.ListSessionsResponse
@@ -250,7 +373,7 @@ export type ListSessionsResponse = Message<"kagent.api.v1alpha1.ListSessionsResp
  * Use `create(ListSessionsResponseSchema)` to create a new message.
  */
 export const ListSessionsResponseSchema: GenMessage<ListSessionsResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 7);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 10);
 
 /**
  * @generated from message kagent.api.v1alpha1.UpdateSessionNameRequest
@@ -275,7 +398,7 @@ export type UpdateSessionNameRequest = Message<"kagent.api.v1alpha1.UpdateSessio
  * Use `create(UpdateSessionNameRequestSchema)` to create a new message.
  */
 export const UpdateSessionNameRequestSchema: GenMessage<UpdateSessionNameRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 8);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 11);
 
 /**
  * @generated from message kagent.api.v1alpha1.UpdateSessionNameResponse
@@ -292,7 +415,7 @@ export type UpdateSessionNameResponse = Message<"kagent.api.v1alpha1.UpdateSessi
  * Use `create(UpdateSessionNameResponseSchema)` to create a new message.
  */
 export const UpdateSessionNameResponseSchema: GenMessage<UpdateSessionNameResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 9);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 12);
 
 /**
  * @generated from message kagent.api.v1alpha1.SuspendSessionRequest
@@ -309,7 +432,7 @@ export type SuspendSessionRequest = Message<"kagent.api.v1alpha1.SuspendSessionR
  * Use `create(SuspendSessionRequestSchema)` to create a new message.
  */
 export const SuspendSessionRequestSchema: GenMessage<SuspendSessionRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 10);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 13);
 
 /**
  * @generated from message kagent.api.v1alpha1.SuspendSessionResponse
@@ -326,7 +449,7 @@ export type SuspendSessionResponse = Message<"kagent.api.v1alpha1.SuspendSession
  * Use `create(SuspendSessionResponseSchema)` to create a new message.
  */
 export const SuspendSessionResponseSchema: GenMessage<SuspendSessionResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 11);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 14);
 
 /**
  * @generated from message kagent.api.v1alpha1.ResumeSessionRequest
@@ -343,7 +466,7 @@ export type ResumeSessionRequest = Message<"kagent.api.v1alpha1.ResumeSessionReq
  * Use `create(ResumeSessionRequestSchema)` to create a new message.
  */
 export const ResumeSessionRequestSchema: GenMessage<ResumeSessionRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 12);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 15);
 
 /**
  * @generated from message kagent.api.v1alpha1.ResumeSessionResponse
@@ -360,7 +483,7 @@ export type ResumeSessionResponse = Message<"kagent.api.v1alpha1.ResumeSessionRe
  * Use `create(ResumeSessionResponseSchema)` to create a new message.
  */
 export const ResumeSessionResponseSchema: GenMessage<ResumeSessionResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 13);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 16);
 
 /**
  * @generated from message kagent.api.v1alpha1.DeleteSessionRequest
@@ -377,7 +500,7 @@ export type DeleteSessionRequest = Message<"kagent.api.v1alpha1.DeleteSessionReq
  * Use `create(DeleteSessionRequestSchema)` to create a new message.
  */
 export const DeleteSessionRequestSchema: GenMessage<DeleteSessionRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 14);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 17);
 
 /**
  * @generated from message kagent.api.v1alpha1.DeleteSessionResponse
@@ -394,7 +517,7 @@ export type DeleteSessionResponse = Message<"kagent.api.v1alpha1.DeleteSessionRe
  * Use `create(DeleteSessionResponseSchema)` to create a new message.
  */
 export const DeleteSessionResponseSchema: GenMessage<DeleteSessionResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 15);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 18);
 
 /**
  * @generated from message kagent.api.v1alpha1.SessionShare
@@ -433,7 +556,7 @@ export type SessionShare = Message<"kagent.api.v1alpha1.SessionShare"> & {
  * Use `create(SessionShareSchema)` to create a new message.
  */
 export const SessionShareSchema: GenMessage<SessionShare> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 16);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 19);
 
 /**
  * @generated from message kagent.api.v1alpha1.CreateSessionShareRequest
@@ -464,7 +587,7 @@ export type CreateSessionShareRequest = Message<"kagent.api.v1alpha1.CreateSessi
  * Use `create(CreateSessionShareRequestSchema)` to create a new message.
  */
 export const CreateSessionShareRequestSchema: GenMessage<CreateSessionShareRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 17);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 20);
 
 /**
  * @generated from message kagent.api.v1alpha1.CreateSessionShareResponse
@@ -488,7 +611,7 @@ export type CreateSessionShareResponse = Message<"kagent.api.v1alpha1.CreateSess
  * Use `create(CreateSessionShareResponseSchema)` to create a new message.
  */
 export const CreateSessionShareResponseSchema: GenMessage<CreateSessionShareResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 18);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 21);
 
 /**
  * @generated from message kagent.api.v1alpha1.ListSessionSharesRequest
@@ -510,7 +633,7 @@ export type ListSessionSharesRequest = Message<"kagent.api.v1alpha1.ListSessionS
  * Use `create(ListSessionSharesRequestSchema)` to create a new message.
  */
 export const ListSessionSharesRequestSchema: GenMessage<ListSessionSharesRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 19);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 22);
 
 /**
  * @generated from message kagent.api.v1alpha1.ListSessionSharesResponse
@@ -532,7 +655,7 @@ export type ListSessionSharesResponse = Message<"kagent.api.v1alpha1.ListSession
  * Use `create(ListSessionSharesResponseSchema)` to create a new message.
  */
 export const ListSessionSharesResponseSchema: GenMessage<ListSessionSharesResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 20);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 23);
 
 /**
  * @generated from message kagent.api.v1alpha1.RevokeSessionShareRequest
@@ -549,7 +672,7 @@ export type RevokeSessionShareRequest = Message<"kagent.api.v1alpha1.RevokeSessi
  * Use `create(RevokeSessionShareRequestSchema)` to create a new message.
  */
 export const RevokeSessionShareRequestSchema: GenMessage<RevokeSessionShareRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 21);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 24);
 
 /**
  * @generated from message kagent.api.v1alpha1.RevokeSessionShareResponse
@@ -562,7 +685,7 @@ export type RevokeSessionShareResponse = Message<"kagent.api.v1alpha1.RevokeSess
  * Use `create(RevokeSessionShareResponseSchema)` to create a new message.
  */
 export const RevokeSessionShareResponseSchema: GenMessage<RevokeSessionShareResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_sessions, 22);
+  messageDesc(file_kagent_api_v1alpha1_sessions, 25);
 
 /**
  * @generated from enum kagent.api.v1alpha1.SessionSharePermission

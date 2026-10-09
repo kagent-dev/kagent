@@ -46,9 +46,12 @@ func marshalSession(session *apiv1alpha1.Session) ([]byte, error) {
 	return data, nil
 }
 
-// sameSessionRequest reports whether two creation requests target the same Agent. Names and other mutable fields do not affect retry identity.
+// sameSessionRequest reports whether two creation requests target the same Agent
+// on the same volume source. Names and other mutable fields do not affect retry
+// identity.
 func sameSessionRequest(session, request *apiv1alpha1.Session) bool {
-	return proto.Equal(session.GetAgent(), request.GetAgent())
+	return proto.Equal(session.GetAgent(), request.GetAgent()) &&
+		proto.Equal(session.GetVolumeSource(), request.GetVolumeSource())
 }
 
 // CreateSession atomically reserves a session, its conversation history, and the
