@@ -65,7 +65,10 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		server.Start()
 		t.Cleanup(server.Close)
 		fixture := newInteractionFixture(t, harness, target, reachableModelURL(t, server.URL))
-		_, _, task = fixture.send(t, "What is 2+2?")
+		// Wait on the turn's verdict, not on one blocking send's deadline: a
+		// harness can retry the denied redirect before it fails the turn, and
+		// on a loaded lane that outlasts a send. The fixture's context bounds it.
+		task = getTask(t, fixture, sendStreaming(t, fixture, "What is 2+2?").taskID)
 		if !reachedAllowed.Load() {
 			t.Fatal("the configured model destination was not reached")
 		}
