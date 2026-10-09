@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 const sessionClientTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
@@ -26,10 +27,12 @@ const sessionClientTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 type recordingSessionService struct {
 	apiv1alpha1.UnimplementedSessionServiceServer
 	observation callObservation
+	created     *apiv1alpha1.CreateSessionRequest
 }
 
-func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error) {
+func (s *recordingSessionService) CreateSession(ctx context.Context, request *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error) {
 	s.observation = observeCall(ctx)
+	s.created = request
 	return &apiv1alpha1.CreateSessionResponse{}, nil
 }
 
@@ -205,6 +208,29 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[5])
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(2), dialCount.Load())
+}
+
+// The client passes the volume source and the admission token of a create
+// request through as given: the surfaces that start a Session in a workspace
+// do so through this client.
+func TestSessionClientCarriesTheVolumeSourceAndAdmissionToken(t *testing.T) {
+	sessionService := &recordingSessionService{}
+	dialer, _ := serveRecordingServices(t, sessionService, &recordingA2AService{})
+	apiClient, err := NewAPI("http://api.invalid:80", WithUserID("caller"), WithGRPCTimeout(5*time.Second), WithGRPCDialOptions(dialer))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, apiClient.Close()) })
+
+	request := &apiv1alpha1.CreateSessionRequest{
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1",
+		VolumeSource: &apiv1alpha1.SessionVolumeSource{
+			Volume: &apiv1alpha1.SessionVolume{CsiDriver: "efs.csi.aws.com", VolumeHandle: "fs-0123456789abcdef0::fsap-0123456789abcdef0"},
+			Mounts: []*apiv1alpha1.SessionVolumeMount{{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace"}},
+		},
+		AdmissionToken: "grant",
+	}
+	_, err = apiClient.Session.CreateSession(context.Background(), request)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(request, sessionService.created), "received %v", sessionService.created)
 }
 
 func TestBearerTokenAuthenticatesEveryCall(t *testing.T) {

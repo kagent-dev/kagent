@@ -11,6 +11,22 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
+A create may name a volume source: an existing read-write-many volume by its
+CSI driver and handle, and the mounts of it the session's actor gets, each a
+clean relative directory of the volume at a clean absolute path outside `/data`
+(the durable directory, which its snapshot tars on every commit), at most one
+of them read-write: the session's own directory, whose sub-path names the
+session as `${SESSION_ID}`. kagent never creates or deletes the volume. The
+source is part of the session row and shows on get and list; a retry under the
+same request ID must name the same source. The request's admission token is the
+proof the installation's configured `VolumeAdmission` verifies for that source;
+the service hands it to the admission and to nothing else, so it is never
+stored or shown. Without a configured admission every create that names a
+source or carries a token is refused `FailedPrecondition`, so no caller mounts
+a volume of its choosing. A create without the fields is handled as before. An
+`Agent` or `AgentTemplate` carries no volume: the session is the only place one
+is named.
+
 Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting

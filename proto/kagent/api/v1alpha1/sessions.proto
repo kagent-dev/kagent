@@ -66,6 +66,78 @@ message Session {
   // pause or a snapshot, once the suspend or pause and its retry failed or the
   // runtime was gone. A later turn's snapshot clears it.
   QuiescenceFailure last_quiescence_failure = 16;
+  // The workspace volume this session works in and how its actor mounts it,
+  // as given on create. Unset for a session created without one.
+  SessionVolumeSource volume_source = 17;
+}
+
+// SessionVolumeSource names an existing read-write-many volume and how the
+// session's actor mounts it: the session's own directory read-write, the rest
+// read-only. kagent never creates or deletes the volume.
+message SessionVolumeSource {
+  option (buf.validate.message).cel = {
+    id: "session_volume_source.one_read_write_mount"
+    message: "at most one mount may be read-write"
+    expression: "this.mounts.filter(m, !m.read_only).size() <= 1"
+  };
+  option (buf.validate.message).cel = {
+    id: "session_volume_source.unique_mount_paths"
+    message: "every mount needs its own mount_path"
+    expression: "this.mounts.map(m, m.mount_path).unique()"
+  };
+  SessionVolume volume = 1 [(buf.validate.field).required = true];
+  // The mounts of the volume, each at its own absolute path outside /data.
+  repeated SessionVolumeMount mounts = 2 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 8
+  }];
+}
+
+// SessionVolume is an existing CSI volume by its driver and the driver's own
+// handle, such as the handle a PersistentVolume's CSI source reports.
+message SessionVolume {
+  // The name of the CSI driver that serves the volume, such as "efs.csi.aws.com".
+  string csi_driver = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+  }];
+  // The driver's handle of the volume, opaque to kagent.
+  string volume_handle = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 1024
+    pattern: "^[^\\p{Z}\\p{Cc}]+$"
+  }];
+}
+
+// SessionVolumeMount mounts one directory of the volume into the session's
+// actor.
+message SessionVolumeMount {
+  // The directory on the volume: a clean relative path. "${SESSION_ID}" in it
+  // stands for the session's id, so "sessions/${SESSION_ID}" is the session's
+  // own directory.
+  string sub_path = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 253
+    pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*|\\$\\{SESSION_ID\\})(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*|\\$\\{SESSION_ID\\}))*$"
+  }];
+  // Where the actor sees it: a clean absolute path outside /data, the durable
+  // directory its snapshot tars on every commit.
+  string mount_path = 2 [
+    (buf.validate.field).string = {
+      min_len: 2
+      max_len: 253
+      pattern: "^(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*|/\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)+$"
+    },
+    (buf.validate.field).cel = {
+      id: "session_volume_mount.outside_data"
+      message: "mount_path must be outside /data"
+      expression: "this != '/data' && !this.startsWith('/data/')"
+    }
+  ];
+  // Read-only for the directories shared between sessions, such as the
+  // workspace's mirrors; the session's own directory is read-write.
+  bool read_only = 3;
 }
 
 // QuiescenceFailure explains a turn whose runtime could not be paused or
@@ -92,6 +164,17 @@ message CreateSessionRequest {
   string name = 4 [(buf.validate.field).string = {
     max_len: 200
     pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+  // Optional. The workspace volume the session works in and how its actor
+  // mounts it. The controller's configured admission must admit it; without
+  // an admission every request that names one is refused FailedPrecondition.
+  // Shown on the session.
+  SessionVolumeSource volume_source = 6;
+  // Optional. The proof the admission verifies for volume_source, opaque to
+  // kagent. Never stored and never shown.
+  string admission_token = 7 [(buf.validate.field).string = {
+    max_len: 16384
+    pattern: "^[^\\p{Z}\\p{Cc}]*$"
   }];
 }
 
