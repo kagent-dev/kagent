@@ -37,6 +37,18 @@ type AgentSpec struct {
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="harnessRef.name must not be empty"
 	// +optional
 	HarnessRef *corev1.LocalObjectReference `json:"harnessRef,omitempty"`
+	// Egress lists HTTP(S) origins the Agent may reach besides the destinations
+	// its revision compiles (the model, its MCP servers, its skill and plugin
+	// sources, telemetry), such as "https://proxy.golang.org". The host may
+	// have "*" as its leftmost label: "https://*.githubusercontent.com" matches
+	// one label, such as raw.githubusercontent.com. A wildcard needs two labels
+	// under it, so nothing opens a whole top-level domain or every host.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=270
+	// +kubebuilder:validation:items:Pattern=`^https?://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$`
+	Egress []string `json:"egress,omitempty"`
 }
 
 const (
