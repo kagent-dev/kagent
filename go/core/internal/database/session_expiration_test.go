@@ -12,7 +12,7 @@ import (
 
 func expirationFixture(t *testing.T) (*Client, *apiv1alpha1.Session) {
 	t.Helper()
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision-1", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "conversation")
 	require.NoError(t, err)
