@@ -2203,13 +2203,6 @@ message ActorAssignment {
   // +k8s:format=k8s-uuid
   string actor_uid = 3;
 
-  // actor_template_ref names the ActorTemplate resource the assigned Actor
-  // uses.
-  //
-  // +k8s:required
-  // +k8s:subfield(atespace)=+k8s:required
-  ObjectRef actor_template_ref = 4;
-
   // The resources allocated to the Actor when it was assigned.
   //
   // +k8s:optional
