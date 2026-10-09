@@ -811,25 +811,51 @@ func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, 
 	return message, request, task
 }
 
+// sendRetryWindow bounds how long a send is repeated while the gateway proves
+// it was not accepted. It never bounds an accepted send, whose verdict can take
+// longer on a loaded lane: that one runs under the caller's context alone.
+const sendRetryWindow = 30 * time.Second
+
+// retryWhileNotAccepted runs send under ctx and repeats it every 100ms while it
+// reports the gateway's proven refusal, for at most window. A refusal still
+// standing at the end of the window is returned.
+func retryWhileNotAccepted(ctx context.Context, window time.Duration, send func(context.Context) (notAccepted bool, err error)) error {
+	deadline := time.Now().Add(window)
+	for {
+		notAccepted, err := send(ctx)
+		if !notAccepted || !time.Now().Before(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 // sendMessageWithRetry follows the gateway's explicit rejection contract. A
 // quiescence claim or checkpoint can keep dispatch busy past its wait. Retry the
 // same input only when the gateway proves it was never accepted; a generic
 // transport error may hide accepted work and must not cause another execution.
 func sendMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
 	var response *a2apb.SendMessageResponse
-	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+	err := retryWhileNotAccepted(ctx, sendRetryWindow, func(ctx context.Context) (bool, error) {
 		var err error
 		response, err = client.SendMessage(ctx, request)
 		if status.Code(err) == codes.FailedPrecondition {
 			for _, detail := range status.Convert(err).Details() {
 				if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == a2atype.ProtocolDomain && info.Metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
-					return false, nil
+					return true, err
 				}
 			}
 		}
-		return err == nil, err
+		return false, err
 	})
-	return response, err
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
 func newMessageRequest(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest) {

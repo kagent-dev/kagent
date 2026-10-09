@@ -145,7 +145,7 @@ func requireSameHTTPTask(t *testing.T, expected, actual *a2atype.Task) {
 // event has arrived, the stream must never be restarted, even on a rejection.
 func sendHTTPStreamingMessageWithRetry(ctx context.Context, client *a2aclient.Client, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
-		err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		err := retryWhileNotAccepted(ctx, sendRetryWindow, func(ctx context.Context) (bool, error) {
 			received := false
 			for event, err := range client.SendStreamingMessage(ctx, request) {
 				var protocolError *a2atype.Error
@@ -153,7 +153,7 @@ func sendHTTPStreamingMessageWithRetry(ctx context.Context, client *a2aclient.Cl
 					info := protocolError.ErrorInfo().Value
 					metadata, _ := info["metadata"].(map[string]string)
 					if info["domain"] == a2atype.ProtocolDomain && metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
-						return false, nil
+						return true, err
 					}
 				}
 				received = true
@@ -161,7 +161,7 @@ func sendHTTPStreamingMessageWithRetry(ctx context.Context, client *a2aclient.Cl
 					break
 				}
 			}
-			return true, nil
+			return false, nil
 		})
 		if err != nil {
 			yield(nil, err)

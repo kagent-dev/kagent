@@ -49,8 +49,10 @@ func TestSendMessageRetryContract(t *testing.T) {
 			original := proto.Clone(request)
 			response := &a2apb.SendMessageResponse{}
 			calls := 0
-			client := retrySendClient{send: func(_ context.Context, actual *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+			client := retrySendClient{send: func(ctx context.Context, actual *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
 				calls++
+				_, bounded := ctx.Deadline()
+				require.False(t, bounded, "the send runs under the retry window's deadline instead of the caller's context")
 				require.True(t, proto.Equal(original, actual), "retry changed the request or its identity")
 				if calls == 1 {
 					return nil, rejected.Err()
@@ -87,4 +89,30 @@ func TestSendMessageRetryStopsAtDeadline(t *testing.T) {
 	_, err = sendMessageWithRetry(ctx, client, request)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Equal(t, 1, calls)
+}
+
+// An accepted send outlasting the retry window reaches its verdict: the window
+// bounds only the resends of a proven refusal.
+func TestRetryWindowBoundsOnlyRefusals(t *testing.T) {
+	calls := 0
+	err := retryWhileNotAccepted(t.Context(), 10*time.Millisecond, func(ctx context.Context) (bool, error) {
+		calls++
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+			return false, nil
+		}
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+
+	refused := status.Error(codes.FailedPrecondition, "not accepted")
+	calls = 0
+	err = retryWhileNotAccepted(t.Context(), 250*time.Millisecond, func(context.Context) (bool, error) {
+		calls++
+		return true, refused
+	})
+	require.ErrorIs(t, err, refused)
+	require.GreaterOrEqual(t, calls, 2)
 }
