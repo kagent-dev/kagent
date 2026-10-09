@@ -1,0 +1,53 @@
+version: "2"
+
+# Kube API Linter is provided by the custom golangci-lint binary registered in
+# go.mod, so its configuration is kept separate from the regular linter.
+linters:
+  default: none
+  enable:
+    - kubeapilinter
+  settings:
+    custom:
+      kubeapilinter:
+        type: module
+        description: Kube API Linter lints Kubernetes APIs based on API conventions and best practices.
+        settings:
+          linters:
+            enable:
+              - "conflictingmarkers"
+              - "duplicatemarkers"
+              - "nofloats"
+              - "optionalorrequired"
+              - "statussubresource"
+              - "uniquemarkers"
+              - "statusoptional"
+              - "nophase"
+              - "nonullable"
+              - "forbiddenmarkers"
+              - "nomaps"
+            disable:
+              - "*"
+          lintersConfig:
+            conflictingmarkers:
+              conflicts:
+                - name: "default_vs_required"
+                  sets:
+                    - ["default", "kubebuilder:default"]
+                    - ["required", "kubebuilder:validation:Required", "k8s:required"]
+                  description: "A field with a default value cannot be required"
+            forbiddenmarkers:
+              markers:
+                - identifier: "+kubebuilder:pruning:PreserveUnknownFields"
+                - identifier: "+kubebuilder:validation:XPreserveUnknownFields"
+                - identifier: "+kubebuilder:validation:items:XPreserveUnknownFields"
+                - identifier: "+kubebuilder:validation:EmbeddedResource"
+                - identifier: "+kubebuilder:validation:XEmbeddedResource"
+                - identifier: "+kubebuilder:validation:items:XEmbeddedResource"
+  exclusions:
+    generated: strict
+    paths:
+      - zz_generated.*\.go$
+      - .*conversion.*\.go$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
