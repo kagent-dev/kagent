@@ -90,3 +90,33 @@ tests:
       - equal:
           path: spec.url
           value: http://my-release-tools.NAMESPACE:8084/mcp
+
+  - it: should not set allowedNamespaces by default
+    asserts:
+      - notExists:
+          path: spec.allowedNamespaces
+
+  - it: should render allowedNamespaces when set
+    set:
+      kagent-tools.remoteMCPServer.allowedNamespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            kagent-tools: allowed
+    asserts:
+      - equal:
+          path: spec.allowedNamespaces
+          value:
+            from: Selector
+            selector:
+              matchLabels:
+                kagent-tools: allowed
+
+  - it: should render allowedNamespaces from All
+    set:
+      kagent-tools.remoteMCPServer.allowedNamespaces.from: All
+    asserts:
+      - equal:
+          path: spec.allowedNamespaces
+          value:
+            from: All
