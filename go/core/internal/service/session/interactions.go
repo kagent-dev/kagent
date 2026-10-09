@@ -172,6 +172,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 	if err != nil {
 		return nil, err
 	}
+	apia2a.SetTimelinePosition(req.Message, time.Now().UTC())
 	return &PreparedSend{Session: session, DispatchID: id}, nil
 }
 
