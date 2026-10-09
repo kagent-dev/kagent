@@ -16,6 +16,27 @@ data:
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   KAGENT_SESSION_IDLE_TTL: {{ .Values.controller.sessionIdleTTL | quote }}
   KAGENT_SESSION_SHARE_MAX_TTL: {{ .Values.controller.sessionShareMaxTTL | quote }}
+  {{- with ((.Values.controller.session).admission).jwt }}
+  {{- if or .jwksURL .issuer .audience }}
+  {{- if not (and .jwksURL .issuer .audience) }}
+  {{- fail "controller.session.admission.jwt needs jwksURL, issuer and audience together" }}
+  {{- end }}
+  KAGENT_SESSION_ADMISSION_JWT_JWKS_URL: {{ .jwksURL | quote }}
+  KAGENT_SESSION_ADMISSION_JWT_ISSUER: {{ .issuer | quote }}
+  KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: {{ .audience | quote }}
+  {{- with .claims }}
+  {{- with .volume }}
+  KAGENT_SESSION_ADMISSION_JWT_VOLUME_CLAIM: {{ . | quote }}
+  {{- end }}
+  {{- with .mounts }}
+  KAGENT_SESSION_ADMISSION_JWT_MOUNTS_CLAIM: {{ . | quote }}
+  {{- end }}
+  {{- with .changed }}
+  KAGENT_SESSION_ADMISSION_JWT_CHANGED_CLAIM: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}

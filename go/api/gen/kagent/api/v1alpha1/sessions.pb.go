@@ -147,7 +147,12 @@ type Session struct {
 	ContextId string `protobuf:"bytes,14,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
 	// The workspace volume this session works in and how its actor mounts it,
 	// as given on create. Unset for a session created without one.
-	VolumeSource  *SessionVolumeSource `protobuf:"bytes,17,opt,name=volume_source,json=volumeSource,proto3" json:"volume_source,omitempty"`
+	VolumeSource *SessionVolumeSource `protobuf:"bytes,17,opt,name=volume_source,json=volumeSource,proto3" json:"volume_source,omitempty"`
+	// Output only. The repositories, relative to the session's working
+	// directory, whose origin moved since the volume's last sync, as the
+	// installation's admission admitted them with the volume source: the
+	// session's runtime fetches them before its first turn.
+	Changed       []string `protobuf:"bytes,19,rep,name=changed,proto3" json:"changed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -269,6 +274,13 @@ func (x *Session) GetContextId() string {
 func (x *Session) GetVolumeSource() *SessionVolumeSource {
 	if x != nil {
 		return x.VolumeSource
+	}
+	return nil
+}
+
+func (x *Session) GetChanged() []string {
+	if x != nil {
+		return x.Changed
 	}
 	return nil
 }
@@ -1529,7 +1541,7 @@ const file_kagent_api_v1alpha1_sessions_proto_rawDesc = "" +
 	"\"kagent/api/v1alpha1/sessions.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\x1a!kagent/api/v1alpha1/runtime.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xa4\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xbe\x05\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x12<\n" +
@@ -1547,7 +1559,8 @@ const file_kagent_api_v1alpha1_sessions_proto_rawDesc = "" +
 	"\x04name\x18\r \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x0e \x01(\tR\tcontextId\x12M\n" +
-	"\rvolume_source\x18\x11 \x01(\v2(.kagent.api.v1alpha1.SessionVolumeSourceR\fvolumeSourceJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\f\x10\rR\aharnessR\x0eagent_templateR\x06labels\"\xaf\x03\n" +
+	"\rvolume_source\x18\x11 \x01(\v2(.kagent.api.v1alpha1.SessionVolumeSourceR\fvolumeSource\x12\x18\n" +
+	"\achanged\x18\x13 \x03(\tR\achangedJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\f\x10\rR\aharnessR\x0eagent_templateR\x06labels\"\xaf\x03\n" +
 	"\x13SessionVolumeSource\x12B\n" +
 	"\x06volume\x18\x01 \x01(\v2\".kagent.api.v1alpha1.SessionVolumeB\x06\xbaH\x03\xc8\x01\x01R\x06volume\x12K\n" +
 	"\x06mounts\x18\x02 \x03(\v2'.kagent.api.v1alpha1.SessionVolumeMountB\n" +

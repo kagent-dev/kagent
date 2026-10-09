@@ -65,6 +65,11 @@ message Session {
   // The workspace volume this session works in and how its actor mounts it,
   // as given on create. Unset for a session created without one.
   SessionVolumeSource volume_source = 17;
+  // Output only. The repositories, relative to the session's working
+  // directory, whose origin moved since the volume's last sync, as the
+  // installation's admission admitted them with the volume source: the
+  // session's runtime fetches them before its first turn.
+  repeated string changed = 19;
 }
 
 // SessionVolumeSource names an existing read-write-many volume and how the
