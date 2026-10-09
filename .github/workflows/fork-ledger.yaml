@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  carried:
+  fork-ledger:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
