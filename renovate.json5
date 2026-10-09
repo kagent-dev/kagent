@@ -1,10 +1,29 @@
 // The Giant Swarm line of kagent-dev/kagent. Renovate is off here on
-// purpose: this line is an upstream release plus the carried patches, so
-// upstream owns the dependency graph. A bump opened here would diverge from
-// the pinned upstream release and every re-pin would have to carry or revert
-// it. Dependencies move when the line is re-pinned; see FORK.md.
+// purpose for everything upstream owns: this line is an upstream release
+// plus the carried patches, so upstream owns the dependency graph. A bump
+// opened here would diverge from the pinned upstream release and every
+// re-pin would have to carry or revert it. Dependencies move when the line
+// is re-pinned; see FORK.md.
+//
+// The one exception is what a carried patch pins itself: the GitHub CLI in
+// the Go runtime and Claude harness images (go/github-cli.version). Only the
+// regex manager below runs, so no other manager opens a pull request.
 {
   reviewers: ['teemow'],
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
-  enabled: false,
+  enabledManagers: ['custom.regex'],
+  customManagers: [
+    {
+      // Alpine's github-cli package, from the Alpine release both images use
+      // (FROM alpine:3.24 in go/Dockerfile and go/harness/claude/Dockerfile);
+      // a move to another Alpine release moves this package name with it.
+      customType: 'regex',
+      managerFilePatterns: ['/^go/github-cli\\.version$/'],
+      matchStrings: ['^(?<currentValue>\\S+)\\s*$'],
+      depNameTemplate: 'github-cli',
+      datasourceTemplate: 'repology',
+      packageNameTemplate: 'alpine_3_24/github-cli',
+      versioningTemplate: 'loose',
+    },
+  ],
 }
