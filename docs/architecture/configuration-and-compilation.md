@@ -189,7 +189,9 @@ copied into Kubernetes status. The reconciliation queue owns failure retries,
 with exponential backoff from one second to thirty seconds and no operational
 attempt budget. It clears the failure after the prerequisite or service recovers.
 Periodic polling only checks observed templates whose golden snapshots are still
-pending. Observation and status updates do not bypass backoff; changed desired
+pending. It skips Agents whose preparation is running or has failed, so a poll
+cannot turn a failure into an immediate retry.
+Observation and status updates do not bypass backoff; changed desired
 revisions, unresolved inputs, and Agent deletion are reconciled immediately.
 Compilation errors, immutable template conflicts, and golden-snapshot failures
 stop preparation until the desired inputs change.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -345,12 +346,125 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 	}
 }
 
+func TestPreparationSlowPollFailureBackoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		collections, _ := newPreparationTestCollections(t, "microvm")
+		initial := collections.Reconciliations.List()[0]
+		backend := &preparationTestBackend{templates: &fakeActorTemplates{}, store: &fakeRuntimeRevisionStore{}}
+		r := newReconciler(collections, backend, backend, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go r.Run(ctx.Done())
+		synctest.Wait()
+		calls := func() (n int) {
+			backend.inspect(func() { n = backend.store.pairCalls })
+			return n
+		}
+		advance := func(d time.Duration) {
+			time.Sleep(d)
+			synctest.Wait()
+		}
+		require.Equal(t, 1, calls())
+		require.NotNil(t, collections.Reconciliations.GetKey(initial.ResourceName()).ObservedActorTemplate)
+		backend.inspect(func() {
+			// Off-second timing keeps completions away from poll ticks.
+			backend.getDelay = 1250 * time.Millisecond
+			backend.templates.getErr = errors.New("Substrate unavailable")
+		})
+
+		// The poll at t=1 fails at t=2.25. The tick at t=2 must not queue
+		// a retry that bypasses the one-second backoff.
+		advance(3250*time.Millisecond - time.Millisecond)
+		require.Equal(t, 2, calls(), "a poll during a slow request must not cause an immediate retry")
+		advance(time.Millisecond)
+		require.Equal(t, 3, calls())
+		require.NotNil(t, collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure)
+
+		// The retry at t=3.25 fails at t=4.5; recovery waits for the two-second backoff.
+		advance(1750 * time.Millisecond)
+		backend.inspect(func() {
+			backend.getDelay = 0
+			backend.templates.getErr = nil
+		})
+		advance(1500*time.Millisecond - time.Millisecond)
+		require.Equal(t, 3, calls())
+		advance(time.Millisecond)
+		require.Equal(t, 4, calls(), "recovery must not require a Kubernetes event")
+		require.Nil(t, collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure)
+		cancel()
+		synctest.Wait()
+		require.NoError(t, r.agents.WaitForClose(time.Second))
+	})
+}
+
+func TestPreparationPollSkipsRunningAndFailedAgents(t *testing.T) {
+	current, old := v2translator.RevisionID{1}, v2translator.RevisionID{2}
+	failure := &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionReady, Reason: "RuntimePreparationFailed", Retryable: true}
+	for _, test := range []struct {
+		name            string
+		running         bool
+		failureRevision *v2translator.RevisionID
+		polled          bool
+	}{
+		{name: "pending", polled: true},
+		{name: "running", running: true},
+		{name: "failed current revision", failureRevision: &current},
+		{name: "failed old revision", failureRevision: &old, polled: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				opts := krt.NewOptionsBuilder(t.Context().Done(), "test-poll", nil)
+				// The graph still shows a healthy pending template, as it does
+				// before it catches up with a just-recorded failure.
+				state := AgentReconciliation{
+					Agent:                 &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant"}},
+					Target:                &compiledTarget{RevisionID: current},
+					ObservedActorTemplate: &ateapipb.ActorTemplate{},
+				}
+				var observations []AgentRuntimeObservation
+				if test.failureRevision != nil {
+					observations = append(observations, AgentRuntimeObservation{
+						Namespace: "team-a", AgentName: "assistant", RevisionID: *test.failureRevision, Failure: failure,
+					})
+				}
+				r := &Reconciler{collections: Collections{
+					Reconciliations:          krt.NewStaticCollection(nil, []AgentReconciliation{state}, opts.WithName("Reconciliations")...),
+					AgentRuntimeObservations: krt.NewStaticCollection(nil, observations, opts.WithName("AgentRuntimeObservations")...),
+				}}
+				if test.running {
+					r.preparing.Store(state.ResourceName(), struct{}{})
+				}
+				var polls atomic.Int32
+				r.agents = newReconciliationQueue("test-poll", func(any) error {
+					polls.Add(1)
+					return nil
+				})
+				stop := make(chan struct{})
+				go r.agents.Run(stop)
+				go r.pollPendingTemplates(stop)
+				time.Sleep(time.Second)
+				synctest.Wait()
+				close(stop)
+				synctest.Wait()
+				require.NoError(t, r.agents.WaitForClose(time.Second))
+
+				want := int32(0)
+				if test.polled {
+					want = 1
+				}
+				require.Equal(t, want, polls.Load())
+			})
+		})
+	}
+}
+
 // Waiting for quiescence synchronizes worker writes with test reads, but test
 // mutations also need synchronization with the next timer-driven attempt.
 type preparationTestBackend struct {
 	mu        sync.Mutex
 	templates *fakeActorTemplates
 	store     *fakeRuntimeRevisionStore
+	getDelay  time.Duration
 }
 
 var _ actorTemplateClient = (*preparationTestBackend)(nil)
@@ -370,8 +484,11 @@ func (p *preparationTestBackend) EnsureAtespace(ctx context.Context, atespace st
 
 func (p *preparationTestBackend) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.templates.GetActorTemplate(ctx, atespace, name)
+	delay := p.getDelay
+	template, err := p.templates.GetActorTemplate(ctx, atespace, name)
+	p.mu.Unlock()
+	time.Sleep(delay)
+	return template, err
 }
 
 func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {

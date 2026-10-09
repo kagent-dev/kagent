@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -183,6 +184,10 @@ type Reconciler struct {
 	agentHandler             krt.HandlerRegistration
 	agentStatusHandler       krt.HandlerRegistration
 	modelConfigStatusHandler krt.HandlerRegistration
+
+	// Polling an Agent while it is being prepared would mark it dirty in the
+	// queue, so a failure would be retried immediately instead of backing off.
+	preparing sync.Map
 }
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
@@ -208,7 +213,10 @@ func newReconciler(
 		status:      status,
 	}
 	r.agents = newReconciliationQueue("v2-agents", func(item any) error {
-		return r.reconcileAgent(context.Background(), item.(string))
+		key := item.(string)
+		r.preparing.Store(key, struct{}{})
+		defer r.preparing.Delete(key)
+		return r.reconcileAgent(context.Background(), key)
 	})
 	r.agentStatuses = newReconciliationQueue("v2-agent-status", func(item any) error {
 		return r.reconcileAgentStatus(context.Background(), item.(string))
@@ -278,9 +286,20 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		case <-ticker.C:
 			for _, state := range r.collections.Reconciliations.List() {
 				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
-				if state.Target != nil && state.PreparationFailure == nil && state.ObservedActorTemplate != nil && golden.GetGoldenTag() == nil {
-					r.agents.Add(state.ResourceName())
+				if state.Target == nil || state.PreparationFailure != nil || state.ObservedActorTemplate == nil || golden.GetGoldenTag() != nil {
+					continue
 				}
+				key := state.ResourceName()
+				if _, running := r.preparing.Load(key); running {
+					continue
+				}
+				// The graph can lag a just-recorded failure whose retry is already
+				// waiting on backoff.
+				if observed := r.collections.AgentRuntimeObservations.GetKey(key); observed != nil &&
+					observed.RevisionID == state.Target.RevisionID && observed.Failure != nil {
+					continue
+				}
+				r.agents.Add(key)
 			}
 		}
 	}
