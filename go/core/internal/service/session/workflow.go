@@ -414,7 +414,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		}
 		switch {
 		case validActorIdentity(actor, current, binding.Name):
-			binding, revision = actorBinding(session.Id, current), current
+			binding = actorBinding(session.Id, current)
 		case actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 			current = nil
 		}
@@ -465,7 +465,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 				return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
 			}
 			if moved := actorBinding(session.Id, current); moved != binding {
-				binding, revision = moved, current
+				binding = moved
 				transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
 				if err != nil {
 					return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
