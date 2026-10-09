@@ -11,7 +11,6 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // ActorEgressPolicy compiles HTTP(S) origins into an actor's default allowlist.
@@ -25,26 +24,20 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	protocols := map[string]string{}
 	hosts := map[string]bool{}
 	for _, destination := range destinations {
-		u, err := url.Parse(destination)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Hostname() == "" || u.ForceQuery || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
-			return nil, fmt.Errorf("invalid egress destination %q: expected an HTTP(S) origin", destination)
+		if u, err := url.Parse(destination); err == nil {
+			if _, err := netip.ParseAddr(strings.TrimSuffix(u.Hostname(), ".")); err == nil {
+				return nil, fmt.Errorf("egress destination %q requires a DNS name: Substrate does not support IP allowlists", destination)
+			}
 		}
-		host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-		if _, err := netip.ParseAddr(host); err == nil {
-			return nil, fmt.Errorf("egress destination %q requires a DNS name: Substrate does not support IP allowlists", destination)
-		}
-		if len(validation.IsDNS1123Subdomain(host)) != 0 {
-			return nil, fmt.Errorf("invalid egress destination %q", destination)
-		}
-		origin := egress.Origin(u)
-		u, err = url.Parse(origin)
+		origin, err := egress.ParseOrigin(destination)
 		if err != nil {
-			return nil, fmt.Errorf("invalid egress destination %q: %w", destination, err)
+			return nil, fmt.Errorf("invalid egress destination: %w", err)
 		}
-		port, err := strconv.ParseUint(u.Port(), 10, 16)
-		if err != nil || port == 0 {
-			return nil, fmt.Errorf("invalid egress port in %q", destination)
-		}
+		// ParseOrigin returns scheme://host:port with a valid port; the port is
+		// re-encoded so "0443" and "443" are one origin.
+		u, _ := url.Parse(origin)
+		host := u.Hostname()
+		port, _ := strconv.ParseUint(u.Port(), 10, 16)
 		u.Host = net.JoinHostPort(host, strconv.FormatUint(port, 10))
 		if protocol, found := protocols[u.Host]; found && protocol != u.Scheme {
 			return nil, fmt.Errorf("egress destination %q uses both HTTP and HTTPS on the same port", u.Host)
@@ -72,8 +65,10 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	for _, origin := range names {
 		target := origins[origin]
 		ports := &ateapipb.Ports{Numbers: []int32{target.port}}
-		// Keep exactly one rule per host and port so an overlapping rule cannot
-		// bypass credential replacement.
+		// Keep exactly one rule per host pattern and port. A wildcard rule can
+		// overlap an exact one, but Substrate decides on the exact hostname
+		// first (EgressPolicy in proto/ateapi.proto), and credentials bind only
+		// to exact hostnames, so a wildcard cannot bypass credential replacement.
 		if target.scheme == "https" {
 			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HTTPSRule{Hostnames: []string{target.hostname}, Ports: ports, Effects: effects[target.hostname]}})
 		} else {

@@ -56,6 +56,7 @@ overrides of these variables are rejected.
 | Gemini API key | `x-goog-api-key: <key>` |
 | Bedrock bearer token | `authorization: Bearer <token>` |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
+| Agent or SandboxTemplate egress header (`spec.egress[].headers`) | Configured header and optional prefix; Secret contains the rest of the value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
 match its scheme, DNS name, and port; credential bindings remain scoped to the
@@ -67,7 +68,11 @@ by Substrate egress policies.
 
 Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on
-ModelConfig or RemoteMCPServer for gateway injection.
+ModelConfig, RemoteMCPServer, or Agent or SandboxTemplate egress headers for
+gateway injection. Egress headers are also rejected on a host the runtime
+reaches over HTTPS on another port. A sandbox's headers resolve Secrets in its
+SandboxTemplate's namespace, under the same Substrate credential policy as
+Agents there.
 
 AWS IAM signing keys, Google service-account keys, and OAuth client credentials
 require mechanisms beyond static header injection and are rejected rather than

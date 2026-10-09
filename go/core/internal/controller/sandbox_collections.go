@@ -2,12 +2,15 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 )
@@ -23,6 +26,8 @@ type sandboxReconciliation struct {
 	Template              *kagentv1alpha3.SandboxTemplate
 	RevisionID            string
 	SourceSnapshot        json.RawMessage
+	EgressDestinations    []string
+	Credentials           []egress.Credential
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	CompilationError      string
@@ -86,6 +91,11 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
+		} else if err := compileSandboxEgress(ctx, inputs, template, state); err != nil {
+			state.Failure = sandboxEgressFailure(err)
+			if state.Failure.Reason == sandboxPreparationFailed {
+				state.CompilationError = err.Error()
+			}
 		} else {
 			var err error
 			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy)
@@ -106,4 +116,42 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		return state
 	}, opts.WithName("SandboxReconciliations")...)
 	return sandboxCollections{states: states, observations: observations}
+}
+
+// The policy is checked at preparation but applied only when a sandbox is created.
+func compileSandboxEgress(ctx krt.HandlerContext, inputs Collections, template *kagentv1alpha3.SandboxTemplate, state *sandboxReconciliation) error {
+	declared := template.Spec.Egress
+	destinations, err := translator.WithEgress(nil, declared)
+	if err != nil {
+		return err
+	}
+	if err := translator.CheckEgressHeaderPorts(destinations, declared); err != nil {
+		return err
+	}
+	credentials, err := translator.EgressCredentials(template.Namespace, declared, func(namespace, name, key string) error {
+		return translator.RequireSecretKey(ctx, inputs.Secrets, namespace, name, key)
+	})
+	if err != nil {
+		return err
+	}
+	if credentials, err = egress.CanonicalCredentials(credentials); err != nil {
+		return translator.NewValidationError("%v", err)
+	}
+	if _, err := substrate.ActorEgressPolicy(template.Namespace, destinations, credentials); err != nil {
+		return err
+	}
+	state.EgressDestinations, state.Credentials = destinations, credentials
+	return nil
+}
+
+func sandboxEgressFailure(err error) *ReconciliationFailure {
+	var missing *translator.SecretNotFoundError
+	switch {
+	case errors.As(err, &missing) && missing.Key != "":
+		return &ReconciliationFailure{Reason: "SecretKeyNotFound", Message: err.Error()}
+	case errors.As(err, &missing):
+		return &ReconciliationFailure{Reason: "SecretNotFound", Message: err.Error()}
+	default:
+		return &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage}
+	}
 }

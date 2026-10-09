@@ -172,7 +172,7 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		RuntimeArtifact: database.RuntimeArtifact{Revision: state.RevisionID, Kind: "sandbox", Namespace: state.Template.Namespace,
 			ActorTemplateAtespace: ref.GetAtespace(), ActorTemplateName: ref.GetName(), ActorTemplateUID: observed.GetMetadata().GetUid()},
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
-		SourceSnapshot: state.SourceSnapshot,
+		SourceSnapshot: state.SourceSnapshot, EgressDestinations: state.EgressDestinations, Credentials: state.Credentials,
 	}
 	if err := s.store.RecordSandboxRevision(ctx, revision, ready); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)

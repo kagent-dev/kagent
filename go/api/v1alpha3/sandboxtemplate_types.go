@@ -37,6 +37,14 @@ type SandboxTemplateSpec struct {
 	// resolved in this template's namespace.
 	// +required
 	Substrate RuntimeSubstratePolicy `json:"substrate"`
+
+	// Egress lists the HTTP(S) origins a sandbox may reach, in the same form as
+	// an Agent's. A sandbox keeps the egress it was created with.
+	// +optional
+	// +listType=map
+	// +listMapKey=origin
+	// +kubebuilder:validation:MaxItems=64
+	Egress []EgressEntry `json:"egress,omitempty"`
 }
 
 // SandboxTemplateStatus reports preparation of the current template inputs.

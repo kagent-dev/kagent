@@ -108,11 +108,16 @@ func newAgentReconciliations(
 			condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *translator.ValidationError
 			var missingPool *translator.WorkerPoolNotFoundError
+			var missingSecret *translator.SecretNotFoundError
 			switch {
 			case errors.As(err, &validation):
 				condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
 			case errors.As(err, &missingPool):
 				reason = "WorkerPoolNotFound"
+			case errors.As(err, &missingSecret) && missingSecret.Key != "":
+				reason = "SecretKeyNotFound"
+			case errors.As(err, &missingSecret):
+				reason = "SecretNotFound"
 			}
 			state.CompilationFailure = &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
 			return state

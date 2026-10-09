@@ -85,6 +85,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
+	bindings = append(bindings, input.EgressCredentials...)
 	bindings, err := egress.CanonicalCredentials(bindings)
 	if err != nil {
 		return nil, nil, NewValidationError("%v", err)

@@ -250,6 +250,29 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			}),
 			wantReject: "Duplicate value",
 		},
+		{
+			name: "SandboxTemplate allows egress with headers on an exact https origin",
+			object: sandboxTemplateForValidation(namespace, "sandbox-egress", func(spec *SandboxTemplateSpec) {
+				spec.Egress = []EgressEntry{
+					{Origin: "https://*.githubusercontent.com"},
+					{Origin: "https://api.internal.example", Headers: []EgressHeader{{Name: "Authorization", Prefix: "Bearer ", ValueFrom: EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "api"}, Key: "token"}}}}},
+				}
+			}),
+		},
+		{
+			name: "SandboxTemplate rejects egress headers on a wildcard origin",
+			object: sandboxTemplateForValidation(namespace, "sandbox-egress-wildcard", func(spec *SandboxTemplateSpec) {
+				spec.Egress = []EgressEntry{{Origin: "https://*.example.com", Headers: []EgressHeader{{Name: "Authorization", ValueFrom: EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "api"}, Key: "token"}}}}}}
+			}),
+			wantReject: "headers need an exact https origin",
+		},
+		{
+			name: "SandboxTemplate rejects a duplicate egress origin",
+			object: sandboxTemplateForValidation(namespace, "sandbox-egress-duplicate", func(spec *SandboxTemplateSpec) {
+				spec.Egress = []EgressEntry{{Origin: "https://api.internal.example"}, {Origin: "https://api.internal.example"}}
+			}),
+			wantReject: "Duplicate value",
+		},
 	}
 
 	for _, tc := range []struct {
@@ -340,6 +363,61 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			spec.HarnessRef.Name = ""
 		}
 		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "empty-" + strings.ToLower(field)}, Spec: spec}), field+".name must not be empty")
+	}
+	t.Run("Agent egress accepts HTTP(S) origins and leftmost-label wildcards", func(t *testing.T) {
+		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+			Egress: []EgressEntry{{Origin: "https://proxy.golang.org"}, {Origin: "http://mirror.internal:8080"}, {Origin: "https://git.internal:65535"}, {Origin: "https://*.githubusercontent.com"}}}
+		require.NoError(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress"}, Spec: spec}))
+	})
+	for i, origin := range []string{
+		"proxy.golang.org", "ftp://proxy.golang.org", "https://*", "https://*.com", "https://a.*.example.com", "https://192.0.2.1", "https://[2001:db8::1]",
+		"https://proxy.golang.org/path", "https://Proxy.Golang.org", "https://user@proxy.golang.org", "https://proxy.golang.org?x=1",
+		"https://proxy.golang.org#f", "https://proxy.golang.org:0", "https://proxy.golang.org:70000",
+	} {
+		t.Run("Agent egress rejects "+origin, func(t *testing.T) {
+			spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"}, Egress: []EgressEntry{{Origin: origin}}}
+			require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("egress-invalid-%d", i)}, Spec: spec}), "spec.egress[0]")
+		})
+	}
+	secretHeader := func(name, secretName string) EgressHeader {
+		return EgressHeader{Name: name, Prefix: "Bearer ", ValueFrom: EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: "token"}}}
+	}
+	withHeaders := func(origin string, headers ...EgressHeader) AgentSpec {
+		return AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+			Egress: []EgressEntry{{Origin: origin, Headers: headers}}}
+	}
+	t.Run("Agent egress rejects a duplicate origin", func(t *testing.T) {
+		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+			Egress: []EgressEntry{{Origin: "https://api.internal.example"}, {Origin: "https://api.internal.example"}}}
+		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress-duplicate"}, Spec: spec}), "Duplicate value")
+	})
+	t.Run("Agent egress accepts headers on an exact https origin", func(t *testing.T) {
+		spec := withHeaders("https://api.internal.example", secretHeader("Authorization", "internal-api"), secretHeader("X-App-Id", "internal-api"))
+		require.NoError(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress-headers"}, Spec: spec}))
+	})
+	optional := true
+	for i, tc := range []struct {
+		name string
+		spec AgentSpec
+		want string
+	}{
+		{"an http origin", withHeaders("http://api.internal.example", secretHeader("Authorization", "internal-api")), "headers need an exact https origin"},
+		{"a wildcard origin", withHeaders("https://*.internal.example", secretHeader("Authorization", "internal-api")), "headers need an exact https origin"},
+		{"names differing only in case", withHeaders("https://api.internal.example", secretHeader("Authorization", "a"), secretHeader("authorization", "b")), "header names must be unique"},
+		{"an invalid header name", withHeaders("https://api.internal.example", secretHeader("Bad Header", "a")), "spec.egress[0].headers[0].name"},
+		{"no source", withHeaders("https://api.internal.example", EgressHeader{Name: "Authorization"}), "secretKeyRef is required"},
+		{"an empty Secret name", withHeaders("https://api.internal.example", secretHeader("Authorization", "")), "secretKeyRef needs a name and a key"},
+		{"an empty key", withHeaders("https://api.internal.example", EgressHeader{Name: "Authorization", ValueFrom: EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "a"}}}}), "secretKeyRef needs a name and a key"},
+		{"the Host header", withHeaders("https://api.internal.example", secretHeader("host", "a")), "cannot set the Host header"},
+		{"a control character in the prefix", withHeaders("https://api.internal.example", EgressHeader{Name: "Authorization", Prefix: "Bearer\x00", ValueFrom: EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "a"}, Key: "token"}}}), "spec.egress[0].headers[0].prefix"},
+		{"an optional Secret", withHeaders("https://api.internal.example", EgressHeader{Name: "Authorization", ValueFrom: EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "a"}, Key: "token", Optional: &optional}}}), "cannot be optional"},
+	} {
+		t.Run("Agent egress rejects headers with "+tc.name, func(t *testing.T) {
+			require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("egress-headers-invalid-%d", i)}, Spec: tc.spec}), tc.want)
+		})
 	}
 
 	for _, tc := range cases {

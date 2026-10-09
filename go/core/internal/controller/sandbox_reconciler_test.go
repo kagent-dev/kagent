@@ -116,19 +116,26 @@ func sandboxTestTemplate() *kagentv1alpha3.SandboxTemplate {
 
 func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconciler, krt.StaticCollection[*kagentv1alpha3.SandboxTemplate], krt.StaticCollection[*atev1alpha1.WorkerPool]) {
 	t.Helper()
+	reconciler, templates, pools, _ := newSandboxTestReconcilerWithSecrets(t, guestImage)
+	return reconciler, templates, pools
+}
+
+func newSandboxTestReconcilerWithSecrets(t *testing.T, guestImage string) (*SandboxReconciler, krt.StaticCollection[*kagentv1alpha3.SandboxTemplate], krt.StaticCollection[*atev1alpha1.WorkerPool], krt.StaticCollection[*corev1.Secret]) {
+	t.Helper()
 	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-sandbox", nil)
 	template := sandboxTestTemplate()
 	pool := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}
 	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.SandboxTemplate{template}, opts.WithName("SandboxTemplates")...)
 	pools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{pool}, opts.WithName("WorkerPools")...)
+	secrets := krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...)
 	store := &sandboxTestStore{}
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
-		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
+		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools, Secrets: secrets}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
 		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
-	return reconciler, templates, pools
+	return reconciler, templates, pools, secrets
 }
 
 func syncSandboxTemplate(t *testing.T, reconciler *SandboxReconciler, templates krt.StaticCollection[*kagentv1alpha3.SandboxTemplate]) *kagentv1alpha3.SandboxTemplate {
@@ -293,4 +300,57 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 		current, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})
 		return err == nil && apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestSandboxEgress(t *testing.T) {
+	s, templates, _, secrets := newSandboxTestReconcilerWithSecrets(t, "guest@sha256:"+strings.Repeat("b", 64))
+	const key = "team-a/scratch"
+	before := s.collections.states.GetKey(key).RevisionID
+
+	t.Run("compiles origins and waits for a header's Secret", func(t *testing.T) {
+		template := (*templates.GetKey(key)).DeepCopy()
+		template.Generation++
+		template.Spec.Egress = []kagentv1alpha3.EgressEntry{
+			{Origin: "https://*.githubusercontent.com"},
+			{Origin: "https://api.internal.example", Headers: []kagentv1alpha3.EgressHeader{{
+				Name: "Authorization", Prefix: "Bearer ",
+				ValueFrom: kagentv1alpha3.EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "internal-api"}, Key: "token"}},
+			}}},
+		}
+		templates.UpdateObject(template)
+		waitFor(t, func() bool { return s.collections.states.GetKey(key).Template.Generation == template.Generation })
+		missing := s.collections.states.GetKey(key)
+		require.Equal(t, "SecretNotFound", missing.Failure.Reason)
+		require.Contains(t, missing.Failure.Message, "internal-api")
+		require.Nil(t, missing.DesiredActorTemplate)
+
+		secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "internal-api"}, Data: map[string][]byte{"token": []byte("t")}})
+		waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure == nil })
+		state := s.collections.states.GetKey(key)
+		require.NotEqual(t, before, state.RevisionID, "egress is part of the revision")
+		require.Equal(t, []string{"https://*.githubusercontent.com:443", "https://api.internal.example:443"}, state.EgressDestinations)
+		require.Len(t, state.Credentials, 1)
+		require.Equal(t, "ate-secret://k8s.io/default/team-a/internal-api/token", state.Credentials[0].URI)
+
+		require.NoError(t, s.reconcile(t.Context(), key))
+		syncSandboxTemplate(t, s, templates)
+		require.NoError(t, s.reconcile(t.Context(), key))
+		recorded := s.store.(*sandboxTestStore).revision
+		require.Equal(t, state.EgressDestinations, recorded.EgressDestinations)
+		require.Equal(t, state.Credentials, recorded.Credentials)
+	})
+
+	t.Run("rejects headers on a wildcard origin", func(t *testing.T) {
+		template := (*templates.GetKey(key)).DeepCopy()
+		template.Generation++
+		template.Spec.Egress = []kagentv1alpha3.EgressEntry{{Origin: "https://*.example.com", Headers: []kagentv1alpha3.EgressHeader{{
+			Name:      "Authorization",
+			ValueFrom: kagentv1alpha3.EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "internal-api"}, Key: "token"}},
+		}}}}
+		templates.UpdateObject(template)
+		waitFor(t, func() bool { return s.collections.states.GetKey(key).Template.Generation == template.Generation })
+		state := s.collections.states.GetKey(key)
+		require.Equal(t, sandboxPreparationFailed, state.Failure.Reason)
+		require.Contains(t, state.CompilationError, "exact https origin")
+	})
 }

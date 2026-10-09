@@ -7,6 +7,7 @@ import (
 	"maps"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -62,6 +63,9 @@ type HarnessInput struct {
 	Harness      *HarnessConfiguration
 	Root         *AgentInput
 	OutputSchema *ResolvedOutputSchema
+	// EgressCredentials are the Agent's egress header bindings, checked with
+	// the runtime's own.
+	EgressCredentials []egress.Credential
 }
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
@@ -120,11 +124,22 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		}
 		harness = harnessConfiguration(*found)
 	}
-	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
+	credentials, err := EgressCredentials(agent.Namespace, agent.Spec.Egress, c.requireSecretKey)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.compileConfiguration(ctx, agent.Name, harness, template, credentials)
 	if err != nil {
 		return nil, err
 	}
 	result.AgentUID = string(agent.UID)
+	result.EgressDestinations, err = WithEgress(result.EgressDestinations, agent.Spec.Egress)
+	if err != nil {
+		return nil, err
+	}
+	if err := CheckEgressHeaderPorts(result.EgressDestinations, agent.Spec.Egress); err != nil {
+		return nil, err
+	}
 	result.Provenance, err = json.Marshal(struct {
 		AgentName string             `json:"agentName"`
 		AgentUID  string             `json:"agentUID"`
@@ -137,9 +152,14 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 	return result, nil
 }
 
+// requireSecretKey returns a reference failure, which the controller retries.
+func (c *Compiler) requireSecretKey(namespace, name, key string) error {
+	return RequireSecretKey(c.ctx, c.collections.Secrets, namespace, name, key)
+}
+
 // compileConfiguration compiles resolved configuration for the named Agent.
 // The Agent name owns runtime identity; template and Harness names are provenance.
-func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
+func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration, credentials []egress.Credential) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -153,6 +173,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 		return nil, err
 	}
 	input.AgentName = agentName
+	input.EgressCredentials = credentials
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err

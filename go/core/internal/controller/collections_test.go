@@ -7,6 +7,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -451,6 +452,65 @@ func harness(namespace, name string, matchLabels map[string]string) *kagentv1alp
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec:       kagentv1alpha3.HarnessSpec{},
 	}
+}
+
+func TestReconciliationWaitsForEgressHeaderSecret(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test-egress", nil)
+	template := &kagentv1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, SystemPrompt: "help"},
+	}
+	runtimeHarness := harness("team-a", "kagent", nil)
+	runtimeHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+	}
+	model := &kagentv1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
+		Spec:       kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
+	}
+	agent := testAgent(template, runtimeHarness)
+	agent.Spec.Egress = []kagentv1alpha3.EgressEntry{{Origin: "https://api.internal.example", Headers: []kagentv1alpha3.EgressHeader{{
+		Name: "Authorization", Prefix: "Bearer ",
+		ValueFrom: kagentv1alpha3.EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "internal-api"}, Key: "token"}},
+	}}}}
+	mock := krttest.NewMock(t, []any{template, runtimeHarness, model})
+	configMaps := krttest.GetMockCollection[*corev1.ConfigMap](mock)
+	secrets := krt.NewStaticCollection(nil, []*corev1.Secret{
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
+	}, opts.WithName("Secrets")...)
+	_, resolvedModels := newModelConfigReconciliations(krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock), configMaps, secrets, opts)
+	workerPools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...)
+	observations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
+	reconciliations := newAgentReconciliations(krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{agent}, opts.WithName("Agents")...), translator.Collections{
+		Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+		ResolvedModelConfigs: resolvedModels, RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
+		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
+	}, observations, opts)
+	key := "team-a/assistant"
+	failureReason := func() string {
+		state := reconciliations.GetKey(key)
+		if state == nil || state.CompilationFailure == nil {
+			return ""
+		}
+		require.Equal(t, kagentv1alpha3.AgentConditionResolvedRefs, state.CompilationFailure.Condition)
+		return state.CompilationFailure.Reason
+	}
+
+	waitFor(t, func() bool { return failureReason() == "SecretNotFound" })
+	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "internal-api"}, Data: map[string][]byte{"other": []byte("t")}})
+	waitFor(t, func() bool { return failureReason() == "SecretKeyNotFound" })
+	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "internal-api"}, Data: map[string][]byte{"token": []byte("t")}})
+	waitFor(t, func() bool {
+		state := reconciliations.GetKey(key)
+		return state != nil && state.CompilationFailure == nil && state.Target != nil
+	})
+	require.Contains(t, reconciliations.GetKey(key).Target.Revision.Credentials, egress.Credential{
+		Hostname: "api.internal.example", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/internal-api/token",
+	})
 }
 
 func waitFor(t *testing.T, condition func() bool) {

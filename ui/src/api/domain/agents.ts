@@ -5,7 +5,23 @@ import type { HarnessSpec } from "./harnesses";
 /** Exactly one of each pair; refs resolve in the Agent's namespace. */
 export type AgentSpec =
   ({ template: AgentTemplateSpec; templateRef?: never } | { templateRef: { name: string }; template?: never }) &
-  ({ harness: HarnessSpec; harnessRef?: never } | { harnessRef: { name: string }; harness?: never });
+  ({ harness: HarnessSpec; harnessRef?: never } | { harnessRef: { name: string }; harness?: never }) & {
+    /** HTTP(S) origins the Agent may reach besides what its revision compiles. */
+    egress?: AgentEgress[];
+  };
+
+/** An origin the Agent may reach, with headers the egress gateway sets. */
+export interface AgentEgress {
+  origin: string;
+  headers?: EgressHeader[];
+}
+
+/** A header whose value comes from a Secret in the Agent's namespace. */
+export interface EgressHeader {
+  name: string;
+  prefix?: string;
+  valueFrom: { secretKeyRef: { name: string; key: string } };
+}
 /** One condition the controller recorded for an Agent. */
 export interface AgentCondition {
   type: string;

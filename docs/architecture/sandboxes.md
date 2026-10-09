@@ -115,8 +115,14 @@ TTL. Helm supplies these through the controller ConfigMap. Defaults are one CPU,
 1 GiB memory, a one-hour TTL, and a 24-hour maximum TTL. Activity does not extend
 expiration.
 
-Sandboxes have no allowed egress destinations. A follow-up will add destination
-configuration to `SandboxTemplate` and pin it with each prepared revision.
+`SandboxTemplate.spec.egress` lists the HTTP(S) origins a sandbox may reach, in
+the same form as `Agent.spec.egress`: origins, with optional Secret-backed
+headers the egress gateway sets (see [credential injection](credential-injection.md)).
+A template without it reaches nothing. Egress is part of the prepared revision,
+and a sandbox gets its revision's policy when it is created, so a template
+change applies to new sandboxes; existing ones keep the egress they started with.
+A header whose Secret or key is missing holds preparation on `SecretNotFound` or
+`SecretKeyNotFound` until it appears.
 
 ## Lifecycle and recovery
 
