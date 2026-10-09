@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -523,7 +524,8 @@ func makeAfterToolCallback(logger *slog.Logger) llmagent.AfterToolCallback {
 	}
 }
 
-// makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors.
+// makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors
+// and marks the function response of a failed call with isError.
 func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 	return func(ctx agent.Context, t tool.Tool, args map[string]any, err error) (map[string]any, error) {
 		logger.ErrorContext(ctx, "tool execution failed", "error", err,
@@ -532,7 +534,11 @@ func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 			"session_id", ctx.SessionID(),
 			"invocation_id", ctx.InvocationID(),
 		)
-		return nil, nil
+		// A confirmation request is a pause, not a failure; clients match its plain text.
+		if errors.Is(err, tool.ErrConfirmationRequired) {
+			return nil, nil
+		}
+		return map[string]any{"error": err.Error(), "isError": true}, nil
 	}
 }
 
