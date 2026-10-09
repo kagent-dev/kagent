@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -80,12 +81,19 @@ func TestPrepareBundledPostgresRejectsInvalidNamespace(t *testing.T) {
 	require.ErrorContains(t, prepareBundledPostgres(t.Context(), "bad\nnamespace: injected"), "invalid namespace")
 }
 
+func TestBundledPostgresImage(t *testing.T) {
+	manifest, err := bundledPostgresManifest("demo", "mirror.example/library/postgres:18-alpine")
+	require.NoError(t, err)
+	require.Equal(t, 2, strings.Count(manifest, "image: mirror.example/library/postgres:18-alpine"))
+
+	_, err = bundledPostgresManifest("demo", "postgres:18\n        command: [sh]")
+	require.ErrorContains(t, err, "invalid PostgreSQL image")
+}
+
 func TestBundledPostgresAssets(t *testing.T) {
-	manifests := []string{
-		strings.ReplaceAll(bundledPostgresNamespaceYAML, "${NAMESPACE}", "demo"),
-		strings.NewReplacer("${NAMESPACE}", "demo", "${SUBSTRATE_NAMESPACE}", substrateNamespace).Replace(bundledPostgresYAML),
-	}
-	manifest := strings.Join(manifests, "\n---\n")
+	rendered, err := bundledPostgresManifest("demo", env.KagentBundledPostgresImage.DefaultValue())
+	require.NoError(t, err)
+	manifest := strings.Join([]string{strings.ReplaceAll(bundledPostgresNamespaceYAML, "${NAMESPACE}", "demo"), rendered}, "\n---\n")
 	for document := range strings.SplitSeq(manifest, "\n---\n") {
 		require.NotContains(t, document, "${")
 		var object map[string]any
