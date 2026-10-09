@@ -48,8 +48,21 @@ artifacts.
 ## Delivery
 
 Kagent queues eligible updates in the same database transaction that publishes
-the task state. A leader-elected worker sends them after that transaction
-commits. Failed attempts retry up to ten times, including after controller
+the task state. Each API replica runs a sender, woken through its own buffered,
+nonblocking channel after settlement commits. Push and quiescence have separate
+channels so neither consumes the other's hint. PostgreSQL row claims, leases,
+and claim tokens coordinate delivery across replicas; HTTP runs outside the claim
+transaction.
+
+Workers drain the shared outbox at startup and after wake-ups. When idle, recovery
+scans run once a minute by default (`KAGENT_A2A_PUSH_POLL_INTERVAL`, which must be
+positive), also cleaning up unbound registrations. Lost hints, including a crash
+between commit and signaling, can delay delivery until another replica's next
+scan. Outstanding retries and leased deliveries use a five-second polling interval,
+and database errors use one-second retries. Each pass handles at most 100
+deliveries before registration cleanup; a full batch continues immediately.
+
+Failed attempts retry up to ten times, including after controller
 restarts. Requests can arrive more than once or out of order, so receivers
 should handle duplicates and use `GetTask` as the source of truth. Any 2xx
 response acknowledges delivery. Redirects are treated as failures; register

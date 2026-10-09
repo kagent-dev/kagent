@@ -129,7 +129,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		workflow := NewActorWorkflow(writes, runtime, wake, time.Hour)
 		startQuiescenceWorker(t, workflow)
 		workflows = append(workflows, workflow)
-		services = append(services, taskstore.NewService(store, wake))
+		services = append(services, taskstore.NewService(store, wake, nil))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 8 }, 5*time.Second, 10*time.Millisecond)
 	// Failed settlement leaves the task unpublished and no eligible work.
@@ -143,7 +143,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	// Fill one replica before waking the other. PostgreSQL does not promise
 	// fair assignment when both replicas compete for the same small burst.
 	// Deliver one coalesced hint per burst to exercise the workers' handoff.
-	coalesced := taskstore.NewService(store, nil)
+	coalesced := taskstore.NewService(store, nil, nil)
 	for replica := range 2 {
 		for i := replica * 4; i < (replica+1)*4; i++ {
 			_, err := coalesced.SettleTask(settlementContext(t, sessions[i]), requests[i])
@@ -202,7 +202,7 @@ func TestQuiescenceRecoversMissedSignal(t *testing.T) {
 	startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 100*time.Millisecond))
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 4 }, 5*time.Second, time.Millisecond)
 	// This simulates a commit on a replica that dies before sending its hint.
-	_, err = taskstore.NewService(store, nil).SettleTask(settlementContext(t, session), request)
+	_, err = taskstore.NewService(store, nil, nil).SettleTask(settlementContext(t, session), request)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 }

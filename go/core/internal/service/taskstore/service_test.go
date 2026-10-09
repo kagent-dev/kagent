@@ -53,8 +53,12 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 				if test.queued {
 					wakes <- struct{}{}
 				}
+				pushWakes := make(chan struct{}, 1)
+				if test.queued {
+					pushWakes <- struct{}{}
+				}
 				before := len(wakes)
-				service := NewService(store, wakes)
+				service := NewService(store, wakes, pushWakes)
 				ctx, cancel := context.WithCancel(auth.AuthSessionTo(t.Context(), runtimeSession{sessionID: "session", atespace: "team-a", actorUID: "actor"}))
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)
@@ -65,14 +69,17 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 				synctest.Wait()
 				require.False(t, store.committed)
 				require.Len(t, wakes, before, "must not signal before the commit")
+				require.Len(t, pushWakes, before, "must not signal push before the commit")
 				commit <- struct{}{}
 				require.Equal(t, test.want, status.Code(<-done), "a queued hint must not block settlement")
 				if test.err == nil {
 					require.True(t, store.committed)
 					require.Len(t, wakes, 1)
+					require.Len(t, pushWakes, 1)
 				} else {
 					require.False(t, store.committed)
 					require.Empty(t, wakes)
+					require.Empty(t, pushWakes)
 				}
 			})
 		})

@@ -166,6 +166,10 @@ func Run(ctx context.Context, opts Options) error {
 	if quiescenceInterval <= 0 {
 		return fmt.Errorf("%s must be positive", kagentenv.SessionQuiescencePollInterval.Name())
 	}
+	pushInterval := kagentenv.A2APushPollInterval.Get()
+	if pushInterval <= 0 {
+		return fmt.Errorf("%s must be positive", kagentenv.A2APushPollInterval.Name())
+	}
 	dbURL := kagentenv.PostgresDatabaseURL.Get()
 	if dbURL == "" {
 		return fmt.Errorf("%s is required", kagentenv.PostgresDatabaseURL.Name())
@@ -320,8 +324,9 @@ func Run(ctx context.Context, opts Options) error {
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
 	quiescenceWake := make(chan struct{}, 1)
+	pushWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
-	runtimeTasks := taskstore.NewService(store, quiescenceWake)
+	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
@@ -354,7 +359,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
-	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner)); err != nil {
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, pushInterval)); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cmp.Or(kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083"))

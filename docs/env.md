@@ -123,6 +123,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `false` | Allow HTTP A2A push callbacks. HTTPS is required by default. |
 | `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `false` | Allow A2A push callbacks to private, loopback, and link-local destinations. |
 | `KAGENT_A2A_PUSH_ISSUER` | String | `(none)` | Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL. |
+| `KAGENT_A2A_PUSH_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed push notification wake-ups and registration cleanup. Must be positive; settlements wake local workers immediately and outstanding deliveries use a five-second polling interval. |
 | `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` | String | `(none)` | Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |

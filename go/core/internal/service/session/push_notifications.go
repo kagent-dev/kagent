@@ -66,18 +66,21 @@ type pushStore interface {
 	ExpireUnboundPushRegistrations(context.Context) error
 	ClaimDuePushDelivery(context.Context) (*database.PushDelivery, error)
 	FinishPushDelivery(context.Context, database.PushDelivery, bool) error
+	HasPendingPushDelivery(context.Context) (bool, error)
 }
 
 type pushSender interface {
 	SendPush(context.Context, *a2a.PushConfig, a2a.Event) error
 }
 
-// PushWorker sends committed outbox payloads. Lease expiry permits another
-// elected worker to retry after a crash.
+// PushWorker sends committed outbox payloads on every API replica. PostgreSQL
+// claims coordinate workers; lease expiry permits recovery after a crash.
 type PushWorker struct {
-	store  pushStore
-	sender pushSender
-	signer *PushJWTSigner
+	store            pushStore
+	sender           pushSender
+	signer           *PushJWTSigner
+	wake             <-chan struct{}
+	recoveryInterval time.Duration
 }
 
 var _ manager.LeaderElectionRunnable = (*PushWorker)(nil)
@@ -85,27 +88,41 @@ var _ manager.Runnable = (*PushWorker)(nil)
 var _ pushStore = (*database.Client)(nil)
 
 // NewPushWorker sends unsigned notifications when signer is nil.
-func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner) *PushWorker {
-	return &PushWorker{store: store, sender: sender, signer: signer}
+func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner, wake <-chan struct{}, recoveryInterval time.Duration) *PushWorker {
+	return &PushWorker{store: store, sender: sender, signer: signer, wake: wake, recoveryInterval: recoveryInterval}
 }
 
-func (p *PushWorker) NeedLeaderElection() bool { return true }
+func (p *PushWorker) NeedLeaderElection() bool { return false }
 
+// Start drains work at startup and after local settlement hints. Recovery scans
+// find missed hints; outstanding retries and leases retain the five-second scan.
 func (p *PushWorker) Start(ctx context.Context) error {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(p.recoveryInterval)
+	defer timer.Stop()
 	for {
 		fullBatch, err := p.poll(ctx)
-		if err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
-		}
-		if fullBatch {
+		if fullBatch && err == nil {
 			continue
 		}
+		delay := p.recoveryInterval
+		if err == nil {
+			var pending bool
+			pending, err = p.store.HasPendingPushDelivery(ctx)
+			// If there are pending deliveries, we want to poll more frequently to avoid delays in processing.
+			if pending {
+				delay = min(5*time.Second, p.recoveryInterval)
+			}
+		}
+		if err != nil && ctx.Err() == nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
+			delay = min(time.Second, p.recoveryInterval)
+		}
+		timer.Reset(delay)
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
+		case <-p.wake:
 		}
 	}
 }
