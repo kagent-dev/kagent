@@ -162,8 +162,8 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
-| `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
-| `KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE` | String | `(none)` | PEM bundle containing both the client certificate and private key for Substrate API mTLS. Reloaded for each TLS handshake. |
+| `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server and an https Atenet router. Empty uses system trust roots. |
+| `KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE` | String | `(none)` | PEM bundle containing both the client certificate and private key for mTLS to the Substrate API and an https Atenet router. Reloaded for each TLS handshake. |
 | `KAGENT_SUBSTRATE_ATE_API_ENDPOINT` | String | `dns:///api.ate-system.svc:443` | Substrate control-plane gRPC endpoint. |
 | `KAGENT_WATCH_NAMESPACES` | String | `(none)` | Comma-separated namespaces to watch. Empty watches all namespaces. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |

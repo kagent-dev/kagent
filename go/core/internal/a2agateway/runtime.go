@@ -2,10 +2,9 @@ package a2agateway
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
-	"net/url"
+	"slices"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -18,7 +17,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // RuntimeDialer connects public gateway calls to the single root Actor used by
@@ -33,27 +31,15 @@ type RuntimeDialer struct {
 
 // NewRuntimeDialer configures private A2A gRPC calls through Substrate's
 // shared Atenet router; ate-target-actor selects the Actor.
-func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
-	router, err := url.Parse(routerURL)
+func NewRuntimeDialer(router substrate.Router, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
+	target, transport, err := router.Transport()
 	if err != nil {
-		return nil, fmt.Errorf("parse Atenet router URL %q: %w", routerURL, err)
-	}
-	if router.Host == "" {
-		return nil, fmt.Errorf("atenet router URL %q must include a host", routerURL)
+		return nil, err
 	}
 	if authenticator == nil {
 		return nil, fmt.Errorf("atenet runtime authentication is not configured")
 	}
-	var transport credentials.TransportCredentials
-	switch router.Scheme {
-	case "http":
-		transport = insecure.NewCredentials()
-	case "https":
-		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: router.Hostname()})
-	default:
-		return nil, fmt.Errorf("atenet router URL %q must use http or https", routerURL)
-	}
-	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}, nil
+	return &RuntimeDialer{target: target, transport: transport, authenticator: authenticator}, nil
 }
 
 func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
@@ -93,6 +79,13 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	if err != nil {
 		return ctx, nil, err
 	}
+	// UpstreamAuth sees the call's outgoing params and target Actor, such as the
+	// dispatch ID, so it can scope credentials to one call. It can add params,
+	// but the target Actor is set again below.
+	for key, values := range req.ServiceParams {
+		httpRequest.Header[http.CanonicalHeaderKey(key)] = slices.Clone(values)
+	}
+	httpRequest.Header.Set("ate-target-actor", u.targetActor)
 	if session, ok := auth.AuthSessionFrom(ctx); ok {
 		principal := auth.Principal{Agent: auth.Agent{ID: u.session.GetId()}}
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, principal); err != nil {
