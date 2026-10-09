@@ -87,6 +87,15 @@ test("agent templates: a template is created, read, edited and deleted", async (
       await page.getByTestId("template-form-mcp-remove-0").click();
     });
 
+    await test.step("a namespace with no model configurations says why the list is empty", async () => {
+      await selectOption(page, "template-form-namespace", "default");
+      await expect(page.getByTestId("template-form-model-availability")).toContainText(
+        "No model configurations found in default",
+      );
+      await selectOption(page, "template-form-namespace", "kagent");
+      await expect(page.getByTestId("template-form-model-availability")).toHaveCount(0);
+    });
+
 
     // Only the name is required: a BYO harness runs a template with no model.
     await expect(page.getByTestId("template-submit")).toBeDisabled();
