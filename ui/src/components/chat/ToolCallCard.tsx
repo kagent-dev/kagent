@@ -80,7 +80,7 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
 /** Pulls the readable payload out of either shape, and notices a failure. */
 function describe(part: ChatDataPart): { body: string; failed: boolean } {
   if (part.dataKind === "tool_call") {
-    return { body: stableJson(part.data.args ?? {}), failed: false };
+    return { body: formatPayload(part.data.args ?? {}), failed: false };
   }
   if (part.dataKind === "tool_not_run") {
     return { body: "Permission was denied, so this tool was not run.", failed: false };
@@ -88,23 +88,31 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
 
   const response = part.data.response;
   if (response && typeof response === "object") {
-    // `output` is what the controller sends; `result` is the other spelling seen
-    // in the wild. Neither is guaranteed, so an unrecognised response is printed
-    // whole rather than reduced to `{}` — a tool that returned a page of text
-    // should never be rendered as though it returned nothing, which is exactly
-    // what happened when only one of these names was read.
-    const { output, result, isError, error } = response as {
+    const { output, result, data, isError, error, status } = response as {
       output?: unknown;
       result?: unknown;
+      data?: unknown;
       isError?: unknown;
       error?: unknown;
+      status?: unknown;
     };
-    const payload = output ?? result;
+    const payload = output ?? result ?? data ?? error ?? response;
 
     return {
-      body: typeof payload === "string" ? payload : stableJson(payload ?? response),
-      failed: isError === true || error !== undefined,
+      body: formatPayload(payload),
+      failed: isError === true || error != null || status === "error",
     };
   }
-  return { body: stableJson(part.data), failed: false };
+  return { body: formatPayload(response ?? part.data), failed: false };
+}
+
+function formatPayload(payload: unknown): string {
+  if (typeof payload !== "string") return stableJson(payload);
+  try {
+    const parsed: unknown = JSON.parse(payload);
+    if (parsed !== null && typeof parsed === "object") return stableJson(parsed);
+  } catch {
+    // Tool output can be plain text.
+  }
+  return payload;
 }
