@@ -253,6 +253,7 @@ type lifecycleTestActors struct {
 	getErr           error
 	policyErr        error
 	policy           *ateapipb.EgressPolicy
+	inherited        *ateapipb.EgressPolicy
 	policyActor      string
 	policyCalls      int
 	repointErr       error
@@ -595,11 +596,11 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	return fork, checkpoint.Id
 }
 
-func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
+func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, policy, inherited *ateapipb.EgressPolicy) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.policyActor = actorKey(atespace, name)
-	a.policy = proto.CloneOf(policy)
+	a.policy, a.inherited = proto.CloneOf(policy), proto.CloneOf(inherited)
 	a.policyCalls++
 	return a.policyErr
 }
@@ -683,6 +684,9 @@ func TestSessionEgressPolicyLeavesOutTheGoldenBootsCredentials(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, actors.policyCalls)
 	requireSessionPolicy(t, actors.policy)
+	template, err := substrate.ActorEgressPolicy("team-a", destinations, credentials)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(template, actors.inherited), "the template's default, which the new Actor starts with, is the policy replaced")
 
 	current := database.RuntimeRevision{
 		Revision: "revision-2", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",

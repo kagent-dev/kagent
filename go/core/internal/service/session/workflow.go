@@ -390,7 +390,11 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
-		creation = &substrate.ActorCreation{EgressPolicy: policy, ExistingVolumes: existing}
+		inherited, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
+		if err != nil {
+			return w.failPreparation(ctx, operation, err)
+		}
+		creation = &substrate.ActorCreation{EgressPolicy: policy, InheritedPolicy: inherited, ExistingVolumes: existing}
 		if snapshot != nil {
 			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
 		}

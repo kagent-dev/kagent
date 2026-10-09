@@ -41,7 +41,7 @@ func (a *transitionActors) CreateActor(_ context.Context, space, name, templateS
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error {
+func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy, *ateapipb.EgressPolicy) error {
 	a.calls = append(a.calls, "policy")
 	return a.policyErr
 }

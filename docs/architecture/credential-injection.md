@@ -65,8 +65,10 @@ fetches skills and plugins, so the ActorTemplate's default policy carries the
 binding, and a session's Actor policy (on create, on repoint to a newer
 revision, and on its rollback) is compiled without it. The source's host stays
 allowed from the sandbox, unauthenticated, so a shell tool or other client in
-the session cannot spend the source's token. The scope is part of revision
-identity.
+the session cannot spend the source's token. Substrate gives a new Actor its
+template's default policy; session creation replaces it with the session's
+before the Actor first runs, and refuses any other existing allowlist. The
+scope is part of revision identity.
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
 match its scheme, DNS name, and port; credential bindings remain scoped to the
