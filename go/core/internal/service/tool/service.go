@@ -212,7 +212,14 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 		}
 	}
 	if groupKind == "" {
-		return serviceerrors.NewNotFound("ToolServer not found", nil)
+		liveKind, err := s.liveToolServerGroupKind(ctx, ref)
+		if err != nil {
+			return serviceerrors.NewInternal("Failed to look up live tool server", err)
+		}
+		if liveKind == "" {
+			return serviceerrors.NewNotFound("ToolServer not found", nil)
+		}
+		groupKind = liveKind
 	}
 
 	var object client.Object
@@ -236,6 +243,26 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 		return serviceerrors.NewInternal("Failed to delete "+objectKindName(object)+" from Kubernetes", err)
 	}
 	return nil
+}
+
+// liveToolServerGroupKind returns the GroupKind of a live RemoteMCPServer or MCPServer
+// matching ref, "" if neither exists yet, or any non-NotFound error from the lookups
+// (RBAC, timeout, ...) so the caller does not fold a real failure into "not found".
+// A plain corev1.Service is deliberately not checked here: CreateToolServer never
+// creates one, so matching on name/namespace alone would delete an unrelated Service
+// that happens to share the ref.
+func (s *Service) liveToolServerGroupKind(ctx context.Context, ref types.NamespacedName) (string, error) {
+	if err := s.kubeClient.Get(ctx, ref, &v1alpha3.RemoteMCPServer{}); err == nil {
+		return remoteMCPServerGVK.GroupKind().String(), nil
+	} else if !apierrors.IsNotFound(err) {
+		return "", err
+	}
+	if err := s.kubeClient.Get(ctx, ref, &kmcp.MCPServer{}); err == nil {
+		return mcpServerGVK.GroupKind().String(), nil
+	} else if !apierrors.IsNotFound(err) {
+		return "", err
+	}
+	return "", nil
 }
 
 func (s *Service) ListToolServerTypes(ctx context.Context) ([]ServerType, error) {
