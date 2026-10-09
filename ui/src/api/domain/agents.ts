@@ -5,7 +5,10 @@ import type { HarnessSpec } from "./harnesses";
 /** Exactly one of each pair; refs resolve in the Agent's namespace. */
 export type AgentSpec =
   ({ template: AgentTemplateSpec; templateRef?: never } | { templateRef: { name: string }; template?: never }) &
-  ({ harness: HarnessSpec; harnessRef?: never } | { harnessRef: { name: string }; harness?: never });
+  ({ harness: HarnessSpec; harnessRef?: never } | { harnessRef: { name: string }; harness?: never }) & {
+    /** HTTP(S) origins the Agent may reach besides what its revision compiles. */
+    egress?: string[];
+  };
 /** One condition the controller recorded for an Agent. */
 export interface AgentCondition {
   type: string;
