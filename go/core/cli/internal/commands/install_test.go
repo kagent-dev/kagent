@@ -91,9 +91,8 @@ func TestBundledPostgresImage(t *testing.T) {
 }
 
 func TestBundledPostgresAssets(t *testing.T) {
-	rendered, err := bundledPostgresManifest("demo", env.KagentBundledPostgresImage.DefaultValue())
+	manifest, err := bundledPostgresManifest("demo", env.KagentBundledPostgresImage.DefaultValue())
 	require.NoError(t, err)
-	manifest := strings.Join([]string{strings.ReplaceAll(bundledPostgresNamespaceYAML, "${NAMESPACE}", "demo"), rendered}, "\n---\n")
 	for document := range strings.SplitSeq(manifest, "\n---\n") {
 		require.NotContains(t, document, "${")
 		var object map[string]any
