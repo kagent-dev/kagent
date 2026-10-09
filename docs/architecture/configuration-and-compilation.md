@@ -32,6 +32,11 @@ in canonical form, after the runtime compiler has run, so every runtime and
 every Shared subagent treats them the same, and they are part of the revision
 identity.
 
+An entry on an exact `https` origin may list `headers`, each from a key of a
+Secret in the Agent's namespace. They compile to gateway credential bindings
+like ModelConfig keys (see [credential injection](credential-injection.md)).
+A missing Secret or key reports `SecretNotFound` or `SecretKeyNotFound`.
+
 All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
 API.

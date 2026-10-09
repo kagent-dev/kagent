@@ -60,12 +60,100 @@ spec:
                   one label, such as raw.githubusercontent.com. A wildcard needs two labels
                   under it, so nothing opens a whole top-level domain or every host.
                 items:
-                  maxLength: 270
-                  pattern: ^https?://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
-                  type: string
+                  description: EgressEntry is one origin a runtime may reach.
+                  properties:
+                    headers:
+                      description: |-
+                        Headers the egress gateway sets, so the runtime never holds their
+                        values. The gateway only replaces a header the request sends, so the
+                        runtime sends each with a placeholder. Credentials bind per host, not
+                        per port. Whoever can write the resource can send any Secret in its
+                        namespace to the origin.
+                      items:
+                        description: EgressHeader is a request header the egress gateway
+                          sets.
+                        properties:
+                          name:
+                            maxLength: 256
+                            pattern: ^[!#$%&'*+.^_|~0-9A-Za-z-]+$
+                            type: string
+                          prefix:
+                            description: Prefix goes before the value, such as "Bearer
+                              ".
+                            maxLength: 64
+                            pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
+                            type: string
+                          valueFrom:
+                            description: EgressHeaderSource is where a header's value
+                              comes from.
+                            properties:
+                              secretKeyRef:
+                                description: SecretKeyRef is a key of a Secret in
+                                  the resource's namespace.
+                                properties:
+                                  key:
+                                    description: The key of the secret to select from.  Must
+                                      be a valid secret key.
+                                    type: string
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                  optional:
+                                    description: Specify whether the Secret or its
+                                      key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                                x-kubernetes-map-type: atomic
+                                x-kubernetes-validations:
+                                - message: secretKeyRef needs a name and a key
+                                  rule: self.name != '' && self.key != ''
+                                - message: a header's Secret cannot be optional
+                                  rule: '!has(self.optional) || !self.optional'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: secretKeyRef is required
+                              rule: has(self.secretKeyRef)
+                        required:
+                        - name
+                        - valueFrom
+                        type: object
+                        x-kubernetes-validations:
+                        - message: the gateway cannot set the Host header
+                          rule: self.name.lowerAscii() != 'host'
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                      x-kubernetes-validations:
+                      - message: header names must be unique, ignoring case
+                        rule: self.all(a, self.exists_one(b, a.name.lowerAscii() ==
+                          b.name.lowerAscii()))
+                    origin:
+                      description: Origin is an HTTP(S) origin, such as "https://proxy.golang.org".
+                      maxLength: 270
+                      pattern: ^https?://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
+                      type: string
+                  required:
+                  - origin
+                  type: object
+                  x-kubernetes-validations:
+                  - message: headers need an exact https origin
+                    rule: '!has(self.headers) || (self.origin.startsWith(''https://'')
+                      && !self.origin.contains(''*''))'
                 maxItems: 64
                 type: array
-                x-kubernetes-list-type: set
+                x-kubernetes-list-map-keys:
+                - origin
+                x-kubernetes-list-type: map
               harness:
                 description: HarnessSpec defines a reusable runtime and its infrastructure
                   policy.

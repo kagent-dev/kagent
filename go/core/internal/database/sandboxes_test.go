@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -230,4 +231,31 @@ func TestSandboxLifecycleSupersedesEndedAttempts(t *testing.T) {
 	_, err = client.BeginSandboxOperation(ctx, created.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 	require.ErrorIs(t, err, ErrFailedPrecondition, "deletion must not be canceled into leaked compute")
 	finishSandbox(t, client, created.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+}
+
+func TestSandboxRevisionKeepsItsEgress(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	const revision = "egress-revision"
+	require.NoError(t, client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision}))
+	destinations := []string{"https://api.internal.example:443", "https://*.githubusercontent.com:443"}
+	credentials := []egress.Credential{{Hostname: "api.internal.example", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/internal-api/token"}}
+	require.NoError(t, client.RecordSandboxRevision(ctx, SandboxRevision{
+		RuntimeArtifact:     RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "actor-uid"},
+		SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`),
+		EgressDestinations: destinations, Credentials: credentials,
+	}, true))
+
+	got, err := client.GetSandboxRevision(ctx, revision)
+	require.NoError(t, err)
+	require.Equal(t, destinations, got.EgressDestinations)
+	require.Equal(t, credentials, got.Credentials)
+
+	t.Run("a template without egress records none", func(t *testing.T) {
+		sandboxFixture(t, client, "plain-revision")
+		plain, err := client.GetSandboxRevision(ctx, "plain-revision")
+		require.NoError(t, err)
+		require.Empty(t, plain.EgressDestinations)
+		require.Empty(t, plain.Credentials)
+	})
 }

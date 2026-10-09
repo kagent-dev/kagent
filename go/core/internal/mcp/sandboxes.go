@@ -147,7 +147,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 	if service == nil {
 		return
 	}
-	addSandboxTool(server, "create_sandbox", "Create a temporary workspace from a prepared SandboxTemplate. Retain request_id and identical inputs for lifecycle retries. Check state, operation, and expires_at before guest calls. No network egress is currently allowed; files belong under /data/workspace.", func(ctx context.Context, in sandboxCreateInput) (sandboxSummary, error) {
+	addSandboxTool(server, "create_sandbox", "Create a temporary workspace from a prepared SandboxTemplate. Retain request_id and identical inputs for lifecycle retries. Check state, operation, and expires_at before guest calls. The network is limited to the origins its SandboxTemplate allows; files belong under /data/workspace.", func(ctx context.Context, in sandboxCreateInput) (sandboxSummary, error) {
 		request := &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: &apiv1alpha1.ResourceReference{Namespace: in.Namespace, Name: in.Template}, RequestId: in.RequestID, Name: in.Name}
 		if in.TTLSeconds != 0 {
 			request.Ttl = &durationpb.Duration{Seconds: in.TTLSeconds}

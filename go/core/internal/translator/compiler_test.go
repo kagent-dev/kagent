@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
@@ -992,7 +994,7 @@ func TestCompileAgentAddsTheAgentEgress(t *testing.T) {
 			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 		},
 	}
-	declared := []string{"https://proxy.golang.org", "https://*.githubusercontent.com", "https://Proxy.Golang.org.", "https://git.internal:8443"}
+	declared := egressOrigins("https://proxy.golang.org", "https://*.githubusercontent.com", "https://Proxy.Golang.org.", "https://git.internal:8443")
 	want := []string{"https://proxy.golang.org:443", "https://*.githubusercontent.com:443", "https://git.internal:8443"}
 	c := compiler(t, modelConfig(), template, harness)
 
@@ -1030,10 +1032,152 @@ func TestCompileAgentAddsTheAgentEgress(t *testing.T) {
 	}
 
 	invalid := referenced.DeepCopy()
-	invalid.Spec.Egress = []string{"https://proxy.golang.org/path"}
+	invalid.Spec.Egress = egressOrigins("https://proxy.golang.org/path")
 	_, err = c.CompileAgent(t.Context(), invalid)
-	var validation *v2translator.ValidationError
+	var validation *translator.ValidationError
 	require.ErrorAs(t, err, &validation)
+}
+
+func egressOrigins(origins ...string) []v1alpha3.EgressEntry {
+	entries := make([]v1alpha3.EgressEntry, len(origins))
+	for i, origin := range origins {
+		entries[i] = v1alpha3.EgressEntry{Origin: origin}
+	}
+	return entries
+}
+
+func TestCompileAgentBindsTheAgentEgressHeaders(t *testing.T) {
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-reader", Namespace: "test"},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+	}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		},
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "internal-api", Namespace: "test"}, Data: map[string][]byte{"token": []byte("t"), "other": []byte("o")}}
+	header := func(name, prefix, secretName, key string) v1alpha3.EgressHeader {
+		return v1alpha3.EgressHeader{Name: name, Prefix: prefix, ValueFrom: v1alpha3.EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
+		}}}
+	}
+	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "reader", Namespace: "test"}, Spec: v1alpha3.AgentSpec{
+		TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name},
+		Egress: []v1alpha3.EgressEntry{{Origin: "https://API.internal.example", Headers: []v1alpha3.EgressHeader{header("Authorization", "Bearer ", "internal-api", "token")}}},
+	}}
+	uri := "ate-secret://k8s.io/default/test/internal-api/token"
+
+	t.Run("binds the Secret to the origin's host", func(t *testing.T) {
+		result, err := compiler(t, modelConfig(), template, harness, secret).CompileAgent(t.Context(), agent)
+		require.NoError(t, err)
+		require.Contains(t, result.EgressDestinations, "https://api.internal.example:443")
+		require.Contains(t, result.Credentials, egress.Credential{Hostname: "api.internal.example", Header: "authorization", Prefix: "Bearer ", URI: uri})
+		policy, err := substrate.ActorEgressPolicy("test", result.EgressDestinations, result.Credentials)
+		require.NoError(t, err)
+		var injected []string
+		for _, rule := range policy.Rules {
+			if slices.Contains(rule.GetHttps().GetHostnames(), "api.internal.example") {
+				for _, replace := range rule.GetHttps().GetEffects().GetReplaceHeaders() {
+					injected = append(injected, replace.GetCredentialUri())
+				}
+			}
+		}
+		require.Equal(t, []string{uri}, injected)
+	})
+
+	t.Run("a missing Secret or key is a reference failure", func(t *testing.T) {
+		for name, objects := range map[string][]any{
+			"secret": {modelConfig(), template, harness},
+			"key":    {modelConfig(), template, harness, &corev1.Secret{ObjectMeta: secret.ObjectMeta, Data: map[string][]byte{"other": []byte("t")}}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, err := compiler(t, objects...).CompileAgent(t.Context(), agent)
+				var missing *translator.SecretNotFoundError
+				require.ErrorAs(t, err, &missing)
+				var validation *translator.ValidationError
+				require.False(t, errors.As(err, &validation))
+			})
+		}
+	})
+
+	t.Run("an identical runtime binding on the host is shared", func(t *testing.T) {
+		model := modelConfig()
+		model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "internal-api", "token"
+		shared := agent.DeepCopy()
+		shared.Spec.Egress[0].Origin = "https://api.openai.com"
+		result, err := compiler(t, model, template, harness, secret).CompileAgent(t.Context(), shared)
+		require.NoError(t, err)
+		require.Equal(t, 1, countCredentials(result.Credentials, "api.openai.com"))
+	})
+
+	for name, change := range map[string]func(*v1alpha3.Agent){
+		"http origin":     func(a *v1alpha3.Agent) { a.Spec.Egress[0].Origin = "http://api.internal.example" },
+		"wildcard origin": func(a *v1alpha3.Agent) { a.Spec.Egress[0].Origin = "https://*.internal.example" },
+		"Host header":     func(a *v1alpha3.Agent) { a.Spec.Egress[0].Headers[0].Name = "Host" },
+		"invalid key":     func(a *v1alpha3.Agent) { a.Spec.Egress[0].Headers[0].ValueFrom.SecretKeyRef.Key = "a/b c" },
+		"invalid name":    func(a *v1alpha3.Agent) { a.Spec.Egress[0].Headers[0].ValueFrom.SecretKeyRef.Name = "Bad/Name" },
+		"conflicting credentials": func(a *v1alpha3.Agent) {
+			a.Spec.Egress[0].Headers = append(a.Spec.Egress[0].Headers, header("authorization", "", "internal-api", "other"))
+		},
+		"the host on another port": func(a *v1alpha3.Agent) {
+			a.Spec.Egress = append(a.Spec.Egress, v1alpha3.EgressEntry{Origin: "https://api.internal.example:8443"})
+		},
+		"a runtime binding on the host": func(a *v1alpha3.Agent) { a.Spec.Egress[0].Origin = "https://api.openai.com" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := agent.DeepCopy()
+			change(invalid)
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			modelSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{"api-key": []byte("k")}}
+			_, err := compiler(t, model, template, harness, secret, modelSecret).CompileAgent(t.Context(), invalid)
+			var validation *translator.ValidationError
+			require.ErrorAs(t, err, &validation)
+		})
+	}
+}
+
+func TestCompileAgentKeepsCallerTokenPassthrough(t *testing.T) {
+	model := modelConfig()
+	model.Spec.APIKeyPassthrough = true
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-reader", Namespace: "test"},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+	}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		},
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "test"}, Data: map[string][]byte{"token": []byte("t")}}
+	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "reader", Namespace: "test"}, Spec: v1alpha3.AgentSpec{
+		TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name},
+		Egress: []v1alpha3.EgressEntry{{Origin: "https://api.openai.com", Headers: []v1alpha3.EgressHeader{{
+			Name: "Authorization", Prefix: "Bearer ",
+			ValueFrom: v1alpha3.EgressHeaderSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "shared"}, Key: "token"}},
+		}}}},
+	}}
+	_, err := compiler(t, model, template, harness, secret).CompileAgent(t.Context(), agent)
+	var validation *translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.ErrorContains(t, err, "passthrough")
+}
+
+func countCredentials(credentials []egress.Credential, hostname string) int {
+	n := 0
+	for _, c := range credentials {
+		if c.Hostname == hostname {
+			n++
+		}
+	}
+	return n
 }
 
 func countOf(values []string, want string) int {

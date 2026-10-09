@@ -15,6 +15,19 @@ func (e *WorkerPoolNotFoundError) Error() string {
 	return fmt.Sprintf("WorkerPool %q not found", e.WorkerPool.String())
 }
 
+// SecretNotFoundError identifies a missing Secret, or a missing key when Key is set.
+type SecretNotFoundError struct {
+	Secret types.NamespacedName
+	Key    string
+}
+
+func (e *SecretNotFoundError) Error() string {
+	if e.Key != "" {
+		return fmt.Sprintf("Secret %q has no key %q", e.Secret.String(), e.Key)
+	}
+	return fmt.Sprintf("Secret %q not found", e.Secret.String())
+}
+
 // ValidationError marks a resolved but unsupported public configuration. The
 // controller reports these as a compatibility condition instead of retrying
 // them like transient Kubernetes lookup failures.

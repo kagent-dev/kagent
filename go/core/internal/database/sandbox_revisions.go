@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 type SandboxRevision struct {
@@ -13,6 +14,8 @@ type SandboxRevision struct {
 	SandboxTemplateName string
 	SandboxTemplateUID  string
 	SourceSnapshot      json.RawMessage
+	EgressDestinations  []string
+	Credentials         []egress.Credential
 }
 
 // SandboxTemplateDefinition tracks the desired and last successful runtime for a SandboxTemplate UID.
@@ -79,7 +82,10 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 			return err
 		}
 		revision.Kind = runtimeKindSandbox
-		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}); err != nil {
+		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
+			RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot,
+			EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials,
+		}); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `
@@ -103,11 +109,14 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 func (c *Client) GetSandboxRevision(ctx context.Context, revision string) (*SandboxRevision, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid,
-		    r.deleted_at, r.source_snapshot, s.sandbox_template_name, s.sandbox_template_uid
+		    r.deleted_at, r.source_snapshot, r.egress_destinations, r.credentials, s.sandbox_template_name, s.sandbox_template_uid
 		FROM runtime_revision r JOIN sandbox_revision s USING (revision) WHERE r.revision = $1 AND r.kind = 'sandbox'
 	`, pgx.RowToStructByName[SandboxRevision], revision)
 	if err != nil {
 		return nil, fmt.Errorf("get sandbox revision: %w", notFoundOr(err))
+	}
+	if row.Credentials, err = egress.CanonicalCredentials(row.Credentials); err != nil {
+		return nil, fmt.Errorf("decode sandbox revision %s credentials: %w", revision, err)
 	}
 	return &row, nil
 }
