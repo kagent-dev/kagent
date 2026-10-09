@@ -387,6 +387,28 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 	}
 }
 
+func TestCancelUnknownTaskReportsCanceled(t *testing.T) {
+	executor, err := New(fakeRunner{}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, errs := collect(executor.Cancel(t.Context(), requestContext("task-lost", "ignored")))
+	if len(errs) != 0 || len(events) != 1 {
+		t.Fatalf("Cancel() events/errors = %#v/%v", events, errs)
+	}
+	update, ok := events[0].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || update.Status.State != a2atype.TaskStateCanceled || update.TaskID != "task-lost" {
+		t.Fatalf("cancel event = %#v", events[0])
+	}
+	executor.mu.Lock()
+	state := executor.state
+	executor.mu.Unlock()
+	if state != nil {
+		t.Fatalf("executor gained task state: %#v", state)
+	}
+}
+
 func TestCancelParkedTurn(t *testing.T) {
 	canceled := false
 	executor, err := New(fakeRunner{
