@@ -101,6 +101,9 @@ const LIVE_APP = { KAGENT_UI_VITE_API_MODE: "live", KAGENT_UI_ENABLE_MOCK: "fals
  */
 const LIVE_COMMAND = `yarn dev --port ${LIVE_PORT}`;
 
+/** A pre-bundle cache per server, so one server's re-optimize cannot delete another's. */
+const ownCache = (port: number) => ({ KAGENT_UI_DEV_CACHE_DIR: `node_modules/.vite/e2e-${port}` });
+
 export default defineConfig({
   testDir: "./playwright/tests",
   // Both servers have to be rendering, not merely listening, before any test
@@ -212,7 +215,7 @@ export default defineConfig({
           // through.
           stdout: "pipe",
           stderr: "pipe",
-          env: LIVE_APP,
+          env: { ...LIVE_APP, ...ownCache(LIVE_PORT) },
         },
       ]
     : [
@@ -221,14 +224,14 @@ export default defineConfig({
           url: BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
-          env: BARE_APP,
+          env: { ...BARE_APP, ...ownCache(PORT) },
         },
         {
           command: `yarn dev --port ${EXTENSION_PORT}`,
           url: EXTENSION_BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
-          env: EXAMPLE_APP,
+          env: { ...EXAMPLE_APP, ...ownCache(EXTENSION_PORT) },
         },
       ],
 });

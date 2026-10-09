@@ -122,6 +122,9 @@ export default defineConfig(({ mode }) => ({
   envPrefix: "KAGENT_UI_VITE_",
   // Relative asset URLs, resolved against the `<base href>` in index.html.
   base: "./",
+  // Concurrent dev servers each need their own: a server that re-optimizes deletes and
+  // replaces `deps/` under the others, whose pages then fail to load a dependency.
+  cacheDir: process.env.KAGENT_UI_DEV_CACHE_DIR,
   // JSX is transformed by oxc, which routes the factory at @emotion/react —
   // that alone enables the `css` prop, no Babel step required.
   plugins: [react({ jsxImportSource: "@emotion/react" }), devEnvConfig(mode)],
