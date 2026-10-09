@@ -1,0 +1,190 @@
+{
+  "openai": [
+    {
+      "name": "start_background_sleep",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "Start a background sleep.", "role": "user" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_background",
+                  "type": "function",
+                  "function": { "name": "bash", "arguments": "{\"command\": \"sleep 600 & echo STARTED_$((1+1))\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "background_sleep_started",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "STARTED_2", "role": "tool", "tool_call_id": "call_background" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "BACKGROUND_SLEEP_STARTED" } }
+        ]
+      }
+    },
+    {
+      "name": "count_sleeps",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "Count the sleeps.", "role": "user" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-3",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_count",
+                  "type": "function",
+                  "function": { "name": "bash", "arguments": "{\"command\": \"echo \\\"sleeps=$(pgrep sleep | wc -l | tr -d ' ').\\\"\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no_sleep_left",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "sleeps=0.", "role": "tool", "tool_call_id": "call_count" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-4",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "NO_SLEEP_LEFT" } }
+        ]
+      }
+    },
+    {
+      "name": "sleep_survived",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "sleeps=", "role": "tool", "tool_call_id": "call_count" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-5",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "SLEEP_SURVIVED_THE_TURN" } }
+        ]
+      }
+    },
+    {
+      "name": "fetch_slow_repository",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "Fetch the slow repository.", "role": "user" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-6",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_fetch",
+                  "type": "function",
+                  "function": { "name": "bash", "arguments": "{\"command\": \"git init --quiet slow && git -C slow fetch --quiet SLOW_REPOSITORY_URL main && echo FETCHED_$((40+2))\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fetch_completed",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "FETCHED_42", "role": "tool", "tool_call_id": "call_fetch" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-7",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "FETCH_COMPLETED" } }
+        ]
+      }
+    },
+    {
+      "name": "fetch_timed_out",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "timed out after 2s", "role": "tool", "tool_call_id": "call_fetch" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-8",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "FETCH_TIMED_OUT" } }
+        ]
+      }
+    },
+    {
+      "name": "fetch_failed",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "Error executing command", "role": "tool", "tool_call_id": "call_fetch" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-9",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "FETCH_FAILED" } }
+        ]
+      }
+    }
+  ]
+}

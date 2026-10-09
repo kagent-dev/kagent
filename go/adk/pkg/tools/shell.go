@@ -12,9 +12,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
-type CommandExecutor struct{}
+// CommandExecutor runs the bash tool's commands. Each command is bounded by
+// timeout and by the turn that started it.
+type CommandExecutor struct {
+	timeout time.Duration
+}
 
 // maxLineRunes is the longest line read_file and grep_file will emit before
 // truncating. Counted in runes, not bytes -- see truncateRunes.
@@ -309,8 +315,10 @@ func (o *commandOutput) collect(stop <-chan struct{}) string {
 	return o.buf.String()
 }
 
-func NewCommandExecutor() *CommandExecutor {
-	return &CommandExecutor{}
+// NewCommandExecutor returns an executor that kills a command, with every
+// process it started, after timeout.
+func NewCommandExecutor(timeout time.Duration) *CommandExecutor {
+	return &CommandExecutor{timeout: timeout}
 }
 
 // commandEnvNames are the variables a model-run command inherits from the
@@ -360,13 +368,10 @@ func commandEnv(environ []string, workingDir string) []string {
 }
 
 // ExecuteCommand executes a shell command in an environment built by
-// commandEnv, so the command cannot read the runtime's secrets.
+// commandEnv, so the command cannot read the runtime's secrets. A process the
+// command leaves running in the background ends with the turn of ctx.
 func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
-	timeout := 30 * time.Second
-	if strings.Contains(command, "python") {
-		timeout = 60 * time.Second
-	}
-	return e.executeCommand(ctx, command, workingDir, timeout)
+	return e.executeCommand(ctx, command, workingDir, e.timeout)
 }
 
 func (e *CommandExecutor) executeCommand(ctx context.Context, command string, workingDir string, timeout time.Duration) (string, error) {
@@ -403,6 +408,11 @@ func (e *CommandExecutor) executeCommand(ctx context.Context, command string, wo
 		stdoutR.Close()
 		stderrR.Close()
 		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+	// The command leads its own process group, whose ID is its PID.
+	if processes := turn.FromContext(ctx); processes != nil {
+		processes.Track(cmd.Process.Pid)
+		defer processes.Settle(cmd.Process.Pid)
 	}
 	stdout := readCommandOutput(stdoutR)
 	stderr := readCommandOutput(stderrR)

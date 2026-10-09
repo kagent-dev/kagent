@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -80,11 +81,7 @@ Python Imports (CRITICAL):
     skill_module = importlib.import_module('skill-name.module')
 
 For file operations:
-- Use read_file, write_file, and edit_file for interacting with the filesystem.
-
-Timeouts:
-- python scripts: 60s
-- other commands: 30s`
+- Use read_file, write_file, and edit_file for interacting with the filesystem.`
 
 	// fileSearchToolsBashHint is appended to bashDescription only when
 	// list_files/grep_file are enabled, so bash's own description doesn't
@@ -94,6 +91,22 @@ Timeouts:
 	// template where a stray '%' added later could silently corrupt output.
 	fileSearchToolsBashHint = "\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command."
 )
+
+// bashToolTimeout is the configured KAGENT_BASH_TOOL_TIMEOUT; a value that is
+// not a positive duration keeps the default.
+func bashToolTimeout() time.Duration {
+	if timeout := env.KagentBashToolTimeout.Get(); timeout > 0 {
+		return timeout
+	}
+	return env.KagentBashToolTimeout.Default()
+}
+
+// bashTimeoutHint tells the model how long a command may run and that nothing
+// it starts outlives the turn.
+func bashTimeoutHint(timeout time.Duration) string {
+	return fmt.Sprintf("\n\nTimeout:\n- A command is killed, with every process it started, after %s.\n"+
+		"- A process left running in the background is stopped when your turn ends.", timeout)
+}
 
 type bashInput struct {
 	Command     string `json:"command"`
@@ -145,7 +158,8 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
 	}
 
-	commandExecutor := NewCommandExecutor()
+	commandTimeout := bashToolTimeout()
+	commandExecutor := NewCommandExecutor(commandTimeout)
 
 	readFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "read_file",
@@ -274,7 +288,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		tools = append(tools, listFilesTool, grepFileTool)
 	}
 
-	desc := bashDescription
+	desc := bashDescription + bashTimeoutHint(commandTimeout)
 	if fileSearchEnabled {
 		desc += fileSearchToolsBashHint
 	}

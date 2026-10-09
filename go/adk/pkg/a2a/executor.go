@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -261,6 +262,10 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
 		ctx = withBearerToken(ctx)
+		// Nothing a tool starts in this turn outlives it: the next turn may run
+		// for another caller, with that caller's credentials.
+		ctx, processes := turn.Begin(ctx)
+		defer processes.End()
 		// The synthetic ADK user ID is only a native session lookup key. Memory
 		// and outgoing credentials must receive only the passed-through caller.
 		ctx = auth.WithUserID(ctx, trustedUserID)
@@ -337,6 +342,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
+				processes.End()
 				e.flushTurnSpans(ctx)
 			}
 			if !yield(event, err) {

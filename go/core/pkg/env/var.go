@@ -319,6 +319,9 @@ func (d DurationVar) Lookup() (time.Duration, bool) {
 	return parsed, true
 }
 
+// Default returns the registered default.
+func (d DurationVar) Default() time.Duration { return d.defaultValue }
+
 // Name returns the environment variable name.
 func (d DurationVar) Name() string { return d.v.Name }
 
