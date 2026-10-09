@@ -2,7 +2,7 @@ import { test, expect } from "../../fixtures/test";
 import { sendAndAwaitTurn } from "../../helpers/chat";
 import { agentChat, instances } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, pressOnce } from "../../helpers/resource";
 
 /**
  * A turn that ends by asking rather than by finishing.
@@ -132,8 +132,8 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
       timeout: 20_000,
     });
 
-    await page.getByTestId("chat-dismiss-question").click();
-    await page.getByTestId("chat-dismiss-question").click();
+    // One press dismisses: a second one races the card leaving and waits on a detached button.
+    await pressOnce(page.getByTestId("chat-dismiss-question"));
     await expect(page.getByTestId("chat-awaiting-reply")).toHaveCount(0);
     // Either reading is correct here. Giving up the question ends the turn; whether the
     // conversation is still logically ready depends on what has been asked of it since,

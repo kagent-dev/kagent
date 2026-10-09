@@ -325,7 +325,9 @@ export function AgentsTab() {
         rowKey={(row) => row.ref}
         columns={columns}
         dataSource={loadFailure ? [] : filtered}
-        loading={definitions.isLoading}
+        // Held for the templates too: their descriptions grow rows, and a late
+        // shift moves a row out from under the pointer mid-click.
+        loading={definitions.isLoading || templates.isLoading}
         onChange={listTableChange<Agent>(view)}
         pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
         scroll={{ x: 960 }}
