@@ -218,6 +218,43 @@ func sendApprovedToolRequest(t *testing.T, fixture *interactionFixture, prompt, 
 	if completed.ID != waiting.ID || completed.ContextID != waiting.ContextID {
 		t.Fatalf("resumed task = %s/%s, want %s/%s", completed.ContextID, completed.ID, waiting.ContextID, waiting.ID)
 	}
+	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: fixture.tenant, ID: completed.ID})
+	if err != nil {
+		t.Fatalf("build approval history request: %v", err)
+	}
+	persistedProto, err := fixture.client.GetTask(fixture.ctx, getRequest)
+	if err != nil {
+		t.Fatalf("reload approved task: %v", err)
+	}
+	persisted, err := pbconv.FromProtoTask(persistedProto)
+	if err != nil {
+		t.Fatalf("decode approval history: %v", err)
+	}
+	requestPosition, ok := kagenta2a.TimelinePosition(waiting.Status.Message)
+	if !ok {
+		t.Fatal("approval request has no timeline position")
+	}
+	foundReply := false
+	for _, message := range persisted.History {
+		position, ok := kagenta2a.TimelinePosition(message)
+		if !ok {
+			t.Fatalf("reloaded message %s has no timeline position", message.ID)
+		}
+		if message.ID == reply.ID {
+			foundReply = true
+			if !position.After(requestPosition) {
+				t.Fatal("approval response does not follow its request on the timeline")
+			}
+		}
+	}
+	if !foundReply {
+		t.Fatal("reloaded history is missing the approval response")
+	}
+	for _, artifact := range persisted.Artifacts {
+		if _, ok := kagenta2a.TimelinePosition(artifact); !ok {
+			t.Fatalf("reloaded artifact %s has no timeline position", artifact.ID)
+		}
+	}
 	return completed
 }
 
