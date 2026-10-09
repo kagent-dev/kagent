@@ -5,8 +5,10 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 FROM debian:bookworm-slim AS base
 ENV UV_PYTHON_INSTALL_DIR=/python
 COPY --from=uv-bin /uv /usr/local/bin/uv
+# perl-base comes with the base image. Listing it installs its security fixes
+# without a full upgrade that could change glibc.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates libstdc++6 \
+    && apt-get install -y --no-install-recommends bash ca-certificates libstdc++6 perl-base \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS builder
