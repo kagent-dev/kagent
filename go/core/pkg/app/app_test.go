@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
@@ -140,7 +141,6 @@ func TestNamespaces(t *testing.T) {
 func TestRegisteredStringDefaults(t *testing.T) {
 	for _, variable := range []kagentenv.StringVar{
 		kagentenv.HTTPBindAddress,
-		kagentenv.PostgresDatabaseURL,
 		kagentenv.SubstrateATEAPIEndpoint,
 		kagentenv.KagentNamespace,
 	} {
@@ -188,6 +188,34 @@ func TestNamespaceCache(t *testing.T) {
 	}
 }
 
+func TestPostgresConfigFromEnv(t *testing.T) {
+	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONNS", "8")
+	t.Setenv("KAGENT_POSTGRES_DATABASE_MIN_CONNS", "1")
+	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME", "1m")
+	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME", "10m")
+	t.Setenv("KAGENT_POSTGRES_DATABASE_ROLE", "kagent_app")
+
+	config := postgresConfigFromEnv("postgres://user:password@database/app", true)
+	if config.URL != "postgres://user:password@database/app" || !config.VectorEnabled {
+		t.Fatalf("postgres config lost connection URL or vector setting: %#v", config)
+	}
+	if config.Role != "kagent_app" {
+		t.Fatalf("Role = %q, want kagent_app", config.Role)
+	}
+	if config.MaxConns == nil || *config.MaxConns != 8 {
+		t.Fatalf("MaxConns = %v, want 8", config.MaxConns)
+	}
+	if config.MinConns == nil || *config.MinConns != 1 {
+		t.Fatalf("MinConns = %v, want 1", config.MinConns)
+	}
+	if config.MaxConnIdleTime == nil || *config.MaxConnIdleTime != time.Minute {
+		t.Fatalf("MaxConnIdleTime = %v, want 1m", config.MaxConnIdleTime)
+	}
+	if config.MaxConnLifetime == nil || *config.MaxConnLifetime != 10*time.Minute {
+		t.Fatalf("MaxConnLifetime = %v, want 10m", config.MaxConnLifetime)
+	}
+}
+
 // The built-in tracks must reach their final version before a library consumer's,
 // which may reference them, so order is the contract here -- not membership.
 func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
@@ -211,6 +239,15 @@ func TestSetupLoggerRejectsBadLevel(t *testing.T) {
 	t.Setenv("KAGENT_LOG_LEVEL", "not-a-level")
 	if err := SetupLogger(); err == nil {
 		t.Fatal("SetupLogger accepted an unparseable KAGENT_LOG_LEVEL")
+	}
+}
+
+func TestRunRequiresDatabaseURL(t *testing.T) {
+	t.Setenv("KAGENT_LOG_LEVEL", "info")
+	t.Setenv(kagentenv.PostgresDatabaseURL.Name(), "")
+	err := Run(t.Context(), Options{})
+	if want := "KAGENT_POSTGRES_DATABASE_URL is required"; err == nil || err.Error() != want {
+		t.Fatalf("Run() error = %v, want %q", err, want)
 	}
 }
 

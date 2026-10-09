@@ -60,29 +60,6 @@ DOCUMENTATION:
   These values are ignored. Please remove them from your values override.
 
 {{- end }}
-{{ if .Values.database.postgres.bundled.enabled -}}
-################################################################################
-{{- if and (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
-# WARNING: BUNDLED DATABASE IN USE                                             #
-################################################################################
-  The bundled PostgreSQL instance is enabled. It is intended for development and
-  evaluation only, not suitable for production use. Data may be lost if the
-  pod is restarted or rescheduled.
-
-  To use an external database, set:
-    database.postgres.url=<your-connection-string> or database.postgres.urlFile=<path>
-{{- else }}
-# NOTE: BUNDLED DATABASE DEPLOYED BUT NOT IN USE BY CONTROLLER                 #
-################################################################################
-  The bundled PostgreSQL pod is running, but the controller is connected to an
-  external database (database.postgres.url or database.postgres.urlFile is set).
-
-  To connect the controller to the bundled instance instead, unset url/urlFile:
-    database.postgres.url=""
-  To stop deploying the bundled pod entirely, set:
-    database.postgres.bundled.enabled=false
-{{- end }}
-{{- end }}
 {{- if .Values.database.postgres.skipMigrations }}
 ################################################################################
 # NOTE: STARTUP MIGRATIONS ARE DISABLED                                        #
@@ -110,17 +87,5 @@ DOCUMENTATION:
     {{ $component }}.pdb.minAvailable=null {{ $component }}.pdb.maxUnavailable=1
 
 {{ end }}
-{{- end }}
-{{- if .Values.substrate.enabled }}
-################################################################################
-# WARNING: SUBSTRATE IS EXPERIMENTAL, USE AT OWN RISK                          #
-################################################################################
-Substrate is a product in early development, and as a result may be unstable due to
-schema, API, and architectural changes.
-
-Kagent uses its own fork of Substrate in order to accelerate adoption. As a result,
-the values.yaml schema is subject to change.
-
-################################################################################
 {{- end }}
 ################################################################################

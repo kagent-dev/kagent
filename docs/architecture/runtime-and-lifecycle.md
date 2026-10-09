@@ -213,10 +213,13 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Templates capture Full snapshots when paused and Data snapshots when suspended.
-Substrate v0.4.0-alpha1 resumes a Data snapshot by starting fresh containers from
-the OCI image with the saved durable directories. Data restores no longer combine
-Golden memory with the Actor's saved data.
+Substrate v0.5.0-alpha1 applies one content scope to every snapshot of an Actor,
+both the node-local snapshot taken on pause and the one uploaded on suspend.
+Templates use Full, so paused and suspended Actors keep their process memory, and
+their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
+scopes again. A Data snapshot resumes by starting fresh containers from the OCI
+image with the saved durable directories; Substrate still restores one as Data when
+the Actor's template changed after the snapshot was taken.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest

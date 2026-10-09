@@ -1,0 +1,225 @@
+# Copyright 2026 The Kagent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+data:
+  postgresql.conf: |
+    listen_addresses = '*'
+    ssl = on
+    ssl_cert_file = '/run/servicedns.podcert.ate.dev/credential-bundle.pem'
+    ssl_key_file = '/run/servicedns.podcert.ate.dev/credential-bundle.pem'
+    ssl_ca_file = '/run/postgres.podcert.ate.dev/trust-bundle.pem'
+    hba_file = '/etc/postgresql/pg_hba.conf'
+  pg_hba.conf: |
+    local all all trust
+    hostssl all postgres all reject
+    hostssl kagent kagent_user,substrate_owner_user,substrate_readwrite_user all cert
+  reload-tls.sh: |
+    set -eu
+    trap 'exit 0' TERM INT
+
+    CERT=/run/servicedns.podcert.ate.dev/credential-bundle.pem
+    CA=/run/postgres.podcert.ate.dev/trust-bundle.pem
+    reloaded=""
+    while true; do
+      current="$(sha256sum "$CERT" "$CA" /etc/postgresql/pg_hba.conf)"
+      if [ "$current" != "$reloaded" ] \
+        && psql -U "$POSTGRES_USER" -d postgres -Atc 'SELECT pg_reload_conf()' >/dev/null 2>&1; then
+        reloaded="$current"
+      fi
+      sleep 60 &
+      wait $!
+    done
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+  labels: &labels
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kagent-cli
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: *labels
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      securityContext:
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: tls-reloader
+        restartPolicy: Always
+        image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        securityContext:
+          runAsUser: 70
+        env:
+        - name: POSTGRES_USER
+          value: postgres
+        command: [/bin/sh, /etc/postgresql/reload-tls.sh]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/postgresql
+        - name: servicedns
+          mountPath: /run/servicedns.podcert.ate.dev
+          readOnly: true
+        - name: postgres-ca
+          mountPath: /run/postgres.podcert.ate.dev
+          readOnly: true
+        - name: socket
+          mountPath: /var/run/postgresql
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+      containers:
+      - name: postgresql
+        image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POSTGRES_DB
+          value: kagent
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_HOST_AUTH_METHOD
+          value: trust
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        args: ["-c", "config_file=/etc/postgresql/postgresql.conf"]
+        ports:
+        - name: postgresql
+          containerPort: 5432
+        readinessProbe:
+          exec:
+            command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          exec:
+            command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: config
+          mountPath: /etc/postgresql
+        - name: servicedns
+          mountPath: /run/servicedns.podcert.ate.dev
+          readOnly: true
+        - name: postgres-ca
+          mountPath: /run/postgres.podcert.ate.dev
+          readOnly: true
+        - name: socket
+          mountPath: /var/run/postgresql
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: kagent-postgresql
+      - name: config
+        configMap:
+          name: kagent-postgresql
+      - name: servicedns
+        projected:
+          defaultMode: 0600
+          sources:
+          - podCertificate:
+              signerName: servicedns.podcert.ate.dev/identity
+              keyType: ECDSAP256
+              credentialBundlePath: credential-bundle.pem
+      - name: postgres-ca
+        projected:
+          sources:
+          - clusterTrustBundle:
+              signerName: postgres.podcert.ate.dev/identity
+              labelSelector:
+                matchLabels:
+                  podcert.ate.dev/canarying: live
+              path: trust-bundle.pem
+      - name: socket
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kagent-postgresql
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kagent-cli
+  ports:
+  - name: postgresql
+    port: 5432
+    targetPort: postgresql
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-postgres
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  connectionString: postgresql://kagent_user@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/postgres.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/credential-bundle.pem&sslkey=/run/postgres.podcert.ate.dev/credential-bundle.pem
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: substrate-postgres-readwrite
+  namespace: ${SUBSTRATE_NAMESPACE}
+type: Opaque
+stringData:
+  readWriteConnectionString: postgresql://substrate_readwrite_user@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/servicedns.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/substrate_readwrite_user.pem&sslkey=/run/postgres.podcert.ate.dev/substrate_readwrite_user.pem
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: substrate-postgres-owner
+  namespace: ${SUBSTRATE_NAMESPACE}
+type: Opaque
+stringData:
+  ownerConnectionString: postgresql://substrate_owner_user@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/servicedns.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/substrate_owner_user.pem&sslkey=/run/postgres.podcert.ate.dev/substrate_owner_user.pem

@@ -66,9 +66,7 @@ data:
   {{- end }}
   KAGENT_DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   KAGENT_SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
-  {{- with .Values.database.postgres.urlFile }}
-  KAGENT_POSTGRES_DATABASE_URL_FILE: {{ . | quote }}
-  {{- end }}
+  KAGENT_POSTGRES_DATABASE_ROLE: {{ .Values.database.postgres.role | quote }}
   {{- with .Values.database.postgres.pool }}
   {{- if and (hasKey . "maxConns") (ne .maxConns nil) }}
   KAGENT_POSTGRES_DATABASE_MAX_CONNS: {{ .maxConns | quote }}
@@ -95,10 +93,10 @@ data:
   {{- end }}
   KAGENT_GRPC_REFLECTION: {{ .Values.controller.grpc.reflection | quote }}
   {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
-  KAGENT_SUBSTRATE_ATE_API_ENDPOINT: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
+  KAGENT_SUBSTRATE_ATE_API_ENDPOINT: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
   KAGENT_SUBSTRATE_ATE_API_CA_FILE: /run/substrate-servicedns/trust-bundle.pem
   KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE: /run/substrate-podidentity/credential-bundle.pem
-  {{- with include "kagent.substrate.atenetRouterURL" . }}
+  {{- with .Values.controller.substrate.atenetRouterURL }}
   KAGENT_SUBSTRATE_ATENET_ROUTER_URL: {{ . | quote }}
   {{- end }}
   {{- end }}

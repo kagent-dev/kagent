@@ -22,6 +22,71 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
+### PostgreSQL
+
+The Kagent chart does not deploy or initialize PostgreSQL, and it does not install Substrate. A direct Helm install needs a prepared database, a connection Secret in the Kagent namespace, and Substrate installed as its own release.
+
+`kagent install` does all of this for development: it installs Substrate in `ate-system`, deploys a PostgreSQL instance in the Kagent namespace, creates the identities and schemas below, writes the connection Secrets, and then installs Kagent. Kagent, Substrate, and PostgreSQL authenticate with Pod Certificates rather than passwords. The development database has no pgvector extension and is not intended for production.
+
+To run `kagent install` against a database you prepared yourself, pass `--skip-database-setup` and point each chart at your Secrets through `KAGENT_HELM_EXTRA_ARGS` and `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS`.
+
+`kagent install` creates Substrate's certificate authorities once, and they expire one year later. Nothing renews them, and re-running `kagent install` keeps the existing ones. To replace them, delete the CA Secrets, re-run `kagent install`, and restart the Substrate and Kagent workloads:
+
+```bash
+kubectl delete secret -n ate-system actor-id-ca-pool actor-id-ca-certs egress-mitm-ca-pool
+kubectl delete secret -n podcertificate-controller-system service-dns-ca-pool pod-identity-ca-pool postgres-ca-pool
+```
+
+Kagent and Substrate share one database with separate identities. Kagent's tables stay in `public`; Substrate uses its own `substrate` schema:
+
+| Access | Login user | Assumed role | Schema |
+| --- | --- | --- | --- |
+| Kagent | `kagent_user` | `kagent_owner` | `public` |
+| Substrate migrations | `substrate_owner_user` | `substrate_owner` | `substrate` |
+| Substrate runtime | `substrate_readwrite_user` | `substrate_readwrite` | `substrate` |
+
+#### Kagent values
+
+```yaml
+database:
+  postgres:
+    # Secret holding the connection string. Required.
+    connectionStringSecretRef:
+      name: kagent-postgres
+      key: connectionString
+    # Role assumed on every connection. Set to "" to use the login user directly.
+    role: kagent_owner
+    vectorEnabled: false
+    # Project the kagent_user Pod Certificate at /run/postgres.podcert.ate.dev.
+    # Only for databases that trust the Substrate postgres CA.
+    clientCertificate:
+      enabled: false
+```
+
+With an external database, either create the `kagent_owner` role, grant it to the login user, and grant it `USAGE, CREATE` on `public`, or set `role: ""`.
+
+The Substrate chart reads its own connection Secrets. See that chart's `postgres.ownerConnectionStringSecretRef` and `postgres.readWriteConnectionStringSecretRef` values.
+
+#### Credential rotation
+
+Kagent reads the connection string from the Secret once, at startup. After the Secret changes, restart the controller.
+
+When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `database.postgres.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
+
+#### Migrating from `url` and `urlFile`
+
+Kagent 1.x removes `database.postgres.url` and `database.postgres.urlFile`. Move the connection string into a Secret and reference it:
+
+```yaml
+database:
+  postgres:
+    connectionStringSecretRef:
+      name: postgres-connection
+      key: connectionString
+```
+
+The chart no longer deploys PostgreSQL, so upgrading an installation that used the chart's database removes that database. Only clean installs are supported.
+
 #### OIDC authentication
 
 Set `controller.auth.mode: trusted-proxy` together with
@@ -64,51 +129,22 @@ workers. kagent does not install these prerequisites.
 ### Using Make
 
 ```bash
-# export your openAI key
 export OPENAI_API_KEY=your-openai-api-key
-export ANTHROPIC_API_KEY=your-anthropic-api-key
-export AZURE_OPENAI_API_KEY=your-azure-api-key
 
-# install the kagent charts with openAI provider 
-make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
-
-# install charts with anthropic provider
-make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
-
-# install charts with azureOpenAI provider
-make KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI helm-install
-
-# install charts with ollama provider
-make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
+# Build the local images, then install them with Substrate and the development database
+make build
+make KAGENT_DEFAULT_MODEL_PROVIDER=openAI kagent-cli-install
 ```
 
-The Make target regenerates protobuf bindings, rebuilds all local images, and
-rolls the controller and UI before installing. Native gRPC, gRPC-Web, A2A, MCP,
-and operational HTTP endpoints share controller port `8083`.
+`make kagent-cli-install` builds the local CLI and runs `kagent install` against the local charts. `make helm-install` installs the charts directly with Helm. That needs a prepared database and `kagent-postgres` Secret (see [PostgreSQL](#postgresql)) and a separately installed Substrate. Native gRPC, gRPC-Web, A2A, MCP, and operational HTTP endpoints share controller port `8083`.
 
 ### Using kagent cli
 
 ```bash
-## make sure have env variable with your API_KEY
 export OPENAI_API_KEY=your-openai-api-key
-export ANTHROPIC_API_KEY=your-anthropic-api-key
-export AZURE_OPENAI_API_KEY=your-azure-api-key
-
-#default provider is openAI but you can select from the list 
-export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
-export KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI
-export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
-
-# use local helm chart to install kagent with openAI provider
+# openAI is the default; other choices include anthropic, azureOpenAI, gemini, and ollama
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
-export KAGENT_HELM_REPO=./helm/
-make kagent-cli-install
-
-# use local helm chart to install kagent with ollama provider
-export KAGENT_DEFAULT_MODEL_PROVIDER=ollama
-export KAGENT_HELM_REPO=./helm/
-make kagent-cli-install
-
+kagent install
 ```
 
 ## Upgrading
