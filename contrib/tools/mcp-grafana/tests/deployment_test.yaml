@@ -1,8 +1,11 @@
 suite: test mcp-grafana deployment
 templates:
   - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
 tests:
   - it: should render deployment with default values
+    template: deployment.yaml
     asserts:
       - isKind:
           of: Deployment
@@ -18,12 +21,14 @@ tests:
   - it: should render deployment with custom replica count
     set:
       replicaCount: 3
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.replicas
           value: 3
 
   - it: should have correct container image
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].name
@@ -36,24 +41,28 @@ tests:
     set:
       image:
         tag: "v1.0.0"
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: docker.io/mcp/grafana:v1.0.0
 
   - it: should have correct service account name
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.serviceAccountName
           value: RELEASE-NAME-mcp-grafana
 
   - it: should have correct container port
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8000
 
   - it: should have correct labels
+    template: deployment.yaml
     asserts:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]

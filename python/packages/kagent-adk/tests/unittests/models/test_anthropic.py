@@ -7,7 +7,7 @@ from unittest import mock
 import httpx2
 import pytest
 from anthropic import AsyncAnthropic
-from anthropic.lib.credentials import AccessToken
+from anthropic.lib.credentials import AccessToken, AccessTokenProvider
 from anthropic.types import Message, TextBlock, ThinkingBlock, Usage
 from google.adk.models.anthropic_llm import content_block_to_part
 from google.adk.models.llm_request import LlmRequest
@@ -252,7 +252,9 @@ class TestFoundryAnthropic:
             )
 
         http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
-        token_provider = mock.Mock(return_value=AccessToken(token="entra-token", expires_at=4_102_444_800))
+        token_provider = mock.Mock(
+            spec=AccessTokenProvider, return_value=AccessToken(token="entra-token", expires_at=4_102_444_800)
+        )
         with (
             mock.patch.dict("os.environ", {}, clear=True),
             mock.patch.object(FoundryAnthropic, "_create_http_client", return_value=http_client),
