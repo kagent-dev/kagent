@@ -295,6 +295,10 @@ func preparePushLeaderHandoff(t *testing.T) (string, func()) {
 	})
 	require.NoError(t, err, "Lease holder %q did not match a ready controller Pod", leader)
 	followerTarget := forwardPushController(t, follower)
+	leaderKID, leaderKey := pushJWKSKey(t, forwardPushController(t, leaderPod))
+	followerKID, followerKey := pushJWKSKey(t, followerTarget)
+	require.Equal(t, leaderKID, followerKID, "scaled-up replicas must reuse the signing key")
+	require.Equal(t, leaderKey, followerKey)
 	return followerTarget, func() {
 		require.NoError(t, kube.Get(t.Context(), leaseKey, lease))
 		require.Equal(t, leader, *lease.Spec.HolderIdentity, "registration must have been accepted by a nonleader")
@@ -310,6 +314,9 @@ func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
 	response, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + target + "/.well-known/jwks.json")
 	require.NoError(t, err)
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	var set struct {
 		Keys []struct {
@@ -335,19 +342,26 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 	callbacks := make(chan *a2atype.TaskStatusUpdateEvent, 8)
 	var callbackURL string
 	receiver := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		credential, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !found {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		verified, err := jwt.Parse(credential, func(token *jwt.Token) (any, error) {
-			if token.Header["kid"] != keyID {
-				return nil, fmt.Errorf("unexpected push signing key")
+		var verified *jwt.Token
+		if publicKey != nil {
+			credential, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !found {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
 			}
-			return publicKey, nil
-		}, jwt.WithValidMethods([]string{"EdDSA"}), jwt.WithAudience(callbackURL))
-		if err != nil || !verified.Valid {
-			http.Error(w, "invalid JWT", http.StatusUnauthorized)
+			var err error
+			verified, err = jwt.Parse(credential, func(token *jwt.Token) (any, error) {
+				if token.Header["kid"] != keyID {
+					return nil, fmt.Errorf("unexpected push signing key")
+				}
+				return publicKey, nil
+			}, jwt.WithValidMethods([]string{"EdDSA"}), jwt.WithAudience(callbackURL))
+			if err != nil || !verified.Valid {
+				http.Error(w, "invalid JWT", http.StatusUnauthorized)
+				return
+			}
+		} else if r.Header.Get("Authorization") != "" {
+			http.Error(w, "unexpected authentication on unsigned callback", http.StatusUnauthorized)
 			return
 		}
 		var envelope struct {
@@ -357,7 +371,7 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 			http.Error(w, "invalid A2A callback", http.StatusBadRequest)
 			return
 		}
-		if verified.Claims.(jwt.MapClaims)["taskId"] != string(envelope.StatusUpdate.TaskID) {
+		if verified != nil && verified.Claims.(jwt.MapClaims)["taskId"] != string(envelope.StatusUpdate.TaskID) {
 			http.Error(w, "wrong task", http.StatusUnauthorized)
 			return
 		}

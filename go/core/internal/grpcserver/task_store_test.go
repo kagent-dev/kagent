@@ -2,7 +2,6 @@ package grpcserver
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -292,7 +291,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, store.RegisterSessionPushNotification(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL}))
 	workerCtx, stopWorker := context.WithCancel(t.Context())
 	workerDone := make(chan error, 1)
-	pushSigner, err := sessionsvc.NewPushJWTSigner(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))), "https://kagent.example")
+	pushSigner, err := sessionsvc.NewPushJWTSigner("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n", "https://kagent.example")
 	require.NoError(t, err)
 	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner)
 	go func() { workerDone <- worker.Start(workerCtx) }()
