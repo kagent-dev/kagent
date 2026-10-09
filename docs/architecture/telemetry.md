@@ -91,7 +91,7 @@ ones, including what the process adds itself. The controller and each runtime
 read their own value. Set it on the controller with the chart's
 `controller.env`, and on a runtime with `Harness.spec.env`.
 
-The Go runtime adds the request's GenAI identity to the W3C baggage of each
+The Go ADK runtime adds the request's GenAI identity to the W3C baggage of each
 request, so its model and MCP calls carry it whenever the runtime's
 `OTEL_PROPAGATORS` includes `baggage`, for example
 `tracecontext,baggage`:
@@ -106,15 +106,31 @@ request, so its model and MCP calls carry it whenever the runtime's
 
 The members are identifiers, never content or credentials. They replace caller
 members of the same name, so a caller cannot impersonate another conversation
-downstream; other caller members are propagated alongside them when the
-controller and runtime both extract baggage.
+downstream. Other caller baggage members are propagated unchanged when the
+controller and runtime both extract baggage. This includes propagation to
+third-party model providers: any caller member not replaced by kagent can appear
+in the `baggage` header sent to the configured model API as well as to MCP
+servers. Operators should therefore treat enabling baggage propagation as
+sending caller-provided metadata to those external services.
+
+This identity injection currently applies only to the Go ADK runtime. The
+Claude Code and Codex harnesses receive `OTEL_PROPAGATORS`, but kagent does not
+add the GenAI identity to their process context or guarantee that their native
+model and tool clients propagate caller baggage. The Python runtime likewise
+does not add the GenAI identity.
+
+Baggage remains propagation state: kagent does not copy baggage members into
+span attributes. A downstream service that wants these values to be searchable
+on its spans must use a baggage-to-attributes span processor, such as a
+`BaggageSpanProcessor`, or configure equivalent enrichment in its OpenTelemetry
+Collector.
 
 An MCP session is shared by every request and keeps the context of the call
 that opened it for its own requests: the event stream, replies to server
 requests, and the close. Those requests carry neither trace context nor
 baggage, which would otherwise name a past request. Gemini on Vertex AI and SAP
 AI Core use their providers' HTTP clients and receive neither `traceparent` nor
-baggage. The Python runtime does not add the GenAI identity.
+baggage.
 
 Defaults live in the runtimes because a Substrate Actor holds at most 32
 environment variables, and the ActorTemplate itself uses nine. The controller

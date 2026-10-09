@@ -13,14 +13,10 @@ import (
 func WithBaggage(ctx context.Context, attributes ...attribute.KeyValue) context.Context {
 	bag := baggage.FromContext(ctx)
 	for _, attr := range attributes {
-		value := attr.Value.AsString()
-		if value == "" {
-			continue
-		}
-		// Keys are kagent's attribute names, which are valid baggage keys, and
-		// raw values are percent-encoded when injected; an error here can only
-		// come from the W3C size limits, where dropping the member is correct.
-		member, err := baggage.NewMemberRaw(string(attr.Key), value)
+		// Remove existing baggage entries for provided attributes
+		bag.DeleteMember(string(attr.Key))
+
+		member, err := baggage.NewMemberRaw(string(attr.Key), attr.Value.AsString())
 		if err != nil {
 			continue
 		}
