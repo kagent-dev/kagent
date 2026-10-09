@@ -668,8 +668,8 @@ func TestThinkingOnlyInLastAssistantTurn(t *testing.T) {
 	}
 }
 
-func TestHistoricalToolResultTruncation(t *testing.T) {
-	longOutput := strings.Repeat("x", historyToolResultMaxLen+500)
+func TestHistoricalToolResultsSentInFull(t *testing.T) {
+	longOutput := strings.Repeat("x", 2500)
 	contents := []*genai.Content{
 		{
 			Role:  "user",
@@ -700,44 +700,13 @@ func TestHistoricalToolResultTruncation(t *testing.T) {
 	}
 
 	first := extractText(msgs[0])
-	if len(first) >= len(longOutput) {
-		t.Errorf("historical tool result should be truncated, got len=%d", len(first))
+	if len(first) != len(longOutput) {
+		t.Errorf("historical tool result must not be truncated, got len=%d want %d", len(first), len(longOutput))
 	}
 
 	last := extractText(msgs[1])
 	if len(last) != len(longOutput) {
 		t.Errorf("latest tool result must not be truncated, got len=%d want %d", len(last), len(longOutput))
-	}
-}
-
-func TestTruncateToolResult(t *testing.T) {
-	cases := []struct {
-		name    string
-		input   string
-		maxLen  int
-		wantLen int
-		wantMsg bool
-	}{
-		{"no truncation needed", "short", 100, 5, false},
-		{"exact boundary", strings.Repeat("a", 100), 100, 100, false},
-		{"truncated", strings.Repeat("a", 150), 100, 0, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := truncateToolResult(tc.input, tc.maxLen)
-			if tc.wantMsg {
-				if len(got) <= tc.maxLen {
-					t.Errorf("expected truncated result longer than maxLen, got %d", len(got))
-				}
-				if !strings.Contains(got, "truncated") {
-					t.Error("truncated result must contain truncation notice")
-				}
-			} else {
-				if len(got) != tc.wantLen {
-					t.Errorf("want len %d, got %d", tc.wantLen, len(got))
-				}
-			}
-		})
 	}
 }
 

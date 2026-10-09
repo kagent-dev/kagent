@@ -600,15 +600,6 @@ func documentToMap(doc document.Interface) map[string]any {
 	return result
 }
 
-const historyToolResultMaxLen = 2000
-
-func truncateToolResult(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + fmt.Sprintf("\n... [truncated, %d chars omitted]", len(s)-maxLen)
-}
-
 // convertGenaiContentsToBedrockMessages converts genai.Content to Bedrock Converse API message format.
 // nameMap is the original->sanitized tool name map produced by convertGenaiToolsToBedrock.
 // Any FunctionCall found in the conversation history is written with the sanitized name so
@@ -624,8 +615,7 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 
 	// Bedrock only requires thinking blocks in the last assistant turn before tool results.
 	// Sending them in earlier turns causes token counts to compound across long sessions.
-	// Truncate tool results in all turns except the most recent one carrying them.
-	lastThinkingIdx, lastToolResultIdx := -1, -1
+	lastThinkingIdx := -1
 	for i, c := range contents {
 		if c == nil {
 			continue
@@ -636,9 +626,6 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 			}
 			if p.Thought && (c.Role == "model" || c.Role == "assistant") {
 				lastThinkingIdx = i
-			}
-			if p.FunctionResponse != nil && c.Role == "user" {
-				lastToolResultIdx = i
 			}
 		}
 	}
@@ -654,7 +641,6 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 		}
 
 		emitThinking := i == lastThinkingIdx
-		truncateTools := i != lastToolResultIdx
 
 		var contentBlocks []types.ContentBlock
 
@@ -719,9 +705,6 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 
 			if part.FunctionResponse != nil {
 				result := extractFunctionResponseContent(part.FunctionResponse.Response)
-				if truncateTools {
-					result = truncateToolResult(result, historyToolResultMaxLen)
-				}
 				toolResult := types.ToolResultBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionResponse.ID, idMap, &idCounter)),
 					Content: []types.ToolResultContentBlock{
