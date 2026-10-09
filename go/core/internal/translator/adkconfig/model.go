@@ -221,6 +221,9 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		if model.Spec.AzureOpenAI.APIFormat != nil && *model.Spec.AzureOpenAI.APIFormat != "" {
+			azureOpenAI.APIFormat = string(*model.Spec.AzureOpenAI.APIFormat)
+		}
 
 		return azureOpenAI, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGeminiVertexAI:
