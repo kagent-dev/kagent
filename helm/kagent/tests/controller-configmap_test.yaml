@@ -80,6 +80,35 @@ tests:
           path: data.KAGENT_PAUSED_RUNTIME_TTL
           value: "0"
 
+  - it: configures no Session admission by default
+    asserts:
+      - notExists:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_JWKS_URL
+      - notExists:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_ISSUER
+      - notExists:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_AUDIENCE
+
+  - it: renders the jwt Session admission from the values
+    set:
+      controller.session.admission.jwt.jwksURL: http://workspace-manager.kagent.svc/.well-known/jwks.json
+      controller.session.admission.jwt.issuer: https://workspaces.example.test
+      controller.session.admission.jwt.audience: kagent
+    asserts:
+      - isSubset:
+          path: data
+          content:
+            KAGENT_SESSION_ADMISSION_JWT_JWKS_URL: http://workspace-manager.kagent.svc/.well-known/jwks.json
+            KAGENT_SESSION_ADMISSION_JWT_ISSUER: https://workspaces.example.test
+            KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: kagent
+
+  - it: refuses a partial jwt Session admission
+    set:
+      controller.session.admission.jwt.jwksURL: http://workspace-manager.kagent.svc/.well-known/jwks.json
+    asserts:
+      - failedTemplate:
+          errorMessage: controller.session.admission.jwt needs jwksURL, issuer and audience together
+
   - it: defaults to insecure controller authentication
     asserts:
       - isSubset:

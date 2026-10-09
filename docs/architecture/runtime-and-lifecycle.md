@@ -27,6 +27,53 @@ a volume of its choosing. A create without the fields is handled as before. An
 `Agent` or `AgentTemplate` carries no volume: the session is the only place one
 is named.
 
+### Session volume admission
+
+The built-in admission is `jwt` (`go/core/internal/service/session/jwtadmission`),
+configured by `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`, `_ISSUER` and `_AUDIENCE`
+(chart values `controller.session.admission.jwt.{jwksURL, issuer, audience}`):
+all three or none, a partial configuration fails startup. The admission token
+is a short-lived JWT signed by the installation's workspace issuer (ES256,
+ES384, RS256 or PS256, with a `kid`), whose payload is:
+
+```json
+{
+  "iss": "<issuer>", "aud": "<audience>", "sub": "<the caller>",
+  "exp": 0, "nbf": 0,
+  "volume": {"driver": "nfs.csi.k8s.io", "handle": "<the driver's volume handle>"},
+  "mounts": [
+    {"sub_path": "sessions/${SESSION_ID}"},
+    {"sub_path": "mirrors", "read_only": true}
+  ],
+  "changed": ["<owner>/<repository>"],
+  "providers": [
+    {"hostname": "github.com", "audience": "<token audience>", "scheme": "Basic",
+     "username": "x-access-token", "broker": "<token broker>"}
+  ]
+}
+```
+
+It is admitted when the signature verifies against a key of the issuer's JWKS,
+`iss` and `aud` are the configured ones, `exp` has not passed and `nbf` has
+(30 seconds of leeway), `sub` is the caller as the authenticator identifies it
+(`KAGENT_AUTH_USER_ID_CLAIM`), the grant's volume is the request's, and every
+requested mount's sub-path is one the grant allows, read-only where the grant
+says so. `changed` lists repositories, relative to the session's working
+directory, whose origin moved since the volume's last sync; each provider is a
+host whose credential the session gets, with the `Bearer` or `Basic` scheme (a
+user name for Basic only) and the broker that exchanges the person's token for
+its audience. Both are stored on the session as `providers` and `changed` and
+shown on get and list; the token itself is stored and shown nowhere.
+
+Every refusal is `PermissionDenied` with its reason (no grant, expired, not yet
+valid, another person's, another volume, a mount it does not allow, an unknown
+issuer, audience or key, an invalid signature, a malformed grant) and never
+key material. The JWKS is fetched on the first grant, trusted for ten minutes,
+and fetched again on a key id it lacks (at most every ten seconds), so a key
+rotation needs no restart. An issuer whose JWKS cannot be fetched refuses
+`Unavailable`, not `PermissionDenied`: the grant may well be valid, and the
+caller retries.
+
 Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting

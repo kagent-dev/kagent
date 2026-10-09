@@ -23,9 +23,12 @@ const (
 )
 
 var (
-	snapshot  = grant.Snapshot{Driver: "hostpath.csi.k8s.io", Handle: "7d1c0c6e-snapshot"}
-	changed   = []string{"e2e/alpha"}
-	providers = []grant.Provider{{Hostname: "git.e2e.test", Audience: "git", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"}}
+	workspace = grant.Grant{
+		Volume:    grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs-server.kagent.svc#export#workspace-e2e##"},
+		Mounts:    []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
+		Changed:   []string{"e2e/alpha"},
+		Providers: []grant.Provider{{Hostname: "git.e2e.test", Audience: "git", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"}},
+	}
 )
 
 // verifier checks a grant the way an admission does: the signature against the
@@ -76,13 +79,11 @@ func TestSignedGrantVerifiesAgainstItsJWKS(t *testing.T) {
 	verify := verifier{jwksURL: signer.Serve(t), issuer: issuer, audience: audience}
 
 	t.Run("valid", func(t *testing.T) {
-		token, err := signer.SignGrant(person, snapshot, changed, providers, time.Minute)
+		token, err := signer.SignGrant(person, workspace, time.Minute)
 		require.NoError(t, err)
 		claims, err := verify.verify(t, token, person)
 		require.NoError(t, err)
-		require.Equal(t, snapshot, claims.Snapshot)
-		require.Equal(t, changed, claims.Changed)
-		require.Equal(t, providers, claims.Providers)
+		require.Equal(t, workspace, claims.Grant)
 	})
 
 	for _, test := range []struct {
@@ -101,7 +102,7 @@ func TestSignedGrantVerifiesAgainstItsJWKS(t *testing.T) {
 			if test.signer != nil {
 				issuing = test.signer
 			}
-			token, err := issuing.SignGrant(test.subject, snapshot, changed, providers, test.ttl)
+			token, err := issuing.SignGrant(test.subject, workspace, test.ttl)
 			require.NoError(t, err)
 			_, err = verify.verify(t, token, person)
 			require.Error(t, err)

@@ -19,6 +19,16 @@ data:
   KAGENT_STALLED_TURN_TIMEOUT: {{ .Values.controller.stalledTurnTimeout | quote }}
   KAGENT_PAUSED_RUNTIME_TTL: {{ .Values.controller.pausedRuntimeTTL | quote }}
   KAGENT_REVISION_REPOINT_INTERVAL: {{ .Values.controller.revisionRepointInterval | quote }}
+  {{- with ((.Values.controller.session).admission).jwt }}
+  {{- if or .jwksURL .issuer .audience }}
+  {{- if not (and .jwksURL .issuer .audience) }}
+  {{- fail "controller.session.admission.jwt needs jwksURL, issuer and audience together" }}
+  {{- end }}
+  KAGENT_SESSION_ADMISSION_JWT_JWKS_URL: {{ .jwksURL | quote }}
+  KAGENT_SESSION_ADMISSION_JWT_ISSUER: {{ .issuer | quote }}
+  KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: {{ .audience | quote }}
+  {{- end }}
+  {{- end }}
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}

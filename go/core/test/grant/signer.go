@@ -1,7 +1,7 @@
 // Package grant issues the signed workspace grants a Session volume source is
 // admitted with, for tests: a generated ES256 key, its JWKS, and grants for any
-// subject, snapshot, changed repositories and providers. It stands in for the
-// workspace issuer that holds the people's sign-ins.
+// subject, volume, allowed mounts, changed repositories and providers. It
+// stands in for the workspace issuer that holds the people's sign-ins.
 package grant
 
 import (
@@ -22,10 +22,19 @@ import (
 // JWKSPath is where Serve publishes the verification keys.
 const JWKSPath = "/.well-known/jwks.json"
 
-// Snapshot names the CSI snapshot a Session's clone is seeded from.
-type Snapshot struct {
+// Volume names the workspace's read-write-many volume by its CSI driver and
+// the driver's handle.
+type Volume struct {
 	Driver string `json:"driver"`
 	Handle string `json:"handle"`
+}
+
+// Mount is a directory of the volume a Session may mount: SubPath as the
+// Session's volume source spells it ("sessions/${SESSION_ID}"), read-only when
+// ReadOnly is set.
+type Mount struct {
+	SubPath  string `json:"sub_path"`
+	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
 // Provider is a host whose credential a Session gets: the egress gateway sets
@@ -39,13 +48,20 @@ type Provider struct {
 	Broker   string `json:"broker"`
 }
 
-// Claims is a grant's payload. Changed lists the repositories, relative to the
-// working directory, whose origin moved after the snapshot.
-type Claims struct {
-	jwt.RegisteredClaims
-	Snapshot  Snapshot   `json:"snapshot"`
+// Grant is what a grant admits beside its subject: the volume, the mounts of
+// it a Session may have, the repositories, relative to the working directory,
+// whose origin moved since the volume's last sync, and the providers.
+type Grant struct {
+	Volume    Volume     `json:"volume"`
+	Mounts    []Mount    `json:"mounts"`
 	Changed   []string   `json:"changed,omitempty"`
 	Providers []Provider `json:"providers,omitempty"`
+}
+
+// Claims is a grant's payload.
+type Claims struct {
+	jwt.RegisteredClaims
+	Grant
 }
 
 // JWK is the public half of the signing key as RFC 7517 publishes it.
@@ -100,9 +116,9 @@ func NewSigner(issuer, audience string) (*Signer, error) {
 // KeyID is the kid every grant of this signer carries.
 func (s *Signer) KeyID() string { return s.keyID }
 
-// SignGrant returns the compact JWT admitting subject to a Session in a clone
-// of snapshot, valid from now for ttl; a negative ttl yields an expired grant.
-func (s *Signer) SignGrant(subject string, snapshot Snapshot, changed []string, providers []Provider, ttl time.Duration) (string, error) {
+// SignGrant returns the compact JWT admitting subject to a Session with what
+// grant names, valid from now for ttl; a negative ttl yields an expired grant.
+func (s *Signer) SignGrant(subject string, grant Grant, ttl time.Duration) (string, error) {
 	now := time.Now()
 	notBefore := now
 	if ttl < 0 {
@@ -117,9 +133,7 @@ func (s *Signer) SignGrant(subject string, snapshot Snapshot, changed []string, 
 			NotBefore: jwt.NewNumericDate(notBefore),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 		},
-		Snapshot:  snapshot,
-		Changed:   changed,
-		Providers: providers,
+		Grant: grant,
 	})
 	token.Header["kid"] = s.keyID
 	signed, err := token.SignedString(s.key)

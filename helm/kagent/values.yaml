@@ -403,6 +403,19 @@ controller:
   # ActorTemplate alive. A turn moves its own runtime regardless. 0 disables the sweep.
   revisionRepointInterval: "5m"
 
+  session:
+    # How a Session's volume source is admitted. With all three jwt values set,
+    # a create that names a volume source must carry a grant the issuer signed:
+    # verified against jwksURL (refetched on an unknown key id, so a key rotation
+    # needs no restart), with this iss and aud, naming the caller as sub, the
+    # volume and the mounts it allows. Unset, every create that names a volume
+    # source is refused.
+    admission:
+      jwt:
+        jwksURL: ""
+        issuer: ""
+        audience: ""
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:

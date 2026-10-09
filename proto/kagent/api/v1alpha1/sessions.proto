@@ -69,6 +69,26 @@ message Session {
   // The workspace volume this session works in and how its actor mounts it,
   // as given on create. Unset for a session created without one.
   SessionVolumeSource volume_source = 17;
+  // Output only. The hosts whose credential this session gets, as the
+  // installation's admission admitted them with the volume source.
+  repeated SessionProvider providers = 18;
+  // Output only. The repositories, relative to the session's working
+  // directory, whose origin moved since the volume's last sync, as admitted.
+  repeated string changed = 19;
+}
+
+// SessionProvider is a host whose credential a session gets: the egress
+// gateway sets it on requests to hostname with scheme, from a token the named
+// broker exchanges for audience. No credential is part of it.
+message SessionProvider {
+  string hostname = 1;
+  string audience = 2;
+  // "Bearer" or "Basic".
+  string scheme = 3;
+  // The user name of the Basic scheme; empty for Bearer.
+  string username = 4;
+  // The token broker that exchanges the person's token for audience.
+  string broker = 5;
 }
 
 // SessionVolumeSource names an existing read-write-many volume and how the

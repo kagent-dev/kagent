@@ -13,7 +13,6 @@ import (
 	"time"
 
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/core/test/grant"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -54,8 +53,8 @@ var (
 // workspaceRepositories clone, checked out on main, with the origin it was
 // cloned from. Origin moved on workspaceChanged after the snapshot.
 type workspaceFixture struct {
-	// Snapshot is what a grant names and a Session volume source carries.
-	Snapshot grant.Snapshot
+	// Snapshot is the CSI snapshot of the volume holding the clones.
+	Snapshot workspaceSnapshot
 	// SnapshotName is the VolumeSnapshot in namespace kagent.
 	SnapshotName string
 	// Heads maps each repository to the commit its clone holds.
@@ -206,7 +205,7 @@ func runWorkspaceJob(t *testing.T, kube ctrlclient.Client, claim *corev1.Persist
 // snapshotWorkspaceVolume takes a VolumeSnapshot of claim, waits until it is
 // ready to use, and reads the CSI driver and snapshot handle from its bound
 // VolumeSnapshotContent.
-func snapshotWorkspaceVolume(t *testing.T, kube ctrlclient.Client, claim *corev1.PersistentVolumeClaim) (string, grant.Snapshot) {
+func snapshotWorkspaceVolume(t *testing.T, kube ctrlclient.Client, claim *corev1.PersistentVolumeClaim) (string, workspaceSnapshot) {
 	t.Helper()
 	snapshot := &unstructured.Unstructured{}
 	snapshot.SetGroupVersionKind(snapshotGVK)
@@ -236,8 +235,11 @@ func snapshotWorkspaceVolume(t *testing.T, kube ctrlclient.Client, claim *corev1
 	require.NoError(t, err)
 	require.NotEmpty(t, driver)
 	require.NotEmpty(t, handle)
-	return snapshot.GetName(), grant.Snapshot{Driver: driver, Handle: handle}
+	return snapshot.GetName(), workspaceSnapshot{Driver: driver, Handle: handle}
 }
+
+// workspaceSnapshot names a CSI snapshot by its driver and handle.
+type workspaceSnapshot struct{ Driver, Handle string }
 
 func createWorkspaceObject(t *testing.T, kube ctrlclient.Client, object ctrlclient.Object) {
 	t.Helper()

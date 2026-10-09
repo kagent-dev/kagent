@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/jackc/pgx/v5/pgxpool"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -18,8 +19,8 @@ import (
 // admitEverySource stands in for an installation's configured admission.
 type admitEverySource struct{}
 
-func (admitEverySource) Admit(context.Context, string, *apiv1alpha1.SessionVolumeSource, string) error {
-	return nil
+func (admitEverySource) Admit(context.Context, string, *apiv1alpha1.SessionVolumeSource, string) (sessionsvc.Admitted, error) {
+	return sessionsvc.Admitted{}, nil
 }
 
 type volumeTestSession struct{ userID string }
@@ -34,23 +35,7 @@ func (s volumeTestSession) Principal() auth.Principal {
 // admission the same create is refused before the agent is looked up.
 func TestSessionVolumeSourceOnTheWire(t *testing.T) {
 	const token = "admission-token-never-stored"
-	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
-	dbtest.MigrateT(t, dsn, false)
-	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
-	require.NoError(t, err)
-	t.Cleanup(db.Close)
-	store := database.NewClient(db)
-	revision := database.RuntimeRevision{
-		Revision: "revision-1", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
-		SourceSnapshot: []byte("{}"),
-		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
-		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
-	}
-	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
-		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
-		DesiredRevision: revision.Revision,
-	}))
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, true))
+	store, db := volumeTestStore(t)
 	ctx := auth.AuthSessionTo(t.Context(), volumeTestSession{userID: "alice"})
 	agent := &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
 	source := &apiv1alpha1.SessionVolumeSource{
@@ -100,4 +85,28 @@ func TestSessionVolumeSourceOnTheWire(t *testing.T) {
 	listed, err = bare.ListSessions(ctx, &apiv1alpha1.ListSessionsRequest{})
 	require.NoError(t, err)
 	require.Len(t, listed.GetSessions(), 2, "a refused request reserves no Session")
+}
+
+// volumeTestStore is a migrated PostgreSQL store holding agent team-a/assistant
+// with a ready revision, so a Session of it can be created.
+func volumeTestStore(t *testing.T) (*database.Client, *pgxpool.Pool) {
+	t.Helper()
+	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
+	dbtest.MigrateT(t, dsn, false)
+	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
+	require.NoError(t, err)
+	t.Cleanup(db.Close)
+	store := database.NewClient(db, "public")
+	revision := database.RuntimeRevision{
+		Revision: "revision-1", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		SourceSnapshot: []byte("{}"),
+		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
+	}
+	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
+		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
+		DesiredRevision: revision.Revision,
+	}))
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, true))
+	return store, db
 }

@@ -54,9 +54,19 @@ type sessionWorkflow interface {
 // it names. An installation configures one; without it, every request that
 // names a volume is refused, so no caller mounts a volume of its choosing.
 type VolumeAdmission interface {
-	// Admit returns nil when token proves that caller may create a session on
-	// source, and the refusal otherwise.
-	Admit(ctx context.Context, caller string, source *apiv1alpha1.SessionVolumeSource, token string) error
+	// Admit returns what the session is admitted with when token proves that
+	// caller may create a session on source, and the refusal otherwise.
+	Admit(ctx context.Context, caller string, source *apiv1alpha1.SessionVolumeSource, token string) (Admitted, error)
+}
+
+// Admitted is what an admission grants a session beside its volume source,
+// stored on the session and shown on get and list. It holds no credential.
+type Admitted struct {
+	// Providers are the hosts whose credential the session gets.
+	Providers []*apiv1alpha1.SessionProvider
+	// Changed lists the repositories, relative to the session's working
+	// directory, whose origin moved since the volume's last sync.
+	Changed []string
 }
 
 // CreateRequest is what a new conversation is created from.
@@ -216,7 +226,8 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 	if _, shared := auth.ShareContextFrom(ctx); shared {
 		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
 	}
-	if err := s.admitVolume(ctx, creator, request); err != nil {
+	admitted, err := s.admitVolume(ctx, creator, request)
+	if err != nil {
 		return nil, err
 	}
 	id, err := uuid.NewV7()
@@ -226,6 +237,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 	session, _, err := s.store.CreateSession(ctx, &apiv1alpha1.Session{
 		Id: id.String(), Creator: creator, Name: request.Name,
 		Agent: request.Agent, VolumeSource: request.VolumeSource,
+		Providers: admitted.Providers, Changed: admitted.Changed,
 	}, request.RequestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
@@ -253,24 +265,25 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 }
 
 // admitVolume refuses a volume source the installation's admission does not
-// admit. The admission token is handed to the admission and to nothing else:
-// it never reaches the store or a response.
-func (s *Service) admitVolume(ctx context.Context, caller string, request CreateRequest) error {
+// admit, and returns what it admits otherwise. The admission token is handed
+// to the admission and to nothing else: it never reaches the store or a
+// response.
+func (s *Service) admitVolume(ctx context.Context, caller string, request CreateRequest) (Admitted, error) {
 	if request.VolumeSource == nil && request.AdmissionToken == "" {
-		return nil
+		return Admitted{}, nil
 	}
 	if s.volumeAdmission == nil {
-		return serviceerrors.NewFailedPrecondition("this installation admits no Session volume", nil)
+		return Admitted{}, serviceerrors.NewFailedPrecondition("this installation admits no Session volume", nil)
 	}
-	err := s.volumeAdmission.Admit(ctx, caller, request.VolumeSource, request.AdmissionToken)
+	admitted, err := s.volumeAdmission.Admit(ctx, caller, request.VolumeSource, request.AdmissionToken)
 	var refusal *serviceerrors.Error
 	if errors.As(err, &refusal) {
-		return err
+		return Admitted{}, err
 	}
 	if err != nil {
-		return serviceerrors.NewPermissionDenied("Session volume source was not admitted", err)
+		return Admitted{}, serviceerrors.NewPermissionDenied("Session volume source was not admitted", err)
 	}
-	return nil
+	return admitted, nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {

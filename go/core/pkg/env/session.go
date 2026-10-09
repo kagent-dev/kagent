@@ -14,3 +14,11 @@ var SessionStalledTurnTimeout = RegisterDurationVar("KAGENT_STALLED_TURN_TIMEOUT
 var SessionRevisionRepointInterval = RegisterDurationVar("KAGENT_REVISION_REPOINT_INTERVAL", 5*time.Minute, "How often the controller moves the quiesced runtimes of sessions whose revision their agent has superseded onto the agent's current revision, so a conversation nobody writes to again does not keep the old revision and its ActorTemplate alive. A turn moves its own runtime regardless. Zero disables the sweep.", ComponentController)
 
 var SessionPausedRuntimeTTL = RegisterDurationVar("KAGENT_PAUSED_RUNTIME_TTL", 2*time.Minute, "Suspend a runtime paused for input once its pause is older than this, so the reply restores it from a durable snapshot instead of the node the pause was taken on. Zero keeps every pause in place until the reply.", ComponentController)
+
+// The jwt Session admission: set all three to admit a create's volume source
+// with a grant the issuer signed; leave all unset to refuse every volume source.
+var (
+	SessionAdmissionJWTJWKSURL  = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_JWKS_URL", "", "URL of the JWKS that verifies the signed grants a Session volume source is admitted with. Empty, with the issuer and audience, configures no admission: every create that names a volume source or carries an admission token is refused.", ComponentController)
+	SessionAdmissionJWTIssuer   = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_ISSUER", "", "Required iss of a Session admission grant. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL.", ComponentController)
+	SessionAdmissionJWTAudience = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_AUDIENCE", "", "Required aud of a Session admission grant: this kagent. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL.", ComponentController)
+)
