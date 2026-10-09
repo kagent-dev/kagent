@@ -256,16 +256,28 @@ func TestSandboxMCP(t *testing.T) {
 	}
 	call("write_sandbox_file", map[string]any{"sandbox_id": sandbox.Id, "path": "mcp.txt", "data_base64": base64.StdEncoding.EncodeToString([]byte("from MCP"))}, &write)
 	require.Equal(t, 8, write.Bytes)
-	var read struct {
-		Data string `json:"data_base64"`
+	text := func(name string, args map[string]any) string {
+		t.Helper()
+		result := mcpCall(t, mcpEndpoint(t), "tools/call", map[string]any{"name": name, "arguments": args}, false)["result"].(map[string]any)
+		require.NotEqual(t, true, result["isError"], "%#v", result)
+		require.Nil(t, result["structuredContent"], "content tools must not return structured output")
+		return mcpResultText(result)
 	}
-	call("read_sandbox_file", map[string]any{"sandbox_id": sandbox.Id, "path": "mcp.txt"}, &read)
-	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("from MCP")), read.Data)
+	require.Equal(t, "1: from MCP\n", text("read_sandbox_file", map[string]any{"sandbox_id": sandbox.Id, "path": "mcp.txt"}))
 	var process struct {
 		ID string `json:"process_id"`
 	}
 	call("start_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "command": []string{"cat", "mcp.txt"}}, &process)
 	require.NotEmpty(t, process.ID)
+	require.Eventually(t, func() bool {
+		var status struct {
+			Status string `json:"status"`
+		}
+		call("get_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}, &status)
+		return status.Status == "PROCESS_STATUS_COMPLETED"
+	}, time.Minute, time.Second)
+	require.Equal(t, "stdout_offset=8 stderr_offset=0\n--- stdout ---\nfrom MCP",
+		text("read_sandbox_outputs", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}))
 	var deleted struct {
 		State string `json:"state"`
 	}

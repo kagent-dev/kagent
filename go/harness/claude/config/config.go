@@ -101,12 +101,15 @@ type Agent struct {
 	Model       string `json:"model,omitempty"`
 }
 
+// Claude Code writes a tool result's images as base64 twice on one line.
+const maxEventBytes = 16 << 20
+
 func Production(model, instruction string) Config {
 	return Config{
 		Version: Version, ClaudeExecutable: "claude",
 		ExpectedClaudeVersion: PinnedClaudeVersion, StrictVersion: true,
 		Model: model, AppendSystemPrompt: instruction,
-		MaxEventBytes: 1 << 20, MaxStderrBytes: 64 << 10,
+		MaxEventBytes: maxEventBytes, MaxStderrBytes: 64 << 10,
 		InterruptGraceMillis: 2000,
 	}
 }

@@ -73,8 +73,8 @@ Clients that support MCP prompts can retrieve `sandbox-task` with required
 running tools. Server instructions describe the overall workflow; tool
 descriptions carry essential guidance for clients that only expose tools.
 
-Fields in the required column must be supplied. File contents and output bytes
-use standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
+Fields in the required column must be supplied. `write_sandbox_file` takes
+standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
 
 | Tool | Required inputs | Optional inputs / result |
 | --- | --- | --- |
@@ -84,9 +84,9 @@ use standard base64, including for text. Sandbox IDs are UUIDs returned by kagen
 | `get_sandbox`, `suspend_sandbox`, `resume_sandbox`, `delete_sandbox` | `sandbox_id` | Return a sandbox summary |
 | `start_sandbox_process` | `sandbox_id`, `command` (argv array) | `cwd`, `env` (string map); returns `process_id` |
 | `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Get returns `status` and `exit_code`; Kill returns `exit_code` |
-| `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns base64 streams, continuation offsets, `truncated` |
+| `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns text: a first line with the offsets to continue from, then the new stdout and stderr |
 | `write_sandbox_file` | `sandbox_id`, `path`, `data_base64` | `mode` (decimal Unix bits, e.g. `420` for `0644`); returns `bytes_written` |
-| `read_sandbox_file` | `sandbox_id`, `path` | Returns `data_base64` |
+| `read_sandbox_file` | `sandbox_id`, `path` | `offset`, `limit` (lines); returns numbered lines, an image, or a note describing the file |
 
 Sandbox summaries contain `id`, `sandbox_template`, `state`, `operation`,
 `expires_at`, and optional `name` and `failure`. MCP returns the summary directly,
@@ -116,13 +116,17 @@ result; a completed tool call can carry a service error.
    `PROCESS_STATUS_COMPLETED`, `PROCESS_STATUS_FAILED`, and
    `PROCESS_STATUS_TERMINATED`; inspect the exit code and outputs before claiming
    success. Use `kill_sandbox_process` when the task needs to stop the command.
-5. **Collect.** Decode `stdout_base64` and `stderr_base64` from
-   `read_sandbox_outputs`. It reads currently available output, up to 1 MiB
-   combined, without following future output. Pass both returned byte offsets
-   into subsequent reads; continue when truncated and read again after process
-   completion. Empty output or `truncated: false` does not mean the process ended.
-   Read result files, decode them, and save deliverables into the user's working
-   environment before cleanup. A path inside a sandbox is not a local artifact.
+5. **Collect.** Read output with `read_sandbox_outputs`. It reads currently
+   available output, up to 32 KiB per call, without following future output.
+   Its first line gives the `stdout_offset` and `stderr_offset` to pass into
+   subsequent reads; invalid UTF-8 is replaced with U+FFFD, so redirect binary
+   output to a file. Continue when it says more output remains, and read again
+   after process completion. No new output does not mean the process ended.
+   Read result files with `read_sandbox_file`: text comes back as numbered
+   lines, paged with `offset` and `limit`; PNG, JPEG, GIF and WebP images come
+   back as images; other files come back as a description. Retrieve other
+   files with a gRPC streaming client, and save deliverables into the user's
+   working environment before cleanup. A path inside a sandbox is not a local artifact.
 6. **Finish.** Delete scratch sandboxes created for the task after retrieving
    results. Reused or deliberately retained sandboxes need an explicit handoff
    of their ID, expiration, and artifact paths. If cleanup fails, report it and
@@ -170,7 +174,7 @@ needed):
 {"sandbox_id":"SANDBOX_ID","process_id":"PROCESS_ID","stdout_offset":0,"stderr_offset":0}
 ```
 
-After successful completion, call `read_sandbox_file` and decode `data_base64`:
+After successful completion, call `read_sandbox_file`; the JSON arrives as line 1:
 
 ```json
 {"sandbox_id":"SANDBOX_ID","path":"summary.json"}

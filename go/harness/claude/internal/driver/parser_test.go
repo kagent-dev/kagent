@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 )
 
 const pinnedClaudeVersion = "2.1.285"
@@ -221,4 +223,24 @@ func (r *fragmentReader) Read(p []byte) (int, error) {
 	copy(p, r.data[:n])
 	r.data = r.data[n:]
 	return n, nil
+}
+
+func TestParseJSONLToolResultWithImage(t *testing.T) {
+	image := strings.Repeat("A", 700_000)
+	result := `[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"` + image + `"}}]`
+	input := strings.Join([]string{
+		`{"type":"assistant","message":{"id":"msg_tool","content":[{"type":"tool_use","id":"tool-1","name":"mcp__kagent__read_sandbox_file","input":{}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":` + result + `}]},"tool_use_result":` + result + `}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
+	}, "\n") + "\n"
+	var completed bool
+	if err := ParseJSONL(strings.NewReader(input), config.Production("", "").MaxEventBytes, func(event Event) error {
+		completed = completed || (event.Kind == EventToolActivity && event.ToolPhase == "completed")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !completed {
+		t.Fatal("the tool result carrying an image was not emitted")
+	}
 }
