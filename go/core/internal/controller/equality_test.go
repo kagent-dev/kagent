@@ -7,7 +7,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
@@ -17,11 +17,11 @@ import (
 func equalityTestReconciliation() AgentReconciliation {
 	return AgentReconciliation{
 		Agent: &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "agent"}},
-		Target: &compiledTarget{Revision: v2translator.Revision{
+		Target: &compiledTarget{Revision: translator.Revision{
 			Namespace: "test", AgentName: "agent",
 			AgentCard: &a2apb.AgentCard{Name: "agent"},
 		},
-			RevisionID: v2translator.RevisionID{1},
+			RevisionID: translator.RevisionID{1},
 			ActorTemplate: &ateapipb.ActorTemplate{
 				Metadata: &ateapipb.ResourceMetadata{Atespace: "test", Name: "runtime"},
 			},

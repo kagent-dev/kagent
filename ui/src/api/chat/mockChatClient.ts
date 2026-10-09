@@ -148,15 +148,15 @@ export class MockChatClient implements ChatClient {
 
     /*
      * The controller refuses a message while a question is pending, and so does
-     * this — in the controller's own words, from `storeError` in
-     * `go/core/v2/a2agateway/gateway.go`. A fixture that accepted it would let a
+     * this -- a Session can own only one active task. A fixture that accepted it
+     * would let a
      * build that never shows the parked state pass every browser test, which is
      * how the reported conversation came to look like an agent that had broken.
      */
     /*
      * The gateway refuses a message for an instance that is not ready, and so does
-     * this. It answers `UnsupportedOperation` naming the state — see the precondition
-     * on `SendStreamingMessage` in `go/core/v2/a2agateway/gateway.go`.
+     * this. It answers `UnsupportedOperation` naming the state -- see the precondition
+     * in `InteractionService.resolveSend`.
      *
      * Added because its absence made a real property untestable rather than merely
      * untested: a page that sends into a suspended conversation without resuming it

@@ -13,7 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,24 +33,24 @@ type provenanceEntry struct {
 // Builder assembles resolved inputs into an ADK agent configuration.
 type Builder struct {
 	ctx         krt.HandlerContext
-	collections v2translator.Collections
+	collections translator.Collections
 }
 
 // NewBuilder constructs an ADK configuration builder.
-func NewBuilder(ctx krt.HandlerContext, collections v2translator.Collections) *Builder {
+func NewBuilder(ctx krt.HandlerContext, collections translator.Collections) *Builder {
 	return &Builder{ctx: ctx, collections: collections}
 }
 
 type Result struct {
 	Config      *adk.AgentConfig
-	Models      []*v2translator.ResolvedModelConfig
-	Templates   []*v2translator.TemplateConfiguration
+	Models      []*translator.ResolvedModelConfig
+	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
-func HarnessEnvironment(harness *v2translator.HarnessConfiguration) []corev1.EnvVar {
+func HarnessEnvironment(harness *translator.HarnessConfiguration) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
 	for _, value := range harness.Spec.Env {
 		environment = append(environment, corev1.EnvVar{Name: value.Name, Value: value.Value})
@@ -61,7 +61,7 @@ func HarnessEnvironment(harness *v2translator.HarnessConfiguration) []corev1.Env
 // Build returns the complete ADK configuration shared by kagent and BYO.
 // Runtime policy belongs to the root runner; shared subagents contribute only
 // agent behavior and use that runner's session store.
-func (c *Builder) Build(ctx context.Context, input *v2translator.HarnessInput) (*Result, error) {
+func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*Result, error) {
 	if input.Harness.Spec.Kagent != nil {
 		if err := requireModels(input.Root); err != nil {
 			return nil, err
@@ -88,7 +88,7 @@ func (c *Builder) Build(ctx context.Context, input *v2translator.HarnessInput) (
 	return result, nil
 }
 
-func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
+func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput) (*Result, error) {
 	modelRuntime := &modelRuntime{}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
@@ -100,14 +100,14 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		}
 	}
 	if modelRuntime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	stream := new(true)
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
 		stream = modelConfig.Spec.Stream
 	}
 	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
+	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -127,12 +127,12 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 	}
 	result := &Result{
-		Config: cfg, Templates: []*v2translator.TemplateConfiguration{input.Template},
+		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
 		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
 	if modelConfig != nil {
-		result.Models = []*v2translator.ResolvedModelConfig{input.ResolvedModelConfig}
+		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)
@@ -151,7 +151,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *v2translator.HarnessConfiguration, templates []*v2translator.TemplateConfiguration, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
 	var entries []provenanceEntry
 	// Inline configuration is recorded by the enclosing Agent provenance.
 	if harness.Source != nil {

@@ -19,7 +19,8 @@
  *
  * - **`AgentInstance.operation`** — the lifecycle operation claimed *right now*.
  *   The workflow claims one before it acts and clears it when it finishes
- *   (`claim`/`finish` in `go/core/v2/agentinstance/workflow.go`), so a non-
+ *   (`ClaimSessionOperation`/`FinishSessionOperation` in
+ *   `go/core/internal/service/session/workflow.go`), so a non-
  *   `unspecified` value means that operation is in flight this moment. `resume`
  *   and `suspend` are two of its five values.
  * - **The turn's own phase**, from `useChat`'s state machine, which is what the
