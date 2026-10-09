@@ -244,3 +244,16 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslateAzureOpenAIAPIFormat(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	got, _, err := translateModel(&translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderAzureOpenAI, Model: "gpt-4.1-mini",
+			AzureOpenAI: &v1alpha3.AzureOpenAIConfig{Endpoint: "https://team.openai.azure.com", APIFormat: &responses},
+		},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, "responses", got.(*adk.AzureOpenAI).APIFormat)
+}

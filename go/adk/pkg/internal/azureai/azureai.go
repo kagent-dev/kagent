@@ -121,13 +121,15 @@ type ClientConfig struct {
 	// HTTPClient is the transport used by the client. Defaults to
 	// http.DefaultClient when nil.
 	HTTPClient *http.Client
+	// V1 roots the client at {endpoint}/openai/v1/ with no api-version: the only Azure path with the Responses API.
+	V1 bool
 }
 
 // NewOpenAIClient builds an openai-go client for the Azure providers'
 // OpenAI-compatible surface (chat + embeddings), rooted at
-// {endpoint}/openai/deployments/{deployment}/ with the api-version query and
-// implicit auth: the Api-Key header when APIKey is set, otherwise an Azure AD
-// bearer token from Credential.
+// {endpoint}/openai/deployments/{deployment}/ with the api-version query (or at
+// {endpoint}/openai/v1/ when V1 is set) and implicit auth: the Api-Key header
+// when APIKey is set, otherwise an Azure AD bearer token from Credential.
 func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 	if cfg.Endpoint == "" {
 		return openai.Client{}, fmt.Errorf("endpoint is required")
@@ -144,11 +146,15 @@ func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 		httpClient = http.DefaultClient
 	}
 
-	baseURL := strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/deployments/" + url.PathEscape(cfg.Deployment) + "/"
-	opts := []option.RequestOption{
-		option.WithBaseURL(baseURL),
-		option.WithQueryAdd("api-version", cfg.APIVersion),
-		option.WithHTTPClient(httpClient),
+	endpoint := strings.TrimSuffix(cfg.Endpoint, "/")
+	opts := []option.RequestOption{option.WithHTTPClient(httpClient)}
+	if cfg.V1 {
+		opts = append(opts, option.WithBaseURL(endpoint+"/openai/v1/"))
+	} else {
+		opts = append(opts,
+			option.WithBaseURL(endpoint+"/openai/deployments/"+url.PathEscape(cfg.Deployment)+"/"),
+			option.WithQueryAdd("api-version", cfg.APIVersion),
+		)
 	}
 	if cfg.APIKey != "" {
 		// Azure authenticates via the Api-Key header. openai-go otherwise derives

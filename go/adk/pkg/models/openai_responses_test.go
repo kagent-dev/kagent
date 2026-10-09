@@ -21,7 +21,7 @@ import (
 
 func TestGenaiContentsToResponsesInput(t *testing.T) {
 	t.Run("user text and system instruction", func(t *testing.T) {
-		input, instructions := genaiContentsToResponsesInput([]*genai.Content{
+		input, instructions, _ := genaiContentsToResponsesInput([]*genai.Content{
 			{Role: "user", Parts: []*genai.Part{{Text: "hello"}}},
 		}, &genai.GenerateContentConfig{
 			SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: "be helpful"}}},
@@ -43,7 +43,7 @@ func TestGenaiContentsToResponsesInput(t *testing.T) {
 		fr := genai.NewPartFromFunctionResponse("add", map[string]any{"result": "3"})
 		fr.FunctionResponse.ID = "call_1"
 
-		input, _ := genaiContentsToResponsesInput([]*genai.Content{
+		input, _, _ := genaiContentsToResponsesInput([]*genai.Content{
 			{Role: "model", Parts: []*genai.Part{fc}},
 			{Role: "user", Parts: []*genai.Part{fr}},
 		}, nil)
@@ -68,7 +68,7 @@ func TestGenaiContentsToResponsesInput(t *testing.T) {
 		contents := []*genai.Content{
 			{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "ping", Args: nil}}}},
 		}
-		input, _ := genaiContentsToResponsesInput(contents, nil)
+		input, _, _ := genaiContentsToResponsesInput(contents, nil)
 		if len(input) == 0 || input[0].OfFunctionCall == nil {
 			t.Fatalf("input = %#v, want function_call item", input)
 		}
@@ -292,7 +292,7 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 }
 
 func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
-	input, _ := genaiContentsToResponsesInput([]*genai.Content{{
+	input, _, _ := genaiContentsToResponsesInput([]*genai.Content{{
 		Role: "user",
 		Parts: []*genai.Part{
 			{Text: "what is this?"},
@@ -348,4 +348,112 @@ func TestResponsesUsageToGenai(t *testing.T) {
 			t.Errorf("ThoughtsTokenCount = %d, want 30", got.ThoughtsTokenCount)
 		}
 	})
+}
+
+func TestGenaiContentsToResponsesInput_Links(t *testing.T) {
+	const pdf = "https://files.example.com/report.pdf?sv=2024&sig=abc"
+	const image = "https://files.example.com/photo.png"
+	user := func(parts ...*genai.Part) *genai.Content { return &genai.Content{Role: "user", Parts: parts} }
+	link := func(uri, mime, name string) *genai.Part {
+		return &genai.Part{FileData: &genai.FileData{FileURI: uri, MIMEType: mime, DisplayName: name}}
+	}
+	userContent := func(t *testing.T, item responses.ResponseInputItemUnionParam) string {
+		t.Helper()
+		b, err := json.Marshal(item.OfMessage)
+		require.NoError(t, err)
+		return string(b)
+	}
+
+	t.Run("http links become input_file and input_image parts", func(t *testing.T) {
+		input, _, err := genaiContentsToResponsesInput([]*genai.Content{user(
+			genai.NewPartFromText("read these"),
+			link(pdf, "application/pdf", "report.pdf"),
+			link(image, "image/png", ""),
+			link("http://files.example.com/notes.txt", "text/plain", ""),
+			link("https://files.example.com/blob", "", ""),
+		)}, nil)
+		require.NoError(t, err)
+		require.Len(t, input, 1)
+		require.JSONEq(t, `{"role":"user","content":[
+			{"type":"input_text","text":"read these"},
+			{"type":"input_text","text":"File: report.pdf"},
+			{"type":"input_file","file_url":"`+pdf+`"},
+			{"type":"input_image","image_url":"`+image+`","detail":"auto"},
+			{"type":"input_file","file_url":"http://files.example.com/notes.txt"},
+			{"type":"input_file","file_url":"https://files.example.com/blob"}
+		]}`, userContent(t, input[0]))
+	})
+
+	t.Run("text and file parts keep their order", func(t *testing.T) {
+		input, _, err := genaiContentsToResponsesInput([]*genai.Content{user(
+			genai.NewPartFromText("Contract:"),
+			link(pdf, "application/pdf", ""),
+			genai.NewPartFromText("Amendment:"),
+			link("https://files.example.com/amendment.pdf", "application/pdf", ""),
+		)}, nil)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"role":"user","content":[
+			{"type":"input_text","text":"Contract:"},
+			{"type":"input_file","file_url":"`+pdf+`"},
+			{"type":"input_text","text":"Amendment:"},
+			{"type":"input_file","file_url":"https://files.example.com/amendment.pdf"}
+		]}`, userContent(t, input[0]))
+	})
+
+	t.Run("links on older turns are replayed", func(t *testing.T) {
+		input, _, err := genaiContentsToResponsesInput([]*genai.Content{
+			user(genai.NewPartFromText("read this"), link(pdf, "application/pdf", "")),
+			{Role: "model", Parts: []*genai.Part{genai.NewPartFromText("done")}},
+			user(genai.NewPartFromText("and page 2?")),
+		}, nil)
+		require.NoError(t, err)
+		require.Len(t, input, 3)
+		require.JSONEq(t, `{"role":"user","content":[{"type":"input_text","text":"read this"},{"type":"input_file","file_url":"`+pdf+`"}]}`, userContent(t, input[0]))
+		require.JSONEq(t, `{"role":"user","content":"and page 2?"}`, userContent(t, input[2]))
+	})
+
+	t.Run("non-http link in the newest user turn fails the request", func(t *testing.T) {
+		_, _, err := genaiContentsToResponsesInput([]*genai.Content{
+			user(genai.NewPartFromText("read this"), link("gs://bucket/report.pdf", "application/pdf", "")),
+		}, nil)
+		require.ErrorContains(t, err, `cannot send link "gs://bucket/report.pdf"`)
+	})
+
+	t.Run("non-http link in an older turn becomes a note", func(t *testing.T) {
+		input, _, err := genaiContentsToResponsesInput([]*genai.Content{
+			user(genai.NewPartFromText("read this"), link("gs://bucket/report.pdf", "application/pdf", "report.pdf")),
+			{Role: "model", Parts: []*genai.Part{genai.NewPartFromText("I cannot")}},
+			user(genai.NewPartFromText("hello again")),
+		}, nil)
+		require.NoError(t, err)
+		require.Len(t, input, 3)
+		require.Contains(t, userContent(t, input[0]), `[Link \"report.pdf (gs://bucket/report.pdf)\" was not sent`)
+		require.JSONEq(t, `{"role":"user","content":"hello again"}`, userContent(t, input[2]))
+	})
+}
+
+func TestNewAzureOpenAIModel_ResponsesPath(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","status":"completed","model":"dep",
+			"output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed",
+				"content":[{"type":"output_text","text":"pong","annotations":[]}]}]}`))
+	}))
+	defer srv.Close()
+	t.Setenv("AZURE_OPENAI_API_KEY", "test-key")
+
+	m, err := NewAzureOpenAIModel(context.Background(), &AzureOpenAIConfig{
+		Model: "dep", Endpoint: srv.URL, APIVersion: "2024-10-21", APIFormat: OpenAIAPIFormatResponses,
+	})
+	require.NoError(t, err)
+	m.Logger = slog.New(slog.DiscardHandler)
+	for _, err := range m.GenerateContent(context.Background(), &model.LLMRequest{
+		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "ping"}}}},
+	}, false) {
+		require.NoError(t, err)
+	}
+	require.Equal(t, "/openai/v1/responses", gotPath)
+	require.Empty(t, gotQuery)
 }

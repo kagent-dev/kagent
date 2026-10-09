@@ -433,7 +433,7 @@ func providerDefinition(name string, allKeys, requiredKeys []string) ProviderDef
 func getRequiredKeysForModelProvider(providerType v1alpha3.ModelProvider) []string {
 	switch providerType {
 	case v1alpha3.ModelProviderAzureOpenAI:
-		return []string{"azureEndpoint", "apiVersion"}
+		return []string{"azureEndpoint"}
 	case v1alpha3.ModelProviderBedrock:
 		return []string{"region"}
 	case v1alpha3.ModelProviderSAPAICore:

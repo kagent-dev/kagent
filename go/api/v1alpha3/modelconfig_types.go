@@ -293,14 +293,16 @@ const (
 type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options
+//
+// +kubebuilder:validation:XValidation:message="apiVersion is required unless apiFormat is responses",rule="has(self.apiVersion) || (has(self.apiFormat) && self.apiFormat == 'responses')"
 type AzureOpenAIConfig struct {
 	// Endpoint for the Azure OpenAI API
 	// +required
 	Endpoint string `json:"azureEndpoint"`
 
-	// API version for the Azure OpenAI API
-	// +required
-	APIVersion string `json:"apiVersion"`
+	// API version for the Azure OpenAI API. Required unless apiFormat is responses.
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
 
 	// Deployment name for the Azure OpenAI API
 	// +optional
@@ -326,6 +328,12 @@ type AzureOpenAIConfig struct {
 	// Top-p sampling parameter
 	// +optional
 	TopP string `json:"topP,omitempty"`
+
+	// APIFormat selects chatCompletions (default, the dated deployments path) or
+	// responses (the /openai/v1 surface, which needs no apiVersion and reads files by link).
+	// +optional
+	// +kubebuilder:default=chatCompletions
+	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
 }
 
 // OllamaConfig contains Ollama-specific configuration options
