@@ -68,7 +68,7 @@ export function HarnessesTab() {
 
   const agents = useAgentsAcrossNamespaces(namespaces.data?.map(row => row.name));
   const referenced = (harness: Harness) => (agents.data?.agents ?? []).filter(agent =>
-    agent.namespace === harness.namespace && agent.resource.spec.harnessRef?.name === harness.name);
+    agent.namespace === harness.namespace && agent.resource.spec.harnessRef.name === harness.name);
 
   const invalidateTemplates = useInvalidateAgentTemplates();
 

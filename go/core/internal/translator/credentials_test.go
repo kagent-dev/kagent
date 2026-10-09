@@ -85,7 +85,7 @@ func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
 		resolved.FoundryEndpoint = spec.Foundry.Endpoint
 	}
 	return &HarnessInput{
-		Harness: &HarnessConfiguration{Name: "", Namespace: "team", Source: &metav1.ObjectMeta{Namespace: "team"}},
+		Harness: &HarnessConfiguration{Name: "", Namespace: "team", Source: metav1.ObjectMeta{Namespace: "team"}},
 		Root:    &AgentInput{Template: &TemplateConfiguration{}, ResolvedModelConfig: resolved},
 	}
 }

@@ -3,7 +3,7 @@ import type { AgentTemplate } from "./agentTemplates";
 import { agentDescription, agentRevisionState, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
 
 function agent(status?: AgentStatus): Agent {
-  return { name: "a", namespace: "team", ref: "team/a", resource: { metadata: { name: "a", namespace: "team" }, spec: { templateRef: { name: "shared" }, harnessRef: { name: "runner" } }, status } };
+  return { name: "a", namespace: "team", ref: "team/a", resource: { metadata: { name: "a", namespace: "team" }, spec: { template: { ref: { name: "shared" } }, harnessRef: { name: "runner" } }, status } };
 }
 
 describe("Agent readiness", () => {

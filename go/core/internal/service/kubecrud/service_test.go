@@ -361,7 +361,7 @@ func TestAgentServiceFiltersAndAuthorizesStoredObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	mutable.Spec.Template = &v1alpha3.AgentTemplateSpec{Description: "updated"}
+	mutable.Spec.Template = v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{Description: "updated"}}
 	if _, err := service.Update(ctx, mutable); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}

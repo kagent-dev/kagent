@@ -3,10 +3,25 @@
 An agent's template can declare a JSON Schema for its successful terminal
 response. The template's `outputSchema` field holds the schema inline;
 `outputSchemaFrom` selects JSON from a same-namespace ConfigMap. The two fields
-are mutually exclusive. These fields work in both `Agent.spec.template` and a
-reusable `AgentTemplate.spec`.
+are mutually exclusive. These fields work in both `Agent.spec.template.inline`
+and a reusable `AgentTemplate.spec`.
 
 ```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: kagent
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: ${KAGENT_GO_ADK_IMAGE_DIGEST}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: s3://snapshots/kagent/
+---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
@@ -14,26 +29,20 @@ metadata:
   namespace: kagent
 spec:
   template:
-    modelConfig:
-      name: default-model-config
-    outputSchema:
-      type: object
-      properties:
-        status:
-          type: string
-        payload:
-          type: object
-      required: [status, payload]
-      additionalProperties: false
-  harness:
-    kagent: {}
-    workload:
-      image: ${KAGENT_GO_ADK_IMAGE_DIGEST}
-    substrate:
-      workerPoolRef:
-        name: kagent-default
-      snapshotPolicy:
-        location: s3://snapshots/kagent/
+    inline:
+      modelConfig:
+        name: default-model-config
+      outputSchema:
+        type: object
+        properties:
+          status:
+            type: string
+          payload:
+            type: object
+        required: [status, payload]
+        additionalProperties: false
+  harnessRef:
+    name: kagent
 ```
 
 Replace `${KAGENT_GO_ADK_IMAGE_DIGEST}` with the full Go ADK image reference,

@@ -658,11 +658,11 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         }}
       >
         <IdentityField label="Agent template">
-          {spec.templateRef ? (
+          {spec.template.ref ? (
             <Link
               to={buildPath(paths.agentTemplateDetail, {
                 namespace: agent.namespace,
-                name: spec.templateRef.name,
+                name: spec.template.ref.name,
               })}
               data-testid="agent-template-link"
               css={{
@@ -675,10 +675,10 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
               }}
             >
               <Text
-                ellipsis={{ tooltip: spec.templateRef.name }}
+                ellipsis={{ tooltip: spec.template.ref.name }}
                 css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
               >
-                {spec.templateRef.name}
+                {spec.template.ref.name}
               </Text>
               <Pencil size={12} aria-hidden color={theme.color.textMuted} />
             </Link>
@@ -688,13 +688,9 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         </IdentityField>
 
         <IdentityField label="Runs on">
-          {spec.harnessRef ? (
-            <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
-              {spec.harnessRef.name}
-            </Text>
-          ) : (
-            <Text data-testid="agent-harness-inline">Inline</Text>
-          )}
+          <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+            {spec.harnessRef.name}
+          </Text>
         </IdentityField>
 
         <IdentityField label="Revision">
@@ -725,8 +721,8 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         }}
         data-testid="agent-identity-note"
       >
-        The template says what this agent does and the harness says how it runs.
-        Referenced templates and Harnesses can be shared. Inline configuration belongs to this Agent.
+        The template says what this agent does and the Harness says how it runs.
+        Templates may be inline or shared; Harnesses are always referenced.
       </Paragraph>
     </Card>
   );

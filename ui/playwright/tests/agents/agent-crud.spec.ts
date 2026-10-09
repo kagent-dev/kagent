@@ -6,24 +6,17 @@ import { clickNav } from "../../helpers/nav";
 
 type Source = "reference" | "inline";
 
-const IMAGE = `ghcr.io/example/runtime@sha256:${"0".repeat(64)}`;
+const CASES: Source[] = ["reference", "inline"];
 
-const CASES: { template: Source; harness: Source }[] = [
-  { template: "reference", harness: "reference" },
-  { template: "inline", harness: "reference" },
-  { template: "reference", harness: "inline" },
-  { template: "inline", harness: "inline" },
-];
-
-async function chooseSource(page: Page, kind: "template" | "harness", source: Source) {
-  await page.getByTestId(`agent-form-${kind}-source`).getByText(source === "inline" ? "Inline" : "Reference", { exact: true }).click();
+async function chooseTemplateSource(page: Page, source: Source) {
+  await page.getByTestId("agent-form-template-source").getByText(source === "inline" ? "Inline" : "Reference", { exact: true }).click();
 }
 
-for (const { template, harness } of CASES) {
-  const name = `crud-${template}-${harness}`;
+for (const template of CASES) {
+  const name = `crud-${template}`;
   const row = (page: Page) => rowNamed(page, name);
 
-  test(`agents: CRUD with a ${template} template and a ${harness} harness`, async ({ page }) => {
+  test(`agents: CRUD with ${template === "inline" ? "an" : "a"} ${template} template and referenced harness`, async ({ page }) => {
     await test.step("1. create through the full-page form", async () => {
       await loadPage(page, routes.agents, { title: "Agents" });
       await page.getByTestId("agents-new").click();
@@ -32,21 +25,14 @@ for (const { template, harness } of CASES) {
       await page.getByTestId("agent-form-name").fill(name);
 
       if (template === "inline") {
-        await chooseSource(page, "template", "inline");
+        await chooseTemplateSource(page, "inline");
         await selectOption(page, "template-form-model", "default-model-config");
         await page.getByTestId("template-form-description").fill("Inline before edit");
         await page.getByTestId("template-form-prompt").fill("You answer briefly.");
       } else {
         await selectOption(page, "agent-form-template-ref", "shared-brain");
       }
-      if (harness === "inline") {
-        await chooseSource(page, "harness", "inline");
-        await page.getByTestId("harness-image").fill(IMAGE);
-        await page.getByTestId("harness-worker-pool").fill("pool-before");
-        await page.getByTestId("harness-snapshot").fill("gs://snapshots/crud/");
-      } else {
-        await selectOption(page, "agent-form-harness-ref", "k8s-agent");
-      }
+      await selectOption(page, "agent-form-harness-ref", "k8s-agent");
       await page.getByTestId("agent-form-submit").click();
     });
 
@@ -56,9 +42,9 @@ for (const { template, harness } of CASES) {
       const templateCell = page.getByTestId(`agent-template-kagent/${name}`);
       const harnessCell = page.getByTestId(`agent-harness-kagent/${name}`);
       await expect(templateCell).toHaveAttribute("data-source", template);
-      await expect(harnessCell).toHaveAttribute("data-source", harness);
+      await expect(harnessCell).toHaveAttribute("data-source", "reference");
       if (template === "reference") await expect(templateCell).toHaveText("shared-brain");
-      if (harness === "reference") await expect(harnessCell).toHaveText("k8s-agent");
+      await expect(harnessCell).toHaveText("k8s-agent");
       await expect(page.getByTestId(`agent-revision-kagent/${name}`)).toHaveText("Ready");
     });
 
@@ -84,13 +70,8 @@ for (const { template, harness } of CASES) {
         await expect(page.getByTestId("agent-form-template-ref")).toContainText("shared-brain");
         await selectOption(page, "agent-form-template-ref", "k8s-agent-7f3a91c");
       }
-      if (harness === "inline") {
-        await expect(page.getByTestId("harness-worker-pool")).toHaveValue("pool-before");
-        await page.getByTestId("harness-worker-pool").fill("pool-after");
-      } else {
-        await expect(page.getByTestId("agent-form-harness-ref")).toContainText("k8s-agent");
-        await selectOption(page, "agent-form-harness-ref", "fast-lane");
-      }
+      await expect(page.getByTestId("agent-form-harness-ref")).toContainText("k8s-agent");
+      await selectOption(page, "agent-form-harness-ref", "fast-lane");
       await page.getByTestId("agent-form-submit").click();
       await expect(page).toHaveURL(/\/agents\?tab=agents$/);
     });
@@ -99,15 +80,7 @@ for (const { template, harness } of CASES) {
       await expect(row(page)).toHaveCount(1);
       if (template === "inline") await expect(row(page)).toContainText("Inline after edit");
       else await expect(page.getByTestId(`agent-template-kagent/${name}`)).toHaveText("k8s-agent-7f3a91c");
-      if (harness === "reference") await expect(page.getByTestId(`agent-harness-kagent/${name}`)).toHaveText("fast-lane");
-
-      // The inline harness is not on the row, so read it back from the form.
-      if (harness === "inline") {
-        await page.getByTestId(`edit-${name}`).click();
-        await expect(page.getByTestId("harness-worker-pool")).toHaveValue("pool-after");
-        await page.getByRole("button", { name: "Cancel", exact: true }).click();
-        await expect(row(page)).toHaveCount(1);
-      }
+      await expect(page.getByTestId(`agent-harness-kagent/${name}`)).toHaveText("fast-lane");
     });
 
     await test.step("6. delete asks first, then the row is gone and the rest remain", async () => {
