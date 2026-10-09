@@ -83,29 +83,46 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err != nil {
 		return nil, err
 	}
-	protectedServers := approvalServerNames(cfg.MCPServers)
+	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
+		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
+	}
+	var forwarder *driver.CredentialForwarder
 	var approvalBroker *driver.ApprovalBroker
+	closeListeners := func() {
+		if forwarder != nil {
+			_ = forwarder.Close()
+		}
+		if approvalBroker != nil {
+			_ = approvalBroker.Close()
+		}
+	}
+	if propagateCallerToken(input.Environment) && len(cfg.MCPServers) != 0 {
+		forwarder, err = frontMCPServers(&cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	protectedServers := approvalServerNames(cfg.MCPServers)
 	var settingsPath string
 	var permissionPromptTool string
 	if len(protectedServers) != 0 {
-		if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
-			return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
-		}
 		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
+			closeListeners()
 			return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
 		}
 		approvalBroker, err = driver.NewApprovalBroker(protectedServers, cfg.MaxEventBytes)
 		if err != nil {
+			closeListeners()
 			return nil, fmt.Errorf("start Claude approval broker: %w", err)
 		}
 		settingsJSON, settingsErr := approvalBroker.SettingsJSON()
 		if settingsErr != nil {
-			_ = approvalBroker.Close()
+			closeListeners()
 			return nil, settingsErr
 		}
 		settingsPath = filepath.Join(input.EphemeralDir, "settings.json")
 		if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
-			_ = approvalBroker.Close()
+			closeListeners()
 			return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
 		}
 		permissionPromptTool = "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
@@ -118,28 +135,22 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	mcpJSON, err := cfg.MCPConfigJSON()
 	if err != nil {
-		if approvalBroker != nil {
-			_ = approvalBroker.Close()
-		}
+		closeListeners()
 		return nil, err
 	}
 	var mcpConfigPath string
 	if len(mcpJSON) != 0 {
 		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			if approvalBroker != nil {
-				_ = approvalBroker.Close()
-			}
+			closeListeners()
 			return nil, fmt.Errorf("prepare ephemeral MCP directory: %w", err)
 		}
 		mcpConfigPath = filepath.Join(input.EphemeralDir, "mcp.json")
 		if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
-			if approvalBroker != nil {
-				_ = approvalBroker.Close()
-			}
+			closeListeners()
 			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 		}
 	}
-	return driver.NewProcessDriver(driver.ProcessConfig{
+	processConfig := driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
@@ -147,7 +158,52 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
-	}), nil
+	}
+	if forwarder != nil {
+		processConfig.CallerCredentials = forwarder
+	}
+	return driver.NewProcessDriver(processConfig), nil
+}
+
+// propagateCallerToken reports whether the Actor environment asks for the
+// caller's credential on MCP calls, the same switch the Go ADK reads.
+func propagateCallerToken(environment []string) bool {
+	return strings.EqualFold(strings.TrimSpace(environmentValue(environment, config.PropagateTokenEnvName)), "true")
+}
+
+// frontMCPServers starts the credential forwarder for the compiled MCP servers
+// and rewrites them to their loopback endpoints, so the written configuration
+// carries no upstream URL, no static header and no credential.
+func frontMCPServers(cfg *config.Config) (*driver.CredentialForwarder, error) {
+	upstream := make(map[string]driver.UpstreamMCPServer, len(cfg.MCPServers))
+	for name, server := range cfg.MCPServers {
+		if server.Type != "http" {
+			return nil, fmt.Errorf("caller credential forwarding requires streamable HTTP MCP servers; %q uses %q", name, server.Type)
+		}
+		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: server.Headers}
+	}
+	forwarder, err := driver.NewCredentialForwarder(upstream, cfg.MaxEventBytes)
+	if err != nil {
+		return nil, fmt.Errorf("start Claude credential forwarder: %w", err)
+	}
+	fronted := make(map[string]config.MCPServer, len(cfg.MCPServers))
+	for name, server := range cfg.MCPServers {
+		fronted[name] = config.MCPServer{
+			Type: "http", URL: forwarder.URL(name), Headers: forwarder.Headers(),
+			RequireApproval: server.RequireApproval,
+		}
+	}
+	cfg.MCPServers = fronted
+	return forwarder, nil
+}
+
+func environmentValue(environment []string, name string) string {
+	for _, entry := range environment {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 func approvalServerNames(servers map[string]config.MCPServer) (protected []string) {
