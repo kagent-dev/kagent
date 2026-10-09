@@ -87,7 +87,7 @@ openssl genpkey -algorithm ED25519 -out private-key.pem
 kubectl -n kagent create secret generic push-signing --from-file=private-key.pem
 ```
 
-Set `controller.push.signing.existingSecret: push-signing`. Helm references the
+Set `controller.push.signing.secretName: push-signing`. Helm references the
 Secret's `private-key.pem` entry; it does not generate or manage signing keys.
 Outside Helm, set `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` to the PEM contents.
 Operators manage key persistence and rotation, and all controller replicas must
