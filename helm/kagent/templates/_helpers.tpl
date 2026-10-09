@@ -185,15 +185,10 @@ Controller ServiceAccount name
 {{- end }}
 
 {{/*
-Substrate worker ServiceAccount name: substrateWorkerPool.template.serviceAccountName,
-or "<pool name>-worker", which the chart creates.
+Substrate worker ServiceAccount name
 */}}
-{{- define "kagent.substrateWorkerPool.userServiceAccountName" -}}
-{{- dig "serviceAccountName" "" (.Values.substrateWorkerPool.template | default dict) }}
-{{- end }}
-
 {{- define "kagent.substrateWorkerPool.serviceAccountName" -}}
-{{- include "kagent.substrateWorkerPool.userServiceAccountName" . | default (printf "%s-worker" .Values.substrateWorkerPool.name) }}
+{{- default .Values.substrateWorkerPool.name .Values.substrateWorkerPool.serviceAccount.name }}
 {{- end }}
 
 {{/*

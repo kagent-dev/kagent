@@ -1,7 +1,6 @@
 suite: test worker pool sandbox selection
 templates:
   - substrate-workerpool.yaml
-  - substrate-worker-serviceaccount.yaml
 release:
   namespace: kagent
 set:
@@ -11,7 +10,6 @@ set:
   substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
 tests:
   - it: should default to gvisor and label the selected pool
-    template: substrate-workerpool.yaml
     asserts:
       - isKind:
           of: WorkerPool
@@ -38,7 +36,6 @@ tests:
           path: spec.workerImage
           value: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
   - it: should preserve gvisor when the class is empty
-    template: substrate-workerpool.yaml
     set:
       substrateWorkerPool.sandboxClass: ""
     asserts:
@@ -46,7 +43,6 @@ tests:
           path: spec.sandboxClass
           value: gvisor
   - it: should scope a same-named pool to its release namespace
-    template: substrate-workerpool.yaml
     release:
       namespace: tenant-b
     asserts:
@@ -60,7 +56,6 @@ tests:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: tenant-b
   - it: should scope placement to the namespace override
-    template: substrate-workerpool.yaml
     set:
       namespaceOverride: tenant-a
     asserts:
@@ -71,7 +66,6 @@ tests:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: tenant-a
   - it: should preserve extra labels without allowing placement overrides
-    template: substrate-workerpool.yaml
     set:
       labels:
         environment: production
@@ -98,7 +92,6 @@ tests:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: kagent
   - it: should render a numeric pool name as a string label
-    template: substrate-workerpool.yaml
     set:
       substrateWorkerPool.name: 1234
     asserts:
@@ -106,7 +99,6 @@ tests:
           path: metadata.labels["kagent.dev/worker-pool-name"]
           value: "1234"
   - it: should render microvm with the selected image and worker selector label
-    template: substrate-workerpool.yaml
     set:
       substrateWorkerPool.sandboxClass: microvm
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
@@ -133,43 +125,25 @@ tests:
       - hasDocuments:
           count: 0
   - it: should require an explicit worker image
-    template: substrate-workerpool.yaml
     set:
       substrateWorkerPool.workerImage: ""
     asserts:
       - failedTemplate:
           errorMessage: substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true
-  - it: should create a worker ServiceAccount and run the workers as it
+  - it: should run the workers as the chart worker ServiceAccount
     asserts:
       - equal:
           path: spec.template.serviceAccountName
-          value: selected-pool-worker
-        template: substrate-workerpool.yaml
-      - isKind:
-          of: ServiceAccount
-        template: substrate-worker-serviceaccount.yaml
-      - equal:
-          path: metadata.name
-          value: selected-pool-worker
-        template: substrate-worker-serviceaccount.yaml
-      - equal:
-          path: metadata.namespace
-          value: kagent
-        template: substrate-worker-serviceaccount.yaml
+          value: selected-pool
   - it: should use a user ServiceAccount and keep the rest of the template
     set:
-      substrateWorkerPool.template:
-        serviceAccountName: my-worker-sa
-        priorityClassName: high
+      substrateWorkerPool.serviceAccount.create: false
+      substrateWorkerPool.serviceAccount.name: my-worker-sa
+      substrateWorkerPool.template.priorityClassName: high
     asserts:
       - equal:
           path: spec.template.serviceAccountName
           value: my-worker-sa
-        template: substrate-workerpool.yaml
       - equal:
           path: spec.template.priorityClassName
           value: high
-        template: substrate-workerpool.yaml
-      - hasDocuments:
-          count: 0
-        template: substrate-worker-serviceaccount.yaml

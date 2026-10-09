@@ -452,11 +452,15 @@ substrateWorkerPool:
   # pool's name and namespace, so ActorTemplates generated for other namespaces
   # do not select its workers.
   labels: {}
+  # -- ServiceAccount settings for the worker pods
+  serviceAccount:
+    # -- Create the worker ServiceAccount. Set to false to use one managed outside the chart.
+    create: true
+    # -- Name of the worker ServiceAccount.
+    # @default -- `<substrateWorkerPool.name>`
+    name: ""
   # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
-  # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources /
-  # serviceAccountName. Without serviceAccountName, the chart creates a
-  # "<name>-worker" ServiceAccount and the worker pods run as it. A
-  # serviceAccountName that you set must exist in the release namespace.
+  # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
   template: {}
 
 # ==============================================================================
