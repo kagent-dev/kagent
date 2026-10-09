@@ -87,21 +87,31 @@ func newBashToolFixture(t *testing.T) *bashToolFixture {
 	}
 }
 
-// requireReply fails with the last tool result the model saw unless the turn
+// requireReply fails with the tool results the model saw unless the turn
 // completed with want.
 func (f *bashToolFixture) requireReply(t *testing.T, task *a2atype.Task, want string) {
 	t.Helper()
 	if task.Status.State == a2atype.TaskStateCompleted && strings.Contains(taskText(task), want) {
 		return
 	}
-	var last string
+	var results []string
+	// Every request carries the whole conversation; the last one has every result.
 	if requests := f.model.Requests("", ""); len(requests) > 0 {
-		last = string(requests[len(requests)-1].Body)
-		if len(last) > 4096 {
-			last = last[len(last)-4096:]
+		var body struct {
+			Messages []struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal(requests[len(requests)-1].Body, &body); err == nil {
+			for _, message := range body.Messages {
+				if message.Role == "tool" {
+					results = append(results, string(message.Content))
+				}
+			}
 		}
 	}
-	t.Fatalf("task %s with %q, want %q; last model request: %s", task.Status.State, taskText(task), want, last)
+	t.Fatalf("task %s with %q, want %q; tool results: %s", task.Status.State, taskText(task), want, strings.Join(results, "\n"))
 }
 
 // A process the bash tool leaves in the background ends with the turn, so the
