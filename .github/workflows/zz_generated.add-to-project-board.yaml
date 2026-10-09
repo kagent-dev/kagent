@@ -18,10 +18,11 @@ jobs:
         GH_TOKEN: ${{ secrets.ISSUE_AUTOMATION }}
       run: |
         mkdir -p artifacts
-        gh api -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+        # The raw media type returns the file itself. No pipe after gh api, so
+        # a 404 fails the step under bash -e instead of writing garbage.
+        gh api -H "Accept: application/vnd.github.raw" -H "X-GitHub-Api-Version: 2022-11-28" \
           /repos/giantswarm/github/contents/tools/issue-automation/user-mapping.yaml \
-          | jq -r '.content' \
-          | base64 -d > artifacts/users.yaml
+          > artifacts/users.yaml
     - name: Upload Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
@@ -33,10 +34,9 @@ jobs:
         GH_TOKEN: ${{ secrets.ISSUE_AUTOMATION }}
       run: |
         mkdir -p artifacts
-        gh api -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+        gh api -H "Accept: application/vnd.github.raw" -H "X-GitHub-Api-Version: 2022-11-28" \
           /repos/giantswarm/github/contents/tools/issue-automation/label-mapping.yaml \
-          | jq -r '.content' \
-          | base64 -d > artifacts/labels.yaml
+          > artifacts/labels.yaml
     - name: Upload Artifact
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
