@@ -380,6 +380,13 @@ func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
 				parked, err := send(t.Context(), newMessage("park"))
 				require.NoError(t, err)
 				require.Equal(t, a2a.Text("park"), receive(t, started))
+				// The SDK returns the parked task before its cleanup frees the slot. A
+				// client sees the task parked only after settlement, which follows that.
+				require.Eventually(t, func() bool {
+					wrapper.mu.Lock()
+					defer wrapper.mu.Unlock()
+					return len(wrapper.pending) == 0
+				}, 5*time.Second, time.Millisecond, "the parked task must free the slot")
 				reply.TaskID, reply.ContextID = parked.TaskInfo().TaskID, parked.TaskInfo().ContextID
 				// The in-memory store exposes the waiting event before SDK cleanup.
 				// Production replies wait for settlement, which releases this slot first.
