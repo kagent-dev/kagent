@@ -14,6 +14,7 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+LOCALOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
 KUBECONFIG_PERM ?= $(shell \
   if [ "$$(uname -s | tr '[:upper:]' '[:lower:]')" = "darwin" ]; then \
@@ -49,6 +50,14 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
+# Written by use-kind-cluster. CLI installs use it so they always target the Kind
+# cluster, whatever the current kubectl context is.
+KIND_KUBECONFIG ?= /tmp/kind-config
+# Substrate settings for Kind: workers pull localhost:5001 images through the
+# registry container, and templates reconcile at the minimum interval.
+KIND_SUBSTRATE_HELM_ARGS = --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000 --set ateApi.extraArgs[0]=--template-resync-interval=250ms
+# A file only releases whose `kagent install` deploys the database contain.
+CLI_DATABASE_SENTINEL = go/core/cli/internal/commands/bundled_postgres.sql
 KAGENT_POSTGRES_SECRET ?= kagent-postgres
 
 CONTROLLER_IMAGE_NAME ?= controller
@@ -432,8 +441,8 @@ create-kind-cluster: ## Create a local kind cluster with MetalLB
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
-	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
-	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > $(KIND_KUBECONFIG)
+	KUBECONFIG=~/.kube/config:$(KIND_KUBECONFIG) kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
 	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
 
@@ -533,16 +542,11 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
-# Upgrade tests install a previous Kagent chart and upgrade it to the current build.
+# Upgrade tests install a previous release with that release's own `kagent install`,
+# exactly as a user would, then upgrade it to the current build with kagent-cli-deploy.
 # The tests use a separate cluster because they change the database and deployment.
-# The tests skip releases that do not use Goose.
-# UPGRADE_FROM_VERSION selects the previous release.
-# The previous install pins the bundled Postgres image to whatever the
-# upgrade-from release's own install target shipped (resolved inside
-# install-previous-release), so the baseline matches how that release actually
-# runs rather than a hardcoded guess; the upgrade then exercises the real
-# app/migration (and any DB image) change between that release and the current
-# build.
+# UPGRADE_FROM_VERSION selects the previous release; it must install its database with
+# `kagent install` (see CLI_DATABASE_SENTINEL); earlier releases are rejected.
 #
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
 # cluster (make create-kind-cluster).
@@ -551,48 +555,26 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
 # explicitly (per matrix leg), which bypasses the script entirely.
 UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
+UPGRADE_FROM_CLI = /tmp/kagent-$(UPGRADE_FROM_VERSION)-$(LOCALOS)-$(LOCALARCH)
 
 .PHONY: install-previous-release
-install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
-	# Abort early (rather than let helm fail confusingly) if the upgrade-from
-	# version could not be resolved.
+install-previous-release: use-kind-cluster ## Install the previous release with its own kagent CLI
+	# Abort early (rather than let the download fail confusingly) if the upgrade-from
+	# version could not be resolved or predates the CLI-managed database.
 	[ -n "$(UPGRADE_FROM_VERSION)" ] || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	git cat-file -e "v$(UPGRADE_FROM_VERSION):$(CLI_DATABASE_SENTINEL)" 2>/dev/null || { echo "v$(UPGRADE_FROM_VERSION) predates the database kagent install manages; upgrade tests cannot start from it." >&2; exit 1; }
 	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
-	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
-		--version $(UPGRADE_FROM_VERSION) \
-		--namespace kagent --create-namespace \
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--timeout 5m --wait
-	# The bundled-Postgres image is selected by the install target's --set flags,
-	# not by the chart defaults (the chart ships a non-vector image). So the
-	# previous install must use the exact pins the upgrade-from release shipped —
-	# otherwise the baseline DB would differ from how that release actually runs,
-	# and the upgrade would conflate a DB swap with the migration change under
-	# test. Read those flags straight from that release's own helm-install-provider
-	# target (via its tagged Makefile) rather than hardcoding values that drift as
-	# the bundled image changes. Resolved here in the recipe so the `git show` runs
-	# only when this target runs, and so the flags can be validated before use
-	# (they must be literal — a future release that parameterizes them with a
-	# make/env variable would be rejected rather than passed to helm verbatim).
-	@set -e; \
-	db_flags="$$(git show v$(UPGRADE_FROM_VERSION):Makefile 2>/dev/null | grep -oE '\-\-set[[:space:]]+database\.postgres\.[^[:space:]\\]+' | tr '\n' ' ')"; \
-	[ -n "$$db_flags" ] || { echo "Could not read bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile; the upgrade-from release's install target may have moved or renamed them." >&2; exit 1; }; \
-	case "$$db_flags" in *'$$'*|*'('*|*'{'*) echo "Bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile contain an unexpanded variable and cannot be passed to helm verbatim: $$db_flags" >&2; exit 1;; esac; \
-	echo "    bundled-Postgres flags (from v$(UPGRADE_FROM_VERSION) install target): $$db_flags"; \
-	helm upgrade --install kagent $(HELM_REPO)/kagent/helm/kagent \
-		--version $(UPGRADE_FROM_VERSION) \
-		--namespace kagent --create-namespace \
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--timeout 5m --wait \
-		--set ui.service.type=LoadBalancer \
-		--set controller.service.type=LoadBalancer \
-		--set providers.default=openAI \
-		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
-		$$db_flags $(UPGRADE_PREV_EXTRA_ARGS)
+	curl -fsSL -o $(UPGRADE_FROM_CLI) https://github.com/kagent-dev/kagent/releases/download/v$(UPGRADE_FROM_VERSION)/kagent-$(LOCALOS)-$(LOCALARCH)
+	chmod +x $(UPGRADE_FROM_CLI)
+	KUBECONFIG=$(KIND_KUBECONFIG) \
+	KAGENT_DEFAULT_MODEL_PROVIDER=openAI \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	KAGENT_SUBSTRATE_HELM_EXTRA_ARGS="$(KIND_SUBSTRATE_HELM_ARGS)" \
+	KAGENT_HELM_EXTRA_ARGS="--set ui.service.type=LoadBalancer --set controller.service.type=LoadBalancer $(UPGRADE_PREV_EXTRA_ARGS)" \
+	$(UPGRADE_FROM_CLI) install
 
 # run-upgrade-tests installs the previous release and upgrades it to the current build.
-# The test skips releases that do not use Goose.
-# Later Goose releases test previous-release behavior after the target migrations,
+# It tests previous-release behavior after the target migrations,
 # data survival, schema equality, previous/current controller startup, and a
 # complete application and schema rollback to the previous release.
 # KAGENT_E2E_LOCAL_HOST lets the agent reach the local mock LLM.
@@ -646,16 +628,22 @@ helm-publish: helm-version
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
-kagent-cli-install: use-kind-cluster build-cli-local helm-version
+kagent-cli-install: kagent-cli-deploy
+	KUBECONFIG=$(KIND_KUBECONFIG) KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
+
+.PHONY: kagent-cli-deploy
+kagent-cli-deploy: ## Build CLI locally and install kagent with Substrate and the development database
+kagent-cli-deploy: use-kind-cluster build-cli-local helm-version
+	KUBECONFIG=$(KIND_KUBECONFIG) \
 	KAGENT_HELM_REPO=./helm/ \
 	KAGENT_HELM_VERSION=$(VERSION) \
 	KAGENT_SUBSTRATE_HELM_REPO=$(SUBSTRATE_REPO)/ \
 	KAGENT_SUBSTRATE_HELM_VERSION=$(SUBSTRATE_VERSION) \
 	KAGENT_SUBSTRATE_PODCERT_HELM_REPO=$(SUBSTRATE_PODCERT_REPO)/ \
 	KAGENT_SUBSTRATE_PODCERT_HELM_VERSION=$(SUBSTRATE_PODCERT_VERSION) \
+	KAGENT_SUBSTRATE_HELM_EXTRA_ARGS="$(KIND_SUBSTRATE_HELM_ARGS) $(KAGENT_SUBSTRATE_HELM_EXTRA_ARGS)" \
 	KAGENT_HELM_EXTRA_ARGS="--set registry=$(DOCKER_REGISTRY) --set tag=$(VERSION) --set imagePullPolicy=Always --set controller.image.pullPolicy=Always --set ui.image.pullPolicy=Always $(KAGENT_HELM_EXTRA_ARGS)" \
 	./go/core/bin/kagent-local install
-	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083

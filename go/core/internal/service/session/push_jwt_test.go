@@ -6,15 +6,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
 
+const testPushPrivateKeyPEM = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n"
+
 func TestPushJWTSigningAndJWKS(t *testing.T) {
-	signer, err := NewPushJWTSigner(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))), "https://kagent.example")
+	signer, err := NewPushJWTSigner(testPushPrivateKeyPEM, "https://kagent.example")
 	require.NoError(t, err)
 	credential, err := signer.Sign("task-1", "https://receiver.example/callback")
 	require.NoError(t, err)
@@ -24,6 +25,12 @@ func TestPushJWTSigningAndJWKS(t *testing.T) {
 	response := httptest.NewRecorder()
 	signer.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
 	require.Equal(t, http.StatusOK, response.Code)
+	restarted, err := NewPushJWTSigner(testPushPrivateKeyPEM, "https://kagent.example")
+	require.NoError(t, err)
+	restartedResponse := httptest.NewRecorder()
+	restarted.ServeHTTP(restartedResponse, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+	require.JSONEq(t, response.Body.String(), restartedResponse.Body.String(), "restarts must publish the same key and kid")
+
 	var keys struct {
 		Keys []struct {
 			KTY string `json:"kty"`
@@ -50,11 +57,12 @@ func TestPushJWTSigningAndJWKS(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestPushJWTSigningSeedValidation(t *testing.T) {
+func TestPushJWTSigningKeyValidation(t *testing.T) {
 	_, err := NewPushJWTSigner("bad", "https://kagent.example")
-	require.ErrorContains(t, err, "32 base64-encoded bytes")
-	_, err = NewPushJWTSigner("", "")
+	require.ErrorContains(t, err, "PKCS#8 PEM private key")
+	_, err = NewPushJWTSigner(testPushPrivateKeyPEM, "")
 	require.ErrorContains(t, err, "issuer is required")
-	_, err = NewPushJWTSigner("", "https://kagent.example")
-	require.ErrorContains(t, err, "32 base64-encoded bytes")
+	signer, err := NewPushJWTSigner("", "https://kagent.example")
+	require.NoError(t, err)
+	require.Nil(t, signer)
 }

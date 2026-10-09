@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,6 +63,30 @@ func TestValidateURL(t *testing.T) {
 	assert.NotContains(t, err.Error(), "do-not-disclose")
 }
 
+func TestPoolConfigSetsSchema(t *testing.T) {
+	config, err := poolConfig(&PostgresConfig{
+		URL:    "postgres://user:password@database:5432/app?sslmode=disable",
+		Schema: "kagent",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `"kagent"`, config.ConnConfig.RuntimeParams["search_path"])
+}
+
+func TestPoolConfigRejectsMissingRuntimeSchema(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip the PostgreSQL test in short mode")
+	}
+	const schema = "missing_kagent_schema_for_connect_test"
+	config, err := poolConfig(&PostgresConfig{URL: sharedConnStr, Schema: schema})
+	require.NoError(t, err)
+	conn, err := pgx.ConnectConfig(t.Context(), config.ConnConfig.Copy())
+	require.NoError(t, err)
+	defer conn.Close(t.Context())
+
+	err = config.AfterConnect(t.Context(), conn)
+	require.ErrorContains(t, err, `PostgreSQL schema "`+schema+`" is not accessible`)
+}
+
 func TestPoolConfigRefreshesTLSForLiteralURL(t *testing.T) {
 	config, err := poolConfig(&PostgresConfig{
 		URL: "postgres://user:static-password@database:5432/app?sslmode=require",
@@ -86,6 +111,8 @@ func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 	config, err := poolConfig(&PostgresConfig{
 		URL:             "postgres://user:password@database:5432/app?sslmode=disable",
 		VectorEnabled:   true,
+		Schema:          "public",
+		VectorSchema:    "public",
 		MaxConns:        &maxConns,
 		MinConns:        &minConns,
 		MaxConnIdleTime: &idleTime,
@@ -99,4 +126,13 @@ func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 	assert.Equal(t, minConns, config.MinConns)
 	assert.Equal(t, idleTime, config.MaxConnIdleTime)
 	assert.Equal(t, lifetime, config.MaxConnLifetime)
+}
+
+func TestPoolConfigRequiresTableSchemaForVectors(t *testing.T) {
+	_, err := poolConfig(&PostgresConfig{
+		URL:           "postgres://user:password@database:5432/app?sslmode=disable",
+		VectorEnabled: true,
+		VectorSchema:  "public",
+	})
+	require.ErrorContains(t, err, "database schema is required")
 }

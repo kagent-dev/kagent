@@ -100,6 +100,7 @@ type Options struct {
 	// ExtraMigrations are applied after the built-in tracks, in the order
 	// given. A library consumer that owns tables uses this rather than migrating
 	// separately, so that one run leaves the database wholly at one version.
+	// Each source must set Schema.
 	ExtraMigrations []migrations.Source
 	// GRPCServices registers additional services on core's gRPC server, so a
 	// consumer's API shares core's transport, authenticator and interceptors
@@ -204,9 +205,10 @@ func Run(ctx context.Context, opts Options) error {
 
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
 	dbRole := kagentenv.DatabaseRole.Get()
-	// Appended, not merged: the built-in tracks must reach their final version
-	// before a library consumer's tables, which may reference them.
-	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
+	sources, err := migrationSources(vectorEnabled, opts.ExtraMigrations)
+	if err != nil {
+		return err
+	}
 	if kagentenv.SkipMigrations.Get() {
 		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
@@ -219,7 +221,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db)
+	store := database.NewClient(db, env(kagentenv.DatabaseVectorSchema))
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},
@@ -348,7 +350,7 @@ func Run(ctx context.Context, opts Options) error {
 	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
 		kagentenv.A2APushAllowHTTP.Get(), kagentenv.A2APushAllowPrivateNetworks.Get())
 	pushIssuer := cmp.Or(kagentenv.A2APushIssuer.Get(), kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083")
-	pushSigner, err := sessionsvc.NewPushJWTSigner(kagentenv.A2APushSigningSeed.Get(), strings.TrimRight(pushIssuer, "/"))
+	pushSigner, err := sessionsvc.NewPushJWTSigner(kagentenv.A2APushSigningPrivateKey.Get(), strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
@@ -402,7 +404,11 @@ func Run(ctx context.Context, opts Options) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("GET /.well-known/jwks.json", pushSigner)
+	if pushSigner != nil {
+		mux.Handle("GET /.well-known/jwks.json", pushSigner)
+	} else {
+		mux.HandleFunc("GET /.well-known/jwks.json", http.NotFound)
+	}
 	mux.Handle("/mcp", otelhttp.NewHandler(auth.AuthnMiddleware(authenticator)(mcpHandler), "/mcp"))
 	mux.Handle(a2agateway.HTTPPathPrefix, otelhttp.NewHandler(a2agateway.NewHTTPHandler(gateway, authenticator, store), a2agateway.HTTPPathPrefix))
 	server, err := grpcserver.New(grpcserver.Config{
@@ -467,10 +473,26 @@ func env(variable kagentenv.StringVar) string {
 	return variable.DefaultValue()
 }
 
+// migrationSources appends extra after the built-in tracks: the built-ins must reach
+// their final version before a library consumer's tables, which may reference them.
+// An extra source without a schema would resolve to the connection's default schema
+// rather than Kagent's, so it is rejected.
+func migrationSources(vectorEnabled bool, extra []migrations.Source) ([]migrations.Source, error) {
+	for _, src := range extra {
+		if src.Schema == "" {
+			return nil, fmt.Errorf("extra migration source %q must set Schema", src.Name)
+		}
+	}
+	builtins := migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get())
+	return append(builtins, extra...), nil
+}
+
 func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
 	return &database.PostgresConfig{
 		URL:             source,
 		Role:            kagentenv.DatabaseRole.Get(),
+		Schema:          kagentenv.DatabaseSchema.Get(),
+		VectorSchema:    kagentenv.DatabaseVectorSchema.Get(),
 		VectorEnabled:   vectorEnabled,
 		MaxConns:        new(int32(kagentenv.PostgresDatabaseMaxConns.Get())),
 		MinConns:        new(int32(kagentenv.PostgresDatabaseMinConns.Get())),

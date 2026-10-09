@@ -174,8 +174,8 @@ runs `kagent install`. The Make target selects the Kind context, and the CLI the
 1. Installs the Kagent and Substrate CRDs.
 2. Creates the certificate-authority material required by Substrate.
 3. Installs the Substrate PodCertificate controller.
-4. Creates a development PostgreSQL deployment, the Kagent and Substrate
-   roles, and Substrate's schema.
+4. Creates a development PostgreSQL deployment and initializes the Kagent and
+   Substrate schemas and roles.
 5. Installs Substrate and Kagent with certificate-authenticated connections to
    that PostgreSQL deployment.
 
@@ -197,7 +197,7 @@ for local or prerelease testing:
 ```shell
 make kagent-cli-install \
   SUBSTRATE_REPO=oci://example.com/substrate/helm \
-  SUBSTRATE_VERSION=0.5.0-alpha1
+  SUBSTRATE_VERSION=0.5.0-alpha2
 ```
 
 The PodCertificate chart inherits those values. Override it independently when
@@ -248,7 +248,7 @@ A direct Helm installation requires a prepared database, a `kagent-postgres`
 connection Secret in the Kagent namespace, and a separately installed Substrate.
 The optional addons above provide observability components.
 
-> **pgvector:** The development PostgreSQL image does not include the pgvector
+> **pgvector:** The PostgreSQL image `kagent install` deploys does not include the pgvector
 > extension. Vector features require a PostgreSQL deployment with pgvector and
 > `database.postgres.vectorEnabled=true`.
 

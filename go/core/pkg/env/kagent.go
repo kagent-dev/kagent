@@ -1,5 +1,7 @@
 package env
 
+import "github.com/kagent-dev/kagent/go/core/pkg/consts"
+
 // Core kagent environment variables used by the controller and agent runtime.
 var (
 	LeaderElect = RegisterBoolVar(
@@ -76,10 +78,10 @@ var (
 		"Allow HTTP A2A push callbacks. HTTPS is required by default.",
 		ComponentController,
 	)
-	A2APushSigningSeed = RegisterStringVar(
-		"KAGENT_A2A_PUSH_SIGNING_SEED",
+	A2APushSigningPrivateKey = RegisterStringVar(
+		"KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY",
 		"",
-		"Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret.",
+		"Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing.",
 		ComponentController,
 	)
 	A2APushIssuer = RegisterStringVar(
@@ -136,7 +138,7 @@ var (
 	DatabaseVectorEnabled = RegisterBoolVar(
 		"KAGENT_DATABASE_VECTOR_ENABLED",
 		false,
-		"Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable.",
+		"Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable.",
 		ComponentDatabase, ComponentController, ComponentCLI,
 	)
 
@@ -151,6 +153,20 @@ var (
 		"KAGENT_POSTGRES_DATABASE_ROLE",
 		"",
 		"Stable PostgreSQL role assumed after authentication.",
+		ComponentDatabase, ComponentController, ComponentCLI,
+	)
+
+	DatabaseSchema = RegisterStringVar(
+		"KAGENT_POSTGRES_DATABASE_SCHEMA",
+		consts.DefaultPostgresTableSchema,
+		"PostgreSQL schema for Kagent tables.",
+		ComponentDatabase, ComponentController, ComponentCLI,
+	)
+
+	DatabaseVectorSchema = RegisterStringVar(
+		"KAGENT_POSTGRES_VECTOR_SCHEMA",
+		consts.DefaultPgvectorSchema,
+		"Schema where the shared pgvector extension is installed.",
 		ComponentDatabase, ComponentController, ComponentCLI,
 	)
 )

@@ -16,7 +16,7 @@ tests:
               name: RELEASE-NAME-controller
       - matchRegex:
           path: spec.template.spec.containers[0].env[*].name
-          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL|KAGENT_A2A_PUSH_SIGNING_SEED)$"
+          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL|KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY)$"
       - notExists:
           path: data.KAGENT_POSTGRES_DATABASE_URL
         template: controller-configmap.yaml
@@ -27,7 +27,7 @@ tests:
           path: data.OTEL_RESOURCE_ATTRIBUTES
         template: controller-configmap.yaml
       - notExists:
-          path: data.KAGENT_A2A_PUSH_SIGNING_SEED
+          path: data.KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY
         template: controller-configmap.yaml
 
   - it: should render controller deployment with default values
@@ -113,11 +113,23 @@ tests:
   - it: uses the push signing Secret configured under controller.push
     template: controller-deployment.yaml
     set:
-      controller.push.signing.existingSecret: receiver-signing-key
+      controller.push.signing.secretName: receiver-signing-key
     asserts:
       - equal:
           path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
           value: receiver-signing-key
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: private-key.pem
+
+  - it: leaves push JWT signing disabled by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY
+          any: true
 
   - it: uses the push issuer configured under controller.push
     template: controller-configmap.yaml
@@ -732,6 +744,38 @@ tests:
           path: data.KAGENT_POSTGRES_DATABASE_ROLE
           value: tenant_owner
 
+  - it: should use the kagent PostgreSQL schema by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_SCHEMA
+          value: kagent
+
+  - it: should allow a custom PostgreSQL schema
+    template: controller-configmap.yaml
+    set:
+      database.postgres.schema: kagent_custom
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_SCHEMA
+          value: kagent_custom
+
+  - it: should use the extensions schema for pgvector by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_VECTOR_SCHEMA
+          value: extensions
+
+  - it: should allow an existing pgvector extension in public
+    template: controller-configmap.yaml
+    set:
+      database.postgres.vectorSchema: public
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_VECTOR_SCHEMA
+          value: public
+
   - it: should not set DB pool env vars by default
     template: controller-configmap.yaml
     asserts:
@@ -773,7 +817,6 @@ tests:
     asserts:
       - notExists:
           path: data.KAGENT_POSTGRES_DATABASE_URL
-
 
   - it: should use default httpGet startup probe
     template: controller-deployment.yaml

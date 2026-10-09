@@ -96,14 +96,17 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `GEMINI_API_KEY` | String | `(none)` | Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs. |
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
+| `KAGENT_BUNDLED_POSTGRES_IMAGE` | String | `postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15` | PostgreSQL image that kagent install deploys. Point it at a mirror for air-gapped clusters. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_DEFAULT_MODEL_PROVIDER` | String | `openAI` | Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI). |
 | `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Kagent chart. |
 | `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
 | `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
 | `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
 | `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
+| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Substrate chart. |
 | `KAGENT_SUBSTRATE_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/substrate/helm/` | Helm repository URL for Substrate charts. |
 | `KAGENT_SUBSTRATE_HELM_VERSION` | String | `(none)` | Substrate Helm chart version to deploy. When unset, the CLI uses its pinned Substrate version. |
@@ -120,11 +123,11 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `false` | Allow HTTP A2A push callbacks. HTTPS is required by default. |
 | `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `false` | Allow A2A push callbacks to private, loopback, and link-local destinations. |
 | `KAGENT_A2A_PUSH_ISSUER` | String | `(none)` | Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL. |
-| `KAGENT_A2A_PUSH_SIGNING_SEED` | String | `(none)` | Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. |
+| `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` | String | `(none)` | Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
 | `KAGENT_GRPC_REFLECTION` | Boolean | `false` | Enable gRPC server reflection on the controller. |
 | `KAGENT_HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
@@ -141,7 +144,9 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
 | `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
+| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | Duration | `1m0s` | Interval between unreferenced runtime revision cleanup sweeps. Must be positive. |
 | `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
 | `KAGENT_SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |
@@ -189,13 +194,15 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
 | `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
+| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
 | `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 
 ## testing
