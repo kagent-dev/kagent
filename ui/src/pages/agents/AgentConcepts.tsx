@@ -91,7 +91,7 @@ export function AgentConcepts() {
         <MergeArrow theme={theme} />
         <Box
           kind="Agent"
-          detail="One template and one harness, each shared or inline."
+          detail="Inline or shared behavior on a platform-managed harness."
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />

@@ -12,13 +12,6 @@ import {
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
-import { HarnessFields } from "@/components/harness-form/HarnessFields";
-import {
-  emptyHarnessDraft,
-  harnessDraftFromSpec,
-  harnessDraftProblems,
-  harnessSpecFromDraft,
-} from "@/components/harness-form/harnessDraft";
 import {
   apiClient,
   useAgent,
@@ -45,7 +38,7 @@ export function AgentFormPage() {
   return (
     <PageFrame
       title={editing ? `Edit agent ${name}` : "New agent"}
-      description="An agent pairs a template with a harness. Reference a shared one, or define it inline for this agent only."
+      description="An agent pairs inline or shared behavior with a platform-managed harness."
     >
       {!editing && namespaces.error ? (
         <Alert
@@ -99,11 +92,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     spec?.template.inline ? draftFromSpec(spec.template.inline, agent!.namespace) : emptyDraft(namespace),
   );
 
-  const [harnessSource, setHarnessSource] = useState<Source>(spec?.harness.inline ? "inline" : "reference");
-  const [harnessRef, setHarnessRef] = useState(spec?.harness.ref?.name);
-  const [harnessDraft, setHarnessDraft] = useState(() =>
-    spec?.harness.inline ? harnessDraftFromSpec(spec.harness.inline) : emptyHarnessDraft(),
-  );
+  const [harnessRef, setHarnessRef] = useState(spec?.harnessRef.name);
 
   const templates = useAgentTemplates(namespace || undefined);
   const harnesses = useHarnesses(namespace || undefined);
@@ -111,9 +100,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
   const [failure, setFailure] = useState<string>();
 
   const inlineTemplate = { ...templateDraft, namespace };
-  const adapter = harnessSource === "inline"
-    ? harnessDraft.adapter
-    : harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
+  const adapter = harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
   const problems = [
     ...(namespace ? [] : ["A namespace is required."]),
     ...(name.trim() ? [] : ["A name is required."]),
@@ -123,8 +110,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig.trim()
       ? ["Choose a model configuration for the inline template."]
       : []),
-    ...(harnessSource === "reference" && !harnessRef ? ["Choose a harness."] : []),
-    ...(harnessSource === "inline" ? harnessDraftProblems(harnessDraft) : []),
+    ...(!harnessRef ? ["Choose a harness."] : []),
   ];
 
   async function save() {
@@ -134,9 +120,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
       template: templateSource === "reference"
         ? { ref: { name: templateRef! } }
         : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },
-      harness: harnessSource === "reference"
-        ? { ref: { name: harnessRef! } }
-        : { inline: harnessSpecFromDraft(harnessDraft, spec?.harness.inline) },
+      harnessRef: { name: harnessRef! },
     } as AgentSpec;
     const input = {
       namespace,
@@ -220,13 +204,18 @@ function AgentForm({ agent }: { agent?: Agent }) {
         }
       />
 
-      <SourceSection
-        kind="harness"
-        title="Harness"
-        summary="How and where the agent runs: its runtime, image and worker pool."
-        source={harnessSource}
-        onSource={setHarnessSource}
-        reference={
+      <Card
+        size="small"
+        data-testid="agent-form-harness"
+        title={
+          <div css={{ padding: `${theme.space(2)} 0` }}>
+            <div>Harness</div>
+            <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
+              Platform-managed runtime, image and worker pool.
+            </Text>
+          </div>
+        }
+      >
           <RefSelect
             kind="harness"
             value={harnessRef}
@@ -235,13 +224,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
             error={harnesses.error?.message}
             names={(harnesses.data ?? []).map((row) => row.name)}
           />
-        }
-        inline={
-          <Form layout="vertical">
-            <HarnessFields draft={harnessDraft} onChange={setHarnessDraft} />
-          </Form>
-        }
-      />
+      </Card>
 
       {failure ? (
         <Alert

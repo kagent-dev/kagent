@@ -40,15 +40,18 @@ type Agent struct {
 	Status AgentStatus `json:"status,omitempty"`
 }
 
-// AgentSpec pairs portable behavior with a runtime. References are local to the
-// Agent's namespace, including references nested in inline specs.
+// AgentSpec pairs portable behavior with a platform-managed runtime. References
+// are local to the Agent's namespace, including references nested in inline
+// template specs.
 type AgentSpec struct {
 	// Template selects the portable behavior this Agent exposes.
 	// +required
 	Template AgentTemplateSource `json:"template"`
-	// Harness selects the runtime configuration that executes the behavior.
+	// HarnessRef selects the platform-managed runtime configuration that executes
+	// the behavior.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="harnessRef.name must not be empty"
 	// +required
-	Harness AgentHarnessSource `json:"harness"`
+	HarnessRef corev1.LocalObjectReference `json:"harnessRef"`
 }
 
 // AgentTemplateSource selects portable behavior inline or by local reference.
@@ -60,20 +63,6 @@ type AgentTemplateSource struct {
 	Inline *AgentTemplateSpec `json:"inline,omitempty"`
 	// Ref names an AgentTemplate in the Agent's namespace. It cannot be set
 	// together with Inline.
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="ref.name must not be empty"
-	// +optional
-	Ref *corev1.LocalObjectReference `json:"ref,omitempty"`
-}
-
-// AgentHarnessSource selects runtime configuration inline or by local reference.
-// +kubebuilder:validation:XValidation:rule="has(self.inline) != has(self.ref)",message="exactly one of inline or ref must be specified"
-type AgentHarnessSource struct {
-	// Inline defines the Agent's runtime configuration directly. It cannot be
-	// set together with Ref.
-	// +optional
-	Inline *HarnessSpec `json:"inline,omitempty"`
-	// Ref names a Harness in the Agent's namespace. It cannot be set together
-	// with Inline.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="ref.name must not be empty"
 	// +optional
 	Ref *corev1.LocalObjectReference `json:"ref,omitempty"`

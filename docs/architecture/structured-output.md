@@ -8,6 +8,21 @@ and a reusable `AgentTemplate.spec`.
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: kagent
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: ${KAGENT_GO_ADK_IMAGE_DIGEST}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: s3://snapshots/kagent/
+---
+apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
   name: data-extractor
@@ -26,16 +41,8 @@ spec:
             type: object
         required: [status, payload]
         additionalProperties: false
-  harness:
-    inline:
-      kagent: {}
-      workload:
-        image: ${KAGENT_GO_ADK_IMAGE_DIGEST}
-      substrate:
-        workerPoolRef:
-          name: kagent-default
-        snapshotPolicy:
-          location: s3://snapshots/kagent/
+  harnessRef:
+    name: kagent
 ```
 
 Replace `${KAGENT_GO_ADK_IMAGE_DIGEST}` with the full Go ADK image reference,

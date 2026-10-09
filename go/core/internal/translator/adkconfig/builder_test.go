@@ -76,7 +76,7 @@ func TestBuildCompaction(t *testing.T) {
 	}
 	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *translator.HarnessConfiguration {
 		return &translator.HarnessConfiguration{
-			Name: "kagent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+			Name: "kagent", Namespace: "test", Source: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
 		}
 	}

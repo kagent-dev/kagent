@@ -153,10 +153,9 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 // runtime. Sorting makes the JSON stable across map iteration order.
 func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
-	}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
 		if template.Source != nil {

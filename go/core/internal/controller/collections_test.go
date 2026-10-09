@@ -467,7 +467,7 @@ func waitFor(t *testing.T, condition func() bool) {
 
 func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.Harness) *kagentv1alpha3.Agent {
 	return &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name, UID: template.UID}, Spec: kagentv1alpha3.AgentSpec{
-		Template: kagentv1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
-		Harness:  kagentv1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{Name: harness.Name}},
+		Template:   kagentv1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+		HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
 	}}
 }

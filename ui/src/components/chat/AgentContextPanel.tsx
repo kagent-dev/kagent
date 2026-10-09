@@ -55,7 +55,7 @@ export function AgentContextPanel({
   const template = useAgentTemplate(namespace, templateName);
   const templateNamespace = namespace;
   const templateRef = templateName;
-  const harnessRef = definition.data?.resource.spec.harness.ref?.name ?? (definition.data?.resource.spec.harness.inline ? "Inline" : undefined);
+  const harnessRef = definition.data?.resource.spec.harnessRef.name;
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
   const tools = spec?.tools ?? [];

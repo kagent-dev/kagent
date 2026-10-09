@@ -10,7 +10,7 @@ the agent processes.
 
 | Resource                      | Owner                                    | Purpose                                                                       |
 | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Explicit inline-or-reference template/Harness pairing, readiness, and revision selection |
+| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Inline-or-reference behavior paired with a referenced Harness, readiness, and revision selection |
 | `Harness`                     | Kubernetes (`api.kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
 | `AgentTemplate`               | Kubernetes (`api.kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | `SandboxTemplate` | Kubernetes (`api.kagent.dev/v1alpha3`) | Tools image, environment, and preparation policy for standalone sandboxes |
@@ -38,7 +38,7 @@ semantics; kagent does not maintain a parallel session or task API.
 ```mermaid
 flowchart LR
     AGENT[Agent] --> AT[template: inline or ref]
-    AGENT --> H[harness: inline or ref]
+    AGENT --> H[harnessRef]
     AT --> R[resolve tree]
     H --> R
     R --> B[build harness inputs]

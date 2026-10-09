@@ -110,9 +110,8 @@ spec:
   template:
     ref:
       name: smoke
-  harness:
-    ref:
-      name: kagent
+  harnessRef:
+    name: kagent
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
@@ -123,6 +122,5 @@ spec:
   template:
     ref:
       name: byo-smoke
-  harness:
-    ref:
-      name: byo-e2e
+  harnessRef:
+    name: byo-e2e

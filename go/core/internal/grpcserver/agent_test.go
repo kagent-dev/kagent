@@ -17,8 +17,8 @@ func TestAgentServiceGeneratedClient(t *testing.T) {
 	ctx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "alice")
 	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "reviewer"}
 	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name}, Spec: v1alpha3.AgentSpec{
-		Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{SystemPrompt: "review code"}},
-		Harness:  v1alpha3.AgentHarnessSource{Inline: testHarness("team", "runtime", "pool").Spec.DeepCopy()},
+		Template:   v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{SystemPrompt: "review code"}},
+		HarnessRef: corev1.LocalObjectReference{Name: "runtime"},
 	}}
 	created, err := client.CreateAgent(ctx, &apiv1alpha1.CreateAgentRequest{Ref: ref, Resource: structured(t, agent, "Agent")})
 	require.NoError(t, err)
@@ -33,7 +33,7 @@ func TestAgentServiceGeneratedClient(t *testing.T) {
 	require.NoError(t, structuredobject.ToGo(updated.Agent.Resource, "Agent", decoded, DefaultMaxMessageSize))
 	require.Nil(t, decoded.Spec.Template.Inline)
 	require.Equal(t, "shared-behavior", decoded.Spec.Template.Ref.Name)
-	require.NotNil(t, decoded.Spec.Harness.Inline)
+	require.Equal(t, "runtime", decoded.Spec.HarnessRef.Name)
 	_, err = client.DeleteAgent(ctx, &apiv1alpha1.DeleteAgentRequest{Ref: ref})
 	require.NoError(t, err)
 	listed, err = client.ListAgents(ctx, &apiv1alpha1.ListAgentsRequest{Namespace: "team"})

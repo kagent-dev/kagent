@@ -15,13 +15,13 @@ type TemplateConfiguration struct {
 	Source    *metav1.ObjectMeta
 }
 
-// HarnessConfiguration is execution configuration resolved for compilation.
-// Source records the referenced Harness, or is nil for an inline spec.
+// HarnessConfiguration is execution configuration resolved from a referenced
+// Harness for compilation.
 type HarnessConfiguration struct {
 	Name      string
 	Namespace string
 	Spec      v1alpha3.HarnessSpec
-	Source    *metav1.ObjectMeta
+	Source    metav1.ObjectMeta
 }
 
 func templateConfiguration(resource *v1alpha3.AgentTemplate) *TemplateConfiguration {
@@ -31,5 +31,5 @@ func templateConfiguration(resource *v1alpha3.AgentTemplate) *TemplateConfigurat
 
 func harnessConfiguration(resource *v1alpha3.Harness) *HarnessConfiguration {
 	return &HarnessConfiguration{Name: resource.Name, Namespace: resource.Namespace,
-		Spec: *resource.Spec.DeepCopy(), Source: resource.ObjectMeta.DeepCopy()}
+		Spec: *resource.Spec.DeepCopy(), Source: *resource.ObjectMeta.DeepCopy()}
 }

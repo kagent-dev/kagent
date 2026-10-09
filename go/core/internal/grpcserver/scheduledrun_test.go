@@ -188,8 +188,8 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "report"}, Spec: v1alpha3.AgentSpec{
-		Template: v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "report"}},
-		Harness:  v1alpha3.AgentHarnessSource{Ref: &corev1.LocalObjectReference{Name: "runtime"}},
+		Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "report"}},
+		HarnessRef: corev1.LocalObjectReference{Name: "runtime"},
 	}}
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent).Build()
 	listener := bufconn.Listen(DefaultMaxMessageSize)

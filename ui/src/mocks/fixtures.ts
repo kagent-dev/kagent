@@ -21,7 +21,7 @@ import type {
   SubstrateWorkerEntry,
   SubstrateWorkerPoolEntry,
 } from "@/api/domain/substrate";
-import type { Harness, HarnessSpec } from "@/api/domain/harnesses";
+import type { Harness } from "@/api/domain/harnesses";
 import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 
@@ -852,18 +852,10 @@ function agent(namespace: string, name: string, spec: AgentSpec, status: AgentSt
   return { ref: `${namespace}/${name}`, namespace, name, resource: { metadata: { name, namespace, generation: status.observedGeneration }, spec, status } };
 }
 
-const INLINE_HARNESS: HarnessSpec = {
-  claude: {},
-  workload: {
-    image: "ghcr.io/kagent-dev/kagent/claude-adk@sha256:9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e",
-  },
-  substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
-};
-
-/** Every template/harness combination: ref+ref, inline+ref, ref+inline, inline+inline. */
+/** Referenced and inline templates paired with platform-managed Harnesses. */
 export const mockAgents: Agent[] = [
-  agent("kagent", "k8s-agent-7f3a91c", { template: { ref: { name: "k8s-agent-7f3a91c" } }, harness: { ref: { name: "k8s-agent" } } }),
-  agent("kagent", "support-triage-2b91d0e", { template: { ref: { name: "support-triage-2b91d0e" } }, harness: { ref: { name: "support-triage" } } }, {
+  agent("kagent", "k8s-agent-7f3a91c", { template: { ref: { name: "k8s-agent-7f3a91c" } }, harnessRef: { name: "k8s-agent" } }),
+  agent("kagent", "support-triage-2b91d0e", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }, {
     observedGeneration: 1,
     desiredRevision: "rev-2b91d0e",
     conditions: [
@@ -873,26 +865,26 @@ export const mockAgents: Agent[] = [
       { type: "Ready", status: "False", reason: "ActorTemplatePending", message: "waiting for the ActorTemplate golden snapshot" },
     ],
   }),
-  agent("kagent", "shared-brain-fast", { template: { ref: { name: "shared-brain" } }, harness: { ref: { name: "fast-lane" } } }),
-  agent("kagent", "shared-brain", { template: { ref: { name: "shared-brain" } }, harness: { ref: { name: "k8s-agent" } } }),
+  agent("kagent", "shared-brain-fast", { template: { ref: { name: "shared-brain" } }, harnessRef: { name: "fast-lane" } }),
+  agent("kagent", "shared-brain", { template: { ref: { name: "shared-brain" } }, harnessRef: { name: "k8s-agent" } }),
   // Same refs as `shared-brain`: still a separate agent with its own conversations.
-  agent("kagent", "shared-brain-twin", { template: { ref: { name: "shared-brain" } }, harness: { ref: { name: "k8s-agent" } } }),
+  agent("kagent", "shared-brain-twin", { template: { ref: { name: "shared-brain" } }, harnessRef: { name: "k8s-agent" } }),
   agent("kagent", "release-notes", {
     template: { inline: {
       modelConfig: { name: "default-model-config" },
       description: "Drafts release notes from merged pull requests.",
       systemPrompt: "You write short, accurate release notes.",
     } },
-    harness: { ref: { name: "k8s-agent" } },
+    harnessRef: { name: "k8s-agent" },
   }),
-  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harness: { inline: INLINE_HARNESS } }),
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
   agent("kagent", "scratchpad", {
     template: { inline: {
       modelConfig: { name: "default-model-config" },
       description: "A throwaway agent for trying prompts.",
       systemPrompt: "You are a helpful assistant.",
     } },
-    harness: { inline: INLINE_HARNESS },
+    harnessRef: { name: "k8s-agent" },
   }),
-  agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harness: { ref: { name: "reporting" } } }),
+  agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harnessRef: { name: "reporting" } }),
 ];

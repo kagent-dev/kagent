@@ -6,7 +6,7 @@ import {
 } from "@/api/domain/harnesses";
 import type { HarnessDraft } from "./harnessDraft";
 
-/** The harness spec fields, shared by the harness page and an Agent's inline harness. */
+/** Fields for a platform-managed Harness resource. */
 export function HarnessFields({
   draft,
   onChange,

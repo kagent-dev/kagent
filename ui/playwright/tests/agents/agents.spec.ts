@@ -15,8 +15,8 @@ import { operationCalls, rpc } from "../../helpers/mockCalls";
 import { optionNamed } from "../../helpers/resource";
 import { background, settledPaint } from "../../helpers/style";
 
-/** Agents — each row is one explicit Agent, whose template and harness are each shared or inline. */
-test("agents: the list is Agent resources, with each half shared or inline", async ({
+/** Agents -- each row is one explicit Agent with behavior and a referenced Harness. */
+test("agents: the list is Agent resources with explicit template and harness sources", async ({
   page,
 }) => {
   await test.step("1. every namespace by default", async () => {
@@ -27,15 +27,15 @@ test("agents: the list is Agent resources, with each half shared or inline", asy
     await expect(page.getByTestId("agents-table")).toContainText("analytics");
   });
 
-  await test.step("2. each row says whether its template and harness are shared or inline", async () => {
+  await test.step("2. each row shows its template source and referenced Harness", async () => {
     const sources = async (name: string) => [
       await page.getByTestId(`agent-template-kagent/${name}`).getAttribute("data-source"),
       await page.getByTestId(`agent-harness-kagent/${name}`).getAttribute("data-source"),
     ];
     expect(await sources("shared-brain")).toEqual(["reference", "reference"]);
     expect(await sources("release-notes")).toEqual(["inline", "reference"]);
-    expect(await sources("triage-on-claude")).toEqual(["reference", "inline"]);
-    expect(await sources("scratchpad")).toEqual(["inline", "inline"]);
+    expect(await sources("triage-on-claude")).toEqual(["reference", "reference"]);
+    expect(await sources("scratchpad")).toEqual(["inline", "reference"]);
     await expect(page.getByTestId("agent-template-kagent/shared-brain")).toHaveText("shared-brain");
     await expect(page.getByTestId("agent-harness-kagent/shared-brain")).toHaveText("k8s-agent");
   });

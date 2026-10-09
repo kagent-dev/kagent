@@ -23,11 +23,10 @@ export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
 export function useAgentTakesFiles(ref?: string): boolean | undefined {
   const [namespace, name] = ref?.split("/") ?? [];
   const spec = useAgent(namespace, name).data?.resource.spec;
-  const refName = spec?.harness.ref?.name;
+  const refName = spec?.harnessRef.name;
   const harnesses = useApiResource(refName ? ["harnesses.list", namespace] : null, () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
-  if (spec?.harness.inline) return Boolean(spec.harness.inline.kagent);
   const harness = harnesses.data?.find((candidate) => candidate.ref === `${namespace}/${refName}`);
   return harness && harness.runtime === "kagent";
 }

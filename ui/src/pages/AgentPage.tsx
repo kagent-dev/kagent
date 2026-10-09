@@ -688,13 +688,9 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         </IdentityField>
 
         <IdentityField label="Runs on">
-          {spec.harness.ref ? (
-            <Text ellipsis={{ tooltip: spec.harness.ref.name }} css={mono}>
-              {spec.harness.ref.name}
-            </Text>
-          ) : (
-            <Text data-testid="agent-harness-inline">Inline</Text>
-          )}
+          <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+            {spec.harnessRef.name}
+          </Text>
         </IdentityField>
 
         <IdentityField label="Revision">

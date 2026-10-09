@@ -1,17 +1,13 @@
 import type { ResourceMetadata } from "./common";
 import type { AgentTemplate, AgentTemplateSpec } from "./agentTemplates";
-import type { HarnessSpec } from "./harnesses";
 
-/** Exactly one source per required wrapper; refs resolve in the Agent's namespace. */
+/** Exactly one template source; refs resolve in the Agent's namespace. */
 export type AgentTemplateSource =
   | { inline: AgentTemplateSpec; ref?: never }
   | { ref: { name: string }; inline?: never };
-export type AgentHarnessSource =
-  | { inline: HarnessSpec; ref?: never }
-  | { ref: { name: string }; inline?: never };
 export interface AgentSpec {
   template: AgentTemplateSource;
-  harness: AgentHarnessSource;
+  harnessRef: { name: string };
 }
 /** One condition the controller recorded for an Agent. */
 export interface AgentCondition {
@@ -96,9 +92,9 @@ export function templateRefName(agent: Agent): string | undefined {
   return agent.resource.spec.template.ref?.name;
 }
 
-/** The shared harness's name, or undefined when the harness is inline. */
-export function harnessRefName(agent: Agent): string | undefined {
-  return agent.resource.spec.harness.ref?.name;
+/** The platform-managed Harness selected by this Agent. */
+export function harnessRefName(agent: Agent): string {
+  return agent.resource.spec.harnessRef.name;
 }
 
 /** The inline template's description, or the referenced one's from the Agent's namespace. */

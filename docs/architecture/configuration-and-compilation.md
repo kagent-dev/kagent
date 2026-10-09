@@ -11,14 +11,20 @@ description and prompt, MCP tool bindings, skills, plugins, and Shared
 subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
 Agent compilation rejects managed harness combinations without one.
 
-`Agent` pairs one template and one Harness. The required `template` and `harness`
-fields each contain exactly one source: `inline` for a complete embedded spec, or
-`ref` for a local resource reference. Inline specs are complete values, not
-overrides. References, including those inside inline specs, resolve in the Agent's
-namespace. The reusable resources have no binding to each other. Child templates are selected
+`Agent` pairs one template and one Harness. The required `template` field selects
+either `inline` for a complete embedded spec or `ref` for a local AgentTemplate.
+The required `harnessRef` selects a Harness in the Agent's namespace; Harness
+configuration cannot be embedded in an Agent. This boundary lets platform owners
+manage runtime policy independently from Agent authors. Inline template specs are
+complete values, not overrides. References, including those inside inline specs,
+resolve in the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
 with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
 Each subagent requires `templateRef` and shares the parent's runtime and Harness.
 Dedicated `agentRef` bindings are deferred and are not part of the served API.
+
+The resource boundary does not grant authorization by itself. Kubernetes RBAC
+controls who may create or update Harnesses; admission policy is required when
+Agent authors must also be restricted to an allowlist of Harness references.
 
 All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
@@ -86,7 +92,7 @@ The controller compiles each Agent through one pipeline:
 ```mermaid
 flowchart TD
     A[Agent] --> T[template: inline or ref]
-    A --> H[harness: inline or ref]
+    A --> H[harnessRef]
     T --> RESOLVE[resolve template tree and references]
     H --> RESOLVE
     RESOLVE --> INPUTS[build explicit inputs]
@@ -270,36 +276,25 @@ spec:
       modelConfig:
         name: default-model-config
       systemPrompt: You are a helpful assistant.
-  harness:
-    inline:
-      kagent: {}
-      workload:
-        image: example.com/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
-      substrate:
-        workerPoolRef:
-          name: kagent-default
-        snapshotPolicy:
-          location: s3://snapshots/kagent/
+  harnessRef:
+    name: kagent
 ```
 
-Use a real runtime image digest and snapshot location in place of the examples.
-The referenced ModelConfig and WorkerPool must already exist.
+The referenced ModelConfig and Harness must already exist.
 
-To reuse existing configuration, replace either inline spec with its reference:
+To reuse an existing AgentTemplate, replace the inline template with its reference:
 
 ```yaml
 spec:
   template:
     ref:
       name: shared-context
-  harness:
-    ref:
-      name: kagent
+  harnessRef:
+    name: kagent
 ```
 
-These choices are independent: both inline, either side referenced, or both
-referenced are supported. No synthetic Kubernetes objects are created for inline
-specs.
+Template behavior may be inline or referenced. The Harness is always referenced;
+no synthetic Kubernetes object is created for an inline template.
 
 Create a session with `kagent agent session create --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.

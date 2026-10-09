@@ -122,8 +122,23 @@ docker buildx build --push --platform "linux/${ARCH}" \
 HARNESS_DIGEST="$(docker buildx imagetools inspect localhost:5001/kagent-dev/kagent/golang-adk:dev \
   | awk '/^Digest:/{print $2}')"
 
-step "9/10  An Agent with inline template and Harness"
+step "9/10  A platform Harness and an Agent with an inline template"
 kubectl apply -f - <<EOF
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: assistant
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: s3://ate-snapshots/kagent
+---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
@@ -136,16 +151,8 @@ spec:
         name: default-model-config
       description: A general-purpose assistant.
       systemPrompt: You are a helpful assistant running on kagent.
-  harness:
-    inline:
-      kagent: {}
-      workload:
-        image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
-      substrate:
-        workerPoolRef:
-          name: kagent-default
-        snapshotPolicy:
-          location: s3://ate-snapshots/kagent
+  harnessRef:
+    name: assistant
 EOF
 
 # Ready means Substrate has booted the template's golden actor and snapshotted it, which

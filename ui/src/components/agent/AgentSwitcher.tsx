@@ -258,7 +258,7 @@ export function AgentSwitcher({
                 ellipsis
                 css={{ fontSize: 11, lineHeight: 1.35, color: theme.color.textMuted }}
               >
-                on {harnessRefName(row) ?? "an inline harness"} · {namespace}
+                on {harnessRefName(row)} · {namespace}
               </Text>
             </button>
           );
