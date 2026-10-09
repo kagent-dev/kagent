@@ -278,6 +278,19 @@ func TestRunRejectsNonpositiveQuiescenceInterval(t *testing.T) {
 	}
 }
 
+func TestRunRejectsNonpositivePushInterval(t *testing.T) {
+	t.Setenv("KAGENT_LOG_LEVEL", "info")
+	for _, input := range []string{"0s", "-1m"} {
+		t.Run(input, func(t *testing.T) {
+			t.Setenv(kagentenv.A2APushPollInterval.Name(), input)
+			err := Run(t.Context(), Options{})
+			if want := "KAGENT_A2A_PUSH_POLL_INTERVAL must be positive"; err == nil || err.Error() != want {
+				t.Fatalf("Run() error = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
 func TestMergePolicies(t *testing.T) {
 	defaults := grpcserver.MethodPolicies{"/core.Svc/Get": auth.AccessRead}
 

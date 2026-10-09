@@ -1,6 +1,7 @@
 package database
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,100 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestPushPendingDeliveryTracksRetriesAndLeases(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	assertPending := func(want bool) {
+		t.Helper()
+		pending, err := client.HasPendingPushDelivery(ctx)
+		require.NoError(t, err)
+		require.Equal(t, want, pending)
+	}
+	assertPending(false)
+	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
+	assertPending(true)
+	delivery, err := client.ClaimDuePushDelivery(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, delivery)
+	assertPending(true) // An active lease must still be checked for abandonment.
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+	assertPending(true) // Future retries are outstanding even when not claimable.
+	blocked, err := client.ClaimDuePushDelivery(ctx)
+	require.NoError(t, err)
+	require.Nil(t, blocked)
+	require.NoError(t, execSQL(ctx, client.db, `
+        UPDATE session_push_outbox SET next_attempt_at = clock_timestamp() - interval '1 second'
+        WHERE id = $1
+    `, delivery.ID))
+	delivery, err = client.ClaimDuePushDelivery(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, delivery)
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
+	assertPending(false)
+}
+
+func TestPushPendingDeliveryExcludesCanceledWork(t *testing.T) {
+	for _, action := range []string{"delete", "replace"} {
+		t.Run(action, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			ctx := t.Context()
+			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			config := &a2a.PushConfig{ID: "callback", URL: "http://receiver"}
+			session, task := waitingTaskWithPushFixture(t, client, config)
+			pending, err := client.HasPendingPushDelivery(ctx)
+			require.NoError(t, err)
+			require.True(t, pending)
+			if action == "delete" {
+				require.NoError(t, client.DeleteTaskPushConfig(ctx, session.Id, string(task.ID), config.ID))
+			} else {
+				config.URL = "http://replacement"
+				require.NoError(t, client.SaveTaskPushConfig(ctx, session.Id, string(task.ID), config))
+			}
+			pending, err = client.HasPendingPushDelivery(ctx)
+			require.NoError(t, err)
+			require.False(t, pending)
+		})
+	}
+}
+
+func TestPushOutboxConcurrentClaimsAcrossReplicas(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
+	start := make(chan struct{})
+	results := make(chan *PushDelivery, 8)
+	errors := make(chan error, 8)
+	var workers sync.WaitGroup
+	for range 8 {
+		workers.Go(func() {
+			<-start
+			delivery, err := NewClient(sharedDB, "public").ClaimDuePushDelivery(ctx)
+			results <- delivery
+			errors <- err
+		})
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	close(errors)
+	for err := range errors {
+		require.NoError(t, err)
+	}
+	var claimed []*PushDelivery
+	for delivery := range results {
+		if delivery != nil {
+			claimed = append(claimed, delivery)
+		}
+	}
+	require.Len(t, claimed, 1, "replicas must not claim an active delivery twice")
+	require.NoError(t, client.FinishPushDelivery(ctx, *claimed[0], true))
+	pending, err := client.HasPendingPushDelivery(ctx)
+	require.NoError(t, err)
+	require.False(t, pending)
+}
 
 func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
