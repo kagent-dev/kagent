@@ -721,8 +721,8 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         }}
         data-testid="agent-identity-note"
       >
-        The template says what this agent does and the harness says how it runs.
-        Referenced templates and Harnesses can be shared. Inline configuration belongs to this Agent.
+        The template says what this agent does and the Harness says how it runs.
+        Templates may be inline or shared; Harnesses are always referenced.
       </Paragraph>
     </Card>
   );
