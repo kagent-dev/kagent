@@ -1235,8 +1235,10 @@ type PushConfig struct {
 	Issuer                *string `protobuf:"bytes,2,opt,name=issuer,proto3,oneof" json:"issuer,omitempty"`
 	AllowHttp             bool    `protobuf:"varint,3,opt,name=allow_http,json=allowHttp,proto3" json:"allow_http,omitempty"`
 	AllowPrivateNetworks  bool    `protobuf:"varint,4,opt,name=allow_private_networks,json=allowPrivateNetworks,proto3" json:"allow_private_networks,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Recovery interval for missed wake-ups and unbound registration cleanup.
+	RecoveryInterval *durationpb.Duration `protobuf:"bytes,5,opt,name=recovery_interval,json=recoveryInterval,proto3" json:"recovery_interval,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PushConfig) Reset() {
@@ -1295,6 +1297,13 @@ func (x *PushConfig) GetAllowPrivateNetworks() bool {
 		return x.AllowPrivateNetworks
 	}
 	return false
+}
+
+func (x *PushConfig) GetRecoveryInterval() *durationpb.Duration {
+	if x != nil {
+		return x.RecoveryInterval
+	}
+	return nil
 }
 
 type SandboxConfig struct {
@@ -2002,14 +2011,16 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01\x120\n" +
 	"\x04push\x18\x02 \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04pushB\r\n" +
-	"\v_public_url\"\xdf\x01\n" +
+	"\v_public_url\"\xb9\x02\n" +
 	"\n" +
 	"PushConfig\x127\n" +
 	"\x18signing_private_key_file\x18\x01 \x01(\tR\x15signingPrivateKeyFile\x128\n" +
 	"\x06issuer\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x06issuer\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"allow_http\x18\x03 \x01(\bR\tallowHttp\x124\n" +
-	"\x16allow_private_networks\x18\x04 \x01(\bR\x14allowPrivateNetworksB\t\n" +
+	"\x16allow_private_networks\x18\x04 \x01(\bR\x14allowPrivateNetworks\x12X\n" +
+	"\x11recovery_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x10recoveryIntervalB\t\n" +
 	"\a_issuer\"\x8e\x04\n" +
 	"\rSandboxConfig\x12\x1f\n" +
 	"\vguest_image\x18\x01 \x01(\tR\n" +
@@ -2156,25 +2167,26 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	27, // 31: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
 	27, // 32: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
 	17, // 33: kagent.config.v1.GatewayConfig.push:type_name -> kagent.config.v1.PushConfig
-	27, // 34: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	27, // 35: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	27, // 36: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	27, // 37: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	27, // 38: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	27, // 39: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	23, // 40: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	23, // 41: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	23, // 42: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	26, // 43: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	27, // 44: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	3,  // 45: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	22, // 46: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	25, // 47: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	27, // 34: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	27, // 35: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	27, // 36: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	27, // 37: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	27, // 38: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	27, // 39: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	27, // 40: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	23, // 41: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	23, // 42: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	23, // 43: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	26, // 44: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	27, // 45: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	3,  // 46: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	22, // 47: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	25, // 48: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	49, // [49:49] is the sub-list for method output_type
+	49, // [49:49] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }

@@ -221,6 +221,19 @@ func TestRunSkippingMigrationsNeedsNoOwner(t *testing.T) {
 	require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "verify database migrations:")
 }
 
+func TestRunRejectsNonpositivePushInterval(t *testing.T) {
+	for _, input := range []time.Duration{0, -time.Minute} {
+		t.Run(input.String(), func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			config.DefaultController(cfg)
+			cfg.Database.ReadWrite = &configv1.DatabaseLoginConfig{UrlFile: "missing-secret", Role: "kagent_readwrite"}
+			cfg.Database.Owner = &configv1.DatabaseLoginConfig{UrlFile: "missing-owner", Role: "kagent_owner"}
+			cfg.Gateway.Push.RecoveryInterval = durationpb.New(input)
+			require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "recovery_interval")
+		})
+	}
+}
+
 func TestMergePolicies(t *testing.T) {
 	defaults := grpcserver.MethodPolicies{"/core.Svc/Get": auth.AccessRead}
 

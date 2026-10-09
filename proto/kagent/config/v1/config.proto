@@ -240,6 +240,11 @@ message PushConfig {
   }];
   bool allow_http = 3;
   bool allow_private_networks = 4;
+  // Recovery interval for missed wake-ups and unbound registration cleanup.
+  google.protobuf.Duration recovery_interval = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message SandboxConfig {

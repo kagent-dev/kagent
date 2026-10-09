@@ -70,6 +70,23 @@ func pushBoundaryEligible(state a2a.TaskState) bool {
 	return state.Terminal() || state == a2a.TaskStateInputRequired || state == a2a.TaskStateAuthRequired
 }
 
+// HasPendingPushDelivery includes future retries and leased attempts, so workers
+// keep checking for retry deadlines and abandoned claims even without new hints.
+// Closed, superseded, deleted, and finished deliveries do not keep retries active.
+func (c *Client) HasPendingPushDelivery(ctx context.Context) (bool, error) {
+	return queryOne(ctx, c.db, `
+        SELECT EXISTS (
+            SELECT 1 FROM session_push_outbox o
+            JOIN session_push_registration p ON p.id = o.registration_id
+            JOIN session_record s ON s.history_id = p.history_id
+            WHERE p.closed_at IS NULL AND p.revision = o.config_revision
+              AND s.state <> 'RUNTIME_STATE_DELETED'
+              AND ((o.state = 'pending' AND o.attempt_count < $1)
+                OR o.state = 'sending')
+        )
+    `, pgx.RowTo[bool], pushMaxDeliveryAttempts)
+}
+
 // ClaimDuePushDelivery acquires one due or abandoned delivery without holding
 // any lock across HTTP. The new claim token invalidates prior acknowledgements.
 func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error) {
