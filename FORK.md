@@ -391,6 +391,14 @@ write access.
   upstream pull request are the same change and reference each other. Work on a branch of this repository
   (`fix/…`, `feat/…`) and open the pull request here against `giantswarm` with the upstream link; the
   upstream pull request is opened from this repository's branch too, so the same commit serves both.
+- **A carried commit takes a type that releases.** Pull requests here are rebase-merged, so each commit's
+  own subject reaches the Auto Release workflow, and its `cliff.toml` skips `test`, `docs` and `style`: a
+  push that carries only those cuts no release candidate, and the change has no published artifact to be
+  proven from. A carried commit whose change is a test or documentation is therefore typed
+  `chore(<scope>):` (`chore(e2e): …`), on `giantswarm` and on a maintenance branch alike; every other type
+  (`feat`, `fix`, `refactor`, `perf`, `chore`, `build`, `ci`, `security`) cuts the next `-rc.N`. The
+  upstream pull request keeps the title upstream expects (`test(e2e): …`). The FORK.md row commits stay
+  `docs(fork):`: the ledger is no change to prove, and it ships with the next candidate.
 - **Keep the base at `giantswarm`, a stacked pull request included.** `ci.yaml` runs on pull requests to
   `main`, `release/**` and `giantswarm` only, so one based on another pull request's branch gets the
   CircleCI image validations and nothing else: no `go-unit-tests`, no `go-lint`, no `ui-tests`, no
