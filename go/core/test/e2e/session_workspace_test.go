@@ -140,16 +140,6 @@ func requireDirectoryReleased(t *testing.T, kube ctrlclient.Client, sessionID st
 	}, time.Minute, time.Second)
 }
 
-// requireSessionDirectories skips a test whose Sessions mount their own
-// directory of a workspace volume until the Substrate the lane runs creates a
-// missing read-write sub-path at actor create: a Session's directory is named
-// after its id, which kagent chooses inside CreateSession, so nothing can
-// create it before the actor (giantswarm/substrate#238).
-func requireSessionDirectories(t *testing.T) {
-	t.Helper()
-	t.Skip("needs a Substrate that creates a Session's missing directory at actor create (giantswarm/substrate#238)")
-}
-
 func deleteWorkspaceSession(t *testing.T, session *interactionFixture) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", workspaceGrantSubject), 2*time.Minute)
@@ -163,7 +153,6 @@ func deleteWorkspaceSession(t *testing.T, session *interactionFixture) {
 // directories and the volume to the volume's owner, told by an Event each.
 func TestSessionWorkspaceDirectory(t *testing.T) {
 	t.Parallel()
-	requireSessionDirectories(t)
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
 	fixture := newWorkspaceFixture(t)
@@ -209,7 +198,6 @@ test ! -e /volume/mirrors/written
 // directory and the volume in place and the Event for the volume's owner.
 func TestSessionWorkspaceSurvivesAQuestion(t *testing.T) {
 	t.Parallel()
-	requireSessionDirectories(t)
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
 	fixture := newWorkspaceFixture(t)
