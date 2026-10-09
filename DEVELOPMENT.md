@@ -43,6 +43,22 @@ When making changes to `kagent`, the most important thing is to figure out which
 - [go](go): Contains the code for the kubernetes controller, and the CLI.
 - [ui](ui): Contains the code for the web UI.
 
+## Releases
+
+Run the [Release workflow](https://github.com/kagent-dev/kagent/actions/workflows/tag.yaml)
+manually, selecting the branch to build and entering the new release tag
+(for example, `v0.1.0` or `v0.1.0-rc.1`). The `v` prefix is required.
+
+```shell
+gh workflow run tag.yaml --ref main -f version=v0.1.0
+```
+
+The workflow builds the selected branch's commit and publishes images, Helm charts,
+Python packages, and release artifacts using that version. After those jobs succeed,
+it creates the `v<version>` tag at the same commit and publishes the GitHub release
+with generated notes and artifacts. Existing tags are rejected before publishing;
+pushing a tag no longer starts a release.
+
 ## Nightly releases
 
 The [Nightly Release workflow](https://github.com/kagent-dev/kagent/actions/workflows/nightly.yaml)
@@ -51,7 +67,7 @@ the previous successful nightly. Maintainers can also run it manually on the
 default branch to force a rebuild.
 
 Use **Run workflow** on that page, or run
-`gh workflow run nightly.yaml --ref main`. Both nightly and tagged releases use
+`gh workflow run nightly.yaml --ref main`. Both nightly and manual releases use
 the shared `publish-image`, `publish-helm`, and `build-release-artifacts` composite
 actions in `.github/actions`.
 
