@@ -109,7 +109,7 @@ func TestResourceIdentityUsesTheMainAgentKeys(t *testing.T) {
 
 func TestChildResourceAddsTheCompiledNamespace(t *testing.T) {
 	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}
-	want := append(telemetry.ResourceIdentity(), attribute.String("service.namespace", "team"))
+	want := append(telemetry.ResourceIdentity(), attribute.String("service.namespace", "team"), attribute.String(AttributeGenAIProducer, "adapter"))
 	if got := telemetry.ChildResource(); !slices.Equal(got, want) {
 		t.Fatalf("ChildResource() = %v, want %v", got, want)
 	}

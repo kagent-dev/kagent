@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 const pinnedClaudeVersion = "2.1.285"
@@ -18,7 +19,7 @@ func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	}
 	for _, reader := range []io.Reader{bytes.NewReader(b), &fragmentReader{data: b, size: 3}} {
 		var events []Event
-		if err := ParseJSONL(reader, 4096, func(event Event) error {
+		if err := ParseJSONL(t.Context(), reader, 4096, func(event Event) error {
 			events = append(events, event)
 			return nil
 		}); err != nil {
@@ -56,7 +57,7 @@ func TestParseJSONLBedrockTextAfterThinkingIsNotDuplicated(t *testing.T) {
 	}, "\n") + "\n"
 
 	var text strings.Builder
-	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
 		if event.Kind == EventTextDelta {
 			text.WriteString(event.Text)
 		}
@@ -75,7 +76,7 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var last Event
-	if err := ParseJSONL(bytes.NewReader(b), 4096, func(event Event) error { last = event; return nil }); err != nil {
+	if err := ParseJSONL(t.Context(), bytes.NewReader(b), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if last.Kind != EventFailed || last.Category != "error_max_budget_usd" {
@@ -96,7 +97,7 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
 	}, "\n") + "\n"
 	var events []Event
-	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
 		events = append(events, event)
 		return nil
 	}); err != nil {
@@ -132,7 +133,7 @@ func TestParseJSONLIgnoresSubagentTaskNotificationResult(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"child done","origin":{"kind":"task-notification"}}`,
 	}, "\n") + "\n"
 	var terminal []Event
-	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
 		if event.Kind == EventCompleted || event.Kind == EventFailed {
 			terminal = append(terminal, event)
 		}
@@ -171,7 +172,7 @@ func TestParseJSONLRejectsInvalidToolLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := strings.Join(tt.lines, "\n") + "\n"
-			err := ParseJSONL(strings.NewReader(input), 4096, func(Event) error { return nil })
+			err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("ParseJSONL() error = %v, want containing %q", err, tt.want)
 			}
@@ -192,7 +193,7 @@ func TestParseJSONLErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ParseJSONL(strings.NewReader(tt.input), tt.max, func(Event) error { return nil })
+			err := ParseJSONL(t.Context(), strings.NewReader(tt.input), tt.max, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("ParseJSONL() error = %v, want containing %q", err, tt.want)
 			}
@@ -203,7 +204,7 @@ func TestParseJSONLErrors(t *testing.T) {
 func TestParseJSONLPropagatesEmitterError(t *testing.T) {
 	want := errors.New("stop")
 	input := `{"type":"result","subtype":"success"}` + "\n"
-	if err := ParseJSONL(strings.NewReader(input), 1024, func(Event) error { return want }); !errors.Is(err, want) {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 1024, func(Event) error { return want }); !errors.Is(err, want) {
 		t.Fatalf("ParseJSONL() error = %v, want %v", err, want)
 	}
 }
@@ -221,4 +222,19 @@ func (r *fragmentReader) Read(p []byte) (int, error) {
 	copy(p, r.data[:n])
 	r.data = r.data[n:]
 	return n, nil
+}
+
+func TestParseJSONLReportsReadAndFlushErrors(t *testing.T) {
+	readErr, emitErr := errors.New("pipe broke"), errors.New("sink failed")
+	line := `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m"}}}` + "\n"
+	reader := io.MultiReader(strings.NewReader(line), iotest.ErrReader(readErr))
+	err := ParseJSONL(t.Context(), reader, 4096, func(event Event) error {
+		if event.Kind == EventModelCall {
+			return emitErr
+		}
+		return nil
+	})
+	if !errors.Is(err, readErr) || !errors.Is(err, emitErr) {
+		t.Fatalf("ParseJSONL() error = %v, want both the read and the flush error", err)
+	}
 }

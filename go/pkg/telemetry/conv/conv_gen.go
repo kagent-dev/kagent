@@ -34,19 +34,39 @@ const (
 	GenAIProviderNameKey = attribute.Key("gen_ai.provider.name")
 	// GenAIRequestModelKey is "gen_ai.request.model". The name of the GenAI model configured for the agent.
 	GenAIRequestModelKey = attribute.Key("gen_ai.request.model")
+	// GenAIResponseFinishReasonsKey is "gen_ai.response.finish_reasons". Array of reasons the model stopped generating tokens, corresponding to each generation received.
+	GenAIResponseFinishReasonsKey = attribute.Key("gen_ai.response.finish_reasons")
+	// GenAIResponseModelKey is "gen_ai.response.model". The name of the model that generated the response.
+	GenAIResponseModelKey = attribute.Key("gen_ai.response.model")
+	// GenAIToolCallIDKey is "gen_ai.tool.call.id". The tool call identifier.
+	GenAIToolCallIDKey = attribute.Key("gen_ai.tool.call.id")
+	// GenAIToolNameKey is "gen_ai.tool.name". Name of the tool utilized by the agent.
+	GenAIToolNameKey = attribute.Key("gen_ai.tool.name")
+	// GenAIUsageCacheReadInputTokensKey is "gen_ai.usage.cache_read.input_tokens". The number of input tokens served from a provider-managed cache.
+	GenAIUsageCacheReadInputTokensKey = attribute.Key("gen_ai.usage.cache_read.input_tokens")
+	// GenAIUsageCacheWriteInputTokensKey is "gen_ai.usage.cache_write.input_tokens". The number of input tokens written to a provider-managed cache.
+	GenAIUsageCacheWriteInputTokensKey = attribute.Key("gen_ai.usage.cache_write.input_tokens")
+	// GenAIUsageInputTokensKey is "gen_ai.usage.input_tokens". The number of tokens used in the GenAI input (prompt).
+	GenAIUsageInputTokensKey = attribute.Key("gen_ai.usage.input_tokens")
+	// GenAIUsageOutputTokensKey is "gen_ai.usage.output_tokens". The number of tokens used in the GenAI response (completion).
+	GenAIUsageOutputTokensKey = attribute.Key("gen_ai.usage.output_tokens")
 	// KagentCaptureInputTruncatedKey is "kagent.capture.input_truncated". Whether the captured input messages were shortened to the capture budget.
 	KagentCaptureInputTruncatedKey = attribute.Key("kagent.capture.input_truncated")
 	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages were shortened to the capture budget.
 	KagentCaptureOutputTruncatedKey = attribute.Key("kagent.capture.output_truncated")
 	// KagentGCStageKey is "kagent.gc.stage". The stage of a runtime revision garbage collection attempt.
 	KagentGCStageKey = attribute.Key("kagent.gc.stage")
+	// KagentGenaiProducerKey is "kagent.genai.producer". The component that writes the GenAI model and tool spans of an agent.
+	KagentGenaiProducerKey = attribute.Key("kagent.genai.producer")
 	// KagentInvocationDispositionKey is "kagent.invocation.disposition". How a segment stopped, when the task state does not say it.
 	KagentInvocationDispositionKey = attribute.Key("kagent.invocation.disposition")
 	// KagentInvocationRelationshipKey is "kagent.invocation.relationship". Why a segment links to another span.
 	KagentInvocationRelationshipKey = attribute.Key("kagent.invocation.relationship")
 	// KagentInvocationSegmentKey is "kagent.invocation.segment". Whether an execution starts a task or continues it.
 	KagentInvocationSegmentKey = attribute.Key("kagent.invocation.segment")
-	// KagentRuntimeKey is "kagent.runtime". The runtime that produces the model and tool spans of an agent.
+	// KagentModelCallUsagePartialKey is "kagent.model_call.usage_partial". Whether the call ended without final usage, so its output tokens are a lower bound.
+	KagentModelCallUsagePartialKey = attribute.Key("kagent.model_call.usage_partial")
+	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
 )
 
@@ -160,6 +180,12 @@ const (
 	KagentGCStageDiscovery = "discovery"
 	// KagentGCStageCollection: Claiming, deleting compute for, or finalizing a revision.
 	KagentGCStageCollection = "collection"
+)
+
+// Values of KagentGenaiProducerKey.
+const (
+	// KagentGenaiProducerAdapter: The kagent harness adapter writes the model and tool spans.
+	KagentGenaiProducerAdapter = "adapter"
 )
 
 // Values of KagentInvocationDispositionKey.

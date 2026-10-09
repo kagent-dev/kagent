@@ -2,7 +2,10 @@
 // Harness runtime adapters.
 package runtime
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Turn is one invocation of an Actor's root conversation.
 type Turn struct {
@@ -39,6 +42,12 @@ type EventSink interface {
 	TextDelta(TextDelta) error
 	ToolCall(ToolCall) error
 	ToolResult(ToolResult) error
+	ModelCallSink
+}
+
+// ModelCallSink records model usage, including usage reported while a turn is canceled.
+type ModelCallSink interface {
+	ModelCall(ModelCall) error
 }
 
 // SessionStarted reports the stable private continuation selected by a runtime.
@@ -64,6 +73,36 @@ type ToolResult struct {
 	Name    string
 	Result  any
 	IsError bool
+	Status  ToolStatus
+}
+
+// ToolStatus says whether a tool call ran. The zero value means it ran and returned a result.
+type ToolStatus string
+
+const (
+	ToolRan ToolStatus = ""
+	// ToolDeclined means the runtime refused the call, so it never ran.
+	ToolDeclined ToolStatus = "declined"
+	// ToolUnfinished means the result never arrived, so Result is a placeholder.
+	// Producers also set IsError, which the A2A UI reads.
+	ToolUnfinished ToolStatus = "unfinished"
+)
+
+// ModelCall reports one model request. InputTokens includes cached tokens. UsagePartial
+// means the harness never reported final usage, so OutputTokens is a lower bound.
+type ModelCall struct {
+	Provider         string
+	RequestModel     string
+	ResponseModel    string
+	InputTokens      int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	OutputTokens     int64
+	StopReason       string
+	Start, End       time.Time
+	UsagePartial     bool
+	// Canceled marks a partial call that cancellation cut short; it is not a failure.
+	Canceled bool
 }
 
 // PendingTurn owns the live native process or session behind an input request.
@@ -73,7 +112,9 @@ type ToolResult struct {
 type PendingTurn interface {
 	Request() InputRequest
 	Resume(context.Context, InputResponse, EventSink) (Outcome, error)
-	Cancel(context.Context) error
+	// Cancel reaps the native process and emits every ModelCall the harness
+	// reported before it returns, even after ctx is done.
+	Cancel(context.Context, ModelCallSink) error
 }
 
 // Outcome describes why a runtime operation stopped producing events. Failure

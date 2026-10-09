@@ -14,6 +14,7 @@ type recordingSink struct {
 	sessions []runtime.SessionStarted
 	calls    []runtime.ToolCall
 	results  []runtime.ToolResult
+	models   []runtime.ModelCall
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
@@ -30,6 +31,10 @@ func (s *recordingSink) ToolCall(event runtime.ToolCall) error {
 }
 func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
 	s.results = append(s.results, event)
+	return nil
+}
+func (s *recordingSink) ModelCall(event runtime.ModelCall) error {
+	s.models = append(s.models, event)
 	return nil
 }
 
@@ -188,5 +193,61 @@ func TestRejectBufferedPostTerminalActivity(t *testing.T) {
 	frames <- rpcFrame{err: wantErr}
 	if err := newEventTranslator("parent", "turn").rejectBufferedPostTerminalActivity(frames); !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestDeclinedCommandNeverRan(t *testing.T) {
+	sink := &recordingSink{}
+	translator := newEventTranslator("thread", "turn")
+	for _, raw := range []string{
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"rm -rf x","cwd":"/w","status":"inProgress"}}}`,
+		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"rm -rf x","cwd":"/w","status":"declined"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sink.results) != 1 || sink.results[0].Status != runtime.ToolDeclined || sink.results[0].IsError {
+		t.Fatalf("results = %#v, want one declined result", sink.results)
+	}
+}
+
+func TestTerminalClosesOpenToolsAsUnfinished(t *testing.T) {
+	sink := &recordingSink{}
+	translator := newEventTranslator("thread", "turn")
+	for _, raw := range []string{
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"sleep 9","cwd":"/w","status":"inProgress"}}}`,
+		`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"interrupted"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sink.results) != 1 || sink.results[0].Status != runtime.ToolUnfinished || !sink.results[0].IsError {
+		t.Fatalf("results = %#v, want one unfinished error result", sink.results)
+	}
+}
+
+func TestUsageReadsCacheWriteTokens(t *testing.T) {
+	sink := &recordingSink{}
+	translator := newEventTranslator("thread", "turn")
+	raw := `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thread","turnId":"turn","tokenUsage":{"total":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2},"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2}}}}`
+	var message rpcMessage
+	if err := json.Unmarshal([]byte(raw), &message); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := translator.translate(message, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.models) != 1 || sink.models[0].CacheWriteTokens != 3 || sink.models[0].CacheReadTokens != 4 {
+		t.Fatalf("model calls = %+v, want cache write 3 and cache read 4", sink.models)
 	}
 }

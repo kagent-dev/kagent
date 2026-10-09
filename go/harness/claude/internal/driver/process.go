@@ -15,6 +15,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -63,6 +64,7 @@ type processSession struct {
 	terminal  *runtime.Outcome
 	sessionID string
 	stopOnce  sync.Once
+	canceled  bool
 }
 
 // pendingTurn owns a Claude process blocked in the permission MCP hook. Resume
@@ -203,7 +205,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	parseDone := make(chan struct{})
 	go func() {
 		defer close(items)
-		parseErr := ParseJSONL(stdout, d.config.MaxEventBytes, func(event Event) error {
+		parseErr := ParseJSONL(ctx, stdout, d.config.MaxEventBytes, func(event Event) error {
 			select {
 			case items <- parseItem{event: &event}:
 				return nil
@@ -232,7 +234,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			d.stopSession(session)
+			logDrainErr(ctx, d.stopSession(session, sink))
 		}
 	}()
 	outcome, err := d.consume(ctx, session, sink)
@@ -347,7 +349,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				// A process that exits before its result can explain the failure
 				// only on stderr. Reap it to finish draining stderr; malformed
 				// output can also stop the parser while the process is still alive.
-				d.stopSession(session)
+				logDrainErr(ctx, d.stopSession(session, sink))
 				if stderr := strings.TrimSpace(session.stderr.String()); stderr != "" {
 					return runtime.Outcome{}, fmt.Errorf("%w: %s", item.err, stderr)
 				}
@@ -361,6 +363,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			}
 			return *session.terminal, nil
 		case <-ctx.Done():
+			session.canceled = true
 			return runtime.Outcome{}, ctx.Err()
 		}
 	}
@@ -374,7 +377,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			p.driver.stopSession(p.session)
+			logDrainErr(ctx, p.driver.stopSession(p.session, sink))
 		}
 	}()
 	decision, ok := response.(*runtime.ApprovalDecision)
@@ -393,12 +396,12 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 }
 
 // Cancel denies the outstanding permission MCP call and reaps the Claude process.
-func (p *pendingTurn) Cancel(_ context.Context) error {
+func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) error {
 	_ = p.pending.resolve(runtime.ApprovalDecision{
 		ID: p.pending.request.ID, Approved: false, RejectionReason: "The task was canceled.",
 	})
-	p.driver.stopSession(p.session)
-	return nil
+	p.session.canceled = true
+	return p.driver.stopSession(p.session, sink)
 }
 
 // Close releases the Actor-local permission MCP listener. Pending process ownership is
@@ -434,6 +437,8 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 		default:
 			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)
 		}
+	case EventModelCall:
+		return nil, sink.ModelCall(*event.ModelCall)
 	case EventCompleted:
 		return &runtime.Outcome{}, nil
 	case EventFailed:
@@ -443,9 +448,29 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	}
 }
 
-func (d *ProcessDriver) stopSession(session *processSession) {
+// logDrainErr keeps telemetry fail-open: only Cancel returns a drain error.
+func logDrainErr(ctx context.Context, err error) {
+	if err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to record drained Claude model calls", "error", err)
+	}
+}
+
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) error {
+	var drainErr error
 	session.stopOnce.Do(func() {
-		close(session.stopEmit)
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for item := range session.items {
+				if item.event != nil && item.event.ModelCall != nil {
+					call := *item.event.ModelCall
+					call.Canceled = session.canceled && call.UsagePartial
+					if err := sink.ModelCall(call); err != nil && drainErr == nil {
+						drainErr = fmt.Errorf("record drained Claude model call: %w", err)
+					}
+				}
+			}
+		}()
 		_ = utils.InterruptProcessGroup(session.command.Process)
 		timer := time.NewTimer(d.config.InterruptGrace)
 		defer timer.Stop()
@@ -458,9 +483,10 @@ func (d *ProcessDriver) stopSession(session *processSession) {
 			_ = utils.KillProcessGroup(session.command.Process)
 			<-session.wait
 		}
-		for range session.items {
-		}
+		<-drained
+		close(session.stopEmit)
 	})
+	return drainErr
 }
 
 var _ runtime.PendingTurn = (*pendingTurn)(nil)

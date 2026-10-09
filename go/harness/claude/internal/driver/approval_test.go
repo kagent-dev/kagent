@@ -2,6 +2,7 @@ package driver
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -167,8 +168,59 @@ func TestProcessDriverCancelsParkedApproval(t *testing.T) {
 	if err != nil || outcome.Pending == nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
-	if err := outcome.Pending.Cancel(t.Context()); err != nil {
+	if err := outcome.Pending.Cancel(t.Context(), &recordingSink{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProcessDriverCancelsParkedApprovalKeepingBufferedModelCalls(t *testing.T) {
+	sinkErr := errors.New("sink failed")
+	for _, tc := range []struct {
+		name    string
+		sinkErr error
+	}{
+		{name: "records the buffered call"},
+		{name: "reports a failing sink", sinkErr: sinkErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, executable := writeFakeClaude(t, `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+while [ ! -f "$RELEASE" ]; do sleep 0.01; done
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":5}}}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":3}}}'
+touch "$PRINTED"
+exec sleep 30
+`)
+			release, printed := filepath.Join(dir, "release"), filepath.Join(dir, "printed")
+			broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
+			driver := NewProcessDriver(ProcessConfig{
+				Executable: executable, Workspace: dir, Environment: []string{"RELEASE=" + release, "PRINTED=" + printed},
+				MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
+				ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
+			})
+			broker.requests <- newTestPending("approval-1", "call-1")
+			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
+			if err != nil || outcome.Pending == nil {
+				t.Fatalf("Run() = %#v, %v", outcome, err)
+			}
+			if err := os.WriteFile(release, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for _, err := os.Stat(printed); err != nil; _, err = os.Stat(printed) {
+				if time.Now().After(deadline) {
+					t.Fatalf("fake Claude never printed its model call: %v", err)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			sink := &recordingSink{modelErr: tc.sinkErr}
+			if err := outcome.Pending.Cancel(t.Context(), sink); !errors.Is(err, tc.sinkErr) {
+				t.Fatalf("Cancel() error = %v, want %v", err, tc.sinkErr)
+			}
+			if len(sink.models) != 1 || sink.models[0].OutputTokens != 3 || sink.models[0].UsagePartial {
+				t.Fatalf("model calls = %#v, want the buffered complete call", sink.models)
+			}
+		})
 	}
 }
 

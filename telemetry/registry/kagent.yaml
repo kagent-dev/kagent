@@ -15,7 +15,7 @@ attributes:
           stability: development
 
   - key: kagent.runtime
-    brief: The runtime that produces the model and tool spans of an agent.
+    brief: The framework or harness that runs an agent.
     note: >
       Every runtime declares it on its resource. The name of a Harness object is
       not its runtime.
@@ -53,6 +53,20 @@ attributes:
         - id: byo
           value: byo
           brief: A bring-your-own image built on kagent-core.
+          stability: development
+
+  - key: kagent.genai.producer
+    brief: The component that writes the GenAI model and tool spans of an agent.
+    note: >
+      Set on the resource of a native harness process. With the value `adapter`, the
+      collector counts the spans of the kagent harness adapter for that agent. When absent,
+      the harness writes its own native spans, as in older images.
+    stability: development
+    type:
+      members:
+        - id: adapter
+          value: adapter
+          brief: The kagent harness adapter writes the model and tool spans.
           stability: development
 
   - key: kagent.invocation.segment
@@ -105,6 +119,14 @@ attributes:
 
   - key: kagent.capture.input_truncated
     brief: Whether the captured input messages were shortened to the capture budget.
+    stability: development
+    type: boolean
+
+  - key: kagent.model_call.usage_partial
+    brief: Whether the call ended without final usage, so its output tokens are a lower bound.
+    note: >
+      Set only when true. Input tokens, when present, stay exact. Calls cut short
+      and Claude subagent calls can set it.
     stability: development
     type: boolean
 
