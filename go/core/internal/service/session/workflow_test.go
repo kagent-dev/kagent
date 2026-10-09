@@ -44,12 +44,6 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
 	actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
-	if err := workflow.Pause(context.Background(), created); err != nil {
-		t.Fatal(err)
-	}
-	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
-		t.Fatalf("paused Actor status = %s", actor.GetStatus().GetState())
-	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +83,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 }
 
 func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
-	for _, operation := range []string{"pause", "quiesce", "suspend", "delete"} {
+	for _, operation := range []string{"quiesce", "suspend", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
@@ -100,8 +94,6 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 			actor.Metadata.Uid = "replacement-uid"
 			actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 			switch operation {
-			case "pause":
-				err = workflow.Pause(t.Context(), session)
 			case "quiesce":
 				_, err = workflow.Quiesce(t.Context(), session)
 			case "suspend":
@@ -226,14 +218,6 @@ func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name stri
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
-	return proto.CloneOf(actor), nil
-}
-
-func (a *lifecycleTestActors) PauseActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	actor := a.actors[actorKey(atespace, name)]
-	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
 	return proto.CloneOf(actor), nil
 }
 
@@ -425,4 +409,28 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	_, err = service.Resume(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
+}
+
+// wrongScopeActors simulates a stale template still producing a memory snapshot.
+type wrongScopeActors struct{ *lifecycleTestActors }
+
+func (a *wrongScopeActors) SuspendActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	actor, err := a.lifecycleTestActors.SuspendActor(ctx, space, name)
+	if err == nil {
+		actor.Status.ExternalSnapshot.ContentScope = ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL
+	}
+	return actor, err
+}
+
+var _ actorClient = (*wrongScopeActors)(nil)
+
+func TestQuiesceRejectsFullSnapshot(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &wrongScopeActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	snapshot, err := workflow.Quiesce(t.Context(), session)
+	require.ErrorContains(t, err, "invalid snapshot content scope")
+	require.Nil(t, snapshot)
 }

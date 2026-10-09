@@ -192,7 +192,8 @@ func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
 	require.NoError(t, client.SettleSessionTask(ctx, sessionID, string(parked.ID), version))
 	boundary, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
-	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, nil))
+	require.Error(t, client.FinishSessionQuiescence(ctx, boundary, nil))
+	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/waiting", ContentScope: "DATA"}))
 
 	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: session.ContextId}
 	resumed := *parked
