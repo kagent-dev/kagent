@@ -348,7 +348,7 @@ func Run(ctx context.Context, opts Options) error {
 	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
 		kagentenv.A2APushAllowHTTP.Get(), kagentenv.A2APushAllowPrivateNetworks.Get())
 	pushIssuer := cmp.Or(kagentenv.A2APushIssuer.Get(), kagentenv.KagentGatewayURL.Get(), "http://127.0.0.1:8083")
-	pushSigner, err := sessionsvc.NewPushJWTSigner(kagentenv.A2APushSigningSeed.Get(), strings.TrimRight(pushIssuer, "/"))
+	pushSigner, err := sessionsvc.NewPushJWTSigner(kagentenv.A2APushSigningPrivateKey.Get(), strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
@@ -402,7 +402,11 @@ func Run(ctx context.Context, opts Options) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("GET /.well-known/jwks.json", pushSigner)
+	if pushSigner != nil {
+		mux.Handle("GET /.well-known/jwks.json", pushSigner)
+	} else {
+		mux.HandleFunc("GET /.well-known/jwks.json", http.NotFound)
+	}
 	mux.Handle("/mcp", otelhttp.NewHandler(auth.AuthnMiddleware(authenticator)(mcpHandler), "/mcp"))
 	mux.Handle(a2agateway.HTTPPathPrefix, otelhttp.NewHandler(a2agateway.NewHTTPHandler(gateway, authenticator, store), a2agateway.HTTPPathPrefix))
 	server, err := grpcserver.New(grpcserver.Config{

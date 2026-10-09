@@ -1,10 +1,13 @@
 package session
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"time"
@@ -41,16 +44,19 @@ type PushJWTSigner struct {
 	public  ed25519.PublicKey
 }
 
-// NewPushJWTSigner accepts a base64-encoded Ed25519 seed shared by all replicas.
-func NewPushJWTSigner(seed, issuer string) (*PushJWTSigner, error) {
+// NewPushJWTSigner accepts an unencrypted PKCS#8 Ed25519 PEM key shared by all replicas.
+// An empty key disables JWT signing.
+func NewPushJWTSigner(privateKeyPEM, issuer string) (*PushJWTSigner, error) {
+	if privateKeyPEM == "" {
+		return nil, nil
+	}
 	if issuer == "" {
 		return nil, fmt.Errorf("push JWT issuer is required")
 	}
-	material, err := base64.StdEncoding.DecodeString(seed)
-	if err != nil || len(material) != ed25519.SeedSize {
-		return nil, fmt.Errorf("push JWT signing seed must be 32 base64-encoded bytes")
+	private, err := parsePushPrivateKey([]byte(privateKeyPEM))
+	if err != nil {
+		return nil, err
 	}
-	private := ed25519.NewKeyFromSeed(material)
 	public := private.Public().(ed25519.PublicKey)
 	digest := sha256.Sum256(public)
 	return &PushJWTSigner{
@@ -100,4 +106,25 @@ func (s *PushJWTSigner) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(data); err != nil {
 		logging.FromContext(r.Context()).ErrorContext(r.Context(), "failed to write push JWKS", "error", err)
 	}
+}
+
+// parsePushPrivateKey accepts exactly one unencrypted PKCS#8 Ed25519 PEM block.
+func parsePushPrivateKey(material []byte) (ed25519.PrivateKey, error) {
+	material = bytes.TrimSpace(material)
+	if !bytes.HasPrefix(material, []byte("-----BEGIN PRIVATE KEY-----")) || bytes.Count(material, []byte("-----BEGIN ")) != 1 {
+		return nil, fmt.Errorf("push signing key must be an unencrypted PKCS#8 PEM private key")
+	}
+	block, rest := pem.Decode(material)
+	if block == nil || block.Type != "PRIVATE KEY" || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("push signing key must contain exactly one unencrypted PKCS#8 PEM private key")
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse push signing private key: %w", err)
+	}
+	private, ok := key.(ed25519.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("push signing private key must use Ed25519")
+	}
+	return private, nil
 }

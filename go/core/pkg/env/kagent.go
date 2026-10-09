@@ -76,10 +76,10 @@ var (
 		"Allow HTTP A2A push callbacks. HTTPS is required by default.",
 		ComponentController,
 	)
-	A2APushSigningSeed = RegisterStringVar(
-		"KAGENT_A2A_PUSH_SIGNING_SEED",
+	A2APushSigningPrivateKey = RegisterStringVar(
+		"KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY",
 		"",
-		"Base64 Ed25519 seed shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret.",
+		"Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing.",
 		ComponentController,
 	)
 	A2APushIssuer = RegisterStringVar(

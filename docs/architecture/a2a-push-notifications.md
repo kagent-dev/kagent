@@ -76,25 +76,37 @@ For example, the webhook receives this JSON body when a task completes:
 ## Authentication and Security
 
 Register only the callback URL. Kagent rejects nonempty `token` or
-`authentication.credentials` fields and sends a fresh five-minute Ed25519 JWT
-as `Authorization: Bearer <JWT>` on each attempt.
+`authentication.credentials` fields. Push notifications work without a signing
+key and are sent without an `Authorization` header by default.
 
+To enable JWT authentication, generate an Ed25519 key once and store its
+unencrypted PKCS#8 PEM in an operator-managed Kubernetes Secret:
+
+```sh
+openssl genpkey -algorithm ED25519 -out private-key.pem
+kubectl -n kagent create secret generic push-signing --from-file=private-key.pem
+```
+
+Set `controller.push.signing.existingSecret: push-signing`. Helm references the
+Secret's `private-key.pem` entry; it does not generate or manage signing keys.
+Outside Helm, set `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` to the PEM contents.
+Operators manage key persistence and rotation, and all controller replicas must
+load the same key. An invalid configured key prevents startup.
+
+When a key is configured, Kagent sends a fresh five-minute Ed25519 JWT as
+`Authorization: Bearer <JWT>` on each attempt and publishes the public key at
+`/.well-known/jwks.json`. Without a key, that endpoint returns 404.
 Webhook receivers need the configured issuer and a trusted, reachable JWKS URL
-(`/.well-known/jwks.json` on the controller or UI). Verify the JWT's EdDSA
-signature using its `kid`, then check `iss`, `iat`, `nbf`, `exp`, `taskId`, and
-`aud` against the exact callback URL, including the query string. Each
-attempt has a fresh `jti`. Acknowledge accepted callbacks promptly with 2xx;
-use your own A2A credentials to call `GetTask`.
+(on the controller or UI). Verify the JWT's EdDSA signature using its `kid`, then
+check `iss`, `iat`, `nbf`, `exp`, `taskId`, and `aud` against the exact callback
+URL, including the query string. Each attempt has a fresh `jti`. Acknowledge
+accepted callbacks promptly with 2xx; use your own A2A credentials to call
+`GetTask`.
 
-Helm creates and retains a shared signing Secret. For an existing Secret, set
-`controller.push.signing.existingSecret` to one with a `seed` key containing a
-base64-encoded 32-byte Ed25519 seed; outside Helm, set
-`KAGENT_A2A_PUSH_SIGNING_SEED`. All controller replicas need the same seed.
-Tell receivers the issuer and JWKS URL. Helm chooses the issuer from
-`controller.push.signing.issuer`, `ui.externalUrl`, then the in-cluster gateway
-URL; outside Helm, `KAGENT_A2A_PUSH_ISSUER` overrides `KAGENT_GATEWAY_URL`.
-Keep the issuer stable. Seed rotation immediately replaces the published key;
-restart Pods after changing an operator-managed Secret.
+Helm chooses the issuer from `controller.push.signing.issuer`, `ui.externalUrl`,
+then the in-cluster gateway URL; outside Helm, `KAGENT_A2A_PUSH_ISSUER` overrides
+`KAGENT_GATEWAY_URL`. Keep the issuer stable. Restart all controller Pods together
+after rotating the key to avoid replicas serving different JWKS during rotation.
 
 HTTPS and public destinations are required by default. Operators can enable
 HTTP and private, loopback, or link-local destinations with

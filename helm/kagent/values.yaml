@@ -161,8 +161,9 @@ controller:
     # -- Allow callbacks to private, loopback, and link-local addresses.
     allowPrivateNetworks: false
     signing:
-      # Existing Secret containing `seed`, a base64-encoded 32-byte Ed25519 seed.
-      # Empty creates and retains a chart-managed Secret.
+      # Existing Secret containing `private-key.pem`, an unencrypted PKCS#8 Ed25519 PEM key.
+      # Optional: empty sends push notifications without JWT authentication.
+      # Operators manage key generation, persistence, and rotation.
       existingSecret: ""
       # Stable URL that webhook receivers trust as the JWT issuer.
       # Empty uses ui.externalUrl, then the in-cluster A2A gateway URL.
