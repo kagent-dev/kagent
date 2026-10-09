@@ -123,6 +123,9 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	// days): the Session the gateway routed this call to, never a value the
 	// caller sent.
 	httpRequest.Header.Set(adk.AgentInstanceHeader, u.session.GetId())
+	// The directory the turn works in: its own directory of the session's
+	// workspace volume, or a directory of its durable /data.
+	httpRequest.Header.Set(adk.WorkingDirectoryHeader, substrate.WorkingDirectory(u.session))
 	for key, values := range httpRequest.Header {
 		for _, value := range values {
 			req.ServiceParams.Append(key, value)

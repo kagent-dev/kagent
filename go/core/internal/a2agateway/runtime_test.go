@@ -147,6 +147,62 @@ func TestRuntimeDialerRunsASharedTurnInTheOwnersSession(t *testing.T) {
 	}
 }
 
+// Every dispatch names the directory its turn works in: the session's own
+// directory of its workspace volume, or a directory of its durable /data
+// without one, whoever the caller is.
+func TestRuntimeDialerNamesTheWorkingDirectory(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	received := make(chan metadata.MD, 1)
+	server := grpc.NewServer(grpc.StreamInterceptor(func(_ any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, _ grpc.StreamHandler) error {
+		md, _ := metadata.FromIncomingContext(stream.Context())
+		received <- md
+		return status.Error(codes.Unimplemented, "observed")
+	}))
+	a2apb.RegisterA2AServiceServer(server, &a2apb.UnimplementedA2AServiceServer{})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	dialer, err := NewRuntimeDialer("http://"+listener.Addr().String(), runtimeTestAuth{})
+	require.NoError(t, err)
+	volume := &apiv1alpha1.SessionVolumeSource{
+		Volume: &apiv1alpha1.SessionVolume{CsiDriver: "nfs.csi.k8s.io", VolumeHandle: "workspace"},
+		Mounts: []*apiv1alpha1.SessionVolumeMount{{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace"}},
+	}
+	for _, tt := range []struct {
+		name    string
+		caller  auth.Session
+		session *apiv1alpha1.Session
+		want    string
+	}{
+		{name: "workspace volume", caller: claimsSession{user: "alice@example.com"}, session: &apiv1alpha1.Session{VolumeSource: volume}, want: "/workspace"},
+		{name: "no volume", caller: claimsSession{user: "alice@example.com"}, session: &apiv1alpha1.Session{}, want: "/data/workspace"},
+		{name: "no caller", session: &apiv1alpha1.Session{VolumeSource: volume}, want: "/workspace"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			if tt.caller != nil {
+				ctx = auth.AuthSessionTo(ctx, tt.caller)
+			}
+			tt.session.Id, tt.session.A2AAuthority = "session", substrate.ActorHost("team", "session-session", "")
+			client, err := dialer.Dial(ctx, tt.session)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, client.Destroy()) })
+			for _, err := range client.SendStreamingMessage(ctx, &a2atype.SendMessageRequest{
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+			}) {
+				require.Error(t, err)
+			}
+			select {
+			case md := <-received:
+				require.Equal(t, []string{tt.want}, md.Get(adk.WorkingDirectoryHeader))
+			case <-ctx.Done():
+				t.Fatal("runtime did not receive the call")
+			}
+		})
+	}
+}
+
 func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

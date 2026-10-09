@@ -211,12 +211,13 @@ name the binding matches, with a certificate from the CA above.
 
 ### Workspace fixture
 
-A Session started in a clone of a snapshotted volume needs a volume holding git
-repositories, its CSI snapshot, and a signed grant admitting the caller to it.
-The lane installs the external snapshotter (its CRDs and the snapshot
-controller) and the CSI hostpath driver with the `csi-hostpath-snapclass`
-VolumeSnapshotClass and the `csi-hostpath-sc` StorageClass
-(`scripts/kind/setup-csi-snapshots.sh`, also for a local Kind cluster).
+A Session on a workspace works in its own directory of the workspace's one
+read-write-many volume and borrows git objects from the volume's bare mirrors.
+The lane installs an in-cluster NFS server, the NFS CSI driver
+`nfs.csi.k8s.io` registered with Substrate through its `CSIDriverConfig`, and
+the `csi-nfs-sc` StorageClass, by running the pinned Substrate release's own
+Kind setup (`scripts/kind/setup-csi-nfs.sh`, also for a local Kind cluster;
+the host kernel needs `nfs` and `nfsd`).
 
 `newWorkspaceFixture` (`workspace_test.go`) builds the rest per test:
 
@@ -224,20 +225,42 @@ VolumeSnapshotClass and the `csi-hostpath-sc` StorageClass
   http-backend` over HTTPS, the same fixture `TestGitArtifactCredentialDelivery`
   uses: it requires a Basic credential and records every request per
   repository (`Origin`, `OriginURL`, `Authorization`);
-- a `csi-hostpath-sc` volume a Job fills with full clones of both, checked out
-  on `main` under `/<owner>/<repository>` (`e2e/alpha`, `e2e/beta`), each
-  `origin` remote pointing at `OriginURL` and no credential kept in the clone;
-- a VolumeSnapshot of it (`SnapshotName`), waited for until `readyToUse`, and
-  the CSI driver and snapshot handle of its bound VolumeSnapshotContent
-  (`Snapshot`), which a grant names and a Session volume source carries;
-- the commit each clone holds (`Heads`); after the snapshot a commit is pushed
-  to `e2e/beta` (`Changed`), so a test tells a repository that moved since the
-  snapshot from one that did not.
+- a `csi-nfs-sc` read-write-many claim (`Claim`) a Job fills with a bare mirror
+  of both under `mirrors/<owner>/<repository>.git` and an empty `sessions/`,
+  with no credential kept, and the CSI driver and volume handle of its
+  PersistentVolume (`Volume`), which a grant names and a Session volume source
+  carries;
+- the commit each mirror's `main` holds (`Heads`); after the fetch a commit is
+  pushed to `e2e/beta` (`Changed`), so a test tells a repository that moved
+  since the sync from one that did not.
 
-`TestWorkspaceSnapshotFixture` proves it: a volume restored from the snapshot
-holds the same heads on `main` and no credential, and only the changed
-repository's origin moved. It needs `git` on the test host and the egress CA
-variables above.
+`TestWorkspaceVolumeFixture` proves it: two session directories `sessions/a`
+and `sessions/b` each clone every mirror with alternates and check it out,
+see only their own directory, read the mirrors' heads and cannot write to the
+mirrors, and no clone holds the credential; only the changed repository's
+origin moved. It needs `git` on the test host and the egress CA variables
+above.
+
+The lane configures the controller's jwt Session admission
+(`controller.session.admission.jwt`): its JWKS at the Service
+`e2e-grant-jwks.kagent.svc.cluster.local`, issuer
+`https://grant-issuer.e2e.kagent.dev`, audience `kagent-e2e`.
+`workspaceGrantSigner` (`workspace_grant_test.go`) is the suite's one signer:
+it serves its JWKS from the test host behind that Service, and
+`workspaceFixture.workspaceGrant` signs a grant admitting the `e2e` caller to
+the fixture's volume with the workspace layout's mounts.
+`TestCreateSessionVolumeSourceNeedsAGrant` proves a source without a valid
+grant is refused before anything is reserved.
+
+`TestSessionWorkspaceDirectory` creates ten Sessions on one fixture volume,
+each with its own directory at `/workspace` and the mirrors read-only at
+`/mirrors`, has a bash-tool agent (`mocks/invoke_workspace_session.json`)
+probe each one, and checks the volume afterwards and the
+`SessionDirectoryReleased` Event of each deletion.
+`TestSessionWorkspaceSurvivesAQuestion` writes a file, pauses on an
+`ask_user` question, resumes with the answer and reads the file back. Both
+skip until the lane's Substrate creates a Session's missing directory at
+actor create.
 
 The grant signer (`go/core/test/grant`) stands in for the workspace issuer:
 `grant.NewSigner(issuer, audience)` generates an ES256 key,

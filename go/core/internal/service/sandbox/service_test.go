@@ -63,7 +63,7 @@ func (a *testActors) GetActor(context.Context, string, string) (*ateapipb.Actor,
 	}
 	return proto.CloneOf(a.actor), nil
 }
-func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, templateName string) (*ateapipb.Actor, error) {
+func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, templateName string, _ []*ateapipb.ExistingVolume) (*ateapipb.Actor, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "create")

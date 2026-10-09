@@ -69,6 +69,16 @@ type ActorWorkflow struct {
 	// holds its Actor; busyRetry is the first wait between resumes.
 	busyWait  time.Duration
 	busyRetry time.Duration
+	// directories tells the owner of a deleted session's volume that the
+	// session's directory may go.
+	directories DirectoryReleaser
+}
+
+// DirectoryReleaser tells the owner of a session's volume source that the
+// session's directory may be deleted: the session was. kagent never deletes
+// the directory or the volume itself.
+type DirectoryReleaser interface {
+	ReleaseSessionDirectory(context.Context, *apiv1alpha1.Session) error
 }
 
 // maxBusyRetry caps the wait between resumes of an Actor another operation holds.
@@ -81,6 +91,13 @@ type WorkflowOption func(*ActorWorkflow)
 // place until the reply.
 func WithPausedRuntimeTTL(ttl time.Duration) WorkflowOption {
 	return func(w *ActorWorkflow) { w.pausedRuntimeTTL = ttl }
+}
+
+// WithDirectoryReleaser tells releaser about every deleted session that has a
+// volume source. Without one, the owner of the volume learns of a deletion
+// only by not finding the session.
+func WithDirectoryReleaser(releaser DirectoryReleaser) WorkflowOption {
+	return func(w *ActorWorkflow) { w.directories = releaser }
 }
 
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
@@ -368,7 +385,11 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
-		creation = &substrate.ActorCreation{EgressPolicy: policy}
+		existing, err := substrate.SessionExistingVolumes(session.Id, session.GetVolumeSource())
+		if err != nil {
+			return w.failPreparation(ctx, operation, err)
+		}
+		creation = &substrate.ActorCreation{EgressPolicy: policy, ExistingVolumes: existing}
 		if snapshot != nil {
 			creation.Snapshot = &substrate.ActorSnapshot{Tag: &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}, URI: snapshot.URI, ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
 		}
@@ -477,7 +498,25 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	// A disconnected client must not discard an already known runtime outcome.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return w.store.FinishSessionOperation(finishCtx, sessionID, operation.ID, executorID, authority, transition.ActorUID(), "")
+	finished, err := w.store.FinishSessionOperation(finishCtx, sessionID, operation.ID, executorID, authority, transition.ActorUID(), "")
+	if err == nil && kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+		w.releaseDirectory(finishCtx, session)
+	}
+	return finished, err
+}
+
+// releaseDirectory tells the owner of a deleted session's volume that its
+// directory may go. The session is deleted whatever the outcome, so a failure
+// is logged: the owner also cleans up a directory whose session it no longer
+// finds.
+func (w *ActorWorkflow) releaseDirectory(ctx context.Context, session *apiv1alpha1.Session) {
+	if w.directories == nil || session.GetVolumeSource() == nil {
+		return
+	}
+	if err := w.directories.ReleaseSessionDirectory(ctx, session); err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "the owner of the deleted session's volume was not told its directory may go",
+			"session_id", session.GetId(), "error", err)
+	}
 }
 
 // actorBinding names the session's Actor and the ActorTemplate of revision.

@@ -75,6 +75,10 @@ message Session {
   // Output only. The repositories, relative to the session's working
   // directory, whose origin moved since the volume's last sync, as admitted.
   repeated string changed = 19;
+  // Output only. When the session's last turn was dispatched to its runtime;
+  // every turn moves it. Unset until the first turn. The owner of a volume
+  // source cleans up the session's directory a while after it.
+  google.protobuf.Timestamp last_turn_time = 20;
 }
 
 // SessionProvider is a host whose credential a session gets: the egress

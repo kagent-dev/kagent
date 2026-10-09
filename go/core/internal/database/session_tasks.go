@@ -16,6 +16,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ErrDispatchBusy means a send has not been forwarded because another dispatch
@@ -66,11 +67,27 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 			}
 			return err
 		}
+		data, err := withLastTurnTime(session, time.Now())
+		if err != nil {
+			return err
+		}
 		return execSQL(ctx, tx, `
-			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes'
+			UPDATE session SET dispatch_id = $2, dispatch_expires_at = clock_timestamp() + INTERVAL '2 minutes', data = $3
 			WHERE id = $1
-		`, session.ID, dispatchID)
+		`, session.ID, dispatchID, data)
 	})
+}
+
+// withLastTurnTime returns the session's stored payload with the time of the
+// turn being dispatched, which every turn moves and the owner of a volume
+// source cleans the session's directory up after.
+func withLastTurnTime(row sessionRow, now time.Time) ([]byte, error) {
+	session, err := toSession(row)
+	if err != nil {
+		return nil, err
+	}
+	session.LastTurnTime = timestamppb.New(now)
+	return marshalSession(session)
 }
 
 // RevokeSessionDispatch fences an unused attempt. True proves its first

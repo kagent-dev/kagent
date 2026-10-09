@@ -173,6 +173,16 @@ func TestServiceCreateRejectsAnInvalidVolumeSource(t *testing.T) {
 		{name: "mount under the durable directory", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].MountPath = "/data/workspace" }, want: "outside /data"},
 		{name: "two read-write mounts", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[1].ReadOnly = false }, want: "one read-write mount"},
 		{name: "two mounts at one path", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[1].MountPath = "/workspace" }, want: "unique"},
+		// The actor mounts the volume where every revision's ActorTemplate
+		// declares it: the session's own directory read-write at /workspace and
+		// the shared directory read-only at /mirrors.
+		{name: "the mirrors alone", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts = s.Mounts[1:] }, want: "read-write at /workspace"},
+		{name: "the own directory elsewhere", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].MountPath = "/home/agent" }, want: "workspace layout"},
+		{name: "a third mount", mutate: func(s *apiv1alpha1.SessionVolumeSource) {
+			s.Mounts = append(s.Mounts, &apiv1alpha1.SessionVolumeMount{SubPath: "cache", MountPath: "/cache", ReadOnly: true})
+		}, want: "workspace layout"},
+		{name: "the own directory read-only", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].ReadOnly = true }, want: "workspace layout"},
+		{name: "a handle longer than Substrate takes", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.VolumeHandle = strings.Repeat("h", 257) }, want: "at most 256"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			admission := &recordingAdmission{}
@@ -192,14 +202,10 @@ func TestServiceCreateRejectsAnInvalidVolumeSource(t *testing.T) {
 		name   string
 		mutate func(*apiv1alpha1.SessionVolumeSource)
 	}{
-		{name: "the mirrors alone, read-only", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts = s.Mounts[1:] }},
+		{name: "the session's own directory alone", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts = s.Mounts[:1] }},
 		{name: "a hidden directory", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[1].SubPath = ".mirrors" }},
 		{name: "the session's id alone as the directory", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].SubPath = "${SESSION_ID}" }},
-		{name: "eight mounts", mutate: func(s *apiv1alpha1.SessionVolumeSource) {
-			for i := range 6 {
-				s.Mounts = append(s.Mounts, &apiv1alpha1.SessionVolumeMount{SubPath: "mirrors", MountPath: "/m" + strings.Repeat("x", i+1), ReadOnly: true})
-			}
-		}},
+		{name: "a handle of Substrate's longest", mutate: func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.VolumeHandle = strings.Repeat("h", 256) }},
 	} {
 		t.Run("accepts "+test.name, func(t *testing.T) {
 			admission := &recordingAdmission{}

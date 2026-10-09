@@ -140,10 +140,14 @@ jobs:
       - name: Create Kind cluster
         run: make create-kind-cluster
 
-      - name: Install CSI volume snapshots
-        # The workspace fixture provisions, snapshots and restores its volumes
-        # on the CSI hostpath driver (core/test/e2e/README.md).
-        run: bash scripts/kind/setup-csi-snapshots.sh
+      - name: Install read-write-many NFS storage
+        # The workspace fixture claims its shared volume from the NFS class, and
+        # Substrate mounts its directories into Session actors through the NFS
+        # CSI driver's CSIDriverConfig (core/test/e2e/README.md).
+        run: |
+          sudo modprobe nfs
+          sudo modprobe nfsd
+          bash scripts/kind/setup-csi-nfs.sh
 
       - name: Install Kagent
         id: install-kagent
@@ -165,6 +169,9 @@ jobs:
             --set substrateWorkerPool.replicas=4
             --set-string substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
             --set-string substrateWorkerPool.workerImage=${{ env.SUBSTRATE_IMAGE_REGISTRY }}/ateom-${{ matrix.sandbox_class }}:${{ env.SUBSTRATE_VERSION }}
+            --set-string controller.session.admission.jwt.jwksURL=http://e2e-grant-jwks.kagent.svc.cluster.local/.well-known/jwks.json
+            --set-string controller.session.admission.jwt.issuer=https://grant-issuer.e2e.kagent.dev
+            --set-string controller.session.admission.jwt.audience=kagent-e2e
             --set otel.traces.enabled=true
             --set otel.metrics.enabled=true
             --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317

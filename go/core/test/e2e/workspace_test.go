@@ -20,19 +20,18 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// The workspace fixture: a volume holding git clones, snapshotted through the
-// CSI hostpath driver (scripts/kind/setup-csi-snapshots.sh), the snapshot a
-// Session's clone is seeded from, and the origin those clones fetch from.
+// The workspace fixture: one read-write-many volume of the NFS class
+// (scripts/kind/setup-csi-nfs.sh) holding a bare mirror of each repository
+// under mirrors/ and an empty sessions/, the origin those mirrors were fetched
+// from, and the volume's CSI driver and handle, which a Session volume source
+// names.
 const (
-	workspaceStorageClass   = "csi-hostpath-sc"
-	workspaceSnapshotClass  = "csi-hostpath-snapclass"
-	workspaceSnapshotDriver = "hostpath.csi.k8s.io"
-	// workspaceGitImage clones into the volume and reads it back; the Kind node
+	workspaceStorageClass = "csi-nfs-sc"
+	workspaceDriver       = "nfs.csi.k8s.io"
+	// workspaceGitImage writes the volume and reads it back; the Kind node
 	// pulls it from Docker Hub.
 	workspaceGitImage = "docker.io/alpine/git:2.54.0"
 	// workspaceGitToken is the origin's credential, as a provider token the
@@ -41,25 +40,26 @@ const (
 )
 
 var (
-	// workspaceRepositories are cloned under /<owner>/<repository> of the volume.
+	// workspaceRepositories are mirrored under mirrors/<owner>/<repository>.git.
 	workspaceRepositories = []string{"e2e/alpha", "e2e/beta"}
-	// workspaceChanged is pushed to after the snapshot.
+	// workspaceChanged is pushed to after the mirrors were fetched.
 	workspaceChanged = "e2e/beta"
-	snapshotGVK      = schema.GroupVersionKind{Group: "snapshot.storage.k8s.io", Version: "v1", Kind: "VolumeSnapshot"}
-	snapshotContent  = schema.GroupVersionKind{Group: "snapshot.storage.k8s.io", Version: "v1", Kind: "VolumeSnapshotContent"}
 )
 
-// workspaceFixture is a ready VolumeSnapshot of a volume holding every
-// workspaceRepositories clone, checked out on main, with the origin it was
-// cloned from. Origin moved on workspaceChanged after the snapshot.
+// workspaceVolume names an existing CSI volume by its driver and handle.
+type workspaceVolume struct{ Driver, Handle string }
+
+// workspaceFixture is a read-write-many volume holding a bare mirror of every
+// workspaceRepositories origin and an empty sessions/ directory, with the
+// origin it was fetched from. Origin moved on workspaceChanged after the fetch.
 type workspaceFixture struct {
-	// Snapshot is the CSI snapshot of the volume holding the clones.
-	Snapshot workspaceSnapshot
-	// SnapshotName is the VolumeSnapshot in namespace kagent.
-	SnapshotName string
-	// Heads maps each repository to the commit its clone holds.
+	// Volume is what a grant names and a Session volume source carries.
+	Volume workspaceVolume
+	// Claim is the PersistentVolumeClaim in namespace kagent.
+	Claim *corev1.PersistentVolumeClaim
+	// Heads maps each repository to the commit its mirror's main holds.
 	Heads map[string]string
-	// Changed lists the repositories whose origin moved after the snapshot.
+	// Changed lists the repositories whose origin moved after the fetch.
 	Changed []string
 	// Origin serves the repositories as "<owner>/<repository>.git" under
 	// OriginURL, over HTTPS for the egress gateway, and records every request.
@@ -83,13 +83,15 @@ func newWorkspaceFixture(t *testing.T) *workspaceFixture {
 	trust := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{GenerateName: "workspace-origin-ca-", Namespace: "kagent"}, Data: map[string]string{"ca.crt": string(authority)}}
 	createWorkspaceObject(t, kube, trust)
 
-	volume := createWorkspaceVolume(t, kube, nil)
-	clone := `set -eu
+	fixture.Claim, fixture.Volume = createWorkspaceVolume(t, kube)
+	mirror := `set -eu
+mkdir -p /volume/sessions
 for repository in ` + strings.Join(workspaceRepositories, " ") + `; do
-  git -c "http.extraHeader=Authorization: Basic $GIT_CREDENTIAL" clone --quiet "$ORIGIN/$repository.git" "/workspace/$repository"
+  git -c "http.extraHeader=Authorization: Basic $GIT_CREDENTIAL" clone --quiet --mirror "$ORIGIN/$repository.git" "/volume/mirrors/$repository.git"
 done
-` + workspaceHeadsScript
-	report := runWorkspaceJob(t, kube, volume, clone,
+` + workspaceMirrorHeadsScript("/volume/mirrors")
+	report := runWorkspaceJob(t, kube, fixture.Claim, mirror,
+		[]workspaceMount{{Path: "/volume"}},
 		[]corev1.EnvVar{
 			{Name: "ORIGIN", Value: fixture.OriginURL},
 			{Name: "GIT_SSL_CAINFO", Value: "/origin-ca/ca.crt"},
@@ -97,15 +99,12 @@ done
 		},
 		corev1.Volume{Name: "origin-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: trust.Name}}}},
 	)
-	for repository, checkout := range parseWorkspaceHeads(t, report) {
-		require.Equal(t, "main", checkout.branch, "%s is checked out on its default branch", repository)
-		require.Equal(t, fixture.Origin.head(t, repository+".git"), checkout.commit, "%s is cloned at its origin's head", repository)
-		fixture.Heads[repository] = checkout.commit
+	for repository, head := range parseWorkspaceHeads(t, report) {
+		require.Equal(t, fixture.Origin.head(t, repository+".git"), head, "%s is mirrored at its origin's head", repository)
+		fixture.Heads[repository] = head
 	}
 	require.Len(t, fixture.Heads, len(workspaceRepositories))
-
-	fixture.SnapshotName, fixture.Snapshot = snapshotWorkspaceVolume(t, kube, volume)
-	fixture.Origin.push(t, workspaceChanged+".git", "CHANGED.md", "Pushed after the workspace snapshot.\n")
+	fixture.Origin.push(t, workspaceChanged+".git", "CHANGED.md", "Pushed after the workspace mirrors were fetched.\n")
 	return fixture
 }
 
@@ -117,51 +116,69 @@ func workspaceOriginPaths() []string {
 	return paths
 }
 
-// workspaceHeadsScript reports "<repository> <branch> <commit>" for every clone
-// in the termination message.
-var workspaceHeadsScript = `for repository in ` + strings.Join(workspaceRepositories, " ") + `; do
-  printf '%s %s %s\n' "$repository" "$(git -C "/workspace/$repository" symbolic-ref --short HEAD)" "$(git -C "/workspace/$repository" rev-parse HEAD)" >> /dev/termination-log
+// workspaceMirrorHeadsScript reports "<repository> <commit>" of every mirror's
+// main under mirrors in the termination message.
+func workspaceMirrorHeadsScript(mirrors string) string {
+	return `for repository in ` + strings.Join(workspaceRepositories, " ") + `; do
+  printf '%s %s\n' "$repository" "$(git -C "` + mirrors + `/$repository.git" rev-parse refs/heads/main)" >> /dev/termination-log
 done
 `
+}
 
-type workspaceCheckout struct{ branch, commit string }
-
-func parseWorkspaceHeads(t *testing.T, report string) map[string]workspaceCheckout {
+func parseWorkspaceHeads(t *testing.T, report string) map[string]string {
 	t.Helper()
-	heads := map[string]workspaceCheckout{}
+	heads := map[string]string{}
 	for line := range strings.Lines(strings.TrimSpace(report)) {
 		fields := strings.Fields(line)
-		require.Len(t, fields, 3, "workspace report line %q", line)
-		heads[fields[0]] = workspaceCheckout{branch: fields[1], commit: fields[2]}
+		require.Len(t, fields, 2, "workspace report line %q", line)
+		heads[fields[0]] = fields[1]
 	}
 	return heads
 }
 
-// createWorkspaceVolume provisions a volume on the hostpath driver, empty or
-// restored from a VolumeSnapshot.
-func createWorkspaceVolume(t *testing.T, kube ctrlclient.Client, snapshot *string) *corev1.PersistentVolumeClaim {
+// createWorkspaceVolume claims a read-write-many volume of the NFS class,
+// waits until it is bound, and reads the CSI driver and volume handle from its
+// PersistentVolume.
+func createWorkspaceVolume(t *testing.T, kube ctrlclient.Client) (*corev1.PersistentVolumeClaim, workspaceVolume) {
 	t.Helper()
 	claim := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "workspace-", Namespace: "kagent"},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			StorageClassName: new(workspaceStorageClass),
-			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
 			Resources:        corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
 		},
 	}
-	if snapshot != nil {
-		claim.Spec.DataSource = &corev1.TypedLocalObjectReference{APIGroup: new(snapshotGVK.Group), Kind: snapshotGVK.Kind, Name: *snapshot}
-	}
 	createWorkspaceObject(t, kube, claim)
-	return claim
+	var volume corev1.PersistentVolume
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		current := &corev1.PersistentVolumeClaim{}
+		if !assert.NoError(c, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(claim), current)) ||
+			!assert.Equal(c, corev1.ClaimBound, current.Status.Phase, "claim %s phase", claim.Name) {
+			return
+		}
+		assert.NoError(c, kube.Get(t.Context(), ctrlclient.ObjectKey{Name: current.Spec.VolumeName}, &volume))
+	}, 3*time.Minute, time.Second)
+	require.NotNil(t, volume.Spec.CSI, "PersistentVolume %s has a CSI source", volume.Name)
+	require.NotEmpty(t, volume.Spec.CSI.VolumeHandle)
+	return claim, workspaceVolume{Driver: volume.Spec.CSI.Driver, Handle: volume.Spec.CSI.VolumeHandle}
 }
 
-// runWorkspaceJob runs script in the git image with the volume at /workspace
-// and every extra volume at /<name>, and returns what it wrote to
-// /dev/termination-log.
-func runWorkspaceJob(t *testing.T, kube ctrlclient.Client, claim *corev1.PersistentVolumeClaim, script string, env []corev1.EnvVar, volumes ...corev1.Volume) string {
+// workspaceMount mounts SubPath of the workspace volume at Path.
+type workspaceMount struct {
+	Path, SubPath string
+	ReadOnly      bool
+}
+
+// runWorkspaceJob runs script in the git image with the workspace volume's
+// mounts and every extra volume read-only at /<name>, and returns what it
+// wrote to /dev/termination-log.
+func runWorkspaceJob(t *testing.T, kube ctrlclient.Client, claim *corev1.PersistentVolumeClaim, script string, workspace []workspaceMount, env []corev1.EnvVar, volumes ...corev1.Volume) string {
 	t.Helper()
-	mounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}}
+	mounts := make([]corev1.VolumeMount, 0, len(workspace)+len(volumes))
+	for _, mount := range workspace {
+		mounts = append(mounts, corev1.VolumeMount{Name: "workspace", MountPath: mount.Path, SubPath: mount.SubPath, ReadOnly: mount.ReadOnly})
+	}
 	for _, volume := range volumes {
 		mounts = append(mounts, corev1.VolumeMount{Name: volume.Name, MountPath: "/" + volume.Name, ReadOnly: true})
 	}
@@ -202,45 +219,6 @@ func runWorkspaceJob(t *testing.T, kube ctrlclient.Client, claim *corev1.Persist
 	return message
 }
 
-// snapshotWorkspaceVolume takes a VolumeSnapshot of claim, waits until it is
-// ready to use, and reads the CSI driver and snapshot handle from its bound
-// VolumeSnapshotContent.
-func snapshotWorkspaceVolume(t *testing.T, kube ctrlclient.Client, claim *corev1.PersistentVolumeClaim) (string, workspaceSnapshot) {
-	t.Helper()
-	snapshot := &unstructured.Unstructured{}
-	snapshot.SetGroupVersionKind(snapshotGVK)
-	snapshot.SetGenerateName("workspace-")
-	snapshot.SetNamespace(claim.Namespace)
-	require.NoError(t, unstructured.SetNestedField(snapshot.Object, workspaceSnapshotClass, "spec", "volumeSnapshotClassName"))
-	require.NoError(t, unstructured.SetNestedField(snapshot.Object, claim.Name, "spec", "source", "persistentVolumeClaimName"))
-	createWorkspaceObject(t, kube, snapshot)
-	var contentName string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		current := &unstructured.Unstructured{}
-		current.SetGroupVersionKind(snapshotGVK)
-		if !assert.NoError(c, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(snapshot), current)) {
-			return
-		}
-		ready, _, _ := unstructured.NestedBool(current.Object, "status", "readyToUse")
-		contentName, _, _ = unstructured.NestedString(current.Object, "status", "boundVolumeSnapshotContentName")
-		assert.True(c, ready, "VolumeSnapshot %s readyToUse, status %v", snapshot.GetName(), current.Object["status"])
-		assert.NotEmpty(c, contentName)
-	}, 3*time.Minute, time.Second)
-	content := &unstructured.Unstructured{}
-	content.SetGroupVersionKind(snapshotContent)
-	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Name: contentName}, content))
-	driver, _, err := unstructured.NestedString(content.Object, "spec", "driver")
-	require.NoError(t, err)
-	handle, _, err := unstructured.NestedString(content.Object, "status", "snapshotHandle")
-	require.NoError(t, err)
-	require.NotEmpty(t, driver)
-	require.NotEmpty(t, handle)
-	return snapshot.GetName(), workspaceSnapshot{Driver: driver, Handle: handle}
-}
-
-// workspaceSnapshot names a CSI snapshot by its driver and handle.
-type workspaceSnapshot struct{ Driver, Handle string }
-
 func createWorkspaceObject(t *testing.T, kube ctrlclient.Client, object ctrlclient.Object) {
 	t.Helper()
 	require.NoError(t, kube.Create(t.Context(), object))
@@ -252,28 +230,39 @@ func createWorkspaceObject(t *testing.T, kube ctrlclient.Client, object ctrlclie
 	})
 }
 
-func TestWorkspaceSnapshotFixture(t *testing.T) {
+// TestWorkspaceVolumeFixture proves the fixture is the workspace the plan's
+// storage model describes: one read-write-many volume whose mirrors a session
+// directory clones from with alternates, each session writing only its own
+// directory and none the mirrors, and no clone keeping the origin's credential.
+func TestWorkspaceVolumeFixture(t *testing.T) {
 	t.Parallel()
 	interactionTarget(t)
 	fixture := newWorkspaceFixture(t)
-	require.Equal(t, workspaceSnapshotDriver, fixture.Snapshot.Driver)
-	t.Logf("VolumeSnapshot %s: driver %s, handle %s, heads %v", fixture.SnapshotName, fixture.Snapshot.Driver, fixture.Snapshot.Handle, fixture.Heads)
+	require.Equal(t, workspaceDriver, fixture.Volume.Driver)
+	t.Logf("workspace volume %s: driver %s, handle %s, heads %v", fixture.Claim.Name, fixture.Volume.Driver, fixture.Volume.Handle, fixture.Heads)
 
-	// The snapshot holds the clones: a volume restored from it reads the same
-	// heads, and no clone kept the origin's credential.
 	kube := interactionKubeClient(t)
-	restored := createWorkspaceVolume(t, kube, &fixture.SnapshotName)
-	report := runWorkspaceJob(t, kube, restored, workspaceHeadsScript+
-		`! grep -rlF -e "$GIT_TOKEN" /workspace >&2`, []corev1.EnvVar{{Name: "GIT_TOKEN", Value: workspaceGitToken}})
-	heads := parseWorkspaceHeads(t, report)
-	for _, repository := range workspaceRepositories {
-		require.Equal(t, workspaceCheckout{branch: "main", commit: fixture.Heads[repository]}, heads[repository], "restored %s", repository)
+	for _, session := range []string{"a", "b"} {
+		script := `set -eu
+for repository in ` + strings.Join(workspaceRepositories, " ") + `; do
+  git clone --quiet --shared --no-checkout "/mirrors/$repository.git" "/workspace/$repository"
+  git -C "/workspace/$repository" switch --quiet main
+done
+echo ` + session + ` > /workspace/SESSION
+test "$(ls /workspace)" = "$(printf 'SESSION
+e2e')"
+! touch /mirrors/written 2>/dev/null
+` + workspaceMirrorHeadsScript("/mirrors") + `! grep -rlF -e "$GIT_TOKEN" /workspace >&2`
+		report := runWorkspaceJob(t, kube, fixture.Claim, script,
+			[]workspaceMount{{Path: "/workspace", SubPath: "sessions/" + session}, {Path: "/mirrors", SubPath: "mirrors", ReadOnly: true}},
+			[]corev1.EnvVar{{Name: "GIT_TOKEN", Value: workspaceGitToken}})
+		require.Equal(t, fixture.Heads, parseWorkspaceHeads(t, report), "session %s reads the mirrors", session)
 	}
 
 	// The origin moved on the changed repository only.
 	for _, repository := range workspaceRepositories {
 		moved := fixture.Origin.head(t, repository+".git") != fixture.Heads[repository]
-		require.Equal(t, repository == workspaceChanged, moved, "origin of %s moved after the snapshot", repository)
+		require.Equal(t, repository == workspaceChanged, moved, "origin of %s moved after the fetch", repository)
 	}
 }
 

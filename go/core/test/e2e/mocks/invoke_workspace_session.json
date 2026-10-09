@@ -1,0 +1,200 @@
+{
+  "openai": [
+    {
+      "name": "probe",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Probe the workspace.",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_probe",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"printf 'entries=%s\\\\n' \\\"$(ls -A /workspace | wc -l | tr -d ' ')\\\"; test -f /mirrors/e2e/alpha.git/HEAD && echo mirrors=present; if touch /mirrors/written 2>/dev/null; then echo mirrors=writable; else echo mirrors=read-only; fi; echo own > /workspace/OWN && echo own=written; echo PROBE_DONE\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "probed",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "PROBE_DONE",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "WORKSPACE_PROBED"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "name": "write_note",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Write a note, then ask.",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-3",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_note",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"echo before-pause > /workspace/NOTE && echo NOTE_WRITTEN\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ask",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "NOTE_WRITTEN",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-4",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_ask",
+                  "type": "function",
+                  "function": {
+                    "name": "ask_user",
+                    "arguments": "{\"questions\": [{\"question\": \"Keep the note?\", \"choices\": [\"Keep the note\", \"Drop it\"]}]}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "read_note",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Keep the note",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-5",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_read",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"printf 'note=%s\\\\n' \\\"$(cat /workspace/NOTE)\\\"; echo READ_DONE\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "note_read",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "READ_DONE",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-6",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "NOTE_READ"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

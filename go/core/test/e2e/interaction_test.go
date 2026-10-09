@@ -705,12 +705,22 @@ func newInteractionFixtureForTemplate(t *testing.T, harness testHarness, target,
 
 func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, templateName string) *interactionFixture {
 	t.Helper()
+	return newInteractionFixtureWith(t, target, templateName, nil)
+}
+
+// newInteractionFixtureWith creates the Session with configure applied to its
+// create request, such as a volume source and its grant.
+func newInteractionFixtureWith(t *testing.T, target, templateName string, configure func(*apiv1alpha1.CreateSessionRequest)) *interactionFixture {
+	t.Helper()
 	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
 	t.Cleanup(cancel)
 	sessions := apiv1alpha1.NewSessionServiceClient(conn)
 	request := &apiv1alpha1.CreateSessionRequest{
 		Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: templateName}, RequestId: uuid.NewString(),
+	}
+	if configure != nil {
+		configure(request)
 	}
 	var created *apiv1alpha1.CreateSessionResponse
 	err := wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {

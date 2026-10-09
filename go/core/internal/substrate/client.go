@@ -165,22 +165,26 @@ func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name string)
 	return err
 }
 
-func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
-	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil)
+// CreateActor creates an Actor of the template, supplying existing for the
+// template's existing volumes; nil supplies none and leaves the request as it
+// was before existing volumes.
+func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string, existing []*ateapipb.ExistingVolume) (*ateapipb.Actor, error) {
+	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil, existing)
 }
 
 func (c *Client) CreateActorFromTag(ctx context.Context, atespace, actorID, tmplNS, tmplName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
-	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName})
+	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName}, nil)
 }
 
-func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string, source *ateapipb.ObjectRef) (*ateapipb.Actor, error) {
+func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string, source *ateapipb.ObjectRef, existing []*ateapipb.ExistingVolume) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ControlClient.CreateActor(ctx, &ateapipb.CreateActorRequest{
 		Actor: &ateapipb.Actor{
-			Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
-			ActorTemplate: actorRef(tmplNS, tmplName),
-			SourceTag:     source,
+			Metadata:        &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
+			ActorTemplate:   actorRef(tmplNS, tmplName),
+			SourceTag:       source,
+			ExistingVolumes: existing,
 		},
 	})
 	if err != nil {

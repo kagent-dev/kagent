@@ -28,4 +28,10 @@ const (
 	// AgentInstance (a2a.AgentInstanceIDHeader). A call outside a turn carries
 	// no such header.
 	AgentInstanceHeader = "x-kagent-agent-instance-id"
+	// WorkingDirectoryHeader carries the directory the turn works in, which
+	// the controller's gateway forwards to the runtime on every turn: the
+	// session's own directory of its workspace volume, or a directory of its
+	// durable /data without one. A runtime resolves it per turn, never at boot,
+	// since a runtime restored from a snapshot predates the session's mounts.
+	WorkingDirectoryHeader = "x-kagent-working-directory"
 )

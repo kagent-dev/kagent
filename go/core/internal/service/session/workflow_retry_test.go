@@ -39,9 +39,9 @@ func (a *retryTestActors) GetActor(ctx context.Context, space, name string) (*at
 	return actor, err
 }
 
-func (a *retryTestActors) CreateActor(ctx context.Context, space, name, templateSpace, templateName string) (*ateapipb.Actor, error) {
+func (a *retryTestActors) CreateActor(ctx context.Context, space, name, templateSpace, templateName string, existing []*ateapipb.ExistingVolume) (*ateapipb.Actor, error) {
 	a.mutations.Add(1)
-	actor, err := a.lifecycleTestActors.CreateActor(ctx, space, name, templateSpace, templateName)
+	actor, err := a.lifecycleTestActors.CreateActor(ctx, space, name, templateSpace, templateName, existing)
 	if a.mutationErr != nil {
 		return nil, a.mutationErr
 	}

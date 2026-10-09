@@ -31,7 +31,7 @@ func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) CreateActor(_ context.Context, space, name, templateSpace, templateName string) (*ateapipb.Actor, error) {
+func (a *transitionActors) CreateActor(_ context.Context, space, name, templateSpace, templateName string, _ []*ateapipb.ExistingVolume) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "create")
 	a.actor = &ateapipb.Actor{
 		Metadata:      &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: "actor-uid"},
@@ -146,7 +146,7 @@ func TestActorTransitionAdmission(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{}
-			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision", nil)
 			require.NoError(t, err)
 			actors.calls = nil
 			if test.mutate != nil {
@@ -162,7 +162,7 @@ func TestActorTransitionAdmission(t *testing.T) {
 
 func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	actors := &transitionActors{}
-	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision", nil)
 	require.NoError(t, err)
 	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	actors.calls = nil
@@ -184,7 +184,7 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 // from a node that may be gone, so deletion takes it as it is.
 func TestActorDeleteTakesAPausedActorAsItIs(t *testing.T) {
 	actors := &transitionActors{}
-	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+	_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision", nil)
 	require.NoError(t, err)
 	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
 	actors.calls = nil
@@ -209,7 +209,7 @@ func TestActorDeleteTakesAnUnsuspendableActorAsItIs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			actors := &transitionActors{suspendErr: test.suspendErr}
-			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+			_, err := actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision", nil)
 			require.NoError(t, err)
 			actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 			actors.calls = nil

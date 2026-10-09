@@ -27,6 +27,31 @@ a volume of its choosing. A create without the fields is handled as before. An
 `Agent` or `AgentTemplate` carries no volume: the session is the only place one
 is named.
 
+Substrate fixes an existing volume's mount paths in the ActorTemplate, which
+every session of a revision shares, so every revision's template declares the
+same two existing volumes: the session's own directory read-write at
+`/workspace` and a shared directory read-only at `/mirrors`. A volume source
+must fit that layout (its own directory at `/workspace`, optionally the mirrors
+at `/mirrors`) and a volume handle of at most 256 characters, Substrate's
+bound; anything else is refused `InvalidArgument`. At create the session's
+Actor supplies the source's directories for them, `${SESSION_ID}` replaced by
+the session's id; an Actor without a source supplies none and gets neither
+mount, and its create request is unchanged. Substrate boots such an Actor from
+its image rather than the golden snapshot and never creates, detaches or
+deletes the volume: suspend, pause, resume and a repoint keep the mounts. A
+fork starts without the source, since an Actor restored from a checkpoint
+cannot carry existing volumes. Deleting a session with a source deletes only
+its Actor and records a `SessionDirectoryReleased` Event on its Agent naming
+the session, the volume and the directory (annotations `kagent.dev/session-id`,
+`kagent.dev/csi-driver`, `kagent.dev/volume-handle`, `kagent.dev/sub-path`), for
+the volume's owner to delete the directory.
+
+Every turn's dispatch moves the session's `last_turn_time`, shown on get and
+list, by which a volume's owner cleans up the directories of sessions nobody
+returned to. Every dispatch also carries the turn's working directory in the
+`x-kagent-working-directory` header: `/workspace` with a volume source,
+`/data/workspace` without. A runtime resolves it per turn, never at boot.
+
 ### Session volume admission
 
 The built-in admission is `jwt` (`go/core/internal/service/session/jwtadmission`),

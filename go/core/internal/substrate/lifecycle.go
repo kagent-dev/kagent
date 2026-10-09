@@ -13,7 +13,7 @@ import (
 
 type LifecycleClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
-	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
+	CreateActor(context.Context, string, string, string, string, []*ateapipb.ExistingVolume) (*ateapipb.Actor, error)
 	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
 	EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
@@ -41,7 +41,11 @@ type ActorSnapshot struct {
 type ActorCreation struct {
 	EgressPolicy *ateapipb.EgressPolicy
 	Snapshot     *ActorSnapshot
-	Resume       bool
+	// ExistingVolumes supply the template's existing volumes, such as a
+	// Session's workspace directories. Substrate boots such an Actor from its
+	// image and creates none from a tag, so they exclude Snapshot.
+	ExistingVolumes []*ateapipb.ExistingVolume
+	Resume          bool
 }
 
 type ActorTransition struct {
@@ -79,6 +83,9 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 		}
 		if snapshot := creation.Snapshot; snapshot != nil && (snapshot.Tag.GetAtespace() == "" || snapshot.Tag.GetName() == "" || snapshot.URI == "" || snapshot.ContentScope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA) {
 			return nil, fmt.Errorf("actor restoration requires a retained DATA snapshot")
+		}
+		if creation.Snapshot != nil && len(creation.ExistingVolumes) != 0 {
+			return nil, fmt.Errorf("an actor with existing volumes cannot be restored from a snapshot")
 		}
 	}
 	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
@@ -123,7 +130,7 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		creation := transition.creation
 		if actor == nil {
 			if creation.Snapshot == nil {
-				actor, err = actors.CreateActor(ctx, binding.Atespace, binding.Name, binding.TemplateAtespace, binding.TemplateName)
+				actor, err = actors.CreateActor(ctx, binding.Atespace, binding.Name, binding.TemplateAtespace, binding.TemplateName, creation.ExistingVolumes)
 			} else {
 				tag := creation.Snapshot.Tag
 				actor, err = actors.CreateActorFromTag(ctx, binding.Atespace, binding.Name, binding.TemplateAtespace, binding.TemplateName, tag.Atespace, tag.Name)

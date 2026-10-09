@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAteAPITLSConfig(t *testing.T) {
@@ -114,7 +115,8 @@ type createAtespaceFake struct {
 
 type createActorFake struct {
 	ateapipb.ControlClient
-	actor *ateapipb.Actor
+	actor   *ateapipb.Actor
+	request *ateapipb.CreateActorRequest
 }
 
 type listActorTemplatesFake struct {
@@ -129,6 +131,7 @@ type deleteActorTemplateFake struct {
 }
 
 func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	f.request = in
 	f.actor = in.GetActor()
 	return f.actor, nil
 }
@@ -136,9 +139,36 @@ func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActo
 func TestCreateActorUsesStableTemplateRef(t *testing.T) {
 	fake := &createActorFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
+	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template", nil)
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+}
+
+// TestCreateActorWithoutExistingVolumesIsUnchanged proves that an Actor of a
+// Session without a volume source is created with the bytes it was created
+// with before existing volumes, and that a Session's volume source reaches the
+// request as the template's existing volumes.
+func TestCreateActorWithoutExistingVolumesIsUnchanged(t *testing.T) {
+	fake := &createActorFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	existing, err := SessionExistingVolumes("session-1", nil)
+	require.NoError(t, err)
+	_, err = client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template", existing)
+	require.NoError(t, err)
+	before, err := proto.MarshalOptions{Deterministic: true}.Marshal(&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "actor"},
+		ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"},
+	}})
+	require.NoError(t, err)
+	got, err := proto.MarshalOptions{Deterministic: true}.Marshal(fake.request)
+	require.NoError(t, err)
+	require.Equal(t, before, got)
+
+	existing, err = SessionExistingVolumes("session-1", testVolumeSource())
+	require.NoError(t, err)
+	_, err = client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template", existing)
+	require.NoError(t, err)
+	require.Len(t, fake.request.GetActor().GetExistingVolumes(), 2)
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {

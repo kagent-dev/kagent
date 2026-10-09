@@ -17,6 +17,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -661,6 +662,11 @@ func validateVolumeSource(source *apiv1alpha1.SessionVolumeSource) error {
 	}
 	if readWrite > 1 {
 		return serviceerrors.NewInvalidArgument("volume_source.mounts may have one read-write mount, the session's own directory", nil)
+	}
+	// The actor mounts the volume where every revision's ActorTemplate
+	// declares it, so a source must fit that layout.
+	if err := substrate.ValidateWorkspaceLayout(source); err != nil {
+		return serviceerrors.NewInvalidArgument("volume_source: "+err.Error(), nil)
 	}
 	return nil
 }

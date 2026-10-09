@@ -28,12 +28,14 @@ import (
 func TestActorWorkflowLifecycle(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	directories := &recordingDirectoryReleaser{}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, WithDirectoryReleaser(directories))
 
 	created, err := workflow.Create(context.Background(), session)
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.Nil(t, actors.existing[actorKey("team-a", substrate.ActorName(session.GetId()))], "a session without a volume source supplies no existing volume")
 	if created.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || created.GetA2AAuthority() == "" {
 		t.Fatalf("created session = %+v", created)
 	}
@@ -86,6 +88,64 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if deleted.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED || len(actors.actors) != 0 {
 		t.Fatalf("deleted session = %+v, actors = %v", deleted, actors.actors)
 	}
+	require.Empty(t, directories.released, "a session without a volume source releases no directory")
+}
+
+// recordingDirectoryReleaser records the sessions whose directory it was told
+// may go.
+type recordingDirectoryReleaser struct {
+	mu       sync.Mutex
+	released []*apiv1alpha1.Session
+}
+
+func (r *recordingDirectoryReleaser) ReleaseSessionDirectory(_ context.Context, session *apiv1alpha1.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.released = append(r.released, session)
+	return nil
+}
+
+// A session on a workspace volume gets an Actor that supplies its own
+// directory and the mirrors for the template's workspace volumes; suspend and
+// resume keep them, and deleting the session tells the volume's owner that its
+// directory may go, while the volume stays.
+func TestActorWorkflowMountsTheSessionsWorkspaceDirectory(t *testing.T) {
+	source := &apiv1alpha1.SessionVolumeSource{
+		Volume: &apiv1alpha1.SessionVolume{CsiDriver: "nfs.csi.k8s.io", VolumeHandle: "nfs-server#share#workspace##"},
+		Mounts: []*apiv1alpha1.SessionVolumeMount{
+			{SubPath: "sessions/${SESSION_ID}", MountPath: substrate.WorkspaceMountPath},
+			{SubPath: "mirrors", MountPath: substrate.MirrorsMountPath, ReadOnly: true},
+		},
+	}
+	store, session := lifecycleFixtureWith(t, source)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	directories := &recordingDirectoryReleaser{}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, WithDirectoryReleaser(directories))
+	key := actorKey("team-a", substrate.ActorName(session.GetId()))
+
+	created, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	want, err := substrate.SessionExistingVolumes(session.GetId(), source)
+	require.NoError(t, err)
+	got := actors.existing[key]
+	require.Len(t, got, len(want))
+	for i := range want {
+		require.True(t, proto.Equal(want[i], got[i]), "existing volume %d = %v", i, got[i])
+	}
+	require.Equal(t, "sessions/"+session.GetId(), got[0].GetSubPath())
+
+	suspended, err := workflow.Suspend(t.Context(), created)
+	require.NoError(t, err)
+	resumed, err := workflow.Resume(t.Context(), suspended)
+	require.NoError(t, err)
+	require.Len(t, actors.existing, 1, "suspend and resume create no other Actor")
+	require.Empty(t, directories.released)
+
+	_, err = workflow.Delete(t.Context(), resumed)
+	require.NoError(t, err)
+	require.Len(t, directories.released, 1)
+	require.Equal(t, session.GetId(), directories.released[0].GetId())
+	require.True(t, proto.Equal(source, directories.released[0].GetVolumeSource()))
 }
 
 func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
@@ -140,6 +200,13 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 // calls are faked, so concurrency assertions exercise PostgreSQL admission.
 func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.Session) {
 	t.Helper()
+	return lifecycleFixtureWith(t, nil)
+}
+
+// lifecycleFixtureWith creates the session on source, a workspace volume, or
+// without one when source is nil.
+func lifecycleFixtureWith(t *testing.T, source *apiv1alpha1.SessionVolumeSource) (*lifecycleTestStore, *apiv1alpha1.Session) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
 	t.Cleanup(cancel)
 	conn, cleanup, err := dbtest.Start(ctx)
@@ -158,7 +225,7 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1alpha1.Session) 
 	}
 	require.NoError(t, client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}))
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, true))
-	session, _, err := client.CreateSession(t.Context(), &apiv1alpha1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
+	session, _, err := client.CreateSession(t.Context(), &apiv1alpha1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, VolumeSource: source}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, pool: pool, revision: revision}, session
 }
@@ -191,6 +258,8 @@ type lifecycleTestActors struct {
 	repointErr       error
 	repointCalls     int
 	replacedPolicies int
+	// existing records the existing volumes each Actor was created with.
+	existing map[string][]*ateapipb.ExistingVolume
 }
 
 // RepointActor moves a suspended Actor onto another template as Substrate
@@ -240,9 +309,13 @@ func (a *lifecycleTestActors) GetActor(_ context.Context, atespace, name string)
 	return proto.CloneOf(actor), nil
 }
 
-func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, templateNamespace, templateName string) (*ateapipb.Actor, error) {
+func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, templateNamespace, templateName string, existing []*ateapipb.ExistingVolume) (*ateapipb.Actor, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.existing == nil {
+		a.existing = map[string][]*ateapipb.ExistingVolume{}
+	}
+	a.existing[actorKey(atespace, name)] = existing
 	actor := &ateapipb.Actor{
 		Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
