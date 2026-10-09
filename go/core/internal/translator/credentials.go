@@ -26,13 +26,13 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	boundMCP := map[string]bool{}
 	boundArtifacts := map[string]bool{}
 	var callerOwnedMCP []*v1alpha3.RemoteMCPServer
-	bind := func(rawURL, header, prefix, authority, namespace, name, key string) error {
+	bind := func(rawURL, header, prefix, authority, namespace, name, key, scope string) error {
 		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 			return NewValidationError("credential destination must be an absolute HTTP(S) URL without user information or fragment")
 		}
 		uri := egress.CredentialURI(authority, namespace, name, key)
-		bindings = append(bindings, egress.Credential{Hostname: u.Hostname(), Header: header, Prefix: prefix, URI: uri})
+		bindings = append(bindings, egress.Credential{Hostname: u.Hostname(), Header: header, Prefix: prefix, URI: uri, Scope: scope})
 		return nil
 	}
 	models := append([]*ResolvedModelConfig(nil), extraModels...)
@@ -50,7 +50,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			for _, ref := range tool.Server.Spec.HeadersFrom {
 				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
 					boundMCP[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
-					if err := bind(tool.Server.Spec.URL, ref.Name, "", egress.KubernetesSecretAuthority, tool.Server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
+					if err := bind(tool.Server.Spec.URL, ref.Name, "", egress.KubernetesSecretAuthority, tool.Server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key, ""); err != nil {
 						return err
 					}
 				}
@@ -59,13 +59,15 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		if agent.Template != nil {
 			// Git speaks Basic authentication, so the Secret key holds the
 			// base64 of "<username>:<token>", ready to follow the scheme.
+			// The golden boot fetches the sources, so the binding is the
+			// golden boot's: a session's sandbox reaches the host without it.
 			bindArtifact := func(source v1alpha3.ArtifactSource) error {
 				if source.Git == nil || source.Git.CredentialRef == nil {
 					return nil
 				}
 				ref := source.Git.CredentialRef
 				boundArtifacts[ref.Name+"\x00"+ref.Key] = true
-				return bind(source.Git.URL, "authorization", "Basic ", egress.KubernetesSecretAuthority, agent.Template.Namespace, ref.Name, ref.Key)
+				return bind(source.Git.URL, "authorization", "Basic ", egress.KubernetesSecretAuthority, agent.Template.Namespace, ref.Name, ref.Key, egress.ScopeGolden)
 			}
 			for _, skill := range agent.Template.Spec.Skills {
 				if err := bindArtifact(skill.Source); err != nil {
@@ -110,7 +112,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 				continue
 			}
 		}
-		if err := bind(target.endpoint, target.header, target.prefix, target.authority, model.Namespace, model.Spec.APIKeySecret, key); err != nil {
+		if err := bind(target.endpoint, target.header, target.prefix, target.authority, model.Namespace, model.Spec.APIKeySecret, key, ""); err != nil {
 			return nil, nil, err
 		}
 		boundModels[target.name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true

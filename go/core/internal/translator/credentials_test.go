@@ -75,6 +75,28 @@ func TestCompileCredentialsBindsVertexAIWithoutEnvironment(t *testing.T) {
 	}
 }
 
+// The golden boot fetches a private skill or plugin source, so its binding is
+// scoped to the golden boot; model and MCP bindings serve every actor.
+func TestCompileCredentialsScopesArtifactBindingsToTheGoldenBoot(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "model", APIKeySecretKey: "key"})
+	input.Root.MCPTools = []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "team"},
+		Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{
+			{Name: "X-Api-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "mcp", Key: "key"}},
+		}},
+	}}}
+	git := &v1alpha3.GitArtifact{URL: "https://git.example.com/acme/skills", CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "git"}, Key: "token"}}
+	input.Root.Template.Namespace = "team"
+	input.Root.Template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{Name: "runbooks", Source: v1alpha3.ArtifactSource{Git: git}}}
+	_, bindings, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "model", "key")})
+	require.NoError(t, err)
+	require.Equal(t, []egress.Credential{
+		{Hostname: "api.openai.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/model/key"},
+		{Hostname: "git.example.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/team/git/token", Scope: egress.ScopeGolden},
+		{Hostname: "mcp.example.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/mcp/key"},
+	}, bindings)
+}
+
 func TestCompileCredentialsRejectsConflictingSharedModels(t *testing.T) {
 	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "root", APIKeySecretKey: "token"}
 	input := credentialInput(spec)

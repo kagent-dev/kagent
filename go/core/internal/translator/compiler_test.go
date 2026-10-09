@@ -1149,8 +1149,10 @@ func TestCompileAgentTemplateKeepsSkillCredentialsOutOfConfig(t *testing.T) {
 	require.Len(t, artifactCredentials, 1, "one Secret key compiles to one variable")
 	require.Equal(t, translator.CredentialPlaceholder, artifactCredentials[0].Value, "the actor holds a placeholder, the gateway the credential")
 	require.Contains(t, spec.Credentials, egress.Credential{
-		Hostname: "github.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/test/" + secret.Name + "/token",
+		Hostname: "github.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/test/" + secret.Name + "/token", Scope: egress.ScopeGolden,
 	}, "credentials: %+v", spec.Credentials)
+	require.Empty(t, slices.DeleteFunc(egress.ForActors(spec.Credentials), func(c egress.Credential) bool { return c.Hostname != "github.com" }),
+		"a session's actor reaches the source's host without the credential")
 	require.Zero(t, bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)), "a rotation of the credential is not a new revision; the gateway reads the Secret live: %s", spec.Provenance)
 	require.Equal(t, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://github.com:443"}, spec.EgressDestinations)
 }

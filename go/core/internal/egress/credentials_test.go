@@ -27,6 +27,7 @@ func TestCanonicalCredentials(t *testing.T) {
 		{"missing locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/team/auth/token" }},
 		{"unsupported locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/remote/team/auth/token" }},
 		{"query", func(c *Credential) { c.URI += "?key=other" }},
+		{"unknown scope", func(c *Credential) { c.Scope = "session" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			binding := base
@@ -45,4 +46,17 @@ func TestCanonicalCredentials(t *testing.T) {
 	got, err = CanonicalCredentials([]Credential{google})
 	require.NoError(t, err)
 	require.Equal(t, "ate-secret://google-access-token.k8s.io/default/team/vertex/credentials.json", got[0].URI)
+	golden := base
+	golden.Scope = ScopeGolden
+	_, err = CanonicalCredentials([]Credential{base, golden})
+	require.ErrorContains(t, err, "conflicting credentials", "a scope does not let two bindings share a host and header")
+}
+
+func TestForActors(t *testing.T) {
+	model := Credential{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/model/key"}
+	artifact := Credential{Hostname: "git.example.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/team/git/token", Scope: ScopeGolden}
+	bindings := []Credential{model, artifact}
+	require.Equal(t, []Credential{model}, ForActors(bindings))
+	require.Equal(t, []Credential{model, artifact}, bindings, "the revision's own bindings are left as they are")
+	require.Empty(t, ForActors(nil))
 }

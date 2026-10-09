@@ -57,6 +57,16 @@ overrides of these variables are rejected.
 | Bedrock bearer token | `authorization: Bearer <token>` |
 | Google service account key (Vertex AI) | `authorization: Bearer <access token>`; Substrate mints the token from the key at fetch time |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
+| Git skill or plugin source `credentialRef` | `authorization: Basic <key>`; Secret contains base64 `<username>:<token>` |
+
+A binding names the actors it is for. Model and MCP bindings have no scope and
+serve every actor. A git source binding has scope `golden`: the golden boot
+fetches skills and plugins, so the ActorTemplate's default policy carries the
+binding, and a session's Actor policy (on create, on repoint to a newer
+revision, and on its rollback) is compiled without it. The source's host stays
+allowed from the sandbox, unauthenticated, so a shell tool or other client in
+the session cannot spend the source's token. The scope is part of revision
+identity.
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
 match its scheme, DNS name, and port; credential bindings remain scoped to the

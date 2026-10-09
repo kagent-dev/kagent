@@ -648,6 +648,56 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 	}
 }
 
+// A binding scoped to the golden boot, a private skill source's git
+// credential, stays off every policy a session's Actor is given: on create and
+// on a repoint. Its host stays reachable, and the model and MCP bindings stay.
+func TestSessionEgressPolicyLeavesOutTheGoldenBootsCredentials(t *testing.T) {
+	destinations := []string{"https://api.example.com", "https://mcp.example.com", "https://git.example.com"}
+	credentials := []egress.Credential{
+		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/model/key"},
+		{Hostname: "git.example.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/team-a/git/token", Scope: egress.ScopeGolden},
+		{Hostname: "mcp.example.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team-a/mcp/key"},
+	}
+	requireSessionPolicy := func(t *testing.T, policy *ateapipb.EgressPolicy) {
+		t.Helper()
+		headers := map[string][]string{}
+		for _, rule := range policy.GetRules() {
+			host := rule.GetHttps().GetHostnames()[0]
+			headers[host] = []string{}
+			for _, header := range rule.GetHttps().GetEffects().GetReplaceHeaders() {
+				headers[host] = append(headers[host], header.GetHeader()+" "+header.GetPrefix()+header.GetCredentialUri())
+			}
+		}
+		require.Equal(t, map[string][]string{
+			"api.example.com": {"authorization Bearer ate-secret://k8s.io/default/team-a/model/key"},
+			"git.example.com": {},
+			"mcp.example.com": {"x-api-key ate-secret://k8s.io/default/team-a/mcp/key"},
+		}, headers, "the source's host stays allowed without the golden boot's credential; the model and MCP bindings stay")
+	}
+
+	store, session := lifecycleFixture(t)
+	store.revision.EgressDestinations, store.revision.Credentials = destinations, credentials
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, 1, actors.policyCalls)
+	requireSessionPolicy(t, actors.policy)
+
+	current := database.RuntimeRevision{
+		Revision: "revision-2", Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: destinations, Credentials: credentials,
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision-2", ActorTemplateUID: "actor-template-uid-2",
+	}
+	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: current.Revision}))
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), current, true))
+	moved, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, moved.GetPreparedRevision())
+	require.Equal(t, 1, actors.replacedPolicies)
+	requireSessionPolicy(t, actors.policy)
+}
+
 func TestActorEgressPolicy(t *testing.T) {
 	policy, err := substrate.ActorEgressPolicy("team-a", []string{"https://API.Example.com.", "https://api.example.com:443", "https://api.example.com:0443", "http://api.example.com:8080"}, nil)
 	require.NoError(t, err)

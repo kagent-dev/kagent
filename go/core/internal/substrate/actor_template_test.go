@@ -79,7 +79,10 @@ func TestActorTemplateForRevision(t *testing.T) {
 			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
 		Environment:        []corev1.EnvVar{{Name: "API_KEY", Value: translator.CredentialPlaceholder}},
 		EgressDestinations: []string{"https://github.com:443", "https://api.anthropic.com:443"},
-		Credentials:        []egress.Credential{{Hostname: "api.anthropic.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/agents/anthropic/key"}},
+		Credentials: []egress.Credential{
+			{Hostname: "api.anthropic.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/agents/anthropic/key"},
+			{Hostname: "github.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/agents/skills-git/token", Scope: egress.ScopeGolden},
+		},
 	}
 	revisionID, err := spec.Digest()
 	if err != nil {
@@ -131,12 +134,16 @@ func TestActorTemplateForRevision(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, proto.Equal(&ateapipb.EgressPolicyTemplate{Rules: wantPolicy.GetRules()}, template.GetDefaultEgressPolicy()),
 		"template default egress policy = %v, want %v", template.GetDefaultEgressPolicy(), wantPolicy.GetRules())
-	var injected []*ateapipb.CredentialHeader
+	injected := map[string][]string{}
 	for _, rule := range template.GetDefaultEgressPolicy().GetRules() {
-		injected = append(injected, rule.GetHttps().GetEffects().GetReplaceHeaders()...)
+		for _, header := range rule.GetHttps().GetEffects().GetReplaceHeaders() {
+			injected[rule.GetHttps().GetHostnames()[0]] = append(injected[rule.GetHttps().GetHostnames()[0]], header.GetHeader()+" "+header.GetPrefix()+header.GetCredentialUri())
+		}
 	}
-	require.Len(t, injected, 1)
-	require.Equal(t, "x-api-key", injected[0].GetHeader())
+	require.Equal(t, map[string][]string{
+		"api.anthropic.com": {"x-api-key ate-secret://k8s.io/default/agents/anthropic/key"},
+		"github.com":        {"authorization Basic ate-secret://k8s.io/default/agents/skills-git/token"},
+	}, injected, "the golden boot fetches the private skill source with the artifact binding")
 }
 
 func TestActorTemplateForRevisionDeniesAllEgressWithoutDestinations(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -21,9 +22,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -123,7 +126,9 @@ func testMCPCredentialDelivery(t *testing.T, harness testHarness, harnessName st
 }
 
 // Every runtime fetches skills and plugins with git at golden boot, and git
-// sends no Authorization before a challenge.
+// sends no Authorization before a challenge. The binding is the golden boot's:
+// a session's sandbox reaches the source's host, but the gateway replaces no
+// header of its requests.
 func TestGitArtifactCredentialDelivery(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
@@ -144,7 +149,7 @@ func TestGitArtifactCredentialDelivery(t *testing.T) {
 				Path: path,
 			}
 		}
-		model := harness.createModel(t, kube, startInteractionMock(t), nil)
+		model := harness.createModel(t, kube, startGitSourceRequestMock(t, server+"/"+gitSkillRepository), nil)
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "git-credentials-", Namespace: "kagent", Labels: harness.labels()},
 			Spec: v1alpha3.AgentTemplateSpec{
@@ -155,13 +160,83 @@ func TestGitArtifactCredentialDelivery(t *testing.T) {
 			},
 		}
 		createAndWaitInteractionTemplate(t, harness, kube, template)
+		ready := time.Now()
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 		_, _, task := fixture.send(t, "What is 2+2?")
 		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task text: %q", taskText(task))
 		for _, repository := range []string{gitSkillRepository, gitPluginRepository} {
-			requireEgressCredential(t, repositories.received(repository), "Authorization", wantAuthorization, everyRoute)
+			requireEgressCredential(t, receivedBefore(repositories.received(repository), ready), "Authorization", wantAuthorization, everyRoute)
 		}
+
+		sandbox := newInteractionFixtureForTemplate(t, harness, target, template.Name)
+		_, _, task = sandbox.send(t, gitSourceRequestPrompt)
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task text: %q", taskText(task))
+		require.Contains(t, taskText(task), "SANDBOX_SOURCE_REQUESTED")
+		require.NoError(t, sandboxSourceRequestViolation(receivedSince(repositories.received(gitSkillRepository), ready), credential))
 	})
+}
+
+const gitSourceRequestPrompt = "Request the private skill source from the sandbox."
+
+//go:embed mocks/invoke_git_source_request.json
+var gitSourceRequestMock string
+
+// startGitSourceRequestMock serves the interaction mock plus a turn in which
+// the sandbox's shell tool requests source twice with git: once as git does
+// before a challenge, without Authorization, and once with the header the
+// golden boot sends, the placeholder the gateway replaces where it binds a
+// credential.
+func startGitSourceRequestMock(t *testing.T, source string) string {
+	t.Helper()
+	config, err := mockllm.LoadConfigFromFile("mocks/invoke_agent.json", interactionMocks)
+	require.NoError(t, err)
+	const name = "invoke_git_source_request.json"
+	request, err := mockllm.LoadConfigFromFile(name, fstest.MapFS{name: {Data: []byte(strings.ReplaceAll(gitSourceRequestMock, "{{SOURCE_URL}}", source))}})
+	require.NoError(t, err)
+	config.OpenAI = append(config.OpenAI, request.OpenAI...)
+	config.OpenAIResponse = append(config.OpenAIResponse, request.OpenAIResponse...)
+	config.Anthropic = append(config.Anthropic, request.Anthropic...)
+	return reachableModelURL(t, startMockLLMConfig(t, config))
+}
+
+func receivedBefore(received []mockmcp.RecordedRequest, at time.Time) []mockmcp.RecordedRequest {
+	return slices.DeleteFunc(received, func(request mockmcp.RecordedRequest) bool { return !request.ReceivedAt.Before(at) })
+}
+
+func receivedSince(received []mockmcp.RecordedRequest, at time.Time) []mockmcp.RecordedRequest {
+	return slices.DeleteFunc(received, func(request mockmcp.RecordedRequest) bool { return request.ReceivedAt.Before(at) })
+}
+
+// sandboxSourceRequestViolation reports the first request of a session's
+// sandbox that the gateway gave the golden boot's credential: every request
+// reached the source (a denied one is never recorded), a request without
+// Authorization arrived without it, and one with the placeholder arrived with
+// the placeholder, not the Secret value.
+func sandboxSourceRequestViolation(received []mockmcp.RecordedRequest, credential string) error {
+	placeholder := "Basic " + translator.CredentialPlaceholder
+	var bare, unreplaced int
+	for i, request := range received {
+		where := fmt.Sprintf("request %d of %d (%s %s)", i+1, len(received), request.Method, request.Path)
+		for name, values := range request.Headers {
+			for _, value := range values {
+				if strings.Contains(value, credential) {
+					return fmt.Errorf("%s: header %s carries the golden boot's credential", where, name)
+				}
+			}
+		}
+		switch values := request.Headers.Values("Authorization"); {
+		case len(values) == 0:
+			bare++
+		case len(values) == 1 && values[0] == placeholder:
+			unreplaced++
+		default:
+			return fmt.Errorf("%s: Authorization = %q, want none or the placeholder the sandbox sent", where, values)
+		}
+	}
+	if bare == 0 || unreplaced == 0 {
+		return fmt.Errorf("the source received %d requests without Authorization and %d with the placeholder, want both", bare, unreplaced)
+	}
+	return nil
 }
 
 func requireEgressCredential(t *testing.T, received []mockmcp.RecordedRequest, header, credential string, authenticated func(path string) bool) {
@@ -604,4 +679,47 @@ func TestEgressCredentialViolation(t *testing.T) {
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
+}
+
+func TestSandboxSourceRequestViolation(t *testing.T) {
+	const credential = "c2VjcmV0"
+	placeholder := "Basic " + translator.CredentialPlaceholder
+	request := func(headers http.Header) mockmcp.RecordedRequest {
+		return mockmcp.RecordedRequest{Method: http.MethodGet, Path: "/skill.git/info/refs", Headers: headers}
+	}
+	bare, unreplaced := request(http.Header{}), request(http.Header{"Authorization": {placeholder}})
+	for _, test := range []struct {
+		name     string
+		received []mockmcp.RecordedRequest
+		wantErr  string
+	}{
+		{name: "neither replaced", received: []mockmcp.RecordedRequest{bare, unreplaced, bare}},
+		{name: "credential injected", received: []mockmcp.RecordedRequest{bare, request(http.Header{"Authorization": {"Basic " + credential}})}, wantErr: "request 2 of 2 (GET /skill.git/info/refs): header Authorization carries the golden boot's credential"},
+		{name: "credential in another header", received: []mockmcp.RecordedRequest{bare, unreplaced, request(http.Header{"X-Token": {credential}})}, wantErr: "header X-Token carries"},
+		{name: "another Authorization", received: []mockmcp.RecordedRequest{bare, request(http.Header{"Authorization": {"Bearer other"}})}, wantErr: "want none or the placeholder"},
+		{name: "placeholder request denied", received: []mockmcp.RecordedRequest{bare}, wantErr: "1 requests without Authorization and 0 with the placeholder"},
+		{name: "nothing reached the source", wantErr: "0 requests without Authorization and 0 with the placeholder"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := sandboxSourceRequestViolation(test.received, credential)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
+// The mock's turn compiles for every harness's model protocol with the source
+// in each shell command.
+func TestGitSourceRequestMockNamesTheSource(t *testing.T) {
+	const source = "https://git.example.svc.cluster.local:8443/skill.git"
+	const name = "invoke_git_source_request.json"
+	config, err := mockllm.LoadConfigFromFile(name, fstest.MapFS{name: {Data: []byte(strings.ReplaceAll(gitSourceRequestMock, "{{SOURCE_URL}}", source))}})
+	require.NoError(t, err)
+	require.Len(t, config.OpenAI, 2)
+	require.Len(t, config.OpenAIResponse, 2)
+	require.Len(t, config.Anthropic, 3)
+	require.Equal(t, 6, strings.Count(gitSourceRequestMock, "{{SOURCE_URL}}"), "two git requests in each of three tool calls")
 }

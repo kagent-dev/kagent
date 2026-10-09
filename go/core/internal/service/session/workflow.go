@@ -13,6 +13,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/codes"
@@ -381,7 +382,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	binding := actorBinding(session.Id, revision)
 	var creation *substrate.ActorCreation
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
+		policy, err := sessionEgressPolicy(binding.Atespace, revision)
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
@@ -541,11 +542,19 @@ func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.Ru
 	case current.Revision == revision.Revision || current.ActorTemplateAtespace != revision.ActorTemplateAtespace:
 		return nil, nil, nil
 	}
-	policy, err := substrate.ActorEgressPolicy(current.ActorTemplateAtespace, current.EgressDestinations, current.Credentials)
+	policy, err := sessionEgressPolicy(current.ActorTemplateAtespace, current)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build egress policy of revision %s: %w", current.Revision, err)
 	}
 	return current, policy, nil
+}
+
+// sessionEgressPolicy compiles the egress allowlist of a session's Actor on
+// revision. A binding scoped to the golden boot, such as a private skill
+// source's git credential, stays off it: the sandbox reaches that host
+// without the header.
+func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision) (*ateapipb.EgressPolicy, error) {
+	return substrate.ActorEgressPolicy(atespace, revision.EgressDestinations, egress.ForActors(revision.Credentials))
 }
 
 // repointActor moves a suspended Actor onto the ActorTemplate of current and
@@ -617,7 +626,7 @@ func (w *ActorWorkflow) RepointQuiesced(ctx context.Context, session *apiv1alpha
 	}
 	updated, err := w.store.RepointSession(ctx, session.GetId(), revision.Revision, current.Revision)
 	if errors.Is(err, database.ErrConflict) && updated.GetPreparedRevision() == revision.Revision {
-		previous, policyErr := substrate.ActorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
+		previous, policyErr := sessionEgressPolicy(atespace, revision)
 		if policyErr == nil {
 			_, policyErr = w.repointActor(ctx, session.GetId(), revision, previous)
 		}
