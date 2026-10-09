@@ -86,6 +86,12 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 			CacheCreationTokens int `json:"cache_creation_input_tokens"`
 			OutputTokens        int `json:"output_tokens"`
 		} `json:"usage"`
+		ModelUsage map[string]struct {
+			InputTokens         int `json:"inputTokens"`
+			CacheReadTokens     int `json:"cacheReadInputTokens"`
+			CacheCreationTokens int `json:"cacheCreationInputTokens"`
+			OutputTokens        int `json:"outputTokens"`
+		} `json:"modelUsage"`
 		Event   json.RawMessage `json:"event"`
 		Message json.RawMessage `json:"message"`
 		Origin  struct {
@@ -116,6 +122,16 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 			InputTokens:  envelope.Usage.InputTokens + envelope.Usage.CacheReadTokens + envelope.Usage.CacheCreationTokens,
 			CachedTokens: envelope.Usage.CacheReadTokens,
 			OutputTokens: envelope.Usage.OutputTokens,
+		}
+		// modelUsage counts every model the turn called, as total_cost_usd
+		// prices them; a budget-stopped result reports zeros under usage.
+		if len(envelope.ModelUsage) > 0 {
+			usage.InputTokens, usage.CachedTokens, usage.OutputTokens = 0, 0, 0
+			for _, m := range envelope.ModelUsage {
+				usage.InputTokens += m.InputTokens + m.CacheReadTokens + m.CacheCreationTokens
+				usage.CachedTokens += m.CacheReadTokens
+				usage.OutputTokens += m.OutputTokens
+			}
 		}
 		// A turn that reached one of its own limits is a completed turn: the work
 		// so far is kept, the session continues on the next turn, and the limit

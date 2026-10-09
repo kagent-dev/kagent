@@ -105,6 +105,23 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 	}
 }
 
+func TestParseJSONLBudgetResultCountsModelUsage(t *testing.T) {
+	events := []string{
+		`{"type":"system","subtype":"init","session_id":"22222222-2222-4222-8222-222222222222"}`,
+		`{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":0.6,"num_turns":1,"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0},"modelUsage":{"claude-sonnet-4-6":{"inputTokens":2,"outputTokens":199,"cacheReadInputTokens":10,"cacheCreationInputTokens":71770,"costUSD":0.5},"claude-haiku-4-5":{"inputTokens":30,"outputTokens":5,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.1}},"session_id":"22222222-2222-4222-8222-222222222222"}`,
+	}
+	var last Event
+	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if last.Kind != EventCompleted || last.Category != runtime.LimitBudget || last.Usage == nil {
+		t.Fatalf("budget-limited result = %#v", last)
+	}
+	if last.Usage.InputTokens != 71812 || last.Usage.CachedTokens != 10 || last.Usage.OutputTokens != 204 || last.Usage.TotalCostUSD != 0.6 {
+		t.Fatalf("a budget-limited turn counts the tokens of every model it called: %#v", last.Usage)
+	}
+}
+
 func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 	input := strings.Join([]string{
 		`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}`,
