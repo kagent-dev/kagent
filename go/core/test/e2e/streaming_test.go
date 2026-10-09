@@ -269,21 +269,27 @@ func toolEvents(parts []*a2atype.Part) []toolEvent {
 }
 
 func taskToolEvents(task *a2atype.Task) []toolEvent {
-	var events []toolEvent
+	return toolEvents(taskParts(task))
+}
+
+// taskParts returns every part a task persisted: its history, its status
+// message and its artifacts.
+func taskParts(task *a2atype.Task) []*a2atype.Part {
+	var parts []*a2atype.Part
 	for _, message := range task.History {
 		if message != nil {
-			events = append(events, toolEvents(message.Parts)...)
+			parts = append(parts, message.Parts...)
 		}
 	}
 	if task.Status.Message != nil {
-		events = append(events, toolEvents(task.Status.Message.Parts)...)
+		parts = append(parts, task.Status.Message.Parts...)
 	}
 	for _, artifact := range task.Artifacts {
 		if artifact != nil {
-			events = append(events, toolEvents(artifact.Parts)...)
+			parts = append(parts, artifact.Parts...)
 		}
 	}
-	return events
+	return parts
 }
 
 func assertToolEvents(t *testing.T, events []toolEvent, toolNames ...string) {

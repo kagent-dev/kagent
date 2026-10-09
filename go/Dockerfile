@@ -35,7 +35,12 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
 FROM alpine:3.24
 ARG TARGETPLATFORM
 
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && \
+# The GitHub CLI for an agent's work in its clone. github-cli.version pins it
+# once for this image and the Claude harness image; apk's ~ takes any Alpine
+# rebuild (-rN) of that version.
+RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
+    apk upgrade --no-cache && \
+    apk add --no-cache bash ca-certificates git "github-cli~$(cat /tmp/github-cli.version)" && \
     mkdir -p /config /skills /plugins /data/plugins && \
     chown -R 65532:65532 /config /skills /plugins /data
 

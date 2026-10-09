@@ -1,0 +1,127 @@
+{
+  "openai": [
+    {
+      "name": "cli_versions_start",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Print the CLI versions.",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-cli-versions-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_cli_versions",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"gh --version && git --version\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cli_versions_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "gh version",
+          "role": "tool",
+          "tool_call_id": "call_cli_versions"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-cli-versions-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "CLI_VERSIONS_DONE",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ],
+  "anthropic": [
+    {
+      "name": "cli_versions_start",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": "Print the CLI versions."}]
+        }
+      },
+      "response": {
+        "id": "msg_cli_versions_bash",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": "toolu_cli_versions", "name": "Bash", "input": {"command": "gh --version && git --version"}}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 10, "output_tokens": 4}
+      }
+    },
+    {
+      "name": "cli_versions_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "tool_result", "tool_use_id": "toolu_cli_versions"}]
+        }
+      },
+      "response": {
+        "id": "msg_cli_versions_done",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "CLI_VERSIONS_DONE"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 12, "output_tokens": 4}
+      }
+    },
+    {
+      "name": "cli_versions_auxiliary",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": ""}]
+        }
+      },
+      "response": {
+        "id": "msg_cli_versions_auxiliary",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "OK"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 2, "output_tokens": 1}
+      }
+    }
+  ]
+}

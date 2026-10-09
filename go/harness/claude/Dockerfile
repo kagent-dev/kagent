@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -o /kagent-claude ./harness/claude/cmd
 
-FROM alpine:3.22
+FROM alpine:3.24
 ARG CLAUDE_CODE_VERSION=2.1.285
 ARG CLAUDE_CODE_AMD64_SHA256=7b4414af1bc06eb6d91730759bd01c4c02a4976d0b8526237e9a6d8c33eaf102
 ARG CLAUDE_CODE_ARM64_SHA256=31efc4136bc678575f4c6730e248d34f89dbfea0468be1c5d012af199cd62ee8
@@ -27,7 +27,11 @@ ARG TARGETARCH
 ARG VERSION
 
 ENV USE_BUILTIN_RIPGREP=0
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
+# The GitHub CLI at the version go/Dockerfile installs (github-cli.version);
+# the two images share an Alpine release so the pin resolves in both.
+RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
+    apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
+        "github-cli~$(cat /tmp/github-cli.version)" \
     && case "${TARGETARCH}" in \
         amd64) platform="linux-x64-musl"; checksum="${CLAUDE_CODE_AMD64_SHA256}" ;; \
         arm64) platform="linux-arm64-musl"; checksum="${CLAUDE_CODE_ARM64_SHA256}" ;; \
