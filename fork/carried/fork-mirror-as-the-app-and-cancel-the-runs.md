@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `ci(fork): mirror as the App and cancel the runs upstream's files start` | the sync's first run was refused at the mirror: a workflow's own token may not update a workflow file, not even in a mirrored upstream commit, whatever `permissions:` grants, so the mirror is pushed with the App's token like the candidate and the consumed branch; an App push starts upstream's workflow files at the mirrored refs (runners the fork does not have, registries it must not touch), so `mirror.sh` records what it pushed and `mirror-quiet.sh` cancels those runs right after, and the ledger stays on `GITHUB_TOKEN` | fork-only, never upstream |

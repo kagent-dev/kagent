@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `chore: declare Renovate off on the fork line` | upstream owns the dependency graph: a bump opened on the line would diverge from the pin and every re-pin would have to carry or revert it, so the consumed branch carries a hand-written `renovate.json5` with `enabled: false` and the reason, and dependencies move when the line is re-pinned; a real GitHub fork is skipped by Renovate's autodiscovery until it carries a configuration of its own, so the declaration is what keeps the line off Renovate once it has one | fork-only, never upstream |
