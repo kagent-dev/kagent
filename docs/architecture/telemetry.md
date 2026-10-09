@@ -60,6 +60,53 @@ kagent runtimes apply three defaults when the environment leaves them unset: `OT
 
 The Python runtimes build their providers with the SDK's environment configurator (`opentelemetry-distro`), the counterpart of Go's `autoexport`, and install a fixed set of instrumentations per runtime through their `opentelemetry_instrumentor` entry points. `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` switches any of them off. With `OTEL_CONFIG_FILE` set, the SDK ignores the configurator arguments, so the file must declare `kagent.runtime` itself.
 
+Propagation follows `OTEL_PROPAGATORS` in both directions: a format that is not
+listed is neither extracted from incoming requests nor injected into outgoing
+ones, including what the process adds itself. The controller and each runtime
+read their own value. Set it on the controller with the chart's
+`controller.env`, and on a runtime with `Harness.spec.env`.
+
+The Go ADK runtime adds the request's GenAI identity to the W3C baggage of each
+request, so its model and MCP calls carry it whenever the runtime's
+`OTEL_PROPAGATORS` includes `baggage`, for example
+`tracecontext,baggage`:
+
+| Member | Model calls | MCP tool calls |
+| --- | --- | --- |
+| `gen_ai.agent.name` | yes | yes |
+| `gen_ai.conversation.id` | yes | yes |
+| `a2a.task.id` | yes | yes |
+| `gen_ai.tool.name` | no | yes |
+| `gen_ai.tool.call.id` | no | yes |
+
+The members are identifiers, never content or credentials. They replace caller
+members of the same name, so a caller cannot impersonate another conversation
+downstream. Other caller baggage members are propagated unchanged when the
+controller and runtime both extract baggage. This includes propagation to
+third-party model providers: any caller member not replaced by kagent can appear
+in the `baggage` header sent to the configured model API as well as to MCP
+servers. Operators should therefore treat enabling baggage propagation as
+sending caller-provided metadata to those external services.
+
+This identity injection currently applies only to the Go ADK runtime. The
+Claude Code and Codex harnesses receive `OTEL_PROPAGATORS`, but kagent does not
+add the GenAI identity to their process context or guarantee that their native
+model and tool clients propagate caller baggage. The Python runtime likewise
+does not add the GenAI identity.
+
+Baggage remains propagation state: kagent does not copy baggage members into
+span attributes. A downstream service that wants these values to be searchable
+on its spans must use a baggage-to-attributes span processor, such as a
+`BaggageSpanProcessor`, or configure equivalent enrichment in its OpenTelemetry
+Collector.
+
+An MCP session is shared by every request and keeps the context of the call
+that opened it for its own requests: the event stream, replies to server
+requests, and the close. Those requests carry neither trace context nor
+baggage, which would otherwise name a past request. Gemini on Vertex AI and SAP
+AI Core use their providers' HTTP clients and receive neither `traceparent` nor
+baggage.
+
 Defaults live in the runtimes because a Substrate Actor holds at most 32 environment variables, and the ActorTemplate itself uses nine. The controller renders only what differs by installation, and `TestCompiledTelemetryFitsTheActorEnvironmentBudget` pins the worst case.
 
 The capture variable is rendered whether or not the controller exports, so a runtime that reaches a collector through settings the controller did not render still follows it. It is controller-owned: the Claude and Codex compilers reject a `Harness.spec.env` entry with that name, and the kagent compiler replaces one. The harness runtimes carry the same decision in their compiled configuration. Other `OTEL_*` variables, such as `OTEL_BSP_*`, remain available for per-Harness tuning through `Harness.spec.env`. `OTEL_EXPORTER_OTLP_HEADERS` is not forwarded, because an Actor environment holds no secrets. Export to an in-cluster collector that adds them.

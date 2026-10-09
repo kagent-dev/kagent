@@ -50,6 +50,15 @@ Instrument: gauge. Unit: `{revision}`. Number of cleanup-eligible runtime revisi
 
 ## Attribute groups
 
+### `kagent.baggage.outbound`
+
+Tool identity propagated to an outbound request as W3C baggage.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.tool.call.id` | required |  |
+| `gen_ai.tool.name` | required |  |
+
 ### `kagent.capture`
 
 Whether captured turn content was shortened. The content itself is `gen_ai.input.messages` and `gen_ai.output.messages` on the invoke_agent span, since a complex attribute cannot be part of a group.

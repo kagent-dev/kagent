@@ -46,6 +46,12 @@ GEN_AI_PROVIDER_NAME: Final = "gen_ai.provider.name"
 GEN_AI_REQUEST_MODEL: Final = "gen_ai.request.model"
 """The name of the GenAI model configured for the agent."""
 
+GEN_AI_TOOL_CALL_ID: Final = "gen_ai.tool.call.id"
+"""The tool call identifier."""
+
+GEN_AI_TOOL_NAME: Final = "gen_ai.tool.name"
+"""Name of the tool utilized by the agent."""
+
 KAGENT_CAPTURE_INPUT_TRUNCATED: Final = "kagent.capture.input_truncated"
 """Whether the captured input messages were shortened to the capture budget."""
 
