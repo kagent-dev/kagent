@@ -21,4 +21,10 @@ spec:
   timeout: 30s
   sseReadTimeout: 5m0s
   description: "Official KAgent tool server"
+  {{- with $toolsValues.remoteMCPServer }}
+  {{- with .allowedNamespaces }}
+  allowedNamespaces:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
 {{- end }}

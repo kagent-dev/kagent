@@ -777,6 +777,16 @@ kagent-tools:
   tolerations: []
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
+  # Settings for the RemoteMCPServer this chart creates for the built-in tool server.
+  remoteMCPServer:
+    # -- Namespaces whose Agents may reference the tool server (spec.allowedNamespaces).
+    # Unset by default, which allows only the release namespace. Example:
+    # allowedNamespaces:
+    #   from: Selector   # All | Same | Selector
+    #   selector:
+    #     matchLabels:
+    #       kagent-tools: allowed
+    allowedNamespaces: {}
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:
