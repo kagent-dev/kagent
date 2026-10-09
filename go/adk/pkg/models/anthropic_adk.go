@@ -69,7 +69,7 @@ func buildAnthropicParams(req *model.LLMRequest, cfg *AnthropicConfig) (anthropi
 		modelName = req.Model
 	}
 	if modelName == "" || modelName == "anthropic" {
-		modelName = "claude-sonnet-4-20250514"
+		modelName = "claude-sonnet-4-6"
 	}
 
 	params := anthropic.MessageNewParams{
