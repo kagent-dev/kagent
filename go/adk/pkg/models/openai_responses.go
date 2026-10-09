@@ -344,15 +344,19 @@ func responseToLLMResponse(resp *responses.Response) *model.LLMResponse {
 	}
 }
 
+// responsesUsageToGenai follows the genai convention, where candidates exclude
+// thoughts: the Responses API counts reasoning inside output_tokens.
 func responsesUsageToGenai(u responses.ResponseUsage) *genai.GenerateContentResponseUsageMetadata {
 	if u.InputTokens == 0 && u.OutputTokens == 0 {
 		return nil
 	}
+	reasoning := u.OutputTokensDetails.ReasoningTokens
 	return &genai.GenerateContentResponseUsageMetadata{
 		PromptTokenCount:        int32(u.InputTokens),
-		CandidatesTokenCount:    int32(u.OutputTokens),
+		CandidatesTokenCount:    int32(u.OutputTokens - reasoning),
 		CachedContentTokenCount: int32(u.InputTokensDetails.CachedTokens),
-		ThoughtsTokenCount:      int32(u.OutputTokensDetails.ReasoningTokens),
+		ThoughtsTokenCount:      int32(reasoning),
+		TotalTokenCount:         int32(u.TotalTokens),
 	}
 }
 

@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"iter"
+	"slices"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -13,7 +14,7 @@ func TestEnsureHITLExtension(t *testing.T) {
 	t.Run("attaches when absent", func(t *testing.T) {
 		card := &a2atype.AgentCard{Name: "agent"}
 		EnsureHITLExtension(card)
-		if !hasHITLExtension(card.Capabilities.Extensions) {
+		if !declaresExtension(card.Capabilities.Extensions, HITLExtensionURI) {
 			t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
 		}
 	})
@@ -48,7 +49,19 @@ func TestEnsureHITLExtension(t *testing.T) {
 	})
 }
 
-func TestEnrichAgentCardDeclaresHITLExtension(t *testing.T) {
+func TestEnsureUsageExtensionIsOptional(t *testing.T) {
+	card := &a2atype.AgentCard{Name: "agent"}
+	EnsureUsageExtension(card)
+	EnsureUsageExtension(card)
+	if len(card.Capabilities.Extensions) != 1 || card.Capabilities.Extensions[0].URI != UsageExtensionURI {
+		t.Fatalf("extensions = %#v, want the usage extension once", card.Capabilities.Extensions)
+	}
+	if card.Capabilities.Extensions[0].Required {
+		t.Fatal("the usage extension must be optional; requiring it would refuse clients that ignore usage")
+	}
+}
+
+func TestEnrichAgentCardDeclaresExtensions(t *testing.T) {
 	agent, err := adkagent.New(adkagent.Config{
 		Name: "adk_agent",
 		Run: func(adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
@@ -62,7 +75,15 @@ func TestEnrichAgentCardDeclaresHITLExtension(t *testing.T) {
 
 	EnrichAgentCard(card, agent)
 
-	if !hasHITLExtension(card.Capabilities.Extensions) {
-		t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
+	for _, uri := range []string{HITLExtensionURI, UsageExtensionURI} {
+		if !declaresExtension(card.Capabilities.Extensions, uri) {
+			t.Fatalf("extensions = %#v, want %s", card.Capabilities.Extensions, uri)
+		}
 	}
+}
+
+func declaresExtension(extensions []a2atype.AgentExtension, uri string) bool {
+	return slices.ContainsFunc(extensions, func(extension a2atype.AgentExtension) bool {
+		return extension.URI == uri
+	})
 }

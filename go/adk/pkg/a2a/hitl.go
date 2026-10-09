@@ -39,10 +39,27 @@ type hitlActivationInterceptor struct {
 }
 
 func (*hitlActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
-	if callCtx != nil && callCtx.Extensions().Requested(&hitlAgentExtension) {
+	if extensionRequested(callCtx, HITLExtensionURI) {
 		callCtx.Extensions().Activate(&hitlAgentExtension)
 	}
 	return ctx, nil, nil
+}
+
+// extensionRequested reports whether the client listed uri in A2A-Extensions.
+// The header is a comma-separated list and the transports keep a joined value
+// as one entry, which a2asrv's exact match would miss.
+func extensionRequested(callCtx *a2asrv.CallContext, uri string) bool {
+	if callCtx == nil {
+		return false
+	}
+	for _, value := range callCtx.Extensions().RequestedURIs() {
+		for requested := range strings.SplitSeq(value, ",") {
+			if strings.TrimSpace(requested) == uri {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // HitlActivated reports whether HITL was negotiated for this server call.

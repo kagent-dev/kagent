@@ -319,10 +319,11 @@ func TestResponsesUsageToGenai(t *testing.T) {
 		}
 	})
 
-	t.Run("maps input, output, cached and reasoning tokens", func(t *testing.T) {
+	t.Run("splits reasoning out of output tokens and keeps the provider total", func(t *testing.T) {
 		usage := responses.ResponseUsage{
 			InputTokens:  100,
 			OutputTokens: 50,
+			TotalTokens:  150,
 			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
 				CachedTokens: 80,
 			},
@@ -338,8 +339,11 @@ func TestResponsesUsageToGenai(t *testing.T) {
 		if got.PromptTokenCount != 100 {
 			t.Errorf("PromptTokenCount = %d, want 100", got.PromptTokenCount)
 		}
-		if got.CandidatesTokenCount != 50 {
-			t.Errorf("CandidatesTokenCount = %d, want 50", got.CandidatesTokenCount)
+		if got.CandidatesTokenCount != 20 {
+			t.Errorf("CandidatesTokenCount = %d, want 20", got.CandidatesTokenCount)
+		}
+		if got.TotalTokenCount != 150 {
+			t.Errorf("TotalTokenCount = %d, want 150", got.TotalTokenCount)
 		}
 		if got.CachedContentTokenCount != 80 {
 			t.Errorf("CachedContentTokenCount = %d, want 80", got.CachedContentTokenCount)

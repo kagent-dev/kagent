@@ -107,6 +107,20 @@ func TestHitlExtensionDoesNotReadLegacyDataPart(t *testing.T) {
 	}
 }
 
+// TestHITLActivationInterceptorSplitsJoinedHeader covers clients that send
+// A2A-Extensions as one comma-separated value, as the UI does.
+func TestHITLActivationInterceptorSplitsJoinedHeader(t *testing.T) {
+	ctx, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+		a2atype.SvcParamExtensions: {HITLExtensionURI + "," + UsageExtensionURI},
+	}))
+	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+		t.Fatalf("Before() error = %v", err)
+	}
+	if !HitlActivated(ctx) {
+		t.Fatal("HITL was not activated from a joined header value")
+	}
+}
+
 func TestHITLActivationInterceptor(t *testing.T) {
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
