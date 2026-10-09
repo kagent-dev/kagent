@@ -159,7 +159,11 @@ func generateContentChatCompletions(
 	stream bool,
 	yield func(*model.LLMResponse, error) bool,
 ) {
-	messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
+	messages, systemInstruction, err := genaiContentsToOpenAIMessages(req.Contents, req.Config)
+	if err != nil {
+		yield(nil, err)
+		return
+	}
 	params := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(modelName),
 		Messages: messages,
@@ -232,7 +236,7 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	}
 }
 
-func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]openai.ChatCompletionMessageParamUnion, string) {
+func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]openai.ChatCompletionMessageParamUnion, string, error) {
 	systemInstruction := mergeSystemInstructionFromConfig("", config)
 
 	functionResponses := make(map[string]*genai.FunctionResponse)
@@ -248,8 +252,22 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 		}
 	}
 
+	// Only a non-image link in the newest user turn fails the request. Older
+	// turns are replayed history and get a note, so the session stays usable.
+	// "Newest" is the last user-role content. ADK also gives that role to tool
+	// results and sub-agent context, but when this adapter serves the turn's
+	// first model call a link turn fails before either exists; after a transfer
+	// from another model the link gets a note instead.
+	newestUser := -1
+	for i, c := range slices.Backward(contents) {
+		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
+			newestUser = i
+			break
+		}
+	}
+
 	var messages []openai.ChatCompletionMessageParamUnion
-	for _, content := range contents {
+	for i, content := range contents {
 		if content == nil || strings.TrimSpace(content.Role) == openAIRoleSystem {
 			continue
 		}
@@ -270,6 +288,18 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 				imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{
 					URL: fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data)),
 				})
+			} else if part.FileData != nil && role == genai.RoleUser {
+				switch {
+				case strings.HasPrefix(part.FileData.MIMEType, "image/") && strings.HasPrefix(strings.ToLower(part.FileData.FileURI), "https://"):
+					// Replayed on every later turn so follow-up questions about the
+					// image keep working. A link the provider cannot fetch, now or
+					// later, fails every later turn; the caller must start a new session.
+					imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{URL: part.FileData.FileURI})
+				case i == newestUser:
+					return nil, "", unsupportedLinkError(part.FileData)
+				default:
+					textParts = append(textParts, unsupportedLinkNote(part.FileData))
+				}
 			}
 		}
 
@@ -333,7 +363,27 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			}
 		}
 	}
-	return messages, systemInstruction
+	return messages, systemInstruction, nil
+}
+
+// unsupportedLinkError fails a request whose newest user turn holds a link the
+// adapter cannot send.
+func unsupportedLinkError(f *genai.FileData) error {
+	if f.MIMEType == "" {
+		return fmt.Errorf("cannot send link %q without a media type: this provider integration can only pass https image links", f.FileURI)
+	}
+	return fmt.Errorf("cannot send link %q with media type %q: this provider integration can only pass https image links", f.FileURI, f.MIMEType)
+}
+
+// unsupportedLinkNote stands in for a link an adapter cannot send, so replayed
+// history that holds one does not fail every later turn. The URL stays in the
+// note so a model with a fetch tool can still use it.
+func unsupportedLinkNote(f *genai.FileData) string {
+	link := f.FileURI
+	if f.DisplayName != "" {
+		link = fmt.Sprintf("%s (%s)", f.DisplayName, f.FileURI)
+	}
+	return fmt.Sprintf("[Link %q was not sent: this provider integration can only pass https image links.]", link)
 }
 
 func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUnionParam {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"log/slog"
@@ -205,7 +206,7 @@ func TestGenaiToolsToOpenAITools(t *testing.T) {
 
 func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 	t.Run("nil contents", func(t *testing.T) {
-		msgs, sys := genaiContentsToOpenAIMessages(nil, nil)
+		msgs, sys, _ := genaiContentsToOpenAIMessages(nil, nil)
 		if len(msgs) != 0 {
 			t.Errorf("len(messages) = %d, want 0", len(msgs))
 		}
@@ -223,7 +224,7 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 				},
 			},
 		}
-		msgs, sys := genaiContentsToOpenAIMessages(nil, config)
+		msgs, sys, _ := genaiContentsToOpenAIMessages(nil, config)
 		if len(msgs) != 0 {
 			t.Errorf("len(messages) = %d, want 0", len(msgs))
 		}
@@ -243,7 +244,7 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 				},
 			},
 		}
-		_, sys := genaiContentsToOpenAIMessages(nil, config)
+		_, sys, _ := genaiContentsToOpenAIMessages(nil, config)
 		// Implementation joins parts then TrimSpace; empty text part adds nothing
 		wantSys := "one  \ntwo"
 		if sys != wantSys {
@@ -256,7 +257,7 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			Role:  string(genai.RoleUser),
 			Parts: []*genai.Part{{Text: "Hello"}},
 		}}
-		msgs, sys := genaiContentsToOpenAIMessages(contents, nil)
+		msgs, sys, _ := genaiContentsToOpenAIMessages(contents, nil)
 		if sys != "" {
 			t.Errorf("systemInstruction = %q, want empty", sys)
 		}
@@ -271,7 +272,7 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			{Role: "system", Parts: []*genai.Part{{Text: "sys"}}},
 			{Role: string(genai.RoleUser), Parts: []*genai.Part{{Text: "user"}}},
 		}
-		msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+		msgs, _, _ := genaiContentsToOpenAIMessages(contents, nil)
 		// System role content is skipped (handled via config), so only user message
 		if len(msgs) != 1 {
 			t.Errorf("len(messages) = %d, want 1 (system content skipped)", len(msgs))
@@ -284,7 +285,7 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			{Role: "", Parts: nil},
 			{Role: string(genai.RoleUser), Parts: []*genai.Part{{Text: "only"}}},
 		}
-		msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+		msgs, _, _ := genaiContentsToOpenAIMessages(contents, nil)
 		if len(msgs) != 1 {
 			t.Errorf("len(messages) = %d, want 1", len(msgs))
 		}
@@ -294,12 +295,113 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 		contents := []*genai.Content{
 			{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "ping", Args: nil}}}},
 		}
-		msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+		msgs, _, _ := genaiContentsToOpenAIMessages(contents, nil)
 		if len(msgs) == 0 || msgs[0].OfAssistant == nil || len(msgs[0].OfAssistant.ToolCalls) != 1 {
 			t.Fatalf("messages = %#v, want first message to be assistant with 1 tool call", msgs)
 		}
 		if got := msgs[0].OfAssistant.ToolCalls[0].GetFunction().Arguments; got != `{}` {
 			t.Errorf("arguments = %q, want {}", got)
+		}
+	})
+
+	t.Run("image link in newest user turn is sent as image_url", func(t *testing.T) {
+		const link = "https://example.com/cat.png"
+		contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{
+			{Text: "what is this"},
+			{FileData: &genai.FileData{FileURI: link, MIMEType: "image/png"}},
+		}}}
+		msgs, _, err := genaiContentsToOpenAIMessages(contents, nil)
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if len(msgs) != 1 || msgs[0].OfUser == nil {
+			t.Fatalf("messages = %#v, want one user message", msgs)
+		}
+		parts := msgs[0].OfUser.Content.OfArrayOfContentParts
+		if len(parts) != 2 || parts[0].OfText == nil || parts[0].OfText.Text != "what is this" || parts[1].OfImageURL == nil {
+			t.Fatalf("content parts = %#v, want text then image_url", parts)
+		}
+		if got := parts[1].OfImageURL.ImageURL.URL; got != link {
+			t.Errorf("image_url = %q, want %q", got, link)
+		}
+	})
+
+	t.Run("non-image link in newest user turn fails", func(t *testing.T) {
+		const link = "https://example.com/report.pdf"
+		contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{
+			{FileData: &genai.FileData{FileURI: link, MIMEType: "application/pdf"}},
+		}}}
+		_, _, err := genaiContentsToOpenAIMessages(contents, nil)
+		if err == nil || !strings.Contains(err.Error(), link) {
+			t.Fatalf("error = %v, want one that names %q", err, link)
+		}
+	})
+
+	t.Run("link without media type in newest user turn fails", func(t *testing.T) {
+		contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{
+			{FileData: &genai.FileData{FileURI: "https://example.com/blob"}},
+		}}}
+		_, _, err := genaiContentsToOpenAIMessages(contents, nil)
+		if err == nil || !strings.Contains(err.Error(), "without a media type") {
+			t.Fatalf("error = %v, want one that says the media type is missing", err)
+		}
+	})
+
+	t.Run("image link without https in newest user turn fails", func(t *testing.T) {
+		contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{
+			{FileData: &genai.FileData{FileURI: "http://10.0.0.5/cat.png", MIMEType: "image/png"}},
+		}}}
+		if _, _, err := genaiContentsToOpenAIMessages(contents, nil); err == nil {
+			t.Fatal("error = nil, want an error")
+		}
+	})
+
+	t.Run("non-image link in newest user turn fails when a model turn follows", func(t *testing.T) {
+		contents := []*genai.Content{
+			{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "read this"}, {FileData: &genai.FileData{FileURI: "https://example.com/report.pdf", MIMEType: "application/pdf"}}}},
+			{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "ok"}}},
+		}
+		if _, _, err := genaiContentsToOpenAIMessages(contents, nil); err == nil {
+			t.Fatal("error = nil, want an error for the newest user turn")
+		}
+	})
+
+	t.Run("image link in older user turn is replayed as image_url", func(t *testing.T) {
+		const link = "https://example.com/cat.png"
+		contents := []*genai.Content{
+			{Role: genai.RoleUser, Parts: []*genai.Part{{FileData: &genai.FileData{FileURI: link, MIMEType: "image/png"}}}},
+			{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "a cat"}}},
+			{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "what colour"}}},
+		}
+		msgs, _, err := genaiContentsToOpenAIMessages(contents, nil)
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		parts := msgs[0].OfUser.Content.OfArrayOfContentParts
+		if len(parts) != 1 || parts[0].OfImageURL == nil || parts[0].OfImageURL.ImageURL.URL != link {
+			t.Fatalf("older user message parts = %#v, want one image_url %q", parts, link)
+		}
+	})
+
+	t.Run("non-image link in older user turn becomes a note", func(t *testing.T) {
+		link := &genai.FileData{FileURI: "https://example.com/report.pdf", MIMEType: "application/pdf", DisplayName: "report.pdf"}
+		contents := []*genai.Content{
+			{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "read this"}, {FileData: link}}},
+			{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "ok"}}},
+			{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "hello again"}}},
+		}
+		msgs, _, err := genaiContentsToOpenAIMessages(contents, nil)
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if len(msgs) != 3 {
+			t.Fatalf("len(messages) = %d, want 3", len(msgs))
+		}
+		if got := msgs[0].OfUser.Content.OfString.Value; !strings.Contains(got, `[Link "report.pdf (https://example.com/report.pdf)" was not sent`) {
+			t.Errorf("older user message = %q, want the link note", got)
+		}
+		if got := msgs[2].OfUser.Content.OfString.Value; got != "hello again" {
+			t.Errorf("newest user message = %q, want %q", got, "hello again")
 		}
 	})
 }
@@ -375,7 +477,7 @@ func TestGenaiContentsToOpenAIMessages_PreservesThoughtSignatureOnToolCallAndToo
 	functionResponse := genai.NewPartFromFunctionResponse("add", map[string]any{"result": "4"})
 	functionResponse.FunctionResponse.ID = "call_1"
 
-	messages, _ := genaiContentsToOpenAIMessages([]*genai.Content{
+	messages, _, _ := genaiContentsToOpenAIMessages([]*genai.Content{
 		{
 			Role:  string(genai.RoleModel),
 			Parts: []*genai.Part{functionCall},
