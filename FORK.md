@@ -196,7 +196,8 @@ Substrate, the upgrade legs) and `image-scan.yaml` (Trivy on every published ima
 `govulncheck` over the Go module graph) run on every push to `giantswarm` and `sync/**`, on every pull
 request to `giantswarm`, and — the scan — weekly. Fork differences from upstream's files: the triggers,
 GitHub-hosted runners with a `docker/setup-buildx-action` builder instead of Blacksmith runners and their
-builder, the image matrices trimmed to the published set, no `paths-ignore` (a docs-only pull request must still
+builder, Docker Hub images pulled through `mirror.gcr.io` (the hosted runners' shared IPs exhaust Docker Hub's
+unauthenticated pull limit), the image matrices trimmed to the published set, no `paths-ignore` (a docs-only pull request must still
 report the required checks), and one aggregate job per workflow — `ci-ok`, `scan-ok` — which the ruleset requires.
 
 `ci.yaml`'s fork-only `released-schema-upgrade` job guards the released schemas: `scripts/fork/released-migrations.sh`

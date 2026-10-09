@@ -33,6 +33,13 @@ env:
   # Consistent builder configuration
   BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
   BUILDX_VERSION: v0.23.0
+  # Fork: Docker Hub images come through mirror.gcr.io, Docker Hub's public
+  # cache, so the runner's shared IP never meets the unauthenticated pull limit:
+  # the jobs' service containers, QEMU and BuildKit images name it, the builds'
+  # base images resolve through it.
+  BUILDKITD_CONFIG: |
+    [registry."docker.io"]
+      mirrors = ["mirror.gcr.io"]
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -98,12 +105,24 @@ jobs:
         # See https://github.com/openai/codex/issues/14919
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Pull Docker Hub images through mirror.gcr.io
+        # Fork: the Kind registry and node images, under the names
+        # scripts/kind/setup-kind.sh runs, so it finds them locally.
+        run: |
+          kind_version=$(make -s --eval 'print-%: ; @echo $($*)' print-KIND_IMAGE_VERSION)
+          for image in library/registry:2 "kindest/node:v${kind_version}"; do
+            docker pull "mirror.gcr.io/${image}"
+            docker tag "mirror.gcr.io/${image}" "${image#library/}"
+          done
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
-          driver-opts: network=host
+          driver-opts: |
+            network=host
+            image=mirror.gcr.io/moby/buildkit:buildx-stable-1
+          buildkitd-config-inline: ${{ env.BUILDKITD_CONFIG }}
           use: "true"
 
       - name: Set up Helm
@@ -324,6 +343,18 @@ jobs:
         with:
           path: telemetry/deps
           key: telemetry-deps-${{ hashFiles('telemetry/versions.env') }}
+      - name: Install the pinned Weaver
+        # Fork: telemetry/weaver.sh runs a weaver of the pinned version instead
+        # of its Docker Hub image, which the shared runner IPs are refused.
+        run: |
+          source telemetry/versions.env
+          archive=weaver-x86_64-unknown-linux-gnu.tar.xz
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/open-telemetry/weaver/releases/download/${WEAVER_VERSION}/${archive}"
+          curl -fsSLO "https://github.com/open-telemetry/weaver/releases/download/${WEAVER_VERSION}/${archive}.sha256"
+          sha256sum -c "${archive}.sha256"
+          sudo tar -xJf "$archive" --strip-components=1 -C /usr/local/bin "${archive%.tar.xz}/weaver"
+          weaver --version
       - name: Check the registry and generated conventions
         run: make semconv-verify
 
@@ -441,6 +472,8 @@ jobs:
           # and its single session-scoped reaper is contended by the parallel package
           # processes of `go test ./...`, intermittently timing out the Postgres tests.
           TESTCONTAINERS_RYUK_DISABLED: "true"
+          # Fork: the Postgres containers come from Docker Hub through its public cache.
+          TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX: mirror.gcr.io
         run: |
           make setup-envtest
           export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
@@ -570,7 +603,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       registry:
-        image: registry:2
+        image: mirror.gcr.io/library/registry:2
         ports:
           - 5001:5000
     steps:
@@ -579,13 +612,17 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
+          image: mirror.gcr.io/tonistiigi/binfmt:latest
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
-          driver-opts: network=host
+          driver-opts: |
+            network=host
+            image=mirror.gcr.io/moby/buildkit:buildx-stable-1
+          buildkitd-config-inline: ${{ env.BUILDKITD_CONFIG }}
           use: "true"
       - name: Run make build
         env:
