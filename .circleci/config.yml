@@ -70,6 +70,30 @@ validate-filters: &validate-filters
   branches:
     ignore: /^(giantswarm|main|release\/.*)$/
 
+# A branch pipeline whose commit already carries a release tag of the line
+# (the Auto Release workflow tags a merge's head right after the push) builds
+# nothing: the tag's own pipeline publishes that version, and the orb's
+# image-prepare-tag refuses a release version on a branch pipeline with a
+# failure. Branch and tag pipelines post the same status contexts on the same
+# commit (`ci/circleci: <job>`), so that failure would turn the release
+# candidate's combined status red and `devctl release promote` would refuse it.
+# Run ahead of every job of both workflows, this step ends such a job green
+# before checkout instead; a tag pipeline and an untagged commit pass through.
+skip-tagged-commit: &skip-tagged-commit
+  - run:
+      name: Skip a branch build of a commit the tag pipeline publishes
+      command: |
+        set -euo pipefail
+        [ -z "${CIRCLE_TAG:-}" ] || exit 0
+        tags=$(GIT_CONFIG_GLOBAL=/dev/null git ls-remote --tags \
+            "https://github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}.git" |
+          awk -v sha="${CIRCLE_SHA1}" '$1 == sha { sub(/^refs\/tags\//, "", $2); sub(/\^\{\}$/, "", $2); print $2 }' |
+          grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || true)
+        if [ -n "${tags}" ]; then
+          echo "Commit ${CIRCLE_SHA1:0:7} carries the release tag(s) ${tags//$'\n'/ }: its tag pipeline publishes it, this branch job builds nothing."
+          circleci-agent step halt
+        fi
+
 jobs:
   push-charts:
     executor: architect/architect
@@ -256,6 +280,7 @@ workflows:
           build-context: go
           build-args: *build-args-controller
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
           name: build-controller-arm64
@@ -267,6 +292,7 @@ workflows:
           build-context: go
           build-args: *build-args-controller
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
           name: push-controller
@@ -278,6 +304,7 @@ workflows:
           annotations: *annotations
           persist-build-version: true
           requires: [build-controller-amd64, build-controller-arm64]
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       # ui
       - architect/build-image:
@@ -290,6 +317,7 @@ workflows:
           build-context: ui
           build-args: *build-args-ui
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
           name: build-ui-arm64
@@ -301,6 +329,7 @@ workflows:
           build-context: ui
           build-args: *build-args-ui
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
           name: push-ui
@@ -312,6 +341,7 @@ workflows:
           annotations: *annotations
           persist-build-version: false
           requires: [build-ui-amd64, build-ui-arm64]
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       # golang-adk
       - architect/build-image:
@@ -324,6 +354,7 @@ workflows:
           build-context: go
           build-args: *build-args-golang-adk
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
           name: build-golang-adk-arm64
@@ -335,6 +366,7 @@ workflows:
           build-context: go
           build-args: *build-args-golang-adk
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
           name: push-golang-adk
@@ -346,6 +378,7 @@ workflows:
           annotations: *annotations
           persist-build-version: false
           requires: [build-golang-adk-amd64, build-golang-adk-arm64]
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       # claude-harness
       - architect/build-image:
@@ -358,6 +391,7 @@ workflows:
           build-context: go
           build-args: *build-args-claude-harness
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
           name: build-claude-harness-arm64
@@ -369,6 +403,7 @@ workflows:
           build-context: go
           build-args: *build-args-claude-harness
           registries-data: *registries
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
           name: push-claude-harness
@@ -380,15 +415,18 @@ workflows:
           annotations: *annotations
           persist-build-version: false
           requires: [build-claude-harness-amd64, build-claude-harness-arm64]
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       # charts and the ledger
       - push-charts:
           context: architect
           requires: [push-controller, push-ui, push-golang-adk, push-claude-harness]
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - record:
           context: architect
           requires: [push-charts]
+          pre-steps: *skip-tagged-commit
           filters: *publish-filters
 
   # The same eight builds, nothing pushed: a Dockerfile regression surfaces on
@@ -405,6 +443,7 @@ workflows:
           build-context: go
           build-args: *build-args-controller
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-controller-arm64
@@ -415,6 +454,7 @@ workflows:
           build-context: go
           build-args: *build-args-controller
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-ui-amd64
@@ -425,6 +465,7 @@ workflows:
           build-context: ui
           build-args: *build-args-ui
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-ui-arm64
@@ -435,6 +476,7 @@ workflows:
           build-context: ui
           build-args: *build-args-ui
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-golang-adk-amd64
@@ -445,6 +487,7 @@ workflows:
           build-context: go
           build-args: *build-args-golang-adk
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-golang-adk-arm64
@@ -455,6 +498,7 @@ workflows:
           build-context: go
           build-args: *build-args-golang-adk
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-claude-harness-amd64
@@ -465,6 +509,7 @@ workflows:
           build-context: go
           build-args: *build-args-claude-harness
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters
       - architect/build-image:
           name: validate-claude-harness-arm64
@@ -475,4 +520,5 @@ workflows:
           build-context: go
           build-args: *build-args-claude-harness
           push: false
+          pre-steps: *skip-tagged-commit
           filters: *validate-filters

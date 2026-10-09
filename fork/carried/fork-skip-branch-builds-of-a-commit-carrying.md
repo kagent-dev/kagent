@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `ci(fork): skip branch builds of a commit carrying a release tag` | the Auto Release workflow tags a merge's head right after the push; a branch job that checks out after the tag landed hit the architect orb's release-version guard and failed into the same `ci/circleci: <job>` status context the tag pipeline reports into, so the release candidate's combined status read `failure` and `devctl release promote` refused it. A pre-step on every job ends such a branch job green before checkout; the tag pipeline publishes the version | fork-only, never upstream (giantswarm/kagent-upstream#310) |

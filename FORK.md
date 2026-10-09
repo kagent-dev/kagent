@@ -54,7 +54,9 @@ Open pull requests of this repository that add a carried commit once merged, eac
 consumed branch `giantswarm` and on the line's release tags `vX.Y.Z` and `vX.Y.Z-rc.N`, through the architect orb's
 stock jobs: one `build-image` job per image and architecture (amd64 and arm64, each native on a machine of its
 architecture, pushed by digest) and one `push-to-registries` job per image, which joins the two into the tagged index,
-signs and attests it. Every other branch of the line — a pull request branch, a `sync/**` re-pin candidate — runs the
+signs and attests it. A branch job whose commit already carries a release tag of the line ends green before its
+checkout and builds nothing: the tag's own pipeline publishes that version, and both pipelines post the same status
+contexts on the commit, which `devctl release promote` reads. Every other branch of the line — a pull request branch, a `sync/**` re-pin candidate — runs the
 same eight builds with `push: false` and publishes nothing; the mirrored upstream refs (`main`, `release/v*.x`,
 upstream's tags) run nothing:
 
