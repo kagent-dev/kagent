@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -522,5 +525,95 @@ func TestExtractThoughtSignatureFromStreamingToolCallChunk(t *testing.T) {
 	thoughtSignature := extractThoughtSignatureFromExtraFields(toolCall.JSON.ExtraFields)
 	if string(thoughtSignature) != "abc" {
 		t.Fatalf("thoughtSignature = %q, want %q", string(thoughtSignature), "abc")
+	}
+}
+
+func TestOpenAIModelGenerateContentRejectsMalformedToolArguments(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		arguments    []string
+		finishReason string
+		wantArgs     []map[string]any
+		wantErr      string
+	}{
+		{name: "valid arguments", arguments: []string{`{"query":"cpu"}`}, finishReason: "tool_calls", wantArgs: []map[string]any{{"query": "cpu"}}},
+		{name: "no arguments", arguments: []string{"", " ", "null"}, finishReason: "tool_calls", wantArgs: []map[string]any{nil, nil, nil}},
+		{name: "arguments cut off", content: "Let me check.", arguments: []string{`{"query":"cp`}, finishReason: "length", wantErr: `"call_0"`},
+		{name: "cut off before the arguments", arguments: []string{""}, finishReason: "length", wantErr: `"call_0"`},
+		{name: "one of parallel calls cut off", arguments: []string{`{"query":"cpu"}`, `{"query":"me`}, finishReason: "length", wantErr: `"call_1"`},
+		{name: "arguments not an object", arguments: []string{`["cpu"]`}, finishReason: "tool_calls", wantErr: `"call_0"`},
+	}
+	for _, tt := range tests {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", tt.name, stream), func(t *testing.T) {
+				var calls []any
+				for i, arguments := range tt.arguments {
+					calls = append(calls, map[string]any{
+						"index": i, "id": fmt.Sprintf("call_%d", i), "type": "function",
+						"function": map[string]any{"name": "search", "arguments": arguments},
+					})
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if !stream {
+						w.Header().Set("Content-Type", "application/json")
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"id": "chatcmpl-1", "object": "chat.completion", "created": 1, "model": "gpt-4o",
+							"choices": []any{map[string]any{"index": 0, "finish_reason": tt.finishReason,
+								"message": map[string]any{"role": "assistant", "content": tt.content, "tool_calls": calls}}},
+						})
+						return
+					}
+					w.Header().Set("Content-Type", "text/event-stream")
+					for _, choice := range []map[string]any{
+						{"index": 0, "delta": map[string]any{"role": "assistant", "content": tt.content}},
+						{"index": 0, "delta": map[string]any{"tool_calls": calls}},
+						{"index": 0, "delta": map[string]any{}, "finish_reason": tt.finishReason},
+					} {
+						chunk, _ := json.Marshal(map[string]any{
+							"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1, "model": "gpt-4o",
+							"choices": []any{choice},
+						})
+						_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+					}
+					_, _ = io.WriteString(w, "data: [DONE]\n\n")
+				}))
+				defer server.Close()
+				llm := &OpenAIModel{
+					Config: &OpenAIConfig{Model: "gpt-4o"},
+					Client: openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL), option.WithHTTPClient(server.Client())),
+					Logger: slog.New(slog.DiscardHandler),
+				}
+				request := &model.LLMRequest{Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "check cpu"}}}}}
+
+				var final *model.LLMResponse
+				for resp, err := range llm.GenerateContent(t.Context(), request, stream) {
+					require.NoError(t, err)
+					if !resp.Partial {
+						final = resp
+					}
+				}
+				require.NotNil(t, final)
+				var text string
+				var gotArgs []map[string]any
+				for _, part := range final.Content.Parts {
+					text += part.Text
+					if part.FunctionCall != nil {
+						gotArgs = append(gotArgs, part.FunctionCall.Args)
+					}
+				}
+				assert.Equal(t, tt.content, text)
+				if tt.wantErr != "" {
+					// No tool may run when the model did not finish one of the calls.
+					assert.Empty(t, gotArgs)
+					assert.Equal(t, string(genai.FinishReasonMalformedFunctionCall), final.ErrorCode)
+					assert.Contains(t, final.ErrorMessage, tt.wantErr)
+					assert.Equal(t, openAIFinishReasonToGenai(tt.finishReason), final.FinishReason)
+					return
+				}
+				assert.Empty(t, final.ErrorCode)
+				assert.Equal(t, tt.wantArgs, gotArgs)
+			})
+		}
 	}
 }
