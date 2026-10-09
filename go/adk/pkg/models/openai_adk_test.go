@@ -404,6 +404,50 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			t.Errorf("newest user message = %q, want %q", got, "hello again")
 		}
 	})
+
+	t.Run("PDF bytes are sent as a file part", func(t *testing.T) {
+		data := []byte("%PDF-1.4 test")
+		contents := []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{
+			{Text: "summarize"},
+			{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: data, DisplayName: "report.pdf"}},
+		}}}
+		msgs, _, err := genaiContentsToOpenAIMessages(contents, nil)
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if len(msgs) != 1 || msgs[0].OfUser == nil {
+			t.Fatalf("messages = %#v, want one user message", msgs)
+		}
+		parts := msgs[0].OfUser.Content.OfArrayOfContentParts
+		if len(parts) != 2 || parts[0].OfText == nil || parts[0].OfText.Text != "summarize" || parts[1].OfFile == nil {
+			t.Fatalf("content parts = %#v, want text then file", parts)
+		}
+		file := parts[1].OfFile.File
+		if want := "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(data); file.FileData.Value != want {
+			t.Errorf("file_data = %q, want %q", file.FileData.Value, want)
+		}
+		if file.Filename.Value != "report.pdf" {
+			t.Errorf("filename = %q, want %q", file.Filename.Value, "report.pdf")
+		}
+	})
+}
+
+func TestOpenAIModelSendsPDFBytes(t *testing.T) {
+	for name, tt := range map[string]struct {
+		config *OpenAIConfig
+		want   bool
+	}{
+		"chat completions": {&OpenAIConfig{}, true},
+		"nil config":       {nil, true},
+		"custom base url":  {&OpenAIConfig{BaseUrl: "https://example.com/v1"}, false},
+		"responses api":    {&OpenAIConfig{APIFormat: OpenAIAPIFormatResponses}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := (&OpenAIModel{Config: tt.config}).SendsPDFBytes(); got != tt.want {
+				t.Errorf("SendsPDFBytes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestApplyOpenAIConfig(t *testing.T) {

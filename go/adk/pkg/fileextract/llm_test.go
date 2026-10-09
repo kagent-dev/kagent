@@ -109,3 +109,51 @@ func TestWithFileText_NameFromPartMetadata(t *testing.T) {
 		t.Errorf("file part = %+v, want text %q", inner.got.Contents[0].Parts[0], want)
 	}
 }
+
+type pdfRecordingLLM struct{ recordingLLM }
+
+func (pdfRecordingLLM) SendsPDFBytes() bool { return true }
+
+func TestWithFileText_KeepsPDFForPDFLLM(t *testing.T) {
+	pdf := &genai.Part{InlineData: &genai.Blob{Data: []byte("%PDF-1.4"), MIMEType: "application/pdf", DisplayName: "report.pdf"}}
+	txt := &genai.Part{InlineData: &genai.Blob{Data: []byte("remember the milk"), MIMEType: "text/plain", DisplayName: "notes.txt"}}
+	req := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{pdf, txt}}}}
+
+	inner := &pdfRecordingLLM{}
+	for range WithFileText(inner).GenerateContent(t.Context(), req, false) {
+	}
+	parts := inner.got.Contents[0].Parts
+	if parts[0] != pdf {
+		t.Errorf("PDF part = %+v, want it unchanged", parts[0])
+	}
+	if !strings.Contains(parts[1].Text, "remember the milk") || parts[1].InlineData != nil {
+		t.Errorf("text file part = %+v, want text", parts[1])
+	}
+
+	plain := &recordingLLM{}
+	for range WithFileText(plain).GenerateContent(t.Context(), req, false) {
+	}
+	if got := plain.got.Contents[0].Parts[0]; got.InlineData != nil || got.Text == "" {
+		t.Errorf("PDF part for an LLM without SendsPDFBytes = %+v, want text", got)
+	}
+}
+
+func TestIsPDF(t *testing.T) {
+	for _, tt := range []struct {
+		mime, name, data string
+		want             bool
+	}{
+		{"application/pdf", "", "%PDF-1.4", true},
+		{"Application/PDF", "x.bin", "%PDF-1.7", true},
+		{"application/octet-stream", "Report.PDF", "%PDF-1.4", true},
+		{"", "report.pdf", "%PDF-1.4", true},
+		{"text/plain", "report.pdf", "%PDF-1.4", false},
+		{"application/octet-stream", "report.txt", "%PDF-1.4", false},
+		{"application/pdf", "report.pdf", "not a pdf", false},
+		{"application/pdf", "report.pdf", "", false},
+	} {
+		if got := IsPDF(&genai.Blob{MIMEType: tt.mime, Data: []byte(tt.data)}, tt.name); got != tt.want {
+			t.Errorf("IsPDF(%q, %q, %q) = %v, want %v", tt.mime, tt.name, tt.data, got, tt.want)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/packages/respjson"
@@ -129,6 +130,16 @@ func (m *OpenAIModel) apiFormat() string {
 		return m.Config.APIFormat
 	}
 	return OpenAIAPIFormatChatCompletions
+}
+
+// SendsPDFBytes implements the optional method fileextract.WithFileText probes.
+// Only api.openai.com and Azure OpenAI are known to take PDFs as Chat Completions
+// file parts. A custom base URL (Foundry, compatible servers) and the Responses
+// path keep getting text, so a server that rejects file parts cannot fail the
+// session on every replayed turn. The check reads the config only; a base URL
+// set through the OPENAI_BASE_URL environment variable is not seen.
+func (m *OpenAIModel) SendsPDFBytes() bool {
+	return m.apiFormat() != OpenAIAPIFormatResponses && (m.Config == nil || m.Config.BaseUrl == "")
 }
 
 // GenerateContent implements model.LLM. Uses only ADK/genai types.
@@ -274,7 +285,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 		role := strings.TrimSpace(content.Role)
 		var textParts []string
 		var functionCalls []*genai.FunctionCall
-		var imageParts []openai.ChatCompletionContentPartImageImageURLParam
+		var contentParts []openai.ChatCompletionContentPartUnionParam
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -285,16 +296,25 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
 			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{
+				contentParts = append(contentParts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
 					URL: fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data)),
-				})
+				}))
+			} else if part.InlineData != nil && role == genai.RoleUser && fileextract.IsPDF(part.InlineData, fileextract.PartFileName(part)) {
+				name := fileextract.PartFileName(part)
+				if name == "" {
+					name = "document.pdf"
+				}
+				contentParts = append(contentParts, openai.FileContentPart(openai.ChatCompletionContentPartFileFileParam{
+					FileData: param.NewOpt("data:application/pdf;base64," + base64.StdEncoding.EncodeToString(part.InlineData.Data)),
+					Filename: param.NewOpt(name),
+				}))
 			} else if part.FileData != nil && role == genai.RoleUser {
 				switch {
 				case strings.HasPrefix(part.FileData.MIMEType, "image/") && strings.HasPrefix(strings.ToLower(part.FileData.FileURI), "https://"):
 					// Replayed on every later turn so follow-up questions about the
 					// image keep working. A link the provider cannot fetch, now or
 					// later, fails every later turn; the caller must start a new session.
-					imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{URL: part.FileData.FileURI})
+					contentParts = append(contentParts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{URL: part.FileData.FileURI}))
 				case i == newestUser:
 					return nil, "", unsupportedLinkError(part.FileData)
 				default:
@@ -349,14 +369,12 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			messages = append(messages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			messages = append(messages, toolResponseMessages...)
 		} else {
-			if len(imageParts) > 0 {
-				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(textParts)+len(imageParts))
+			if len(contentParts) > 0 {
+				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(textParts)+len(contentParts))
 				for _, t := range textParts {
 					parts = append(parts, openai.TextContentPart(t))
 				}
-				for _, img := range imageParts {
-					parts = append(parts, openai.ImageContentPart(img))
-				}
+				parts = append(parts, contentParts...)
 				messages = append(messages, openai.UserMessage(parts))
 			} else if len(textParts) > 0 {
 				messages = append(messages, openai.UserMessage(strings.Join(textParts, "\n")))

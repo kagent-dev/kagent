@@ -21,22 +21,25 @@ import (
 	"google.golang.org/genai"
 )
 
-// A non-image link fails its own turn, but the session keeps working afterwards.
-func TestChatCompletionsLinkFailsOnlyItsOwnTurn(t *testing.T) {
+// chatCompletionsHarness wires the real Chat Completions adapter the way production
+// does (file wrapper, agent, runner, one session) in front of a fake provider. It
+// returns a sender for A2A parts and the request bodies the provider received.
+func chatCompletionsHarness(t *testing.T) (send func(parts ...*a2atype.Part) error, bodies *[]map[string]any) {
+	t.Helper()
 	ctx := t.Context()
-	var bodies []map[string]any
+	var got []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		encoded, _ := io.ReadAll(r.Body)
 		var body map[string]any
 		_ = json.Unmarshal(encoded, &body)
-		bodies = append(bodies, body)
+		got = append(got, body)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
 			"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"gpt-4o",
 			"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]
 		}`)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	client := openai.NewClient(
 		option.WithAPIKey("test"),
@@ -48,7 +51,7 @@ func TestChatCompletionsLinkFailsOnlyItsOwnTurn(t *testing.T) {
 		Client: client,
 		Logger: slog.New(slog.DiscardHandler),
 	}
-	a, err := llmagent.New(llmagent.Config{Name: "links", Model: fileextract.WithFileText(llm)})
+	a, err := llmagent.New(llmagent.Config{Name: "files", Model: fileextract.WithFileText(llm)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +64,7 @@ func TestChatCompletionsLinkFailsOnlyItsOwnTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	send := func(parts ...*a2atype.Part) error {
+	send = func(parts ...*a2atype.Part) error {
 		t.Helper()
 		msg := &genai.Content{Role: genai.RoleUser}
 		for _, p := range parts {
@@ -78,24 +81,30 @@ func TestChatCompletionsLinkFailsOnlyItsOwnTurn(t *testing.T) {
 		}
 		return nil
 	}
+	return send, &got
+}
+
+// A non-image link fails its own turn, but the session keeps working afterwards.
+func TestChatCompletionsLinkFailsOnlyItsOwnTurn(t *testing.T) {
+	send, bodies := chatCompletionsHarness(t)
 
 	const link = "https://example.com/report.pdf"
-	err = send(a2atype.NewTextPart("read this"), a2atype.NewFileURLPart(link, "application/pdf"))
+	err := send(a2atype.NewTextPart("read this"), a2atype.NewFileURLPart(link, "application/pdf"))
 	if err == nil || !strings.Contains(err.Error(), link) {
 		t.Fatalf("first turn error = %v, want one that names %q", err, link)
 	}
-	if len(bodies) != 0 {
-		t.Fatalf("model called %d times on the first turn, want 0", len(bodies))
+	if len(*bodies) != 0 {
+		t.Fatalf("model called %d times on the first turn, want 0", len(*bodies))
 	}
 
 	if err := send(a2atype.NewTextPart("hello again")); err != nil {
 		t.Fatalf("second turn error = %v", err)
 	}
-	if len(bodies) != 1 {
-		t.Fatalf("model called %d times, want 1", len(bodies))
+	if len(*bodies) != 1 {
+		t.Fatalf("model called %d times, want 1", len(*bodies))
 	}
 	var users []string
-	messages, _ := bodies[0]["messages"].([]any)
+	messages, _ := (*bodies)[0]["messages"].([]any)
 	for _, m := range messages {
 		if msg, _ := m.(map[string]any); msg["role"] == "user" {
 			content, _ := msg["content"].(string)
@@ -110,5 +119,30 @@ func TestChatCompletionsLinkFailsOnlyItsOwnTurn(t *testing.T) {
 	}
 	if got := users[len(users)-1]; got != "hello again" {
 		t.Errorf("last user message = %q, want %q", got, "hello again")
+	}
+}
+
+// A PDF passes the file wrapper unchanged and goes out as a Chat Completions file part.
+func TestChatCompletionsSendsPDFBytesAsFilePart(t *testing.T) {
+	send, bodies := chatCompletionsHarness(t)
+
+	if err := send(a2atype.NewTextPart("summarize"), fileA2APart("report.pdf", "application/pdf", "%PDF-1.4 test")); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if len(*bodies) != 1 {
+		t.Fatalf("model called %d times, want 1", len(*bodies))
+	}
+	messages, _ := (*bodies)[0]["messages"].([]any)
+	last, _ := messages[len(messages)-1].(map[string]any)
+	parts, _ := last["content"].([]any)
+	var file map[string]any
+	for _, p := range parts {
+		if part, _ := p.(map[string]any); part["type"] == "file" {
+			file, _ = part["file"].(map[string]any)
+		}
+	}
+	data, _ := file["file_data"].(string)
+	if file["filename"] != "report.pdf" || !strings.HasPrefix(data, "data:application/pdf;base64,") {
+		t.Fatalf("user message = %#v, want a file part for report.pdf", last)
 	}
 }
