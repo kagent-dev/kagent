@@ -1,6 +1,8 @@
 package models
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"google.golang.org/genai"
@@ -62,5 +64,32 @@ func TestMergeSystemInstructionFromConfig(t *testing.T) {
 				t.Errorf("mergeSystemInstructionFromConfig() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHeaderTransport_SendsHostAsRequestHost(t *testing.T) {
+	t.Parallel()
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt := &headerTransport{
+		base:    srv.Client().Transport,
+		headers: map[string]string{"Host": "tenant.gateway.internal"},
+	}
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+	if seen != "tenant.gateway.internal" {
+		t.Errorf("server Host = %q, want %q", seen, "tenant.gateway.internal")
 	}
 }
