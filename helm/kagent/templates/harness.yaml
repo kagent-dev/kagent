@@ -7,7 +7,9 @@ spec.harnessRef.name. The runtime is the chart's Go ADK image
 (controller.agentImage) at the digest the chart was published with;
 harness.image overrides it. The CRD pins the image by digest (a moving tag
 would silently change every agent on the Harness), so a tag fails here, at
-render time, instead of at admission.
+render time, instead of at admission. No helm.sh/resource-policy keep (only
+the CRDs carry it): harness.create=false deletes the Harness on the next
+upgrade.
 */}}
 {{- $image := include "kagent.harness.image" . }}
 {{- if not $image }}
@@ -26,9 +28,6 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
-  annotations:
-    # The runtime of every agent that references it: kept across an uninstall of the chart.
-    helm.sh/resource-policy: keep
 spec:
   {{- /* Exactly one of kagent|codex|claude|byo; the Go ADK runtime adapter.
   Compaction is the Harness's (Harness.spec.kagent.compaction): every agent

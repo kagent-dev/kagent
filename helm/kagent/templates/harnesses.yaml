@@ -5,7 +5,9 @@ toolchain Harness on an image built from it, or another Go ADK Harness. Each
 entry has the policy shape of harness.*: a WorkerPool, a snapshot location,
 an environment. An Agent names the Harness it runs
 on by spec.harnessRef.name, so the names of the entries and of the chart's own
-Harness must be distinct, and the render fails on a repeat.
+Harness must be distinct, and the render fails on a repeat. An entry's Harness
+carries no helm.sh/resource-policy keep (only the CRDs do): removing the entry
+deletes its Harness on the next upgrade.
 */}}
 {{- $root := . }}
 {{- $names := dict }}
@@ -47,9 +49,6 @@ metadata:
   namespace: {{ include "kagent.namespace" $root }}
   labels:
     {{- include "kagent.labels" $root | nindent 4 }}
-  annotations:
-    # The runtime of every agent admitted under it: kept across an uninstall of the chart.
-    helm.sh/resource-policy: keep
 spec:
   {{- if eq $runtime "claude" }}
   {{- with $entry.limits }}

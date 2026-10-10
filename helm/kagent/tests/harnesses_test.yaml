@@ -33,9 +33,8 @@ tests:
       - equal:
           path: metadata.namespace
           value: kagent
-      - equal:
+      - notExists:
           path: metadata.annotations["helm.sh/resource-policy"]
-          value: keep
       - equal:
           path: spec.claude
           value: {}
