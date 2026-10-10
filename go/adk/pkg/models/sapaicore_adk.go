@@ -204,6 +204,8 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
+			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				textParts = append(textParts, unsupportedImageNote(part.InlineData))
 			}
 		}
 
@@ -211,7 +213,7 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 			toolCalls := make([]map[string]any, 0, len(functionCalls))
 			var toolResponses []map[string]any
 			for _, fc := range functionCalls {
-				argsJSON, _ := json.Marshal(fc.Args)
+				argsJSON, _ := json.Marshal(nonNilFunctionCallArgs(fc.Args))
 				tc := map[string]any{
 					"type": "function",
 					"function": map[string]any{

@@ -10,7 +10,7 @@ import (
 
 func TestRuntimeLifecycleStoresSharedValues(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestRuntimeLifecycleRejectsUnknownStoredValues(t *testing.T) {
 
 func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, err := pool.Exec(ctx, `

@@ -132,7 +132,15 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	for _, command := range sessionCmd.Commands() {
 		sessionCommands = append(sessionCommands, command.Name())
 	}
-	assert.ElementsMatch(t, []string{"create", "list", "get", "delete"}, sessionCommands)
+	assert.ElementsMatch(t, []string{"create", "list", "get", "delete", "push"}, sessionCommands)
+	for _, operation := range []string{"create", "get", "list", "delete"} {
+		_, _, err := rootCmd.Find([]string{"agent", "session", "push", operation})
+		assert.NoError(t, err)
+	}
+	invokeCmd, _, err := rootCmd.Find([]string{"agent", "invoke"})
+	require.NoError(t, err)
+	assert.NotNil(t, invokeCmd.Flags().Lookup("push-url"))
+	assert.NotNil(t, invokeCmd.Flags().Lookup("push-id"))
 }
 
 func TestRootCommandRemovesLegacyPaths(t *testing.T) {

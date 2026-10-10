@@ -52,9 +52,19 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
 			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
-			require.Equal(t, map[string]string{workerPoolLabelKey: "pool"}, template.GetWorkerSelector().GetMatchLabels())
+			testWorkerPoolSelection(t, template, "agents", "pool")
 		})
 	}
+}
+
+// The keys are literals because the Helm chart and externally managed pools
+// set them by name; changing a key constant must fail here.
+func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, namespace, pool string) {
+	t.Helper()
+	require.Equal(t, map[string]string{
+		"kagent.dev/worker-pool-name":      pool,
+		"kagent.dev/worker-pool-namespace": namespace,
+	}, template.GetWorkerSelector().GetMatchLabels())
 }
 
 func TestActorTemplateForRevision(t *testing.T) {
@@ -86,12 +96,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
-		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotConfig().GetOnResume())
-	}
-	if template.GetSnapshotConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
-		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotConfig().GetOnPause())
-	}
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, template.GetSnapshotConfig().GetOnCommit())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
@@ -102,7 +107,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 		}
 	}
 	trust := template.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
-	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
+	if !slices.Equal(trust.GetNames(), []string{"egress-mitm.ate.dev"}) || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
 		t.Fatal("gateway trust bundle was not projected")
 	}
 	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()

@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// PromptTemplateContext holds the v2 AgentTemplate values available to system
+// PromptTemplateContext holds the AgentTemplate values available to system
 // prompt templates. It deliberately excludes legacy Agent fields and skills,
 // which the current K3 adapter does not support.
 type PromptTemplateContext struct {

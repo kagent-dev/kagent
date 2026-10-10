@@ -216,8 +216,11 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
 	require.Equal(t, data, f.read(t, id, "binary.dat"))
-	_, err = f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.Equal(t, codes.NotFound, status.Code(err))
+	// Sandboxes take FULL snapshots until Substrate's lifecycle v2, so the guest's
+	// in-memory process registry survives suspend and resume.
+	restored, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+	require.NoError(t, err)
+	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, restored.Status)
 	_, err = f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
 	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
@@ -289,7 +292,7 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 	key := types.NamespacedName{Namespace: f.template.Namespace, Name: f.template.Name}
 	require.NoError(t, kube.Get(f.ctx, key, template))
 	marker := "prepared-v2"
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: &marker}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: marker}}
 	require.NoError(t, kube.Update(f.ctx, template))
 	require.Eventually(t, func() bool {
 		require.NoError(t, kube.Get(f.ctx, key, template))

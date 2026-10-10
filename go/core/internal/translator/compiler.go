@@ -12,8 +12,7 @@ import (
 )
 
 // Compiler resolves public API objects into a complete, immutable runtime
-// revision. It owns the v2 translation boundary rather than delegating to an
-// earlier API translator.
+// revision. It owns the translation boundary from API objects to runtime inputs.
 type Compiler struct {
 	ctx              krt.HandlerContext
 	collections      Collections
@@ -87,7 +86,7 @@ type AgentInputBinding struct {
 	Agent       *AgentInput
 }
 
-// NewCompiler constructs the v2 runtime compiler.
+// NewCompiler constructs the runtime compiler.
 func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
 	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
 }
@@ -208,11 +207,8 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 				continue
 			}
 			binding := tool.SubAgent
-			if (binding.TemplateRef == nil) == (binding.AgentRef == nil) {
-				return nil, NewValidationError("subagent %q requires exactly one of templateRef or agentRef", binding.Name)
-			}
-			if binding.AgentRef != nil {
-				return nil, NewValidationError("Dedicated subagent %q (agentRef) is not supported yet", binding.Name)
+			if binding.TemplateRef == nil || binding.TemplateRef.Name == "" {
+				return nil, NewValidationError("subagent %q requires templateRef.name", binding.Name)
 			}
 			if _, ok := names[binding.Name]; ok {
 				return nil, NewValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)

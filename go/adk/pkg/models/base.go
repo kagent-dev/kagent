@@ -155,6 +155,19 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
+// nonNilFunctionCallArgs returns args, substituting an empty map for nil.
+// A no-argument FunctionCall reloads from the session store with nil Args
+// (omitempty drops the empty map), and some providers reject null or "null".
+//
+// TODO: remove once the pinned go-genai fixes
+// https://github.com/googleapis/go-genai/issues/920.
+func nonNilFunctionCallArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
 // parametersJsonSchemaToMap converts a genai.FunctionDeclaration.ParametersJsonSchema value
 // to map[string]any. ParametersJsonSchema is typed as `any` and can hold:
 //   - map[string]any (rare — only if someone constructs it manually)
@@ -176,6 +189,16 @@ func parametersJsonSchemaToMap(v any) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// unsupportedImageNote stands in for an image a text-only adapter cannot send,
+// so an image-only turn is not dropped.
+func unsupportedImageNote(blob *genai.Blob) string {
+	name := blob.DisplayName
+	if name == "" {
+		name = "image"
+	}
+	return fmt.Sprintf("[Image %q was not sent: this provider integration cannot pass images.]", name)
 }
 
 // extractFunctionResponseContent converts a tool/function response value to a plain string:

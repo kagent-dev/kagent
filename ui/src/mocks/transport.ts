@@ -1387,7 +1387,7 @@ function substrateActorMessage(
       workerAssignment: actor.ateomPodName ? {
         workerNamespace: actor.ateomPodNamespace ?? "",
         workerPod: actor.ateomPodName,
-        workerPodIp: actor.ateomPodIp ?? "",
+        workerPodIps: actor.ateomPodIp ? [actor.ateomPodIp] : [],
         workerPool: actor.workerPoolName ?? "",
       } : undefined,
       externalSnapshot: actor.latestSnapshot
@@ -1403,7 +1403,7 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ip: worker.ip ?? "",
+    ips: worker.ip ? [worker.ip] : [],
     metadata: { version: BigInt(worker.version ?? 0) },
     status: {
       allocated: {

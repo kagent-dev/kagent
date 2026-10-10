@@ -6,7 +6,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,7 +62,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				harness.Spec.BYO = &v1alpha3.BYOHarness{}
 			}
 
-			var previous v2translator.RevisionID
+			var previous translator.RevisionID
 			for _, host := range []string{"first.services.ai.azure.com", "second.services.ai.azure.com"} {
 				endpoint := "https://" + host
 				configMap := &corev1.ConfigMap{
@@ -91,7 +91,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				require.Equal(t, host, revision.Credentials[0].Hostname)
 				require.Equal(t, "api-key", revision.Credentials[0].Header)
 				require.Equal(t, "ate-secret://k8s.io/default/test/foundry-auth/token", revision.Credentials[0].URI)
-				require.Contains(t, revision.EgressDestinations, host)
+				require.Contains(t, revision.EgressDestinations, "https://"+host+":443")
 				require.Equal(t, original, model, "compilation must not patch the source ModelConfig")
 				digest, err := revision.Digest()
 				require.NoError(t, err)

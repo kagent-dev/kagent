@@ -128,6 +128,10 @@ test("substrate: the inventory renders, and partial runtime data says so", async
   await test.step("5. the actors placed right now, and the pods holding them", async () => {
     const actors = page.getByTestId("substrate-actors-table");
     await expect(actors).toBeVisible();
+    // The first worker holds two actors, so the page explains sharing.
+    await expect(page.getByTestId("substrate-actors-shared-note")).toContainText(
+      "Multiple actors are running on the same worker.",
+    );
     await expect(actors).toContainText("actor-7f21");
     await expect(actors).toContainText("kagent/coder-template");
     // The pod, with its IP appended — the two facts an operator needs to go and look.
@@ -268,6 +272,7 @@ test("substrate: an empty inventory is shown without errors", async ({
   await expect(page.getByTestId("substrate-actors-table")).toContainText(
     "No actors on this page.",
   );
+  await expect(page.getByTestId("substrate-actors-shared-note")).toHaveCount(0);
   await expect(page.getByTestId("substrate-workers-table")).toContainText(
     "No worker assignments in this namespace scope on this page.",
   );
