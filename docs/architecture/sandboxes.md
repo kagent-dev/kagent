@@ -198,7 +198,7 @@ The apiserver registers three services on the same listener:
 | Service | Operations |
 | --- | --- |
 | `kagent.api.v1alpha1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
-| `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, KillProcess, StreamProcessOutputs |
+| `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, SignalProcess, StreamProcessOutput |
 | `ateenv.v1alpha.FileSystemService` | ReadFile, WriteFile |
 
 Execution uses env's exact services, requests, responses, and streaming messages.
@@ -228,7 +228,9 @@ Env's protobuf currently has no validation annotations. Guest payload validation
 is delegated to env; adding annotations upstream is a follow-up. Kagent validates
 sandbox routing and enforces authorization, expiration, and transfer limits.
 The env dependency remains pinned. Message changes come from the dependency;
-new upstream RPCs require explicit forwarding and access policies.
+new upstream RPCs require explicit forwarding and access policies. A sandbox keeps
+the guest image it was prepared with, so an env upgrade that changes the guest
+messages requires deleting existing sandboxes.
 
 Resource authorization and owner checks apply before routing guest traffic. Agent
 share tokens grant no sandbox access. An agent calling MCP operates under the
@@ -295,7 +297,7 @@ Uploads replace the remote destination and may leave partial writes on failure.
 With `-o json`, `exec` and `wait` emit newline-delimited `started`, `output`,
 `finished`, and `interrupted` events. Records retain the sandbox/process IDs and
 both continuation offsets; output bytes are base64, and finished events include
-status and exit code. Other commands return one JSON value. The CLI has no
+state and exit code. Other commands return one JSON value. The CLI has no
 dependency on MCP prompt support.
 
 ## Persistence model
