@@ -10,6 +10,7 @@
 
 # build output
 /dist
+/dist-e2e-*
 
 # testing
 /coverage
