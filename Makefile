@@ -258,8 +258,11 @@ SUBSTRATE_ENABLED ?= false
 # it — so the chart version is set here, not derived from go.mod, and the two
 # move together at a re-pin. Upstream: SUBSTRATE_VERSION from the go.mod
 # replace target, SUBSTRATE_REPO oci://ghcr.io/kagent-dev/substrate/helm.
-SUBSTRATE_VERSION ?= 1.7.0-rc.2
+SUBSTRATE_VERSION ?= 1.7.0
 SUBSTRATE_REPO ?= oci://gsoci.azurecr.io/giantswarm/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
+# The module pin: the go.mod replace target's version, the ate-api contract
+# the controller is compiled against.
+SUBSTRATE_MODULE_VERSION ?= $(shell $(AWK) '/^replace github\.com\/agent-substrate\/substrate / { print $$NF }' go/go.mod)
 SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
 SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 
@@ -267,6 +270,15 @@ SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 substrate-pin: ## Print the Substrate pin as KEY=VALUE lines (ci.yaml reads them, so the e2e cluster runs the same Substrate the charts depend on)
 	@echo SUBSTRATE_VERSION=$(strip $(SUBSTRATE_VERSION))
 	@echo SUBSTRATE_REPO=$(strip $(SUBSTRATE_REPO))
+	@echo SUBSTRATE_MODULE_VERSION=$(strip $(SUBSTRATE_MODULE_VERSION))
+
+# A stable release runs on a stable Substrate: the publish pipeline's first
+# job refuses a stable tag whose chart or module pin is a prerelease, before
+# an image is built. RELEASE_VERSION is the tag being published; a candidate
+# (vX.Y.Z-rc.N) or a dev build (empty) passes.
+.PHONY: substrate-pin-check
+substrate-pin-check: ## Refuse a stable RELEASE_VERSION built on a Substrate prerelease pin
+	@scripts/fork/substrate-pin-check.sh "$(strip $(SUBSTRATE_VERSION))" "$(strip $(SUBSTRATE_MODULE_VERSION))" "$(strip $(RELEASE_VERSION))"
 
 HELM_ACTION=upgrade --install
 

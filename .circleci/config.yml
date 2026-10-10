@@ -95,6 +95,21 @@ skip-tagged-commit: &skip-tagged-commit
         fi
 
 jobs:
+  check-substrate-pin:
+    # A stable release runs on a stable Substrate (FORK.md, "Release scheme").
+    # The first job of the publish workflow, ahead of every image build: a
+    # stable tag whose chart pin (the Makefile's SUBSTRATE_VERSION) or module
+    # pin (the go.mod replace target) is a prerelease fails here, naming the
+    # version, and nothing of that release is published. A candidate or a dev
+    # build passes: a candidate exists to prove a prerelease Substrate.
+    executor: architect/architect
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Refuse a stable release built on a Substrate prerelease
+          command: make -s substrate-pin-check RELEASE_VERSION="${CIRCLE_TAG:-}"
+
   push-charts:
     executor: architect/architect
     resource_class: small
@@ -256,6 +271,35 @@ jobs:
             LEDGER_GIT_NAME='circleci-architect[bot]' \
             LEDGER_GIT_EMAIL='240937895+circleci-architect[bot]@users.noreply.github.com' \
               scripts/fork/ledger-append.sh builds.md "$row"
+      - run:
+          name: Name the Substrate release the release's notes require
+          command: |
+            set -euo pipefail
+            # A release's notes name the Substrate release it requires
+            # (FORK.md, "Release scheme"). The Auto Release workflow writes
+            # the notes from the commits when it creates the GitHub release;
+            # the pin is read here, where the artifacts are published, and
+            # appended once the ledger row is written. A dev build has no
+            # release; a re-run of the job appends nothing twice.
+            [ -n "${CIRCLE_TAG:-}" ] || exit 0
+            eval "$(make -s substrate-pin)"
+            worker_registry="${SUBSTRATE_REPO#oci://}"
+            {
+              echo
+              echo "### Requires"
+              echo
+              echo "- Substrate \`${SUBSTRATE_VERSION}\` of the Giant Swarm line (giantswarm/substrate \`v${SUBSTRATE_VERSION}\`): the \`kagent\` chart depends on \`substrate\` \`${SUBSTRATE_VERSION}\` from \`${SUBSTRATE_REPO}\` and runs the worker image \`${worker_registry%/helm}/ateom-gvisor:${SUBSTRATE_VERSION}\`; the controller speaks the ate-api contract of \`github.com/giantswarm/substrate ${SUBSTRATE_MODULE_VERSION}\`."
+            } > /tmp/requires.md
+            cat /tmp/requires.md | tee -a /tmp/published.md
+            export GH_TOKEN="$GITHUB_TOKEN" GH_REPO="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}"
+            gh release view "$CIRCLE_TAG" --json body --jq .body > /tmp/notes.md
+            if grep -q '^### Requires$' /tmp/notes.md; then
+              echo "the notes of ${CIRCLE_TAG} already name the Substrate release they require"
+              exit 0
+            fi
+            cat /tmp/requires.md >> /tmp/notes.md
+            gh release edit "$CIRCLE_TAG" --notes-file /tmp/notes.md
+            echo "the notes of ${CIRCLE_TAG} name Substrate ${SUBSTRATE_VERSION}"
       - store_artifacts:
           path: /tmp/published.md
           destination: published.md
@@ -269,6 +313,10 @@ workflows:
   # persist the same path — and the chart jobs read it from there.
   publish:
     jobs:
+      # The stable-release gate, ahead of every build (the job above).
+      - check-substrate-pin:
+          pre-steps: *skip-tagged-commit
+          filters: *publish-filters
       # controller
       - architect/build-image:
           name: build-controller-amd64
@@ -280,6 +328,7 @@ workflows:
           build-context: go
           build-args: *build-args-controller
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
@@ -292,6 +341,7 @@ workflows:
           build-context: go
           build-args: *build-args-controller
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
@@ -317,6 +367,7 @@ workflows:
           build-context: ui
           build-args: *build-args-ui
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
@@ -329,6 +380,7 @@ workflows:
           build-context: ui
           build-args: *build-args-ui
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
@@ -354,6 +406,7 @@ workflows:
           build-context: go
           build-args: *build-args-golang-adk
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
@@ -366,6 +419,7 @@ workflows:
           build-context: go
           build-args: *build-args-golang-adk
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
@@ -391,6 +445,7 @@ workflows:
           build-context: go
           build-args: *build-args-claude-harness
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/build-image:
@@ -403,6 +458,7 @@ workflows:
           build-context: go
           build-args: *build-args-claude-harness
           registries-data: *registries
+          requires: [check-substrate-pin]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - architect/push-to-registries:
