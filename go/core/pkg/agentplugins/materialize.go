@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
@@ -38,6 +39,7 @@ type Paths struct {
 type Materialization struct {
 	SkillsDirectory string
 	plugins         []materializedPlugin
+	skills          *standaloneSkills
 }
 
 // MCPConfig contains MCP servers resolved from materialized plugins.
@@ -80,15 +82,54 @@ func (m Materialization) ClaudeFormatPluginRoots() []string {
 	return roots
 }
 
-// Materialize fetches Agent Plugin resources and copies explicitly selected
-// skills into their runtime directory; Claude-format plugins are kept whole.
-// It does not load runtime configuration.
+// Materialize fetches Agent Plugin packages and copies their selected skills
+// into the runtime directory; Claude-format plugins are kept whole. Standalone
+// skills are only validated here and fetched by EnsureSkills. It does not load
+// runtime configuration.
 func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
 	plugins, err := materializeResources(ctx, resources, paths)
 	if err != nil {
 		return Materialization{}, err
 	}
-	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+	return Materialization{
+		SkillsDirectory: paths.Skills, plugins: plugins,
+		skills: &standaloneSkills{skills: slices.Clone(resources.Skills), paths: paths},
+	}, nil
+}
+
+// standaloneSkills fetches standalone skills once. A failed fetch keeps the
+// skills already copied and is resumed by the next call.
+type standaloneSkills struct {
+	mu      sync.Mutex
+	skills  []agentplugin.Skill
+	fetched int
+	paths   Paths
+}
+
+// EnsureSkills fetches standalone skills into SkillsDirectory and returns once
+// all of them are present. Call it before each task, never during startup: a
+// Substrate Actor has no egress until it is ready, and a golden snapshot is
+// taken before any session's egress policy and gateway credentials apply. It
+// is safe for concurrent use and does no work after the first success.
+func (m Materialization) EnsureSkills(ctx context.Context) error {
+	if m.skills == nil {
+		return nil
+	}
+	s := m.skills
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ; s.fetched < len(s.skills); s.fetched++ {
+		skill := s.skills[s.fetched]
+		root := filepath.Join(s.paths.Packages, fmt.Sprintf("standalone-%d", s.fetched))
+		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
+		if err != nil {
+			return fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
+		if err := copySkill(sourceRoot, filepath.Join(s.paths.Skills, skill.Name)); err != nil {
+			return fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
+	}
+	return nil
 }
 
 // LoadMCP resolves standard MCP configuration from a materialization. The
@@ -124,17 +165,6 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 	}
 	if err := os.MkdirAll(paths.Packages, 0o755); err != nil {
 		return nil, fmt.Errorf("create package directory: %w", err)
-	}
-
-	for i, skill := range resources.Skills {
-		root := filepath.Join(paths.Packages, fmt.Sprintf("standalone-%d", i))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
-		if err != nil {
-			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
-		}
-		if err := copySkill(sourceRoot, filepath.Join(paths.Skills, skill.Name)); err != nil {
-			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
-		}
 	}
 
 	pluginNames := make(map[string]struct{})
@@ -231,7 +261,7 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 			return "", err
 		}
 	case source.Git != nil:
-		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, destination); err != nil {
+		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, destination, source.Git.GatewayAuthorization); err != nil {
 			return "", err
 		}
 	case source.S3 != nil:

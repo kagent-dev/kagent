@@ -2,8 +2,8 @@
 // standalone skills and Agent Plugin packages.
 package agentplugin
 
-// Resources describes the skill resources a Harness must materialize before
-// starting an agent.
+// Resources describes the skill resources a Harness materializes: plugins
+// before starting an agent, standalone skills before its first task.
 type Resources struct {
 	Skills  []Skill  `json:"skills,omitempty"`
 	Plugins []Bundle `json:"plugins,omitempty"`
@@ -33,6 +33,10 @@ type Source struct {
 type GitSource struct {
 	URL    string `json:"url"`
 	Commit string `json:"commit"`
+	// GatewayAuthorization reports that the egress gateway owns this host's
+	// Authorization header. The runtime sends a placeholder value for the
+	// gateway to replace; it never holds the credential.
+	GatewayAuthorization bool `json:"gateway_authorization,omitempty"`
 }
 
 // S3Source identifies one immutable S3 object version.

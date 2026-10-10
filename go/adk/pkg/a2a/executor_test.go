@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"maps"
 	"slices"
@@ -246,6 +247,50 @@ func TestKAgentExecutor_StampsStructuredOutputFailureMessage(t *testing.T) {
 	position, ok := apia2a.TimelinePosition(got.Status.Message)
 	if !ok || !position.Equal(timestamp) {
 		t.Fatalf("timeline position = %v, %v; want %v", position, ok, timestamp)
+	}
+}
+
+func TestKAgentExecutor_FailsTaskWhenSkillsAreUnavailable(t *testing.T) {
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "ctx-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+	}
+	builtin := &recordingExecutor{}
+	fetchErr := errors.New(`materialize skill "review": exit status 128`)
+	executor := &KAgentExecutor{
+		builtin: builtin, logger: slog.New(slog.DiscardHandler),
+		ensureSkills: func(context.Context) error { return fetchErr },
+	}
+	var events []a2atype.Event
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		events = append(events, event)
+	}
+	if builtin.message != nil {
+		t.Fatal("the agent ran without its skills")
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want one failed status", events)
+	}
+	got, ok := events[0].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || got.Status.State != a2atype.TaskStateFailed || got.Status.Message == nil {
+		t.Fatalf("status update = %#v, want failed status", events[0])
+	}
+	text, _ := got.Status.Message.Parts[0].Content.(a2atype.Text)
+	if want := "skills_unavailable: " + fetchErr.Error(); string(text) != want {
+		t.Fatalf("failure message = %q, want %q", text, want)
+	}
+
+	executor.ensureSkills = func(context.Context) error { return nil }
+	for _, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	}
+	if builtin.message == nil {
+		t.Fatal("the agent did not run once its skills were present")
 	}
 }
 

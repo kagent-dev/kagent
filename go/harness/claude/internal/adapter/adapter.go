@@ -58,6 +58,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	var pluginDirs []string
+	var ensureSkills func(context.Context) error
 	if cfg.SkillResources != nil {
 		skillsDir := filepath.Join(skillRoot, ".claude", "skills")
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
@@ -71,6 +72,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
 		pluginDirs = materialized.ClaudeFormatPluginRoots()
+		ensureSkills = materialized.EnsureSkills
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The native runtime inherits the compiled identity through the standard
@@ -147,6 +149,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
+		EnsureSkills: ensureSkills,
 	}), nil
 }
 

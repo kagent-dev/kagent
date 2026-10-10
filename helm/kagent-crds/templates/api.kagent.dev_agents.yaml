@@ -386,6 +386,30 @@ spec:
                               description: GitArtifact identifies immutable content
                                 at a full Git commit ID.
                               properties:
+                                authorizationFrom:
+                                  description: |-
+                                    AuthorizationFrom references a key in a Secret in the AgentTemplate's
+                                    namespace whose value is the complete HTTP Authorization header for the
+                                    repository host, for example
+                                    `Basic <base64 of x-access-token:TOKEN>` for GitHub or `Bearer TOKEN`.
+                                    The egress gateway adds the header to the runtime's requests to that
+                                    host; the value never enters the runtime, its configuration, or a
+                                    snapshot. Supported for skills only.
+                                  properties:
+                                    key:
+                                      maxLength: 253
+                                      minLength: 1
+                                      pattern: ^[-._a-zA-Z0-9]+$
+                                      type: string
+                                    name:
+                                      maxLength: 253
+                                      minLength: 1
+                                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                      type: string
+                                  required:
+                                  - key
+                                  - name
+                                  type: object
                                 commit:
                                   pattern: ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
                                   type: string
@@ -397,6 +421,9 @@ spec:
                               - commit
                               - url
                               type: object
+                              x-kubernetes-validations:
+                              - message: authorizationFrom requires an https URL
+                                rule: '!has(self.authorizationFrom) || self.url.startsWith(''https://'')'
                             oci:
                               description: OCI is a digest-pinned image reference.
                               pattern: ^[^[:space:]@]+@sha256:[0-9a-f]{64}$
@@ -418,6 +445,9 @@ spec:
                       required:
                       - source
                       type: object
+                      x-kubernetes-validations:
+                      - message: authorizationFrom is supported only for skills[].source.git
+                        rule: '!has(self.source.git) || !has(self.source.git.authorizationFrom)'
                     maxItems: 20
                     type: array
                   promptTemplate:
@@ -499,6 +529,30 @@ spec:
                               description: GitArtifact identifies immutable content
                                 at a full Git commit ID.
                               properties:
+                                authorizationFrom:
+                                  description: |-
+                                    AuthorizationFrom references a key in a Secret in the AgentTemplate's
+                                    namespace whose value is the complete HTTP Authorization header for the
+                                    repository host, for example
+                                    `Basic <base64 of x-access-token:TOKEN>` for GitHub or `Bearer TOKEN`.
+                                    The egress gateway adds the header to the runtime's requests to that
+                                    host; the value never enters the runtime, its configuration, or a
+                                    snapshot. Supported for skills only.
+                                  properties:
+                                    key:
+                                      maxLength: 253
+                                      minLength: 1
+                                      pattern: ^[-._a-zA-Z0-9]+$
+                                      type: string
+                                    name:
+                                      maxLength: 253
+                                      minLength: 1
+                                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                      type: string
+                                  required:
+                                  - key
+                                  - name
+                                  type: object
                                 commit:
                                   pattern: ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
                                   type: string
@@ -510,6 +564,9 @@ spec:
                               - commit
                               - url
                               type: object
+                              x-kubernetes-validations:
+                              - message: authorizationFrom requires an https URL
+                                rule: '!has(self.authorizationFrom) || self.url.startsWith(''https://'')'
                             oci:
                               description: OCI is a digest-pinned image reference.
                               pattern: ^[^[:space:]@]+@sha256:[0-9a-f]{64}$

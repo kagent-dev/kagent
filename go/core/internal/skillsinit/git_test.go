@@ -46,7 +46,7 @@ func Test_applySubPath_rejectsNonDir(t *testing.T) {
 }
 
 func TestCloneGitCommitRejectsMutableRef(t *testing.T) {
-	err := CloneGitCommit("https://example.com/repository.git", "main", t.TempDir())
+	err := CloneGitCommit("https://example.com/repository.git", "main", t.TempDir(), false)
 	require.ErrorContains(t, err, "full SHA")
 }
 

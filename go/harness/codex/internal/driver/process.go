@@ -32,6 +32,9 @@ type ProcessConfig struct {
 	MaxStderrBytes       int
 	InterruptGrace       time.Duration
 	ApprovalServers      map[string]struct{}
+	// EnsureSkills fetches deferred standalone skills before a turn. They
+	// need Actor egress, which does not exist while the Actor starts.
+	EnsureSkills func(context.Context) error
 }
 
 // ProcessDriver supervises Codex App Server and retains it while a protected
@@ -81,6 +84,11 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 // Run initializes App Server, starts or resumes the Actor's native thread, and
 // emits the turn's ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	if d.config.EnsureSkills != nil {
+		if err := d.config.EnsureSkills(ctx); err != nil {
+			return runtime.Outcome{Failure: &runtime.Failure{Message: "skills_unavailable: " + err.Error()}}, nil
+		}
+	}
 	if strings.TrimSpace(turn.Prompt) == "" {
 		return runtime.Outcome{}, fmt.Errorf("codex prompt is required")
 	}

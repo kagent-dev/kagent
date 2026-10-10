@@ -98,6 +98,56 @@ func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	}
 }
 
+func TestMaterializeDefersStandaloneSkillsUntilEnsureSkills(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{"SKILL.md": "# Review"})
+	root := t.TempDir()
+	paths := Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills")}
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{
+		{Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}},
+		{Name: "later", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: filepath.Join(root, "missing"), Commit: commit}}},
+	}}
+	materialization, err := Materialize(context.Background(), resources, paths)
+	if err != nil {
+		t.Fatalf("Materialize() fetched a standalone skill during startup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Skills, "review")); !os.IsNotExist(err) {
+		t.Fatalf("standalone skill materialized before EnsureSkills: %v", err)
+	}
+
+	if err := materialization.EnsureSkills(context.Background()); err == nil || !strings.Contains(err.Error(), `skill "later"`) {
+		t.Fatalf("EnsureSkills() error = %v, want the unreachable skill", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil || string(content) != "# Review" {
+		t.Fatalf("first skill = %q, %v", content, err)
+	}
+	// The next task resumes at the failed skill without refetching the first.
+	if err := os.RemoveAll(filepath.Join(paths.Packages, "standalone-0")); err != nil {
+		t.Fatal(err)
+	}
+	later := filepath.Join(paths.Packages, "standalone-1")
+	if err := os.MkdirAll(later, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(later, "SKILL.md"), []byte("# Later"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialization.EnsureSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Packages, "standalone-0")); !os.IsNotExist(err) {
+		t.Fatalf("EnsureSkills() refetched a skill it already copied: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "later", "SKILL.md")); err != nil || string(content) != "# Later" {
+		t.Fatalf("second skill = %q, %v", content, err)
+	}
+}
+
+func TestEnsureSkillsOnZeroMaterialization(t *testing.T) {
+	if err := (Materialization{}).EnsureSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
 	root := t.TempDir()
 	pluginRoot := filepath.Join(root, "plugins", "plugin-0")

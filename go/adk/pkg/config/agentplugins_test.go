@@ -35,7 +35,14 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err != nil {
+	ensureSkills, err := MaterializeAgentPlugins(context.Background(), agentConfig, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(agentConfig.SkillsDirectory, "root")); !os.IsNotExist(err) {
+		t.Fatalf("standalone skill materialized during startup: %v", err)
+	}
+	if err := ensureSkills(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if agentConfig.SkillsDirectory == agentConfig.SubAgents[0].SkillsDirectory {
@@ -64,7 +71,7 @@ func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 	}
 	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
 	agentConfig := &adk.AgentConfig{AgentPlugins: &agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}}}
-	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err == nil {
+	if _, err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err == nil {
 		t.Fatal("MaterializeAgentPlugins() accepted a Claude-format plugin")
 	}
 }

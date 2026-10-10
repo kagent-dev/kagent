@@ -55,6 +55,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
+	cfg.ClaudeExecutable = filepath.Join(t.TempDir(), "missing-claude")
 	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
 		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
 	}}}
@@ -71,8 +72,16 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	skillPath := filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md")
+	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
+		t.Fatalf("standalone skill materialized during startup: %v", err)
+	}
+	// The first turn fetches skills before it starts Claude, which is absent here.
+	if _, err := runner.Run(context.Background(), runtime.Turn{Prompt: "test"}, nil); err == nil {
+		t.Fatal("Run() started a missing Claude executable")
+	}
 	for path, want := range map[string]string{
-		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
+		skillPath: "# Review",
 		filepath.Join(ephemeralDir, "mcp.json"):                             `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
 	} {
 		contents, err := os.ReadFile(path)

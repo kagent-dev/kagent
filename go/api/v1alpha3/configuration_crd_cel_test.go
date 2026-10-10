@@ -404,6 +404,47 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("git skill authorizationFrom", func(t *testing.T) {
+		commit := strings.Repeat("a", 40)
+		git := func(url string, authorization map[string]any) map[string]any {
+			source := map[string]any{"url": url, "commit": commit}
+			if authorization != nil {
+				source["authorizationFrom"] = authorization
+			}
+			return map[string]any{"git": source}
+		}
+		secretKey := map[string]any{"name": "skills-auth", "key": "authorization"}
+		for _, tc := range []struct {
+			name       string
+			path       []string
+			entry      map[string]any
+			wantReject string
+		}{
+			{name: "skill", path: []string{"spec", "skills"}, entry: map[string]any{"name": "review", "source": git("https://github.com/acme/skills", secretKey)}},
+			{name: "public-skill", path: []string{"spec", "skills"}, entry: map[string]any{"name": "review", "source": git("http://git.example.com/acme/skills", nil)}},
+			{name: "plain-http", path: []string{"spec", "skills"}, entry: map[string]any{"name": "review", "source": git("http://git.example.com/acme/skills", secretKey)}, wantReject: "authorizationFrom requires an https URL"},
+			{name: "missing-key", path: []string{"spec", "skills"}, entry: map[string]any{"name": "review", "source": git("https://github.com/acme/skills", map[string]any{"name": "skills-auth"})}, wantReject: "key: Required value"},
+			{name: "empty-key", path: []string{"spec", "skills"}, entry: map[string]any{"name": "review", "source": git("https://github.com/acme/skills", map[string]any{"name": "skills-auth", "key": ""})}, wantReject: "authorizationFrom.key"},
+			{name: "namespace", path: []string{"spec", "skills"}, entry: map[string]any{"name": "review", "source": git("https://github.com/acme/skills", map[string]any{"name": "skills-auth", "key": "authorization", "namespace": "other"})}, wantReject: "unknown field"},
+			{name: "plugin", path: []string{"spec", "plugins"}, entry: map[string]any{"source": git("https://github.com/acme/plugin", secretKey)}, wantReject: "authorizationFrom is supported only for skills[].source.git"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(validAgentTemplate(namespace, "git-auth-"+tc.name, nil))
+				require.NoError(t, err)
+				object := &unstructured.Unstructured{Object: data}
+				object.SetAPIVersion(GroupVersion.String())
+				object.SetKind("AgentTemplate")
+				require.NoError(t, unstructured.SetNestedSlice(data, []any{tc.entry}, tc.path...))
+				err = cl.Create(ctx, object, &ctrlclient.CreateOptions{FieldValidation: metav1.FieldValidationStrict})
+				if tc.wantReject != "" {
+					require.ErrorContains(t, err, tc.wantReject)
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
+	})
 }
 
 func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTemplateSpec)) *SandboxTemplate {

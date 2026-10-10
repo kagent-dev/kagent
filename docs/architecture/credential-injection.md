@@ -56,12 +56,13 @@ overrides of these variables are rejected.
 | Gemini API key | `x-goog-api-key: <key>` |
 | Bedrock bearer token | `authorization: Bearer <token>` |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
+| AgentTemplate `skills[].source.git.authorizationFrom` | `authorization`; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
 match its scheme, DNS name, and port; credential bindings remain scoped to the
 hostname and header. Different credentials for the same hostname and header
-are rejected, including conflicts between models, memory embeddings, and MCP
-servers. Use distinct DNS names for
+are rejected, including conflicts between models, memory embeddings, MCP
+servers, and Git skill sources. Use distinct DNS names for
 origins requiring different credentials. IP-address destinations are unsupported
 by Substrate egress policies.
 
@@ -75,6 +76,59 @@ serialized into runtimes.
 Caller-token passthrough retains its existing behavior. A passthrough model
 cannot share a hostname with static gateway credentials, which would override
 the caller's authentication.
+
+## Private Git skill sources
+
+A standalone skill may come from a private HTTPS Git repository. The Secret,
+in the AgentTemplate's namespace, holds the complete `Authorization` header
+value for the repository host:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: skills-auth
+stringData:
+  # GitHub: base64 of "x-access-token:<token>". Other forges may accept "Bearer <token>".
+  authorization: Basic eC1hY2Nlc3MtdG9rZW46PHRva2VuPg==
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: reviewer
+spec:
+  skills:
+    - name: review
+      source:
+        git:
+          url: https://github.com/acme/private-skills
+          commit: 0123456789abcdef0123456789abcdef01234567
+          authorizationFrom:
+            name: skills-auth
+            key: authorization
+```
+
+The compiler allows the repository origin and binds the Secret key to its
+hostname. The runtime fetches with a placeholder `Authorization` header, which
+the gateway replaces; it never holds the token. The binding covers every
+request the Actor makes to that hostname, including requests made by its tools,
+so use a read-only token scoped to the skill repositories. `authorizationFrom`
+requires an `https` URL and is rejected on `plugins[]`, which are still
+fetched while the Actor starts.
+
+### When skills are fetched
+
+Actor networking starts only after the runtime is ready, and the golden Actor
+that produces the template snapshot runs without an egress policy. Runtimes
+therefore fetch standalone skills (Git, OCI, or S3, public or private) before
+the first task of each session Actor, not at startup. Consequences:
+
+- The golden snapshot contains neither a credential nor any standalone skill
+  content. Session snapshots contain the fetched files, never the credential.
+- The first task of a session waits for the fetch. Later tasks reuse the files.
+- A fetch failure fails that task with a `skills_unavailable: …` status message
+  and an error log line in the runtime; the next task retries the remaining
+  skills. It no longer prevents the golden snapshot.
 
 ## Deferred API fields
 

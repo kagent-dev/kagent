@@ -39,6 +39,21 @@ type ConfigMapKeyReference struct {
 	Key string `json:"key"`
 }
 
+// SecretKeyReference selects a key of a Secret in the referencing object's
+// namespace.
+type SecretKeyReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +required
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[-._a-zA-Z0-9]+$`
+	// +required
+	Key string `json:"key"`
+}
+
 // FromNamespaces specifies namespace from which references to this resource are allowed.
 // This follows the same pattern as Gateway API's cross-namespace route attachment.
 // See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment

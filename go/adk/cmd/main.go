@@ -68,14 +68,15 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 	if err != nil {
 		return fmt.Errorf("load agent config from %s (model configuration is required): %w", configDir, err)
 	}
-	if err := config.MaterializeAgentPlugins(
+	ensureSkills, err := config.MaterializeAgentPlugins(
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
 			Packages: defaultPluginPackagesRoot,
 			Skills:   defaultSkillsRoot,
 			Data:     defaultPluginDataRoot,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("materialize Agent Plugins: %w", err)
 	}
 	logger.Info("loaded agent config", "config_dir", configDir)
@@ -187,6 +188,7 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 		Logger:         logger,
 		Output:         agentConfig.Output,
 		Flush:          providers.ForceFlush,
+		EnsureSkills:   ensureSkills,
 	})
 	if err != nil {
 		return fmt.Errorf("create A2A executor: %w", err)
