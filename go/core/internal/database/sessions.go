@@ -313,6 +313,9 @@ func insertSessionRecords(ctx context.Context, db pgx.Tx, session *apiv1alpha1.S
 }
 
 func releaseAgentRuntimeReferences(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	if err := execSQL(ctx, tx, `DELETE FROM session_push_registration WHERE history_id = (SELECT history_id FROM session WHERE id = $1)`, id); err != nil {
+		return err
+	}
 	if err := execSQL(ctx, tx, `UPDATE session SET pinned_checkpoint_id = NULL WHERE id = $1`, id); err != nil {
 		return err
 	}

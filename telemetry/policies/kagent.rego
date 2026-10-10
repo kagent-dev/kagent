@@ -21,13 +21,14 @@ deny contains finding if {
 }
 
 deny contains finding if {
-	some entity in input.registry.entities
+	some entity in array.concat(input.registry.entities, input.refinements.entities)
 	some attr in array.concat(object.get(entity, "identity", []), object.get(entity, "description", []))
 	attr.key in request_identity
+	name := object.get(entity, "id", entity.type)
 	finding := {
 		"id": "kagent_no_request_identity",
-		"context": {"entity": entity.type, "attribute": attr.key},
-		"message": sprintf("Entity '%s' carries '%s'. One process serves many requests, so request identity never belongs on a resource.", [entity.type, attr.key]),
+		"context": {"entity": name, "attribute": attr.key},
+		"message": sprintf("Entity '%s' carries '%s'. One process serves many requests, so request identity never belongs on a resource.", [name, attr.key]),
 		"level": "violation",
 	}
 }

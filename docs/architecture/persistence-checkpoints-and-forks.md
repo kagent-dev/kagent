@@ -64,7 +64,7 @@ Creating a checkpoint does not suspend the Actor again:
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
-Substrate v0.3.0-alpha1 records snapshot lineage in
+Substrate v0.4.0-alpha1 records snapshot lineage in
 `Actor.status.external_snapshot.actor_template_uid`. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.
 
@@ -87,6 +87,8 @@ Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
 ## Forking
+
+Forks are currently unavailable. Substrate 0.5.0-alpha2 applies one snapshot scope to pause and suspend, and templates use Full so paused Actors keep their process memory. A Full checkpoint restored into a new Actor would resume processes that still hold the source session's IDs, so `ForkSession` rejects it with `FAILED_PRECONDITION`. Forking returns when Substrate's lifecycle v2 lets templates take Data snapshots on suspend again. The rest of this section describes forks of Data checkpoints.
 
 Forking creates a new Session and context ID. It copies events through the
 saved cutoff and reconstructs task views without reading the source's current task

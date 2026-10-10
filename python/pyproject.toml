@@ -5,11 +5,15 @@ members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai
 dev = [
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
-  "ruff>=0.16.9",
+  "ruff>=0.16.10",
   "authlib>=1.8.0"
 ]
 
 [tool.uv]
+override-dependencies = [
+    "opentelemetry-api>=1.45.1,<1.46",
+    "opentelemetry-sdk>=1.45.1,<1.46",
+]
 constraint-dependencies = [
     "aiohttp>=3.14.3",
     "cryptography>=50.0.0",

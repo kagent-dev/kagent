@@ -16,6 +16,7 @@ import (
 
 type workflowStore interface {
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
+	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
@@ -36,12 +37,16 @@ type actorClient interface {
 // lifecycle RPCs. Only the claiming caller issues lifecycle mutations; others
 // observe current completion or receive a pending/superseded-operation error.
 type ActorWorkflow struct {
-	store  workflowStore
-	actors actorClient
+	store            workflowStore
+	actors           actorClient
+	recoveryInterval time.Duration
+	quiescenceWake   chan struct{}
 }
 
-func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors}
+// quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
+// the workflow stops through context cancellation.
+func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration) *ActorWorkflow {
+	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
 }
 
 // Pause checkpoints the runtime on its current worker without changing the
@@ -141,7 +146,12 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 	if err != nil {
 		return nil, err
 	}
-	return w.execute(ctx, operation)
+	result, err := w.execute(ctx, operation)
+	if err == nil && result.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
+		// A resume can make old unclaimed idle work eligible again.
+		w.wakeQuiescence()
+	}
+	return result, err
 }
 
 // execute keeps lifecycle preparation separate from the durable issue boundary.

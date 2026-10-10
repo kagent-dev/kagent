@@ -17,7 +17,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,7 +45,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			store := database.NewClient(pool)
+			store := database.NewClient(pool, "public")
 			collections, harnesses := newPreparationTestCollections(t, "gvisor")
 			initial := collections.Reconciliations.List()[0]
 			templates := &fakeActorTemplates{template: proto.CloneOf(initial.Target.ActorTemplate)}
@@ -112,7 +112,8 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
 
-			require.NoError(t, NewRuntimeRevisionGC(store, templates).collect(ctx, abandoned.Revision))
+			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
+			require.NoError(t, collector.collect(ctx, abandoned.Revision))
 			require.Nil(t, templates.template)
 			_, err = store.GetRuntimeRevision(ctx, abandoned.Revision)
 			require.ErrorIs(t, err, database.ErrNotFound)
@@ -505,7 +506,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	updated := harnesses.List()[0].DeepCopy()
-	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: new(strings.Repeat("x", 32769))}}
+	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}
 	harnesses.UpdateObject(updated)
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).CompilationFailure != nil
@@ -549,7 +550,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	collections := Collections{
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 		Harnesses:                harnesses,
-		ResolvedModelConfigs:     krttest.GetMockCollection[v2translator.ResolvedModelConfig](mock),
+		ResolvedModelConfigs:     krttest.GetMockCollection[translator.ResolvedModelConfig](mock),
 		RemoteMCPServers:         krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:               krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:                  krttest.GetMockCollection[*corev1.Secret](mock),
@@ -558,7 +559,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		ModelConfigStatuses:      krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
 	}
 	collections.Agents = krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runtimeHarness)}, opts.WithName("Agents")...)
-	collections.Reconciliations = newAgentReconciliations(collections.Agents, v2translator.Collections{
+	collections.Reconciliations = newAgentReconciliations(collections.Agents, translator.Collections{
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,

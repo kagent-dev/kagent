@@ -81,6 +81,10 @@ func taskMutationHash(value string) []byte {
 }
 
 func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.Session, *a2a.Task) {
+	return waitingTaskWithPushFixture(t, client, nil)
+}
+
+func waitingTaskWithPushFixture(t *testing.T, client *Client, config *a2a.PushConfig) (*apiv1alpha1.Session, *a2a.Task) {
 	t.Helper()
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
@@ -90,6 +94,9 @@ func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.Session, *a2
 	task.ContextID = session.ContextId
 	_, err = client.CreateRuntimeTask(t.Context(), session.Id, taskMutationHash("initial request"), task, "")
 	require.NoError(t, err)
+	if config != nil {
+		require.NoError(t, client.SaveTaskPushConfig(t.Context(), session.Id, string(task.ID), config))
+	}
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which database?"))}
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	return session, task

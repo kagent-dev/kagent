@@ -48,7 +48,7 @@ func TestTelemetryConfigFromProcess(t *testing.T) {
 	if !got.Logs.Enabled || got.Logs.Endpoint != "http://generic:4318/otel/v1/logs" || got.Logs.Protocol != "http/protobuf" {
 		t.Fatalf("logs = %#v", got.Logs)
 	}
-	if want := []string{"traces", "generic", "generic"}; !reflect.DeepEqual(got.Destinations(), want) {
+	if want := []string{"http://traces:4317", "http://generic:4318", "http://generic:4318"}; !reflect.DeepEqual(got.Destinations(), want) {
 		t.Fatalf("destinations = %v, want %v", got.Destinations(), want)
 	}
 	want := []corev1.EnvVar{
@@ -61,7 +61,7 @@ func TestTelemetryConfigFromProcess(t *testing.T) {
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", Value: "grpc"},
 		{Name: "OTEL_EXPORTER_OTLP_TIMEOUT", Value: "5000"},
 		{Name: "OTEL_SERVICE_NAME", Value: "demo-claude"},
-		{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.agent.id=team/demo-claude,gen_ai.agent.name=demo-claude,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-5,service.namespace=team"},
+		{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.main_agent.id=team/demo-claude,gen_ai.main_agent.name=demo-claude,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-5,service.namespace=team"},
 		{Name: "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", Value: "SPAN_ONLY"},
 	}
 	if environment := got.TelemetryEnvironment(testIdentity, ""); !reflect.DeepEqual(environment, want) {
@@ -137,8 +137,8 @@ func TestTelemetryEnvironmentKeepsIdentityOverOperatorAndHarnessAttributes(t *te
 		t.Fatalf("warnings = %v", warnings)
 	}
 	identity := tracing.RuntimeTelemetry{AgentName: "a-kagent", AgentNamespace: "team"}
-	attributes := environmentMap(got.TelemetryEnvironment(identity, "k8s.cluster.name=west,department=eng,gen_ai.agent.name=forged"))["OTEL_RESOURCE_ATTRIBUTES"]
-	if want := "deployment.environment.name=prod,k8s.cluster.name=west,department=eng,gen_ai.agent.id=team/a-kagent,gen_ai.agent.name=a-kagent,service.namespace=team"; attributes != want {
+	attributes := environmentMap(got.TelemetryEnvironment(identity, "k8s.cluster.name=west,department=eng,gen_ai.main_agent.name=forged"))["OTEL_RESOURCE_ATTRIBUTES"]
+	if want := "deployment.environment.name=prod,k8s.cluster.name=west,department=eng,gen_ai.main_agent.id=team/a-kagent,gen_ai.main_agent.name=a-kagent,service.namespace=team"; attributes != want {
 		t.Fatalf("resource attributes = %q, want %q", attributes, want)
 	}
 }

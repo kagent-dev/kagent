@@ -218,14 +218,15 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		config := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default", UID: types.UID("cfg-uid")},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:    "gpt-4",
-				Provider: v1alpha3.ModelProviderOpenAI,
-				TLS:      &v1alpha3.TLSConfig{CACertSecretRef: "ca-v1", CACertSecretKey: "ca.crt"},
+				Model:           "gpt-4",
+				Provider:        v1alpha3.ModelProviderOpenAI,
+				APIKeySecret:    "auth-v1",
+				APIKeySecretKey: "token",
 			},
 		}
 		oldSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ca-v1",
+				Name:      "auth-v1",
 				Namespace: "default",
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: v1alpha3.GroupVersion.Identifier(),
@@ -235,29 +236,30 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 				}},
 			},
 			Type: corev1.SecretTypeOpaque,
-			Data: map[string][]byte{"ca.crt": []byte("OLD")},
+			Data: map[string][]byte{"token": []byte("OLD")},
 		}
 		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{}, config, oldSecret)
 
 		updated, err := service.Update(ctx, model.UpdateRequest{
 			Ref: types.NamespacedName{Namespace: "default", Name: "cfg"},
 			Spec: v1alpha3.ModelConfigSpec{
-				Model:    "gpt-4.1",
-				Provider: v1alpha3.ModelProviderOpenAI,
-				TLS:      &v1alpha3.TLSConfig{CACertSecretRef: "ca-v2", CACertSecretKey: "ca.crt"},
+				Model:           "gpt-4.1",
+				Provider:        v1alpha3.ModelProviderOpenAI,
+				APIKeySecret:    "auth-v2",
+				APIKeySecretKey: "token",
 			},
-			Secrets: []secretmaterial.Material{{Name: "ca-v2", Key: "ca.crt", Value: "NEW"}},
+			Secrets: []secretmaterial.Material{{Name: "auth-v2", Key: "token", Value: "NEW"}},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "gpt-4.1", updated.Spec.Model)
 
 		newSecret := &corev1.Secret{}
-		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "ca-v2"}, newSecret)
+		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "auth-v2"}, newSecret)
 		require.NoError(t, err)
-		assert.Equal(t, "NEW", string(newSecret.Data["ca.crt"]))
+		assert.Equal(t, "NEW", string(newSecret.Data["token"]))
 
 		deleted := &corev1.Secret{}
-		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "ca-v1"}, deleted)
+		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "auth-v1"}, deleted)
 		assert.Error(t, err)
 	})
 
@@ -333,27 +335,6 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		fetched := &v1alpha3.ModelConfig{}
 		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, fetched)
 		assert.Error(t, err)
-	})
-
-	t.Run("update permission denied before write", func(t *testing.T) {
-		config := &v1alpha3.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
-			Spec:       v1alpha3.ModelConfigSpec{Model: "original", Provider: v1alpha3.ModelProviderOpenAI},
-		}
-		authorizer := &recordingAuthorizer{denyCheck: 1}
-		service, kubeClient, ctx := newService(authorizer, config)
-
-		_, err := service.Update(ctx, model.UpdateRequest{
-			Ref:  types.NamespacedName{Namespace: "default", Name: "cfg"},
-			Spec: v1alpha3.ModelConfigSpec{Model: "updated", Provider: v1alpha3.ModelProviderOpenAI},
-		})
-		require.Error(t, err)
-		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
-		require.Len(t, authorizer.checkCalls, 1)
-
-		stored := &v1alpha3.ModelConfig{}
-		require.NoError(t, kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, stored))
-		assert.Equal(t, "original", stored.Spec.Model)
 	})
 
 	t.Run("denied collection is empty and denied item is rejected", func(t *testing.T) {
@@ -443,8 +424,8 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbDelete}
-	wantNames := []string{"existing", "created", "existing", "existing"}
+	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbGet, pkgauth.VerbDelete}
+	wantNames := []string{"existing", "created", "existing", "existing", "existing"}
 	require.Len(t, authorizer.checkCalls, len(wantVerbs))
 	for index, call := range authorizer.checkCalls {
 		assert.Equal(t, wantVerbs[index], call.verb)
@@ -452,6 +433,41 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		assert.Equal(t, "team", call.resource.Namespace)
 		assert.Equal(t, wantNames[index], call.resource.Name)
 	}
+}
+
+// A caller who may read but not update must not have its API key written on the way to the denial.
+func TestDeniedUpdateWritesNothing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	ref := types.NamespacedName{Namespace: "team", Name: "existing"}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name},
+		Spec:       v1alpha3.ModelConfigSpec{Model: "old", Provider: v1alpha3.ModelProviderOpenAI},
+	}).Build()
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, denyCheck: 1}
+	service := model.NewService(kubeClient, authorizer, "default")
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+
+	apiKey := "api-key-value"
+	_, err := service.Update(ctx, model.UpdateRequest{
+		Ref:    ref,
+		APIKey: &apiKey,
+		Spec:   v1alpha3.ModelConfigSpec{Model: "updated", Provider: v1alpha3.ModelProviderOpenAI},
+	})
+	require.Error(t, err)
+	assert.Truef(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "got %v", err)
+
+	// The update decision is the only one reached: a read before it would record a get first.
+	assert.Equal(t, []authorizationCall{
+		{verb: pkgauth.VerbUpdate, resource: pkgauth.Resource{Type: "ModelConfig", Namespace: ref.Namespace, Name: ref.Name}},
+	}, authorizer.checkCalls)
+
+	err = kubeClient.Get(ctx, ref, &corev1.Secret{})
+	assert.True(t, apierrors.IsNotFound(err), "denied update wrote its API key secret: %v", err)
+	stored := &v1alpha3.ModelConfig{}
+	require.NoError(t, kubeClient.Get(ctx, ref, stored))
+	assert.Equal(t, "old", stored.Spec.Model)
 }
 
 // A create that cannot finish its Secrets must not leave the ModelConfig behind.

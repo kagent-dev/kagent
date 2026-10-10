@@ -60,6 +60,7 @@ export type {
   ChatPart,
   ChatRole,
   ChatTextPart,
+  ChatFilePart,
   ChatToolApprovalPart,
   ChatTurnState,
   SendMessageInput,

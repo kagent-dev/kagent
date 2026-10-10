@@ -177,7 +177,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
-	store := database.NewClient(db)
+	store := database.NewClient(db, "public")
 	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
 	require.NoError(t, store.UpsertAgentDefinition(t.Context(), pair))
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{

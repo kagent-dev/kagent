@@ -7,9 +7,10 @@ import (
 
 var (
 	// These variables should be set during build time using -ldflags
-	Version   = "dev"
-	GitCommit = "none"
-	BuildDate = "unknown"
+	Version          = "dev"
+	GitCommit        = "none"
+	BuildDate        = "unknown"
+	SubstrateVersion = "dev"
 )
 
 // Info contains version information

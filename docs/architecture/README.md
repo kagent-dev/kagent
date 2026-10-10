@@ -67,7 +67,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 ## Component boundaries
 
 - API types describe agent behavior without exposing backend mechanics.
-- The v2 translator resolves references and compiles explicit runtime inputs.
+- The translator resolves references and compiles explicit runtime inputs.
 - The controller reconciles compiled revisions to ate-api ActorTemplates.
 - Session and Sandbox services own their respective lifecycle orchestration.
 - The apiserver handles sandbox lifecycle and guest operations through one
@@ -84,6 +84,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [Client lifecycle retries](../lifecycle-retries.md)
 - [Standalone sandboxes](sandboxes.md)
 - [A2A gateway](a2a-gateway.md)
+- [A2A push notifications](a2a-push-notifications.md)
 - [A2A metadata](a2a-metadata.md)
 - [OIDC proxy authentication](oidc-proxy-authentication.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)

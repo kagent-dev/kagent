@@ -10,7 +10,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// Runtime owns the Kubernetes client and common options shared by the v2 KRT
+// Runtime owns the Kubernetes client and common options shared by the KRT
 // collections. Collections must be created before Start so their informers are
 // registered before the client starts.
 type Runtime struct {
@@ -31,8 +31,8 @@ func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struc
 	return &Runtime{Client: client, Options: options, Collections: collections}, nil
 }
 
-// Start starts every informer registered by the v2 KRT collections and keeps
-// them alive until the application shuts down. The v2 API uses installed CRDs
+// Start starts every informer registered by the KRT collections and keeps
+// them alive until the application shuts down. The API uses installed CRDs
 // directly, so it does not start Istio's cluster-wide delayed-CRD watcher.
 func (r *Runtime) Start(ctx context.Context) error {
 	defer r.Client.Shutdown()

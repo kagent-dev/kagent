@@ -10,7 +10,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `(none)` | Python Google ADK span content capture. When absent, derived from OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT (true for SPAN_ONLY or SPAN_AND_EVENT, false otherwise). |
+| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `false` | Python Google ADK content on its legacy gcp.vertex.agent.* span keys, including tool arguments and results. kagent keeps it off; captured content uses the GenAI convention keys. |
 | `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN` | String | `2` | Python Google ADK telemetry schema version; set by kagent when absent. |
 | `ANTHROPIC_API_KEY` | String | `(none)` | API key for Anthropic. |
 | `AWS_ACCESS_KEY_ID` | String | `(none)` | AWS access key ID for IAM authentication with Bedrock. |
@@ -22,6 +22,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_AD_TOKEN` | String | `(none)` | Azure Active Directory authentication token for Azure OpenAI. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `AZURE_OPENAI_ENDPOINT` | String | `(none)` | Endpoint URL for Azure OpenAI service. |
+| `CREWAI_DISABLE_TELEMETRY` | String | `true` | CrewAI anonymous telemetry, which exports to CrewAI's own endpoint; kagent turns it off when absent. |
 | `FOUNDRY_API_KEY` | String | `(none)` | API key for Azure AI Foundry. |
 | `FOUNDRY_API_VERSION` | String | `2024-10-21` | Azure AI Foundry OpenAI-compatible data-plane API version. |
 | `FOUNDRY_DEPLOYMENT` | String | `(none)` | Azure AI Foundry model deployment name. |
@@ -72,13 +73,16 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Trace endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Trace protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
 | `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Trace SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
+| `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED` | String | `false` | Python a2a-sdk internal spans; kagent turns them off when absent. |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `NO_CONTENT` | SPAN_ONLY records prompts and responses on agent spans. NO_CONTENT disables capture. Managed runtimes support these two modes; standalone Python ADK also recognizes SPAN_AND_EVENT. Captured content may be sensitive. |
 | `OTEL_LOGS_EXPORTER` | String | `(none)` | Log exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `OTEL_METRICS_EXPORTER` | String | `(none)` | Metric exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `OTEL_PROPAGATORS` | String | `tracecontext` | SDK trace propagators. Kagent defaults to W3C tracecontext without baggage and supplies that default to managed runtimes. |
+| `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` | String | `(none)` | Python instrumentation entry point names to skip, such as httpx or openai. |
+| `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS` | String | `/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json` | Python inbound HTTP paths left untraced; set by kagent when absent. |
 | `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated SDK resource attributes for the current process. Helm injects controller identity; kagent constructs runtime identity separately. Use KAGENT_OTEL_RESOURCE_ATTRIBUTES for attributes shared with managed agents. |
 | `OTEL_SDK_DISABLED` | String | `false` | Disable SDK telemetry and forwarding to managed runtimes when true (case-insensitive). Other values are treated as false. |
-| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental` | Python Google ADK semantic-convention opt-in; set by kagent when absent. |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental,http` | Python semantic-convention opt-in for GenAI and stable HTTP; set by kagent when absent. |
 | `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
 | `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
 | `SAP_AI_CORE_CLIENT_ID` | String | `(none)` | OAuth2 client ID for SAP AI Core authentication. |
@@ -92,13 +96,22 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `GEMINI_API_KEY` | String | `(none)` | Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs. |
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
+| `KAGENT_BUNDLED_POSTGRES_IMAGE` | String | `postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15` | PostgreSQL image that kagent install deploys. Point it at a mirror for air-gapped clusters. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_DEFAULT_MODEL_PROVIDER` | String | `openAI` | Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI). |
-| `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional arguments to pass to Helm commands. |
+| `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Kagent chart. |
 | `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
 | `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
 | `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
+| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
+| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
+| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
+| `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Substrate chart. |
+| `KAGENT_SUBSTRATE_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/substrate/helm/` | Helm repository URL for Substrate charts. |
+| `KAGENT_SUBSTRATE_HELM_VERSION` | String | `(none)` | Substrate Helm chart version to deploy. When unset, the CLI uses its pinned Substrate version. |
+| `KAGENT_SUBSTRATE_PODCERT_HELM_REPO` | String | `(none)` | Helm repository URL for the Substrate PodCertificate chart. When unset, the CLI uses KAGENT_SUBSTRATE_HELM_REPO. |
+| `KAGENT_SUBSTRATE_PODCERT_HELM_VERSION` | String | `(none)` | Substrate PodCertificate Helm chart version to deploy. When unset, the CLI uses KAGENT_SUBSTRATE_HELM_VERSION or its pinned Substrate version. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
@@ -107,10 +120,14 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
+| `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `false` | Allow HTTP A2A push callbacks. HTTPS is required by default. |
+| `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `false` | Allow A2A push callbacks to private, loopback, and link-local destinations. |
+| `KAGENT_A2A_PUSH_ISSUER` | String | `(none)` | Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL. |
+| `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` | String | `(none)` | Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
 | `KAGENT_GRPC_REFLECTION` | Boolean | `false` | Enable gRPC server reflection on the controller. |
 | `KAGENT_HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
@@ -122,15 +139,27 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_OTEL_CAPTURE_RAW_API_BODIES` | Boolean | `false` | Set to true, t, or 1 (case-insensitive) to enable native Claude raw API body logging when log export is enabled. Independent of span content capture; bodies may contain sensitive data. |
 | `KAGENT_OTEL_MAX_CAPTURE_BYTES` | Integer | `16384` | Per-input/output content capture budget in bytes when capture is enabled. Valid values are 1 through 65536; absent or invalid values use 16384. |
 | `KAGENT_OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Resource attributes, as key=value pairs, added to every agent runtime. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
-| `KAGENT_POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over KAGENT_POSTGRES_DATABASE_URL in the controller. |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
+| `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
+| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
+| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
+| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
+| `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | Duration | `1m0s` | Interval between unreferenced runtime revision cleanup sweeps. Must be positive. |
 | `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
 | `KAGENT_SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |
+| `KAGENT_SANDBOX_EXPIRATION_POLL_INTERVAL` | Duration | `1s` | Interval between expired sandbox cleanup batches. Must be positive; longer intervals delay deletion after TTL expiry. |
 | `KAGENT_SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
 | `KAGENT_SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
+| `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
+| `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
 | `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
 | `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
+| `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second. |
+| `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 | `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
 | `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
@@ -165,9 +194,15 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to true if it is unavailable. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL. The default applies only to the controller; kagent db requires this variable or --db-url. Helm supplies its configured connection URL. |
-| `KAGENT_POSTGRES_DATABASE_URL_FILE` | String | `(none)` | File containing the PostgreSQL connection URL; takes precedence over KAGENT_POSTGRES_DATABASE_URL in the controller. |
+| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
+| `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
+| `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
+| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
+| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
+| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 
 ## testing
@@ -183,6 +218,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_E2E_DOCKER_REGISTRY` | String | `localhost:5001` | Image registry for upgrade tests; supplied by make from DOCKER_REGISTRY. |
 | `KAGENT_E2E_KIND_CLUSTER_NAME` | String | `kagent` | Kind cluster used by upgrade tests; supplied by make from KIND_CLUSTER_NAME. |
 | `KAGENT_E2E_KUBE_CONTEXT` | String | `(none)` | Kubernetes context for upgrade tests. Defaults to kind- followed by KAGENT_E2E_KIND_CLUSTER_NAME. |
+| `KAGENT_E2E_LIVE_CHECK_ENDPOINT` | String | `(none)` | gRPC address of a Weaver live-check OTLP listener. After the tests, the suite replays every trace and metric export its receiver got, except those of native child processes, to this address. Unset disables the replay. |
 | `KAGENT_E2E_LOCAL_HOST` | String | `(none)` | Host reachable from E2E runtimes for local mock servers. Defaults to 172.17.0.1 on Linux and host.docker.internal on macOS; required on other systems. |
 | `KAGENT_E2E_NAMESPACE` | String | `kagent` | Kubernetes namespace used by upgrade tests. |
 | `KAGENT_E2E_OTLP_LISTEN_ADDRESS` | String | `(none)` | Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver. |

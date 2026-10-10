@@ -71,7 +71,10 @@ export function AgentPage() {
    * antd rebuilds a table's internal column state whenever its columns change.
    */
   const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
-  const openableIds = conversations.data?.openableIds;
+  const openableIds = useMemo(
+    () => conversations.data && new Set(conversations.data.own.map((row) => row.id)),
+    [conversations.data],
+  );
 
   const stateOptions = useMemo(() => {
     // Built from the rows rather than from the enum: offering all eight states on a
