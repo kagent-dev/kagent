@@ -152,10 +152,11 @@ func (s *sandboxTestServer) StreamProcessOutput(request *guestpb.StreamProcessOu
 			return &guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Stderr{Stderr: b}}
 		}},
 	} {
-		if output.offset < 0 || output.offset > int64(len(output.data)) {
-			return status.Error(codes.OutOfRange, "invalid continuation offset")
+		// Like the guest, an offset past the end suppresses output.
+		if output.offset < 0 {
+			return status.Error(codes.InvalidArgument, "offsets cannot be negative")
 		}
-		if len(output.data[output.offset:]) > 0 {
+		if output.offset < int64(len(output.data)) {
 			if err := stream.Send(output.wrap(output.data[output.offset:])); err != nil {
 				return err
 			}
@@ -165,6 +166,22 @@ func (s *sandboxTestServer) StreamProcessOutput(request *guestpb.StreamProcessOu
 		return s.outputErr
 	}
 	return stream.Send(&guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Exit{Exit: s.process(request.ProcessId)}})
+}
+
+// SignalProcess reports the process as still running right after delivery, as
+// the guest does; the exit follows on the output stream.
+func (s *sandboxTestServer) SignalProcess(ctx context.Context, request *guestpb.SignalProcessRequest) (*guestpb.Process, error) {
+	if err := checkGuestMetadata(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return nil, status.Errorf(codes.FailedPrecondition, "process %q has exited", request.ProcessId)
+	}
+	signalled := s.process(request.ProcessId)
+	s.running, s.exitCode = false, 128+int32(request.Signal)
+	return signalled, nil
 }
 
 func (s *sandboxTestServer) WriteFile(stream grpc.ClientStreamingServer[guestpb.WriteFileRequest, guestpb.WriteFileResponse]) error {
@@ -334,6 +351,25 @@ func TestSandboxCLIWaitTimeoutPreservesProcess(t *testing.T) {
 	defer s.mu.Unlock()
 	require.Equal(t, 1, s.starts)
 	require.True(t, s.running)
+}
+
+func TestSandboxCLIKill(t *testing.T) {
+	s, endpoint := newSandboxTestServer(t)
+	s.running = true
+	out, _, err := runSandboxCLI(t, endpoint, "kill", sandboxTestID, "process-1")
+	require.NoError(t, err)
+	require.Equal(t, "process-1\tPROCESS_STATE_EXITED\texit_code=137\n", out, "kill waits for the exit")
+
+	out, _, err = runSandboxCLI(t, endpoint, "kill", sandboxTestID, "process-1")
+	require.NoError(t, err)
+	require.Equal(t, "process-1\tPROCESS_STATE_EXITED\texit_code=137\n", out, "killing an exited process reports its exit")
+
+	s.mu.Lock()
+	s.running = true
+	s.mu.Unlock()
+	out, _, err = runSandboxCLI(t, endpoint, "kill", sandboxTestID, "process-1", "--signal", "TERM")
+	require.NoError(t, err)
+	require.Equal(t, "process-1\tPROCESS_STATE_RUNNING\n", out, "only SIGKILL waits for the exit")
 }
 
 func TestSandboxCLIFileTransfer(t *testing.T) {

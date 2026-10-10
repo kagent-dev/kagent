@@ -253,6 +253,14 @@ func TestSandboxTransports(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*sdkmcp.TextContent).Text), &killed))
 	require.Equal(t, guestpb.ProcessState_PROCESS_STATE_EXITED.String(), killed.State, "kill waits for the exit")
 	require.EqualValues(t, 128+guestpb.Signal_SIGNAL_KILL, killed.ExitCode)
+	result, err = session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "kill_sandbox_process", Arguments: map[string]any{
+		"sandbox_id": id, "process_id": process.ID,
+	}})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "killing an exited process reports its exit: %+v", result.Content)
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*sdkmcp.TextContent).Text), &killed))
+	require.Equal(t, guestpb.ProcessState_PROCESS_STATE_EXITED.String(), killed.State)
+	require.EqualValues(t, 128+guestpb.Signal_SIGNAL_KILL, killed.ExitCode)
 	_, err = processes.GetProcess(ctx, &guestpb.GetProcessRequest{ProcessId: "unknown-guest-process"})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(t, []string{"create", "policy", "resume"}, actors.observedCalls(), "guest traffic must never call the Substrate control-plane client")

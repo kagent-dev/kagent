@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // processEvent keeps command output separate from metadata in JSON mode. Data
@@ -112,21 +115,7 @@ func newProcessCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if format == clioutput.FormatJSON {
-					return clioutput.WriteProto(cmd.OutOrStdout(), process)
-				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s", process.ProcessId, process.State)
-				if err != nil {
-					return err
-				}
-				if process.State == guestpb.ProcessState_PROCESS_STATE_EXITED {
-					_, err = fmt.Fprintf(cmd.OutOrStdout(), "\texit_code=%d", process.ExitCode)
-					if err != nil {
-						return err
-					}
-				}
-				_, err = fmt.Fprintln(cmd.OutOrStdout())
-				return err
+				return writeProcess(cmd, format, process)
 			})
 		},
 	}
@@ -136,7 +125,7 @@ func newKillCmd() *cobra.Command {
 	var name string
 	cmd := &cobra.Command{
 		Use: "kill ID PROCESS_ID", Short: "Signal a process and its process group", Args: cobra.ExactArgs(2),
-		Long: "Deliver a signal to a process and its process group. The process may still be running when this returns; use sandbox wait for its exit code.",
+		Long: "Deliver a signal to a process and its process group. SIGKILL, the default, waits briefly for the exit and reports its exit code; other signals return at once, and sandbox wait reports the exit.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			signal, err := parseSignal(name)
 			if err != nil {
@@ -144,19 +133,71 @@ func newKillCmd() *cobra.Command {
 			}
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
 				process, err := c.SignalProcess(ctx, args[0], &guestpb.SignalProcessRequest{ProcessId: args[1], Signal: signal})
+				if status.Code(err) == codes.FailedPrecondition {
+					// The guest refuses to signal a process that has exited;
+					// report how it exited instead.
+					if current, getErr := c.GetProcess(ctx, args[0], &guestpb.GetProcessRequest{ProcessId: args[1]}); getErr == nil && current.State == guestpb.ProcessState_PROCESS_STATE_EXITED {
+						process, err = current, nil
+					}
+				}
 				if err != nil {
 					return err
 				}
-				if format == clioutput.FormatJSON {
-					return clioutput.WriteProto(cmd.OutOrStdout(), process)
+				if signal == guestpb.Signal_SIGNAL_KILL && process.State == guestpb.ProcessState_PROCESS_STATE_RUNNING {
+					exited, err := awaitExit(ctx, c, args[0], args[1])
+					if err != nil {
+						return err
+					}
+					if exited != nil {
+						process = exited
+					}
 				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", process.ProcessId, process.State)
-				return err
+				return writeProcess(cmd, format, process)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&name, "signal", "KILL", "Signal to deliver, such as TERM, INT or KILL")
 	return cmd
+}
+
+func writeProcess(cmd *cobra.Command, format clioutput.Format, process *guestpb.Process) error {
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteProto(cmd.OutOrStdout(), process)
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s", process.ProcessId, process.State)
+	if err != nil {
+		return err
+	}
+	if process.State == guestpb.ProcessState_PROCESS_STATE_EXITED {
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "\texit_code=%d", process.ExitCode)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout())
+	return err
+}
+
+// A process stuck in uninterruptible sleep can outlive SIGKILL, so kill stops
+// waiting for the exit after this long.
+const killWait = 10 * time.Second
+
+// awaitExit follows a process's output from past its end, which delivers no
+// output but ends with the exit message. It returns nil if the process is
+// still running when the wait ends.
+func awaitExit(ctx context.Context, c *client.SandboxClient, sandboxID, processID string) (*guestpb.Process, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, killWait)
+	defer cancel()
+	request := &guestpb.StreamProcessOutputRequest{ProcessId: processID, StdoutOffset: math.MaxInt64, StderrOffset: math.MaxInt64, Follow: true}
+	var exited *guestpb.Process
+	err := c.ReadProcessOutput(waitCtx, sandboxID, request, func(output *guestpb.ProcessOutput) error {
+		exited = output.GetExit()
+		return nil
+	})
+	if waitCtx.Err() != nil && ctx.Err() == nil {
+		return nil, nil
+	}
+	return exited, err
 }
 
 // parseSignal accepts a signal number or a name such as TERM, SIGTERM or

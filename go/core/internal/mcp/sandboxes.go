@@ -17,6 +17,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -218,6 +220,13 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 	})
 	addSandboxTool(server, "kill_sandbox_process", "Send SIGKILL to a sandbox process and its process group, then wait briefly for it to exit. state is PROCESS_STATE_RUNNING if it has not exited yet; check get_sandbox_process later.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
 		result, err := service.SignalProcess(ctx, in.SandboxID, &guestpb.SignalProcessRequest{ProcessId: in.ProcessID, Signal: guestpb.Signal_SIGNAL_KILL})
+		if status.Code(err) == codes.FailedPrecondition {
+			// The guest refuses to signal a process that has exited; killing one
+			// reports how it exited, as it did before.
+			if process, getErr := service.GetProcess(ctx, in.SandboxID, &guestpb.GetProcessRequest{ProcessId: in.ProcessID}); getErr == nil && process.GetState() == guestpb.ProcessState_PROCESS_STATE_EXITED {
+				return summarizeProcess(process), nil
+			}
+		}
 		if err != nil {
 			return sandboxProcessOutput{}, err
 		}
