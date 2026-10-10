@@ -123,7 +123,7 @@ result; a completed tool call can carry a service error.
    completion. Empty output or `truncated: false` does not mean the process ended.
    Read result files with `read_sandbox_file`: text comes back as numbered
    lines, paged with `offset` and `limit`; PNG, JPEG, GIF and WebP images come
-   back as images; other files come back as a description. Retrieve other
+   back as images, shrunk only to fit 5 MiB; other files come back as a description. Retrieve other
    files with a gRPC streaming client, and save deliverables into the user's
    working environment before cleanup. A path inside a sandbox is not a local artifact.
 6. **Finish.** Delete scratch sandboxes created for the task after retrieving

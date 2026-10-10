@@ -241,7 +241,8 @@ There is no separate lifecycle or guest tool server. gRPC file transfers are
 bounded at 64 MiB. MCP writes and output reads are bounded at 1 MiB and use
 base64; output reads expose continuation offsets. MCP file reads return content
 a model can read directly: text files as numbered pages of lines, and images
-scaled to the size models see.
+unchanged unless they would overflow a harness line, when they are scaled down
+in their own format family.
 
 Helm installs a `RemoteMCPServer` named `<fullname>-api` (`kagent-api` for the
 standard release) in the controller namespace. It points at the controller's

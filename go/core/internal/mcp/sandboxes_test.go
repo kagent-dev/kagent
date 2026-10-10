@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"image/png"
+	"io"
 	"math/rand/v2"
 	"net/http/httptest"
 	"slices"
@@ -90,33 +92,38 @@ func TestFileReader(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []mcp.Content{&mcp.TextContent{Text: "image/webp, 1×1 px"}, &mcp.ImageContent{Meta: sandboxImageMeta, Data: webp, MIMEType: "image/webp"}}, readFile(t, webp, 1, 10))
 	})
-	t.Run("oversized image is scaled down", func(t *testing.T) {
-		content := readFile(t, encodePNG(t, 2*sandboxImageMaxPixels, 4), 1, 10)
-		require.Len(t, content, 2)
-		require.Equal(t, "image/png, 4000×4 px, shown at 2000×2", content[0].(*mcp.TextContent).Text)
-		scaled := content[1].(*mcp.ImageContent)
-		require.Equal(t, "image/jpeg", scaled.MIMEType)
-		config, _, err := image.DecodeConfig(bytes.NewReader(scaled.Data))
-		require.NoError(t, err)
-		require.Equal(t, image.Config{ColorModel: config.ColorModel, Width: sandboxImageMaxPixels, Height: 2}, config)
+	t.Run("large image within the budget is unchanged", func(t *testing.T) {
+		wide := encodePNG(t, 8000, 4)
+		require.Equal(t, []mcp.Content{&mcp.TextContent{Text: "image/png, 8000×4 px"}, &mcp.ImageContent{Meta: sandboxImageMeta, Data: wide, MIMEType: "image/png"}}, readFile(t, wide, 1, 10))
 	})
-	t.Run("detailed image is shrunk to the result budget", func(t *testing.T) {
-		noise := image.NewGray(image.Rect(0, 0, sandboxImageMaxPixels, sandboxImageMaxPixels))
-		random := rand.New(rand.NewPCG(1, 2))
-		for i := range noise.Pix {
-			noise.Pix[i] = uint8(random.Uint32())
-		}
-		var b bytes.Buffer
-		require.NoError(t, png.Encode(&b, noise))
-		content := readFile(t, b.Bytes(), 1, 10)
-		require.Len(t, content, 2)
-		scaled := content[1].(*mcp.ImageContent)
-		require.LessOrEqual(t, len(scaled.Data), sandboxImageResultBytes)
-		config, _, err := image.DecodeConfig(bytes.NewReader(scaled.Data))
-		require.NoError(t, err)
-		require.Less(t, config.Width, sandboxImageMaxPixels)
-		require.Equal(t, fmt.Sprintf("image/png, 2000×2000 px, shown at %d×%d", config.Width, config.Height), content[0].(*mcp.TextContent).Text)
-	})
+	for _, test := range []struct {
+		name, mediaType string
+		encode          func(io.Writer, image.Image) error
+	}{
+		{"png over the budget shrinks as a png", "image/png", png.Encode},
+		{"jpeg over the budget shrinks as a jpeg", "image/jpeg", func(w io.Writer, m image.Image) error { return jpeg.Encode(w, m, &jpeg.Options{Quality: 100}) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const side = 3000
+			noise := image.NewGray(image.Rect(0, 0, side, side))
+			random := rand.New(rand.NewPCG(1, 2))
+			for i := range noise.Pix {
+				noise.Pix[i] = uint8(random.Uint32())
+			}
+			var b bytes.Buffer
+			require.NoError(t, test.encode(&b, noise))
+			require.Greater(t, b.Len(), sandboxImageResultBytes)
+			content := readFile(t, b.Bytes(), 1, 10)
+			require.Len(t, content, 2)
+			scaled := content[1].(*mcp.ImageContent)
+			require.Equal(t, test.mediaType, scaled.MIMEType)
+			require.LessOrEqual(t, len(scaled.Data), sandboxImageResultBytes)
+			config, _, err := image.DecodeConfig(bytes.NewReader(scaled.Data))
+			require.NoError(t, err)
+			require.Less(t, config.Width, side)
+			require.Equal(t, fmt.Sprintf("%s, 3000×3000 px, shown at %d×%d", test.mediaType, config.Width, config.Height), content[0].(*mcp.TextContent).Text)
+		})
+	}
 	lines := "alpha\nbéta\ngamma\ndelta"
 	for _, test := range []struct {
 		name          string

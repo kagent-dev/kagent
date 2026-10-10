@@ -9,8 +9,9 @@ import (
 	"image"
 	_ "image/gif"
 	"image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -33,11 +34,10 @@ const sandboxToolBytes = 1 << 20
 const sandboxToolTextBytes = 32 << 10
 
 const (
-	// Claude Code downscales larger images before the model sees them.
-	sandboxImageMaxPixels = 2000
-	// Claude Code re-encodes larger images, so smaller ones reach the model
-	// untouched.
-	sandboxImageResultBytes = 500_000
+	// Claude Code writes two base64 copies of a result's images on one harness
+	// line, so larger images would overflow it. Harnesses downscale further for
+	// their models.
+	sandboxImageResultBytes = 5 << 20
 	sandboxImageBytes       = 16 << 20
 	// Decoding allocates per pixel, so larger images are refused unread.
 	sandboxImageMaxArea = 50_000_000
@@ -205,44 +205,66 @@ func (r *fileReader) content() []mcp.Content {
 	if config.Width*config.Height > sandboxImageMaxArea {
 		return textContent("%s, %d×%d px: too large to read", r.mediaType, config.Width, config.Height)
 	}
-	if max(config.Width, config.Height) <= sandboxImageMaxPixels && len(r.data) <= sandboxImageResultBytes {
+	if len(r.data) <= sandboxImageResultBytes {
 		return append(textContent("%s, %d×%d px", r.mediaType, config.Width, config.Height), &mcp.ImageContent{Meta: sandboxImageMeta, Data: r.data, MIMEType: r.mediaType})
 	}
-	data, size, err := fitImage(r.data)
+	data, mediaType, size, err := shrinkImage(r.data, r.mediaType)
 	if err != nil {
 		return textContent("binary file, %s", r.mediaType)
 	}
 	return append(textContent("%s, %d×%d px, shown at %d×%d", r.mediaType, config.Width, config.Height, size.X, size.Y),
-		&mcp.ImageContent{Meta: sandboxImageMeta, Data: data, MIMEType: "image/jpeg"})
+		&mcp.ImageContent{Meta: sandboxImageMeta, Data: data, MIMEType: mediaType})
 }
 
-// fitImage scales an image to the size models see and encodes it as a JPEG
-// within the result budget, flattening any transparency onto white.
-func fitImage(data []byte) ([]byte, image.Point, error) {
+// lossless reports whether an image would lose detail as a JPEG: PNG, GIF and
+// lossless WebP hold screenshots and drawings that JPEG blurs.
+func lossless(data []byte, mediaType string) bool {
+	if mediaType == "image/webp" {
+		return len(data) >= 16 && string(data[12:16]) == "VP8L"
+	}
+	return mediaType != "image/jpeg"
+}
+
+// shrinkImage scales an image down until it fits the result budget, as a PNG
+// if it was lossless and otherwise as a JPEG with transparency flattened onto
+// white.
+func shrinkImage(data []byte, mediaType string) ([]byte, string, image.Point, error) {
 	src, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return nil, image.Point{}, err
+		return nil, "", image.Point{}, err
 	}
+	keepPNG := lossless(data, mediaType)
 	bounds := src.Bounds()
-	scale := min(1, float64(sandboxImageMaxPixels)/float64(max(bounds.Dx(), bounds.Dy())))
+	size := len(data)
+	scale := 1.0
 	var out bytes.Buffer
 	for {
+		// Encoded size roughly tracks pixel count; the margin and the cap on
+		// each step guarantee progress when it doesn't.
+		scale *= min(0.9, 0.95*math.Sqrt(float64(sandboxImageResultBytes)/float64(size)))
 		dst := image.NewRGBA(image.Rect(0, 0, max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))))
-		draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
-		draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
-		for _, quality := range []int{85, 70, 55, 40} {
-			out.Reset()
-			if err := jpeg.Encode(&out, dst, &jpeg.Options{Quality: quality}); err != nil {
-				return nil, image.Point{}, err
-			}
-			if out.Len() <= sandboxImageResultBytes {
-				return out.Bytes(), dst.Bounds().Size(), nil
-			}
+		out.Reset()
+		if keepPNG {
+			draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Src, nil)
+			err = pngEncoder.Encode(&out, dst)
+		} else {
+			draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+			draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+			err = jpeg.Encode(&out, dst, &jpeg.Options{Quality: 85})
 		}
-		// Detail too fine for compression to shrink takes fewer pixels.
-		scale *= 0.75
+		if err != nil {
+			return nil, "", image.Point{}, err
+		}
+		if size = out.Len(); size <= sandboxImageResultBytes {
+			if keepPNG {
+				return out.Bytes(), "image/png", dst.Bounds().Size(), nil
+			}
+			return out.Bytes(), "image/jpeg", dst.Bounds().Size(), nil
+		}
 	}
 }
+
+var pngEncoder = png.Encoder{CompressionLevel: png.BestCompression}
 
 // linePage collects numbered lines from offset until it holds limit lines or
 // the text budget, cutting overlong lines.
@@ -454,7 +476,7 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result.StdoutBase64, result.StderrBase64 = base64.StdEncoding.EncodeToString(stdout), base64.StdEncoding.EncodeToString(stderr)
 		return result, err
 	})
-	addSandboxToolContent(server, "read_sandbox_file", "Read a file. Text comes back as numbered lines from offset, up to limit lines or 32 KiB, with the offset to continue from. PNG, JPEG, GIF and WebP images up to 16 MiB come back as images you can see, scaled to at most 2000 px on a side. Other files are described rather than returned. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) ([]mcp.Content, error) {
+	addSandboxToolContent(server, "read_sandbox_file", "Read a file. Text comes back as numbered lines from offset, up to limit lines or 32 KiB, with the offset to continue from. PNG, JPEG, GIF and WebP images up to 16 MiB come back as images you can see, shrunk to fit 5 MiB. Other files are described rather than returned. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) ([]mcp.Content, error) {
 		reader := fileReader{page: linePage{offset: max(in.Offset, 1), limit: sandboxFileLines}}
 		if in.Limit > 0 {
 			reader.page.limit = in.Limit
