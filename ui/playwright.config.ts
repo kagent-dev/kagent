@@ -217,14 +217,14 @@ export default defineConfig({
       ]
     : [
         {
-          command: `yarn dev --port ${PORT}`,
+          command: `yarn vite build --outDir dist-e2e-bare && yarn vite preview --port ${PORT} --outDir dist-e2e-bare`,
           url: BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
           env: BARE_APP,
         },
         {
-          command: `yarn dev --port ${EXTENSION_PORT}`,
+          command: `yarn vite build --outDir dist-e2e-extension && yarn vite preview --port ${EXTENSION_PORT} --outDir dist-e2e-extension`,
           url: EXTENSION_BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
