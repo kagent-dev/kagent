@@ -21,7 +21,7 @@ import (
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
+		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}, Args: []string{"serve"}},
 		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: "production"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -56,7 +56,7 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	settings.Telemetry = translator.TelemetryConfig{Traces: translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc"}, Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}}}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Env: []v1alpha3.RuntimeEnvVar{
 			{Name: "OTEL_SERVICE_NAME", Value: "my-langgraph"},
 			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "https://otlp.example.com"},
@@ -98,7 +98,7 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},
-		Workload:  v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
+		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	// All three signals must leave room for fourteen user settings. The final

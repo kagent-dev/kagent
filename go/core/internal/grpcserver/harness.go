@@ -5,6 +5,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
@@ -87,7 +88,7 @@ func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1alpha1.Harness,
 		Ref:           &apiv1alpha1.ResourceReference{Namespace: object.Namespace, Name: object.Name},
 		Resource:      resource,
 		Runtime:       harnessRuntime(object),
-		WorkloadImage: object.Spec.Workload.Image,
+		WorkloadImage: ptr.Deref(object.Spec.Workload.Image, ""),
 		Ready:         meta.IsStatusConditionTrue(object.Status.Conditions, v1alpha3.HarnessConditionTypeReady),
 	}, nil
 }

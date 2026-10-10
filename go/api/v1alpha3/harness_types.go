@@ -112,10 +112,11 @@ type BYOHarness struct{}
 
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
-	// Image is an OCI image reference pinned by sha256 digest.
+	// Image overrides the release's built-in runtime image. BYO requires an image.
+	// When set, it must be an OCI image reference pinned by sha256 digest.
 	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
-	// +required
-	Image string `json:"image"`
+	// +optional
+	Image *string `json:"image,omitempty"`
 
 	// Command overrides the image entrypoint when set.
 	// +kubebuilder:validation:MaxItems=32
@@ -132,6 +133,7 @@ type HarnessWorkload struct {
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.byo) || size(self.workload.command) > 0",message="BYO harnesses must specify workload.command"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || has(self.workload.image)",message="BYO harnesses must specify workload.image"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`

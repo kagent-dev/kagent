@@ -558,6 +558,12 @@ spec:
                 maxItems: 100
                 type: array
                 x-kubernetes-list-type: set
+              workloadImage:
+                description: |-
+                  WorkloadImage is the digest-pinned image selected for the desired revision.
+                  Existing Sessions may still use an older revision and image.
+                pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
+                type: string
             type: object
         required:
         - spec

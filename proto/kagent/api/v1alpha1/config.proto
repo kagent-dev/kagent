@@ -110,6 +110,17 @@ message ControllerConfig {
   LoggingConfig logging = 11;
   TelemetryConfig telemetry = 12;
   RuntimeDefaultsConfig runtime_defaults = 13;
+  HarnessImagesConfig harness_images = 14;
+}
+
+// HarnessImagesConfig supplies release defaults for built-in Harnesses. Empty
+// images disable that default; explicit workload.image values take precedence.
+message HarnessImagesConfig {
+  // When set, this must match the controller release. Empty permits local builds.
+  string release = 1;
+  string kagent = 2 [(buf.validate.field).string.pattern = "^$|^[^\\s@]+@sha256:[a-f0-9]{64}$"];
+  string claude = 3 [(buf.validate.field).string.pattern = "^$|^[^\\s@]+@sha256:[a-f0-9]{64}$"];
+  string codex = 4 [(buf.validate.field).string.pattern = "^$|^[^\\s@]+@sha256:[a-f0-9]{64}$"];
 }
 
 message KubernetesConfig {

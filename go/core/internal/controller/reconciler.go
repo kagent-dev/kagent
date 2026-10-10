@@ -105,7 +105,7 @@ func newAgentReconciliations(
 			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
 			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
 			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
-		}).CompileAgent(context.Background(), agent)
+		}, settings.Images).CompileAgent(context.Background(), agent)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *translator.ValidationError

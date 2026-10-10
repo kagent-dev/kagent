@@ -55,7 +55,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 					Kagent: &v1alpha3.KagentHarness{},
 
 					Workload: v1alpha3.HarnessWorkload{
-						Image:   "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						Image:   new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
 					},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
@@ -122,7 +122,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 			}},
 
 			Workload: v1alpha3.HarnessWorkload{
-				Image:   "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Image:   new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 				Command: []string{"kagent-adk", "static"}, Args: []string{"--host", "0.0.0.0"},
 			},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{
@@ -192,7 +192,18 @@ func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
 	}}
 }
 
+var testBuiltinImages = translator.BuiltinImages{
+	Kagent: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	Codex:  "example.com/codex@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	Claude: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+}
+
 func compiler(t *testing.T, objects ...any) *translator.Compiler {
+	t.Helper()
+	return compilerWithImages(t, testBuiltinImages, objects...)
+}
+
+func compilerWithImages(t *testing.T, images translator.BuiltinImages, objects ...any) *translator.Compiler {
 	t.Helper()
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
@@ -201,7 +212,7 @@ func compiler(t *testing.T, objects ...any) *translator.Compiler {
 		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testCompilerSettings()),
 		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testCompilerSettings()),
 		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testCompilerSettings()),
-	})
+	}, images)
 }
 
 func defaultWorkerPool() *atev1alpha1.WorkerPool {
@@ -240,7 +251,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: string(harnessType)},
 				Spec: v1alpha3.HarnessSpec{
 
-					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
 						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
@@ -464,7 +475,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 
 	revision, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
-	}).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testBuiltinImages).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Equal(t, "runnable-agent", revision.AgentName)
 	require.Equal(t, "runnable-agent", adapter.input.Root.Template.Name)
@@ -488,7 +499,7 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
-	}).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testBuiltinImages).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.ErrorContains(t, err, `Harness runtime "codex" does not support structured output`)
 	require.Nil(t, adapter.input)
 }
@@ -507,7 +518,7 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
-	}).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testBuiltinImages).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
 	require.Nil(t, adapter.input)
 }
@@ -516,13 +527,14 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},
+		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/byo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeBYO: adapter,
-	}).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testBuiltinImages).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
 }
@@ -555,7 +567,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 		Spec: v1alpha3.HarnessSpec{
 			Kagent: &v1alpha3.KagentHarness{},
 
-			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Workload: v1alpha3.HarnessWorkload{Image: new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
 				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -609,7 +621,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	rotated.Data["token"] = []byte("rotated-token")
 	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testCompilerSettings()),
-	})
+	}, testBuiltinImages)
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	nextDigest, err := next.Digest()
@@ -625,7 +637,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Kagent:    &v1alpha3.KagentHarness{},
-			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 		},
 	}
@@ -818,7 +830,7 @@ func TestCompileAgentInlineAndReferencedTemplates(t *testing.T) {
 	}}
 	child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "child"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review security"}}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runtime", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
-		Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	for _, tt := range []struct {
@@ -898,7 +910,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 			harness := &v1alpha3.Harness{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-runtime"},
 				Spec: v1alpha3.HarnessSpec{
-					Workload:  v1alpha3.HarnessWorkload{Image: "example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 				},
 			}

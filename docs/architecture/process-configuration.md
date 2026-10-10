@@ -115,6 +115,13 @@ projects database and signing secrets separately, and changes the pod checksum
 when settings change. Deployment settings (images, probes, volumes, Services,
 Secret references) remain Helm values outside `config`.
 
+Release charts populate `harnessImages` from their packaged image catalog.
+`config.harnessImages` can override individual defaults; keys are
+`release`, `kagent`, `claude`, and `codex`. An empty image disables that default.
+The controller checks a nonempty catalog release against its own version.
+See [Harness image selection](configuration-and-compilation.md#harness-images-and-workload-overrides)
+for compilation and upgrade behavior.
+
 The controller loads and validates once, then passes typed settings to owners.
 Reconciliation and request handling do not read application settings from env.
 Configuration changes require a process restart.

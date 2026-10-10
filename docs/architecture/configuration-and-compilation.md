@@ -63,7 +63,35 @@ new revision; create a new Session to use it. A2A task events remain streamable
 when model streaming is disabled. This setting does not configure
 the Codex or Claude harnesses.
 
-### kagent workload overrides
+### Harness images and workload overrides
+
+For built-in kagent, Claude, and Codex Harnesses, `workload.image` is optional.
+Use `workload: {}` to select the matching release image provided by the installed
+chart. BYO requires an explicit image; all overrides must be digest-pinned.
+
+Release image builds run independently. Each runtime build publishes its final
+multi-platform index digest as a workflow artifact. `make helm-release` requires
+`RUNTIME_IMAGE_METADATA_DIR` and validates the three runtime digests before
+assembling `files/builtin-harness-images.json` in a temporary copy of the charts.
+It packages the charts there and copies the completed archives into `dist`;
+chart sources and any previous artifacts are preserved if packaging fails.
+`make helm-publish` depends on this target. The chart supplies
+the defaults through `harnessImages` in the mounted controller configuration file.
+The controller validates configured images as digest-pinned references and checks
+the catalog's nonempty release against its own version.
+Neither controller builds nor compilation perform registry lookups.
+Local installations can override individual defaults with
+`config.harnessImages`; `global.imageRegistry` also applies to these defaults.
+
+The compiler resolves the image on its copy of the Harness spec before hashing
+the revision. It never writes defaults into user specs. A missing or invalid
+selected image reports `Compatible=False`; unused defaults do not need to be
+configured. `Agent.status.workloadImage` reports the image of the desired compiled
+revision and clears when compilation fails. Existing Sessions retain their
+prepared revisions. Changing a release default prepares a new revision for Agents
+using that default; explicit image overrides are independent of catalog changes.
+
+Default selection does not inspect or validate the CLI version inside an override.
 
 The kagent compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
@@ -262,7 +290,7 @@ credentials, egress, and provenance.
 
 ## Explicit Agent examples
 
-For a single agent, inline both specs:
+For a single agent, inline the template and reference a Harness:
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3

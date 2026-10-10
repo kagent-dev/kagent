@@ -30,7 +30,14 @@ runs:
     env:
       VERSION: ${{ inputs.version }}
       IMAGE: ${{ inputs.image }}
-      DOCKER_BUILD_ARGS: '--push --platform linux/amd64,linux/arm64'
       DOCKER_BUILDER: docker buildx build
       DOCKER_REGISTRY: ghcr.io
-    run: make "build-$IMAGE"
+    run: |
+      export DOCKER_BUILD_ARGS="--push --platform linux/amd64,linux/arm64 --metadata-file $RUNNER_TEMP/$IMAGE.json"
+      make "build-$IMAGE"
+  - uses: actions/upload-artifact@v7
+    if: contains(fromJSON('["golang-adk", "claude-harness", "codex-harness"]'), inputs.image)
+    with:
+      name: runtime-image-${{ inputs.image }}
+      path: ${{ runner.temp }}/${{ inputs.image }}.json
+      if-no-files-found: error

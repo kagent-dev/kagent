@@ -537,7 +537,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
-	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
 	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},

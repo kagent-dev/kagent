@@ -16,6 +16,12 @@ func TestControllerConfig(t *testing.T) {
 		invalid     bool
 	}{
 		{"defaults", "{}", false},
+		{"partial images", "harnessImages: {kagent: 'registry/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}", false},
+		{"empty image", "harnessImages: {codex: ''}", false},
+		{"image tag", "harnessImages: {claude: 'registry/image:latest'}", true},
+		{"invalid digest", "harnessImages: {codex: 'registry/image@sha256:bad'}", true},
+		{"unknown image", "harnessImages: {unknown: ''}", true},
+		{"images JSON string", "harnessImages: '{}'", true},
 		{"duplicate", "logging:\n  level: info\n  level: debug", true},
 		{"unknown", "loging: {}", true},
 		{"null", "logging: null", true},

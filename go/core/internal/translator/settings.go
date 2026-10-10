@@ -18,6 +18,7 @@ type CompilerSettings struct {
 	LogLevel   string
 	Telemetry  TelemetryConfig
 	Process    adk.RuntimeConfig
+	Images     BuiltinImages
 }
 
 func NewCompilerSettings(cfg *apiv1.RuntimeDefaultsConfig) (CompilerSettings, error) {
