@@ -7,6 +7,8 @@ BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
 HELM_REPO ?= oci://ghcr.io/kagent-dev
 HELM_DIST_FOLDER ?= dist
+HELM_SOURCE_DIR ?= helm
+RUNTIME_IMAGE_REPOSITORY ?= ghcr.io/kagent-dev/kagent
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
@@ -455,7 +457,7 @@ delete-kind-cluster: ## Delete the local kind cluster
 
 .PHONY: helm-cleanup
 helm-cleanup: ## Remove packaged Helm charts from the dist folder
-	rm -f ./$(HELM_DIST_FOLDER)/*.tgz
+	rm -f "$(HELM_DIST_FOLDER)"/*.tgz
 
 .PHONY: helm-test
 helm-test: ## Render Helm templates for all providers and run helm unittest
@@ -471,18 +473,18 @@ helm-test: helm-version
 
 .PHONY: helm-tools
 helm-tools: ## Package all tool Helm charts into the dist folder
-	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
+	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/tools/grafana-mcp/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/tools/grafana-mcp/Chart.yaml"
+	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/tools/grafana-mcp"
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-tools
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
-	helm dependency update helm/kagent
-	helm dependency update helm/kagent-crds
-	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
-	helm package -d $(HELM_DIST_FOLDER) helm/kagent
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
+	helm dependency update "$(HELM_SOURCE_DIR)/kagent"
+	helm dependency update "$(HELM_SOURCE_DIR)/kagent-crds"
+	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent-crds"
+	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent"
 
 .PHONY: helm-install-provider
 helm-install-provider: ## Install or upgrade with Helm; requires a prepared PostgreSQL Secret
@@ -618,11 +620,16 @@ run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release 
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
 	go test ./core/test/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
 
+.PHONY: helm-release
+helm-release: ## Package release charts from RUNTIME_IMAGE_METADATA_DIR without modifying chart sources
+	@test -n "$(RUNTIME_IMAGE_METADATA_DIR)" || { echo "RUNTIME_IMAGE_METADATA_DIR is required for release chart packaging" >&2; exit 1; }
+	KMCP_VERSION="$(KMCP_VERSION)" bash scripts/package-release-charts.sh "$(VERSION)" "$(RUNTIME_IMAGE_METADATA_DIR)" "$(HELM_SOURCE_DIR)" "$(HELM_DIST_FOLDER)" "$(RUNTIME_IMAGE_REPOSITORY)"
+
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry
-helm-publish: helm-version
-	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+helm-publish: helm-release
+	helm push "$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
+	helm push "$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
 
 ##@ Dev
 

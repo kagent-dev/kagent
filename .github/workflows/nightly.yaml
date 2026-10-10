@@ -94,7 +94,8 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
 
   artifacts:
-    needs: [prepare, push-helm-chart]
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -106,5 +107,4 @@ jobs:
         name: nightly-${{ needs.prepare.outputs.version }}
         path: |
           go/core/bin/kagent-*
-          dist/kagent-*.tgz
         if-no-files-found: error

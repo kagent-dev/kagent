@@ -17,6 +17,7 @@ type Compiler struct {
 	ctx              krt.HandlerContext
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
+	images           BuiltinImages
 }
 
 // HarnessType identifies the runtime selected by a Harness.
@@ -87,8 +88,8 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images BuiltinImages) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images}
 }
 
 // CompileAgent resolves either inline or referenced configuration through the
@@ -153,6 +154,11 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 		return nil, err
 	}
 	input.AgentName = agentName
+	image, err := c.images.image(harness)
+	if err != nil {
+		return nil, err
+	}
+	harness.Spec.Workload.Image = new(image)
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err

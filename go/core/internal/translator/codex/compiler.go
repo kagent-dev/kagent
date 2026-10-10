@@ -22,6 +22,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -146,7 +147,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	return &translator.CompileResult{
 		Revision: translator.Revision{
 			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+			Image:     ptr.Deref(harness.Spec.Workload.Image, ""), Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},

@@ -23,6 +23,9 @@ func statusForAgent(state AgentReconciliation, generation int64, latestSuccessfu
 		ObservedGeneration: generation, DesiredRevision: state.desiredRevision(), LatestSuccessfulRevision: latestSuccessful,
 	}
 	status.Warnings = append([]string(nil), state.Warnings...)
+	if state.Target != nil {
+		status.WorkloadImage = new(state.Target.Revision.Image)
+	}
 	setAgentCondition(&status, generation, kagentv1alpha3.AgentConditionAccepted, metav1.ConditionTrue, "Accepted", "Agent explicitly selects its template and harness")
 	failure := state.CompilationFailure
 	if failure == nil {

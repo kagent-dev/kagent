@@ -69,6 +69,53 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
+	t.Run("Harness image defaulting", func(t *testing.T) {
+		for _, variant := range []struct {
+			name string
+			spec HarnessSpec
+		}{
+			{"kagent", HarnessSpec{Kagent: &KagentHarness{}}},
+			{"claude", HarnessSpec{Claude: &ClaudeHarness{}}},
+			{"codex", HarnessSpec{Codex: &CodexHarness{}}},
+			{"byo", HarnessSpec{BYO: &BYOHarness{}, Workload: HarnessWorkload{Command: []string{"/app"}}}},
+		} {
+			for _, inline := range []bool{false, true} {
+				for _, imageCase := range []struct {
+					name  string
+					image *string
+				}{
+					{"omitted", nil},
+					{"empty", new("")},
+					{"tagged", new("registry/runtime:latest")},
+					{"pinned", new("registry/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+				} {
+					t.Run(fmt.Sprintf("%s/inline=%t/%s", variant.name, inline, imageCase.name), func(t *testing.T) {
+						harness := validHarness(namespace, fmt.Sprintf("image-%s-%t-%s", variant.name, inline, imageCase.name), *variant.spec.DeepCopy())
+						harness.Spec.Workload.Image = imageCase.image
+						var object ctrlclient.Object = harness
+						if inline {
+							object = &Agent{ObjectMeta: harness.ObjectMeta, Spec: AgentSpec{Harness: &harness.Spec, TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}}}
+						}
+						err := cl.Create(ctx, object)
+						if imageCase.name == "omitted" && variant.name == "byo" {
+							require.ErrorContains(t, err, "BYO harnesses must specify workload.image")
+						} else if imageCase.name == "empty" || imageCase.name == "tagged" {
+							require.ErrorContains(t, err, "workload.image")
+						} else {
+							require.NoError(t, err)
+							require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), object))
+							if inline {
+								require.Equal(t, imageCase.image, object.(*Agent).Spec.Harness.Workload.Image)
+							} else {
+								require.Equal(t, imageCase.image, harness.Spec.Workload.Image)
+							}
+						}
+					})
+				}
+			}
+		}
+	})
+
 	cases := []struct {
 		name       string
 		object     ctrlclient.Object
@@ -91,7 +138,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "Harness rejects tag-only image",
 			object: validHarness(namespace, "harness-tagged-image", HarnessSpec{
 				Kagent:   &KagentHarness{},
-				Workload: HarnessWorkload{Image: "registry.example.com/kagent:latest"},
+				Workload: HarnessWorkload{Image: new("registry.example.com/kagent:latest")},
 			}),
 			wantReject: "spec.workload.image",
 		},
@@ -418,8 +465,8 @@ func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTe
 }
 
 func validHarness(namespace, name string, overrides HarnessSpec) *Harness {
-	if overrides.Workload.Image == "" {
-		overrides.Workload.Image = "registry.example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if overrides.Workload.Image == nil {
+		overrides.Workload.Image = new("registry.example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	}
 	if overrides.Substrate.WorkerPoolRef.Name == "" {
 		overrides.Substrate.WorkerPoolRef.Name = "default"

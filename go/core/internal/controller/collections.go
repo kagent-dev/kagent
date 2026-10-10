@@ -60,7 +60,7 @@ func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) Collections {
+func NewCollections(client kube.Client, watchNamespaces []string, images translator.BuiltinImages, opts krt.OptionsBuilder) Collections {
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
@@ -76,7 +76,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		Harnesses: harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
-	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts)
+	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, images, opts)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{

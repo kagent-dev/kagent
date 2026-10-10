@@ -269,7 +269,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done())
+	images, err := builtinImages(kagentenv.BuiltinHarnessImages.Get(), version.Version)
+	if err != nil {
+		return err
+	}
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, images, ctx.Done())
 	if err != nil {
 		return err
 	}

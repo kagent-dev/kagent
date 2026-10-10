@@ -118,18 +118,40 @@ In practice, use the root Makefile targets (`make build-controller`, `make build
 
 ### Agent runtime image digests
 
-The controller embeds OCI manifest digests for agent workload images at **link time** so declarative agents are deployed with `@sha256:...` refs instead of tags. Substrate ActorTemplates require digest-pinned images.
+Published Helm charts contain the matching release's digest-pinned `golang-adk`,
+`claude-harness`, and `codex-harness` images. Release packaging consumes each
+image build's final Buildx digest; controller builds run independently and never
+wait for runtime-image digests. OCI and GitHub releases share the same chart archive.
 
-| Image | Makefile target | Injected into |
-|---|---|---|
-| `golang-adk` | `build-golang-adk` | `AgentImageDigest` |
+Package a release with:
 
-`kagent-adk` remains available as a base for Python BYO images, but is not a declarative runtime.
+```sh
+make helm-release VERSION=1.0.0-alpha9 \
+  RUNTIME_IMAGE_METADATA_DIR=/path/to/buildx-metadata
+```
 
-The native images use the root `build-claude-harness` and
-`build-codex-harness` targets. Their digest-pinned references are supplied
-explicitly through `Harness.spec.workload.image`; they are not controller
-linker values.
+The directory must contain
+`golang-adk.json`, `claude-harness.json`, and `codex-harness.json` from those builds.
+The target validates the digests and packages the catalog with the charts in a
+temporary directory, then writes the completed archives to `dist`. It does not
+modify the chart sources. `make helm-publish` requires the same metadata input.
+For local registries, set `RUNTIME_IMAGE_REPOSITORY=localhost:5001/kagent-dev/kagent`.
+
+The chart supplies `KAGENT_BUILTIN_HARNESS_IMAGES` through the controller ConfigMap.
+For built-in Harnesses, `workload: {}` selects the default image. An explicit
+`workload.image` overrides it and must include its `@sha256:` digest. BYO requires
+an explicit image and command. This works for inline and referenced Harnesses.
+`Agent.status.workloadImage` reports the image selected for its desired revision.
+
+Local installations can set `controller.harnessImages.kagent`, `.claude`, and
+`.codex` to full digest-pinned references. Missing defaults only prevent Agents
+that need those entries from compiling. `global.imageRegistry` rewrites the
+registry of these defaults; it does not rewrite explicit Harness overrides.
+A supplied `controller.harnessImages.release` must match the controller version;
+omit it for independently built local images.
+
+The native images use `make build-claude-harness` and `make build-codex-harness`.
+`kagent-adk` remains available for Python runtime overrides.
 
 ## Quick Testing with Oneshot
 

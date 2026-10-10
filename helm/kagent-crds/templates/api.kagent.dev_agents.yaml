@@ -250,12 +250,11 @@ spec:
                         maxItems: 32
                         type: array
                       image:
-                        description: Image is an OCI image reference pinned by sha256
-                          digest.
+                        description: |-
+                          Image overrides the release's built-in runtime image. BYO requires an image.
+                          When set, it must be an OCI image reference pinned by sha256 digest.
                         pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                         type: string
-                    required:
-                    - image
                     type: object
                 required:
                 - substrate
@@ -267,6 +266,8 @@ spec:
                     (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1'
                 - message: BYO harnesses must specify workload.command
                   rule: '!has(self.byo) || size(self.workload.command) > 0'
+                - message: BYO harnesses must specify workload.image
+                  rule: '!has(self.byo) || has(self.workload.image)'
               harnessRef:
                 description: |-
                   LocalObjectReference contains enough information to let you locate the
@@ -764,6 +765,12 @@ spec:
                 maxItems: 100
                 type: array
                 x-kubernetes-list-type: set
+              workloadImage:
+                description: |-
+                  WorkloadImage is the digest-pinned image selected for the desired revision.
+                  Existing Sessions may still use an older revision and image.
+                pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
+                type: string
             type: object
         required:
         - spec

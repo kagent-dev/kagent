@@ -59,6 +59,34 @@ the Codex or Claude harnesses.
 
 ### kagent workload overrides
 
+For built-in kagent, Claude, and Codex Harnesses, `workload.image` is optional.
+Use `workload: {}` to select the matching release image provided by the installed
+chart. BYO requires an explicit image; all overrides must be digest-pinned.
+The same selection applies to inline Harnesses on an Agent and referenced Harnesses.
+
+Release image builds run independently. Each runtime build publishes its final
+multi-platform index digest as a workflow artifact. `make helm-release` requires
+`RUNTIME_IMAGE_METADATA_DIR` and validates the three runtime digests before
+assembling `files/builtin-harness-images.json` in a temporary copy of the charts.
+It packages the charts there and copies the completed archives into `dist`;
+chart sources and any previous artifacts are preserved if packaging fails.
+`make helm-publish` depends on this target. The chart supplies
+the defaults through `KAGENT_BUILTIN_HARNESS_IMAGES` in the controller ConfigMap.
+The controller checks the catalog's nonempty release against its own version.
+Neither controller builds nor compilation perform registry lookups.
+Local installations can override individual defaults with
+`controller.harnessImages`; `global.imageRegistry` also applies to these defaults.
+
+The compiler resolves the image on its copy of the Harness spec before hashing
+the revision. It never writes defaults into user specs. A missing or invalid
+selected image reports `Compatible=False`; unused defaults do not need to be
+configured. `Agent.status.workloadImage` reports the image of the desired compiled
+revision and clears when compilation fails. Existing Sessions retain their
+prepared revisions. Changing a release default prepares a new revision for Agents
+using that default; explicit image overrides are independent of catalog changes.
+
+Default selection does not inspect or validate the CLI version inside an override.
+
 The kagent compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
 regardless of the runtime image's implementation language. Omitted overrides
@@ -271,8 +299,7 @@ spec:
     systemPrompt: You are a helpful assistant.
   harness:
     kagent: {}
-    workload:
-      image: example.com/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    workload: {}
     substrate:
       workerPoolRef:
         name: kagent-default
@@ -280,7 +307,8 @@ spec:
         location: s3://snapshots/kagent/
 ```
 
-Use a real runtime image digest and snapshot location in place of the examples.
+Use a real snapshot location in place of the example. The installed release
+supplies the runtime image; local installations must configure their defaults.
 The referenced ModelConfig and WorkerPool must already exist.
 
 To reuse existing configuration, replace either inline spec with its reference:

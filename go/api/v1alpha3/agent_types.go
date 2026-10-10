@@ -56,6 +56,11 @@ type AgentStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
+	// WorkloadImage is the digest-pinned image selected for the desired revision.
+	// Existing Sessions may still use an older revision and image.
+	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
+	// +optional
+	WorkloadImage *string `json:"workloadImage,omitempty"`
 	// Warnings reports non-blocking compatibility decisions made while compiling
 	// this Agent.
 	// +kubebuilder:validation:MaxItems=100

@@ -35,7 +35,7 @@ func TestSandboxAgentMCP(t *testing.T) {
 	require.NoError(t, kube.Get(f.ctx, ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: f.template.Name}, source))
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-agent-", Namespace: f.template.Namespace},
-		Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: image}, Substrate: source.Spec.Substrate,
+		Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new(image)}, Substrate: source.Spec.Substrate,
 			Env: []v1alpha3.RuntimeEnvVar{{Name: "KAGENT_PROPAGATE_TOKEN", Value: "true"}}},
 	}
 	require.NoError(t, kube.Create(f.ctx, harness))

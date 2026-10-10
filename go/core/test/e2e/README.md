@@ -1,5 +1,12 @@
 # End-to-end tests
 
+`TestBuiltinHarnessDefaultImages` prepares all three built-in runtimes with an
+omitted image, through both inline and referenced Harnesses. CI packages the
+Buildx digest metadata into the installed chart. To run this test locally, supply
+the three `controller.harnessImages` defaults matching the explicit Harness
+fixtures. The test checks runtime readiness, effective-image status, and that
+the controller leaves the user spec unchanged.
+
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
 Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
 guest image built for the test. The controller passes the pinned image reference

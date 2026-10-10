@@ -145,9 +145,10 @@ jobs:
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
           make buildx-create
+          mkdir -p "$RUNNER_TEMP/runtime-images"
           printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
             image="$1"
-            DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
+            DOCKER_BUILD_ARGS="--platform=linux/amd64 --push --metadata-file $RUNNER_TEMP/runtime-images/$image.json" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
           # Resolve the guest on the runner: localhost:5001 is not reachable
@@ -155,8 +156,11 @@ jobs:
           GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$GUEST_DIGEST"
           export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
-          make build-cli-local helm-version
-          KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
+          make build-cli-local helm-release RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" RUNTIME_IMAGE_REPOSITORY=localhost:5001/kagent-dev/kagent
+          mkdir -p "$RUNNER_TEMP/release-charts"
+          tar -xzf "dist/kagent-${VERSION}.tgz" -C "$RUNNER_TEMP/release-charts"
+          tar -xzf "dist/kagent-crds-${VERSION}.tgz" -C "$RUNNER_TEMP/release-charts"
+          KAGENT_HELM_REPO="$RUNNER_TEMP/release-charts/" KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
 
@@ -430,6 +434,10 @@ jobs:
       - name: Chart init
         run: |
           make helm-version
+
+      - name: Test release image packaging
+        # Validate packaged runtime defaults without accessing an image registry.
+        run: bash scripts/package-release-charts_test.sh
 
       - name: Run helm unit tests
         run: |

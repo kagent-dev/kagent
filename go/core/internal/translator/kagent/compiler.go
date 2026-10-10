@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 // Compiler translates resolved inputs into a kagent runtime revision.
@@ -73,7 +74,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &translator.CompileResult{Revision: translator.Revision{
 		Namespace: template.Namespace,
-		Image:     harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+		Image:     ptr.Deref(harness.Spec.Workload.Image, ""), Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,

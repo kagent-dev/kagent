@@ -1,3 +1,18 @@
+{{/* Release metadata is packaged after the independent image builds finish. */}}
+{{- define "kagent.builtinHarnessImages" -}}
+{{- $images := dict -}}
+{{- with .Files.Get "files/builtin-harness-images.json" -}}
+  {{- $images = mustFromJson . -}}
+{{- end -}}
+{{- $images = mergeOverwrite $images .Values.controller.harnessImages -}}
+{{- range $runtime := list "kagent" "claude" "codex" -}}
+  {{- with get $images $runtime -}}
+    {{- $_ := set $images $runtime (include "kagent.mirroredImage" (dict "root" $ "image" .)) -}}
+  {{- end -}}
+{{- end -}}
+{{- $images | mustToJson -}}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name.
 */}}

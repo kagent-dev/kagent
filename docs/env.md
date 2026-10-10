@@ -126,6 +126,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` | String | `(none)` | Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing. |
 | `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
 | `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
+| `KAGENT_BUILTIN_HARNESS_IMAGES` | String | `{}` | JSON object containing release, kagent, claude, and codex default image references. Images must be pinned by sha256 digest. A nonempty release must match the controller version. |
 | `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
 | `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |

@@ -6,6 +6,7 @@ metadata:
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
+  KAGENT_BUILTIN_HARNESS_IMAGES: {{ include "kagent.builtinHarnessImages" . | quote }}
   KAGENT_AUTH_MODE: {{ .Values.controller.auth.mode | quote }}
   KAGENT_AUTH_USER_ID_CLAIM: {{ .Values.controller.auth.userIdClaim | quote }}
   KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}

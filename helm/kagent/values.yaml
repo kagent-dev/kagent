@@ -160,6 +160,12 @@ rbac:
 # ==============================================================================
 
 controller:
+  # -- Defaults for omitted Harness workload.image fields. Published charts
+  # carry release-pinned images; these values override individual entries.
+  # Local installations may supply kagent, claude, and codex full digest-pinned
+  # references here. An optional release must match the controller version.
+  # global.imageRegistry also applies to these defaults.
+  harnessImages: {}
   push:
     # -- Allow plain HTTP callback URLs. HTTPS is required by default.
     allowHTTP: false

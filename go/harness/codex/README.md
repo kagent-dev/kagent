@@ -110,8 +110,9 @@ schema](https://learn.chatgpt.com/docs/app-server#message-schema).
 ## Example
 
 One `Agent` holds both the template and Harness inline. The referenced ModelConfig
-and RemoteMCPServer must already exist in `kagent`. Replace `${KAGENT_CODEX_IMAGE_DIGEST}`
-with the full harness image reference, including its `@sha256:` digest.
+and RemoteMCPServer must already exist in `kagent`. The installed release supplies
+the default Harness image. To override it, set `workload.image` to a full
+`@sha256:`-pinned reference.
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -140,8 +141,7 @@ spec:
           - migrate-agent-plugin
   harness:
     codex: {}
-    workload:
-      image: ${KAGENT_CODEX_IMAGE_DIGEST}
+    workload: {}
     substrate:
       workerPoolRef:
         name: kagent-default

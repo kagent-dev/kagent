@@ -32,7 +32,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	matchingHarness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
 	matchingHarness.UID = "harness-uid"
 	matchingHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-	matchingHarness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	matchingHarness.Spec.Workload.Image = new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	matchingHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
 		SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -61,7 +61,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 			Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 			RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 			Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-		}, collections.AgentRuntimeObservations, opts,
+		}, collections.AgentRuntimeObservations, translator.BuiltinImages{}, opts,
 	)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 
@@ -134,7 +134,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			}
 			runtimeHarness := harness("team-a", string(harnessType), nil)
 			runtimeHarness.UID = "harness-uid"
-			runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 			runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			}
@@ -177,7 +177,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 				Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: templates, ResolvedModelConfigs: resolvedModels,
 				RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 				ConfigMaps:       configMaps, Secrets: secrets, WorkerPools: workerPools,
-			}, observations, opts)
+			}, observations, translator.BuiltinImages{}, opts)
 			key := "team-a/assistant"
 			waitFor(t, func() bool {
 				state := reconciliations.GetKey(key)
@@ -284,7 +284,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
 	claudeHarness.UID = "harness-uid"
 	claudeHarness.Spec.Claude = &kagentv1alpha3.ClaudeHarness{}
-	claudeHarness.Spec.Workload.Image = "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	claudeHarness.Spec.Workload.Image = new("example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	claudeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
@@ -312,7 +312,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts,
+		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), translator.BuiltinImages{}, opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -339,7 +339,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	codexHarness := harness("team-a", "codex", map[string]string{"runtime": "codex"})
 	codexHarness.UID = "harness-uid"
 	codexHarness.Spec.Codex = &kagentv1alpha3.CodexHarness{}
-	codexHarness.Spec.Workload.Image = "example.com/codex@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	codexHarness.Spec.Workload.Image = new("example.com/codex@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	codexHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
@@ -368,7 +368,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts,
+		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), translator.BuiltinImages{}, opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -402,7 +402,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	}
 	harness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
 	harness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-	harness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	harness.Spec.Workload.Image = new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	harness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
 	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{root, child}, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
@@ -421,7 +421,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts,
+		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), translator.BuiltinImages{}, opts,
 	)
 	var initial string
 	waitFor(t, func() bool {

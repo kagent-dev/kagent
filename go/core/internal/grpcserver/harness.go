@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 // harnessKind is the Harness CRD accepted by this service.
@@ -86,7 +87,7 @@ func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1alpha1.Harness,
 		Ref:           &apiv1alpha1.ResourceReference{Namespace: object.Namespace, Name: object.Name},
 		Resource:      resource,
 		Runtime:       harnessRuntime(object),
-		WorkloadImage: object.Spec.Workload.Image,
+		WorkloadImage: ptr.Deref(object.Spec.Workload.Image, ""),
 		Ready:         meta.IsStatusConditionTrue(object.Status.Conditions, v1alpha3.HarnessConditionTypeReady),
 	}, nil
 }
