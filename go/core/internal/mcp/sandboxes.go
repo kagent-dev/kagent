@@ -71,8 +71,12 @@ type sandboxStartOutput struct {
 
 type sandboxProcessOutput struct {
 	ProcessID string `json:"process_id"`
-	Status    string `json:"status"`
+	State     string `json:"state"`
 	ExitCode  int32  `json:"exit_code"`
+}
+
+func summarizeProcess(process *guestpb.Process) sandboxProcessOutput {
+	return sandboxProcessOutput{ProcessID: process.GetProcessId(), State: process.GetState().String(), ExitCode: process.GetExitCode()}
 }
 
 type sandboxOutputsInput struct {
@@ -88,6 +92,8 @@ type sandboxOutputsOutput struct {
 	StdoutOffset int64  `json:"stdout_offset"`
 	StderrOffset int64  `json:"stderr_offset"`
 	Truncated    bool   `json:"truncated"`
+	Exited       bool   `json:"exited" jsonschema:"The process has exited and all of its output has been read"`
+	ExitCode     int32  `json:"exit_code" jsonschema:"Exit code, valid when exited"`
 }
 
 type sandboxReadInput struct {
@@ -201,35 +207,40 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result, err := service.StartProcess(ctx, in.SandboxID, request)
 		return sandboxStartOutput{ProcessID: result.GetProcessId()}, err
 	})
-	addSandboxTool(server, "get_sandbox_process", "Inspect process status. exit_code is meaningful only for COMPLETED, FAILED, or TERMINATED, not RUNNING. Read outputs and retrieve artifacts after completion.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
+	addSandboxTool(server, "get_sandbox_process", "Inspect process state. exit_code is meaningful only once state is PROCESS_STATE_EXITED: 0 for success, 128 plus the signal number if a signal ended it. Read outputs and retrieve artifacts after it exits.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
 		result, err := service.GetProcess(ctx, in.SandboxID, &guestpb.GetProcessRequest{ProcessId: in.ProcessID})
-		return sandboxProcessOutput{ProcessID: result.GetProcessId(), Status: result.GetStatus().String(), ExitCode: result.GetExitCode()}, err
+		return summarizeProcess(result), err
 	})
-	addSandboxTool(server, "kill_sandbox_process", "Terminate a sandbox process", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
-		result, err := service.KillProcess(ctx, in.SandboxID, &guestpb.KillProcessRequest{ProcessId: in.ProcessID})
-		return sandboxProcessOutput{ProcessID: in.ProcessID, ExitCode: result.GetExitCode()}, err
+	addSandboxTool(server, "kill_sandbox_process", "Send SIGKILL to a sandbox process and its process group. It may still be running when this returns; check get_sandbox_process for the exit.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
+		result, err := service.SignalProcess(ctx, in.SandboxID, &guestpb.SignalProcessRequest{ProcessId: in.ProcessID, Signal: guestpb.Signal_SIGNAL_KILL})
+		return summarizeProcess(result), err
 	})
-	addSandboxTool(server, "read_sandbox_outputs", "Read currently available stdout/stderr as base64, up to 1 MiB combined. Pass both returned byte offsets to continue. This does not wait for completion; check get_sandbox_process and read again after it finishes.", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
-		request := &guestpb.StreamProcessOutputsRequest{ProcessId: in.ProcessID, StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
+	addSandboxTool(server, "read_sandbox_outputs", "Read currently available stdout/stderr as base64, up to 1 MiB combined. Pass both returned byte offsets to continue. This does not wait; exited becomes true once the process has exited and all of its output has been read.", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
+		request := &guestpb.StreamProcessOutputRequest{ProcessId: in.ProcessID, StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
 		result := sandboxOutputsOutput{StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
 		var stdout, stderr []byte
 		limit := errors.New("output limit reached")
-		err := service.StreamProcessOutputs(ctx, in.SandboxID, request, func(chunk *guestpb.OutputChunk) error {
-			data := chunk.Data
+		err := service.StreamProcessOutput(ctx, in.SandboxID, request, func(output *guestpb.ProcessOutput) error {
+			var data []byte
+			var stream *[]byte
+			var offset *int64
+			switch output := output.Output.(type) {
+			case *guestpb.ProcessOutput_Exit:
+				result.Exited, result.ExitCode = true, output.Exit.GetExitCode()
+				return nil
+			case *guestpb.ProcessOutput_Stdout:
+				data, stream, offset = output.Stdout, &stdout, &result.StdoutOffset
+			case *guestpb.ProcessOutput_Stderr:
+				data, stream, offset = output.Stderr, &stderr, &result.StderrOffset
+			default:
+				return fmt.Errorf("unknown guest process output %T", output)
+			}
 			if remaining := sandboxToolBytes - len(stdout) - len(stderr); len(data) > remaining {
 				data = data[:remaining]
 				result.Truncated = true
 			}
-			switch chunk.Source {
-			case guestpb.OutputSource_OUTPUT_SOURCE_STDOUT:
-				stdout = append(stdout, data...)
-				result.StdoutOffset += int64(len(data))
-			case guestpb.OutputSource_OUTPUT_SOURCE_STDERR:
-				stderr = append(stderr, data...)
-				result.StderrOffset += int64(len(data))
-			default:
-				return fmt.Errorf("unknown guest output source %s", chunk.Source)
-			}
+			*stream = append(*stream, data...)
+			*offset += int64(len(data))
 			if result.Truncated {
 				return limit
 			}
@@ -243,11 +254,11 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 	})
 	addSandboxTool(server, "read_sandbox_file", "Read a file up to 1 MiB as base64. Decode data_base64 and save artifacts outside the sandbox before deletion or expiration. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) (sandboxReadOutput, error) {
 		var data []byte
-		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.FileChunk) error {
-			if len(data)+len(chunk.Data) > sandboxToolBytes {
+		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.ReadFileResponse) error {
+			if len(data)+len(chunk.GetChunk()) > sandboxToolBytes {
 				return fmt.Errorf("file exceeds MCP 1 MiB limit; use the streaming API")
 			}
-			data = append(data, chunk.Data...)
+			data = append(data, chunk.GetChunk()...)
 			return nil
 		})
 		return sandboxReadOutput{DataBase64: base64.StdEncoding.EncodeToString(data)}, err

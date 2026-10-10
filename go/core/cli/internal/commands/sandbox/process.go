@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
@@ -20,7 +21,7 @@ type processEvent struct {
 	Event        string `json:"event"`
 	SandboxID    string `json:"sandbox_id"`
 	ProcessID    string `json:"process_id"`
-	Status       string `json:"status,omitempty"`
+	State        string `json:"state,omitempty"`
 	ExitCode     *int32 `json:"exit_code,omitempty"`
 	Source       string `json:"source,omitempty"`
 	Data         []byte `json:"data,omitempty"`
@@ -113,11 +114,11 @@ func newProcessCmd() *cobra.Command {
 				if format == clioutput.FormatJSON {
 					return clioutput.WriteProto(cmd.OutOrStdout(), process)
 				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s", process.ProcessId, process.Status)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s", process.ProcessId, process.State)
 				if err != nil {
 					return err
 				}
-				if process.Status != guestpb.ProcessStatus_PROCESS_STATUS_RUNNING {
+				if process.State == guestpb.ProcessState_PROCESS_STATE_EXITED {
 					_, err = fmt.Fprintf(cmd.OutOrStdout(), "\texit_code=%d", process.ExitCode)
 					if err != nil {
 						return err
@@ -131,22 +132,30 @@ func newProcessCmd() *cobra.Command {
 }
 
 func newKillCmd() *cobra.Command {
-	return &cobra.Command{
-		Use: "kill ID PROCESS_ID", Short: "Terminate a process and its children", Args: cobra.ExactArgs(2),
+	var name string
+	cmd := &cobra.Command{
+		Use: "kill ID PROCESS_ID", Short: "Signal a process and its process group", Args: cobra.ExactArgs(2),
+		Long: "Deliver a signal to a process and its process group. The process may still be running when this returns; use sandbox wait for its exit code.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			signal, ok := guestpb.Signal_value["SIGNAL_"+strings.TrimPrefix(strings.ToUpper(name), "SIG")]
+			if !ok || signal == int32(guestpb.Signal_SIGNAL_UNSPECIFIED) {
+				return fmt.Errorf("unknown signal %q", name)
+			}
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
-				response, err := c.KillProcess(ctx, args[0], &guestpb.KillProcessRequest{ProcessId: args[1]})
+				process, err := c.SignalProcess(ctx, args[0], &guestpb.SignalProcessRequest{ProcessId: args[1], Signal: guestpb.Signal(signal)})
 				if err != nil {
 					return err
 				}
 				if format == clioutput.FormatJSON {
-					return clioutput.WriteProto(cmd.OutOrStdout(), response)
+					return clioutput.WriteProto(cmd.OutOrStdout(), process)
 				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\texit_code=%d\n", args[1], response.ExitCode)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", process.ProcessId, process.State)
 				return err
 			})
 		},
 	}
+	cmd.Flags().StringVar(&name, "signal", "KILL", "Signal to deliver, such as TERM, INT or KILL")
+	return cmd
 }
 
 func waitProcess(ctx context.Context, cmd *cobra.Command, c *client.SandboxClient, format clioutput.Format, event processEvent) (err error) {
@@ -161,25 +170,22 @@ func waitProcess(ctx context.Context, cmd *cobra.Command, c *client.SandboxClien
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		process, err := c.GetProcess(ctx, event.SandboxID, &guestpb.GetProcessRequest{ProcessId: event.ProcessID})
-		if err != nil {
-			return err
-		}
-		switch process.Status {
-		case guestpb.ProcessStatus_PROCESS_STATUS_RUNNING, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, guestpb.ProcessStatus_PROCESS_STATUS_FAILED, guestpb.ProcessStatus_PROCESS_STATUS_TERMINATED:
-		default:
-			return fmt.Errorf("unknown process status %s", process.Status)
-		}
-		err = c.ReadProcessOutputs(ctx, event.SandboxID, &guestpb.StreamProcessOutputsRequest{ProcessId: event.ProcessID, StdoutOffset: event.StdoutOffset, StderrOffset: event.StderrOffset}, func(chunk *guestpb.OutputChunk) error {
+		var exited *guestpb.Process
+		err = c.ReadProcessOutput(ctx, event.SandboxID, &guestpb.StreamProcessOutputRequest{ProcessId: event.ProcessID, StdoutOffset: event.StdoutOffset, StderrOffset: event.StderrOffset}, func(output *guestpb.ProcessOutput) error {
 			next := event
-			next.Event, next.Source, next.Data = "output", chunk.Source.String(), chunk.Data
-			switch chunk.Source {
-			case guestpb.OutputSource_OUTPUT_SOURCE_STDOUT:
-				next.StdoutOffset += int64(len(chunk.Data))
-			case guestpb.OutputSource_OUTPUT_SOURCE_STDERR:
-				next.StderrOffset += int64(len(chunk.Data))
+			next.Event = "output"
+			switch output := output.Output.(type) {
+			case *guestpb.ProcessOutput_Stdout:
+				next.Source, next.Data = "stdout", output.Stdout
+				next.StdoutOffset += int64(len(output.Stdout))
+			case *guestpb.ProcessOutput_Stderr:
+				next.Source, next.Data = "stderr", output.Stderr
+				next.StderrOffset += int64(len(output.Stderr))
+			case *guestpb.ProcessOutput_Exit:
+				exited = output.Exit
+				return nil
 			default:
-				return fmt.Errorf("unknown output source %s", chunk.Source)
+				return fmt.Errorf("unknown process output %T", output)
 			}
 			if err := emitProcessEvent(cmd, format, next); err != nil {
 				return err
@@ -190,13 +196,13 @@ func waitProcess(ctx context.Context, cmd *cobra.Command, c *client.SandboxClien
 		if err != nil {
 			return err
 		}
-		if process.Status != guestpb.ProcessStatus_PROCESS_STATUS_RUNNING {
-			event.Event, event.Status, event.ExitCode = "finished", process.Status.String(), &process.ExitCode
+		if exited != nil {
+			event.Event, event.State, event.ExitCode = "finished", exited.State.String(), &exited.ExitCode
 			if err := emitProcessEvent(cmd, format, event); err != nil {
 				return err
 			}
-			if process.ExitCode != 0 || process.Status != guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED {
-				return &processExitError{code: process.ExitCode}
+			if exited.ExitCode != 0 {
+				return &processExitError{code: exited.ExitCode}
 			}
 			return nil
 		}
@@ -214,7 +220,7 @@ func emitProcessEvent(cmd *cobra.Command, format clioutput.Format, event process
 	}
 	if event.Event == "output" {
 		out := cmd.OutOrStdout()
-		if event.Source == guestpb.OutputSource_OUTPUT_SOURCE_STDERR.String() {
+		if event.Source == "stderr" {
 			out = cmd.ErrOrStderr()
 		}
 		n, err := out.Write(event.Data)
@@ -224,7 +230,7 @@ func emitProcessEvent(cmd *cobra.Command, format clioutput.Format, event process
 		return err
 	}
 	if event.ExitCode != nil {
-		_, err := fmt.Fprintf(cmd.ErrOrStderr(), "Process %s: %s, exit_code=%d\n", event.ProcessID, event.Status, *event.ExitCode)
+		_, err := fmt.Fprintf(cmd.ErrOrStderr(), "Process %s: %s, exit_code=%d\n", event.ProcessID, event.State, *event.ExitCode)
 		return err
 	}
 	_, err := fmt.Fprintf(cmd.ErrOrStderr(), "Process %s in sandbox %s: %s (stdout offset %d, stderr offset %d)\n", event.ProcessID, event.SandboxID, event.Event, event.StdoutOffset, event.StderrOffset)

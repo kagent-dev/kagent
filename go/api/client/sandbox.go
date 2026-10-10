@@ -101,7 +101,7 @@ func (c *SandboxClient) DeleteSandbox(ctx context.Context, request *apiv1alpha1.
 	return apiv1alpha1.NewSandboxServiceClient(conn).DeleteSandbox(ctx, request)
 }
 
-func (c *SandboxClient) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {
+func (c *SandboxClient) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 	conn, ctx, cancel, err := c.guestCall(ctx, sandboxID)
 	if err != nil {
 		return nil, err
@@ -119,24 +119,26 @@ func (c *SandboxClient) GetProcess(ctx context.Context, sandboxID string, reques
 	return guestpb.NewProcessServiceClient(conn).GetProcess(ctx, request)
 }
 
-func (c *SandboxClient) KillProcess(ctx context.Context, sandboxID string, request *guestpb.KillProcessRequest) (*guestpb.KillProcessResponse, error) {
+func (c *SandboxClient) SignalProcess(ctx context.Context, sandboxID string, request *guestpb.SignalProcessRequest) (*guestpb.Process, error) {
 	conn, ctx, cancel, err := c.guestCall(ctx, sandboxID)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return guestpb.NewProcessServiceClient(conn).KillProcess(ctx, request)
+	return guestpb.NewProcessServiceClient(conn).SignalProcess(ctx, request)
 }
 
-// ReadProcessOutputs drains the upstream stream. The caller owns continuation
-// offsets and whether to follow output; callbacks may stop the stream with an error.
-func (c *SandboxClient) ReadProcessOutputs(ctx context.Context, sandboxID string, request *guestpb.StreamProcessOutputsRequest, receive func(*guestpb.OutputChunk) error) error {
+// ReadProcessOutput drains the upstream stream, which ends with an exit
+// message once the process has exited and its output is delivered. The caller
+// owns continuation offsets and whether to follow output; callbacks may stop
+// the stream with an error.
+func (c *SandboxClient) ReadProcessOutput(ctx context.Context, sandboxID string, request *guestpb.StreamProcessOutputRequest, receive func(*guestpb.ProcessOutput) error) error {
 	conn, ctx, cancel, err := c.guestCall(ctx, sandboxID)
 	if err != nil {
 		return err
 	}
 	defer cancel()
-	stream, err := guestpb.NewProcessServiceClient(conn).StreamProcessOutputs(ctx, request)
+	stream, err := guestpb.NewProcessServiceClient(conn).StreamProcessOutput(ctx, request)
 	if err != nil {
 		return err
 	}
@@ -172,11 +174,11 @@ func (c *SandboxClient) ReadFile(ctx context.Context, sandboxID, path string, ou
 		if err != nil {
 			return err
 		}
-		n, err := out.Write(chunk.Data)
+		n, err := out.Write(chunk.GetChunk())
 		if err != nil {
 			return err
 		}
-		if n != len(chunk.Data) {
+		if n != len(chunk.GetChunk()) {
 			return io.ErrShortWrite
 		}
 	}

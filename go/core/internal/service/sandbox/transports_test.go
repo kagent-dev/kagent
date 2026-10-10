@@ -82,14 +82,14 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		contents = append(contents, chunk.Data...)
+		contents = append(contents, chunk.GetChunk()...)
 	}
 	require.Equal(t, []byte{0, 128, 255}, contents)
 	require.Equal(t, "team-a/"+substrate.ActorName(id), headers().Get("ate-target-actor"))
 	require.Equal(t, "alice", headers().Get("x-user-id"))
 	started, err := processes.StartProcess(ctx, &guestpb.StartProcessRequest{Command: []string{"sh", "-c", "printf grpc"}})
 	require.NoError(t, err)
-	outputs, err := processes.StreamProcessOutputs(ctx, &guestpb.StreamProcessOutputsRequest{ProcessId: started.ProcessId, Follow: true})
+	outputs, err := processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: started.ProcessId, Follow: true})
 	require.NoError(t, err)
 	var output []byte
 	for {
@@ -98,7 +98,7 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		output = append(output, chunk.Data...)
+		output = append(output, chunk.GetStdout()...)
 	}
 	require.Equal(t, "grpc", string(output))
 	// Every upstream method must apply kagent routing and ownership checks.
@@ -114,16 +114,24 @@ func TestSandboxTransports(t *testing.T) {
 			_, err := processes.GetProcess(ctx, &guestpb.GetProcessRequest{ProcessId: started.ProcessId})
 			return err
 		}},
-		{"kill", func(ctx context.Context) error {
-			_, err := processes.KillProcess(ctx, &guestpb.KillProcessRequest{ProcessId: started.ProcessId})
+		{"signal", func(ctx context.Context) error {
+			_, err := processes.SignalProcess(ctx, &guestpb.SignalProcessRequest{ProcessId: started.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 			return err
 		}},
 		{"outputs", func(ctx context.Context) error {
-			stream, err := processes.StreamProcessOutputs(ctx, &guestpb.StreamProcessOutputsRequest{ProcessId: started.ProcessId})
+			stream, err := processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: started.ProcessId})
 			if err != nil {
 				return err
 			}
 			_, err = stream.Recv()
+			return err
+		}},
+		{"input", func(ctx context.Context) error {
+			stream, err := processes.WriteProcessInput(ctx)
+			if err != nil {
+				return err
+			}
+			_, err = stream.CloseAndRecv()
 			return err
 		}},
 		{"read", func(ctx context.Context) error {
@@ -201,7 +209,7 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		contents = append(contents, chunk.Data...)
+		contents = append(contents, chunk.GetChunk()...)
 	}
 	require.Equal(t, "mcp", string(contents))
 	result, err = session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "start_sandbox_process", Arguments: map[string]any{
@@ -215,7 +223,7 @@ func TestSandboxTransports(t *testing.T) {
 	content, ok := result.Content[0].(*sdkmcp.TextContent)
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(content.Text), &process))
-	outputs, err = processes.StreamProcessOutputs(ctx, &guestpb.StreamProcessOutputsRequest{ProcessId: process.ID, Follow: true})
+	outputs, err = processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: process.ID, Follow: true})
 	require.NoError(t, err)
 	output = nil
 	for {
@@ -224,7 +232,7 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		output = append(output, chunk.Data...)
+		output = append(output, chunk.GetStdout()...)
 	}
 	require.Equal(t, "mcp", string(output))
 	_, err = processes.GetProcess(ctx, &guestpb.GetProcessRequest{ProcessId: "unknown-guest-process"})
