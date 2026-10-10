@@ -17,15 +17,14 @@ import pytest
 def _isolate_types_import(monkeypatch):
     """Ensure kagent.adk.types can be imported without the heavy dependency chain.
 
-    kagent.adk.__init__ pulls in kagent.core (tracing, opentelemetry, etc.)
+    kagent.adk.__init__ pulls in kagent.core (telemetry, opentelemetry, etc.)
     which may not be installed in the test environment. We mock the missing
     modules so the types module itself can be imported directly.
     """
     stubs = [
         "kagent.core",
         "kagent.core.a2a",
-        "kagent.core.tracing",
-        "kagent.core.tracing._span_processor",
+        "kagent.core.telemetry",
         "agentsts",
         "agentsts.adk",
     ]
@@ -39,7 +38,7 @@ def _make_agent_config(instruction: str):
     import kagent.adk.types as types_mod
 
     return types_mod.AgentConfig(
-        model={"type": "gemini", "model": "gemini-2.5-flash"},
+        model={"type": "gemini", "model": "gemini-3.5-flash"},
         description="test agent",
         instruction=instruction,
     )

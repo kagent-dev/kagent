@@ -77,6 +77,10 @@ func TestServerTelemetryShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// RPC responses can arrive before otelgrpc records the final span and
+	// metrics. Drain both handlers before inspecting their telemetry.
+	server.server.GracefulStop()
+
 	exported := spans.GetSpans()
 	telemetrytest.AssertTraceShape(t, exported)
 	if len(exported) != 1 {

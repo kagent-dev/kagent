@@ -28,6 +28,10 @@ type interactionService interface {
 	GetCancelResult(context.Context, types.NamespacedName, a2a.TaskID) (*a2a.Task, error)
 	GetSettledTask(context.Context, types.NamespacedName, string, a2a.TaskID, *int) (*a2a.Task, error)
 	GetAgentCard(context.Context, types.NamespacedName) (*a2a.AgentCard, error)
+	CreateTaskPushConfig(context.Context, types.NamespacedName, *a2a.PushConfig) (*a2a.PushConfig, error)
+	GetTaskPushConfig(context.Context, types.NamespacedName, *a2a.GetTaskPushConfigRequest) (*a2a.PushConfig, error)
+	ListTaskPushConfigs(context.Context, types.NamespacedName, *a2a.ListTaskPushConfigRequest) (*a2a.ListTaskPushConfigResponse, error)
+	DeleteTaskPushConfig(context.Context, types.NamespacedName, *a2a.DeleteTaskPushConfigRequest) error
 }
 
 type runtimeDialer interface {
@@ -102,19 +106,35 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2a.SubscribeToTaskR
 }
 
 func (g *Gateway) GetTaskPushConfig(ctx context.Context, req *a2a.GetTaskPushConfigRequest) (*a2a.PushConfig, error) {
-	return nil, a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return g.interactions.GetTaskPushConfig(ctx, agent, req)
 }
 
 func (g *Gateway) ListTaskPushConfigs(ctx context.Context, req *a2a.ListTaskPushConfigRequest) (*a2a.ListTaskPushConfigResponse, error) {
-	return nil, a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return g.interactions.ListTaskPushConfigs(ctx, agent, req)
 }
 
 func (g *Gateway) CreateTaskPushConfig(ctx context.Context, req *a2a.PushConfig) (*a2a.PushConfig, error) {
-	return nil, a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return g.interactions.CreateTaskPushConfig(ctx, agent, req)
 }
 
 func (g *Gateway) DeleteTaskPushConfig(ctx context.Context, req *a2a.DeleteTaskPushConfigRequest) error {
-	return a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return err
+	}
+	return g.interactions.DeleteTaskPushConfig(ctx, agent, req)
 }
 
 func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
@@ -146,7 +166,7 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2a.GetExtended
 	// answering an agent's question undiscoverable while the card still rendered
 	// perfectly.
 	extensions := card.Capabilities.Extensions
-	card.Capabilities = a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true, Extensions: extensions}
+	card.Capabilities = a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true, PushNotifications: true, Extensions: extensions}
 	card.SecurityRequirements = nil
 	card.SecuritySchemes = nil
 	card.Signatures = nil

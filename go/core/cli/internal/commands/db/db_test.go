@@ -14,7 +14,7 @@ func TestMigrationSourcesFromEnvironment(t *testing.T) {
 	}{
 		{input: "false", want: []string{"core"}},
 		{input: " TrUe ", want: []string{"core", "vector"}},
-		{input: "invalid", want: []string{"core", "vector"}},
+		{input: "invalid", want: []string{"core"}},
 	} {
 		t.Run(tt.input, func(t *testing.T) {
 			t.Setenv(env.DatabaseVectorEnabled.Name(), tt.input)

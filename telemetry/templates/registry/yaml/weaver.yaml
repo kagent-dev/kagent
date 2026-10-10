@@ -2,4 +2,16 @@ templates:
   - pattern: resolved.yaml.j2
     file_name: resolved.yaml
     application_mode: single
-    filter: "{schema_url, registry, refinements}"
+    # Upstream definitions are pinned by the manifest, so imports appear by name only.
+    filter: >
+      {
+        schema_url,
+        registry: (.registry
+          | .spans |= map(select(.type | startswith("kagent.")))
+          | .metrics |= map(select(.name | startswith("kagent.")))),
+        refinements: (.refinements | with_entries(.value |= map(select(.id | startswith("kagent."))))),
+        imports: {
+          spans: [.registry.spans[] | select(.type | startswith("kagent.") | not) | .type],
+          metrics: [.registry.metrics[] | select(.name | startswith("kagent.") | not) | .name]
+        }
+      }

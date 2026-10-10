@@ -29,7 +29,9 @@ if ! command -v "${CONTAINER_RUNTIME}" >/dev/null 2>&1; then
   exit 1
 fi
 
-exec "${CONTAINER_RUNTIME}" run --rm \
+# WEAVER_CONTAINER_ARGS adds container options, such as published ports.
+# shellcheck disable=SC2086
+exec "${CONTAINER_RUNTIME}" run --rm ${WEAVER_CONTAINER_ARGS:-} \
   --user "$(id -u):$(id -g)" \
   --env HOME=/tmp \
   --volume "${ROOT}:/workspace" \

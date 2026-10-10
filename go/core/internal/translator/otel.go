@@ -223,12 +223,12 @@ func (c TelemetryConfig) Enabled() bool {
 	return c.Traces.Enabled || c.Metrics.Enabled || c.Logs.Enabled
 }
 
-// Destinations are the egress hostnames of the enabled signals.
+// Destinations are the egress origins of the enabled signals.
 func (c TelemetryConfig) Destinations() []string {
 	var hosts []string
 	for _, signal := range []SignalConfig{c.Traces, c.Metrics, c.Logs} {
 		if signal.Enabled {
-			hosts = append(hosts, signal.Hostname)
+			hosts = appendURLOrigin(hosts, signal.Endpoint)
 		}
 	}
 	return hosts
@@ -276,17 +276,14 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 
 // HarnessResourceAttributes is the literal OTEL_RESOURCE_ATTRIBUTES a Harness
 // sets. The rendered value keeps its entries under the agent identity.
-func HarnessResourceAttributes(harness *HarnessConfiguration) (string, error) {
+func HarnessResourceAttributes(harness *HarnessConfiguration) string {
 	for _, variable := range harness.Spec.Env {
 		if variable.Name != env.OtelSDKResourceAttributes.Name() {
 			continue
 		}
-		if variable.Value == nil {
-			return "", NewValidationError("Harness env %q must be a literal value", env.OtelSDKResourceAttributes.Name())
-		}
-		return *variable.Value, nil
+		return variable.Value
 	}
-	return "", nil
+	return ""
 }
 
 // IsResourceAttributesVariable reports whether a Harness variable is the one
@@ -405,8 +402,8 @@ func DefaultsEnvironment() []corev1.EnvVar {
 func resourceIdentity(identity tracing.RuntimeTelemetry) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
 		semconv.ServiceNamespaceKey.String(identity.AgentNamespace),
-		conv.GenAIAgentNameKey.String(identity.AgentName),
-		conv.GenAIAgentIDKey.String(identity.AgentID()),
+		conv.GenAIMainAgentNameKey.String(identity.AgentName),
+		conv.GenAIMainAgentIDKey.String(identity.AgentID()),
 	}
 	if identity.Provider != "" {
 		attributes = append(attributes, conv.GenAIProviderNameKey.String(identity.Provider))

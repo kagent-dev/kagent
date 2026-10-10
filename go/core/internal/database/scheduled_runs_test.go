@@ -43,7 +43,7 @@ func listTestScheduleExecutions(t *testing.T, c *Client, schedule *apiv1alpha1.S
 
 func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, "lease")
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 }
 
 func TestScheduledRunRequestsSurviveEditAndDeletion(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	schedule, hash := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestScheduledRunRequestsSurviveEditAndDeletion(t *testing.T) {
 
 func TestScheduledRunSQLTimestamps(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, hash := createTestSchedule(t, c)
 	require.True(t, proto.Equal(schedule.CreatedAt, schedule.UpdatedAt))
 	next, err := scheduledrun.Next(schedule.Config, schedule.CreatedAt.AsTime())
@@ -221,7 +221,7 @@ func TestScheduledRunSQLTimestamps(t *testing.T) {
 
 func TestScheduledRunConcurrentReservation(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	var wg sync.WaitGroup
 	ids := make(chan string, 12)
@@ -268,7 +268,7 @@ func TestScheduledRunConcurrentReservation(t *testing.T) {
 }
 
 func TestScheduledRunConcurrentUpdateAndDelete(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	schedule, _ := createTestSchedule(t, c)
 	results := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -316,7 +316,7 @@ func TestScheduledRunConcurrentUpdateAndDelete(t *testing.T) {
 
 func TestScheduledRunExecutionConstraints(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
@@ -334,7 +334,7 @@ func TestScheduledRunExecutionConstraints(t *testing.T) {
 
 func TestScheduledExecutionSurvivesSessionDeletion(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
@@ -390,7 +390,7 @@ func TestScheduledExecutionSurvivesSessionDeletion(t *testing.T) {
 
 func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	require.NoError(t, c.RetireAgentIdentities(t.Context(), "team-a", "report", nil))
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
@@ -420,7 +420,7 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 }
 
 func TestScheduledExecutionExpiresBeforeSessionCreation(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	schedule, _ := createTestSchedule(t, c)
 	config := proto.CloneOf(schedule.Config)
 	config.ExecutionTimeout = durationpb.New(time.Microsecond)
@@ -439,7 +439,7 @@ func TestScheduledExecutionExpiresBeforeSessionCreation(t *testing.T) {
 
 func TestScheduledRunRejectsCorruptPayloads(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
@@ -465,7 +465,7 @@ func TestScheduledRunRejectsCorruptPayloads(t *testing.T) {
 
 func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
@@ -497,7 +497,7 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 
 func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, hash := createTestSchedule(t, c)
 	invalidCron := proto.CloneOf(schedule)
 	invalidCron.Config.Schedule = "not a cron expression"
@@ -539,7 +539,7 @@ func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
 
 func TestMalformedScheduledExecutionsDoNotDiscardHealthyLeases(t *testing.T) {
 	db := setupTestDB(t)
-	c := NewClient(db)
+	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
 	var badIDs []string
 	for _, data := range [][]byte{{0xff}, {}} {
@@ -580,7 +580,7 @@ func TestDeleteMalformedScheduledRun(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data := tc.data
 			db := setupTestDB(t)
-			c := NewClient(db)
+			c := NewClient(db, "public")
 			schedule, _ := createTestSchedule(t, c)
 			_, err := db.Exec(t.Context(), `UPDATE scheduled_run SET data = $1 WHERE id = $2`, data, schedule.Id)
 			require.NoError(t, err)
@@ -607,7 +607,7 @@ func TestDeleteMalformedScheduledRun(t *testing.T) {
 
 func TestScheduledDispatchClaimSurvivesLeaseReplacement(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, client)
 	execution, err := client.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "dispatch")
 	require.NoError(t, err)

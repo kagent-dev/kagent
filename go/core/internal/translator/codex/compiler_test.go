@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
@@ -36,15 +36,15 @@ func TestCompileProviderCredentials(t *testing.T) {
 	}{
 		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"api.openai.com", "kagent-controller.kagent"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
 		},
 		{
 			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"gateway.example.com", "kagent-controller.kagent"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://gateway.example.com:443"},
 		},
 		{
 			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: v2translator.CredentialPlaceholder}, egress: []string{"bedrock-runtime.us-east-1.amazonaws.com", "kagent-controller.kagent"},
+			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-east-1.amazonaws.com:443"},
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
@@ -123,7 +123,7 @@ func TestCompileTracing(t *testing.T) {
 	if cfg.Telemetry == nil || cfg.Telemetry.Traces == nil || cfg.Telemetry.Traces.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Traces.Protocol != "http/protobuf" || cfg.Telemetry.Logs == nil || cfg.Telemetry.Logs.Endpoint != "http://logs:4317" || cfg.Telemetry.Logs.Protocol != "grpc" || cfg.Telemetry.CaptureContent {
 		t.Fatalf("telemetry = %#v", cfg.Telemetry)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector", "kagent-controller.kagent", "logs"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://collector:4318", "http://kagent-controller.kagent:8083", "http://logs:4317", "https://api.openai.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -167,10 +167,10 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	var validation *v2translator.ValidationError
+	var validation *translator.ValidationError
 	if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
 		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
 	}
@@ -185,7 +185,7 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "x-tenant=team-a"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -207,7 +207,7 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	for _, model := range tests {
 		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret")})
 		_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-		var validation *v2translator.ValidationError
+		var validation *translator.ValidationError
 		if !errors.As(err, &validation) {
 			t.Errorf("Compile(%s) error = %v, want validation", model.Provider, err)
 		}
@@ -221,12 +221,12 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", UID: "mcp"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
 	}}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}, RequireApproval: true}, Server: server}}
+	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}, RequireApproval: true}, Server: server}}
 	childModel := model
 	childModel.Model = "gpt-child"
-	input.Root.Shared = []v2translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &v2translator.AgentInput{
-		Template: &v2translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
-		ResolvedModelConfig: &v2translator.ResolvedModelConfig{
+	input.Root.Shared = []translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &translator.AgentInput{
+		Template: &translator.TemplateConfiguration{Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}}},
+		ResolvedModelConfig: &translator.ResolvedModelConfig{
 			Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childModel},
 		},
 		Instruction: "Review carefully",
@@ -248,7 +248,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
 		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools"].Headers)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "kagent-controller.kagent", "mcp.example.com"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 }
@@ -272,7 +272,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 			TerminateOnClose: &terminateOnClose,
 		},
 	}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
+	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
 
 	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -300,22 +300,22 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 }
 
-func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
+func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*translator.HarnessInput, translator.Collections) {
 	t.Helper()
-	harness := &v2translator.HarnessConfiguration{Name: "codex", Namespace: "test", Source: &metav1.ObjectMeta{Name: "codex", Namespace: "test", UID: "harness"}, Spec: v1alpha3.HarnessSpec{
+	harness := &translator.HarnessConfiguration{Name: "codex", Namespace: "test", Source: &metav1.ObjectMeta{Name: "codex", Namespace: "test", UID: "harness"}, Spec: v1alpha3.HarnessSpec{
 		Codex: &v1alpha3.CodexHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/codex@sha256:" + strings.Repeat("a", 64)},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &v2translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
+	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant"}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret"}, Data: secretData}
 	mock := krttest.NewMock(t, []any{secret})
-	collections := v2translator.Collections{
+	collections := translator.Collections{
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &v2translator.AgentInput{
-		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
+	return &translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{
+		Template: template, ResolvedModelConfig: &translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
 	}}, collections
 }
 

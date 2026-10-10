@@ -1,8 +1,6 @@
 # Trying the UI against a real cluster
 
-One command builds a Kind cluster and installs **this checkout** on it — the controller
-and the UI are both built from the working tree and swapped in over the chart's
-published images, so what runs on the cluster is the code you are reviewing.
+One command builds a Kind cluster and installs **this checkout** on it, with Substrate and a development PostgreSQL database. Every image is built from the working tree, so what runs on the cluster is the code you are reviewing.
 
 ```sh
 ./scripts/setup-cluster/setup-cluster.sh          # ~20 min, mostly image builds
@@ -69,7 +67,7 @@ Every page works and says on the page that the data is not real. `?mock=empty`,
 
 ## Before the first run
 
-`docker`, `kind`, `kubectl`, `helm`, `jq`, `openssl`, `yarn`. Set `OPENAI_API_KEY` if you
+`docker`, `kind`, `kubectl`, `helm`, `yarn`. Set `OPENAI_API_KEY` if you
 want agents that answer; without it everything installs and chats fail at the model call.
 
 ## Starting over
@@ -82,24 +80,12 @@ Then rerun `./scripts/setup-cluster/setup-cluster.sh` to rebuild the cluster.
 
 The local registry is reused. Other Docker containers and volumes are left intact.
 
-## Why this is a script and not four commands
+## Why this is a script and not two commands
 
-Five things make the obvious path fail, and each fails silently:
+`make build kagent-cli-deploy` installs everything. The script adds what a UI session needs on top:
 
-- **`make create-kind-cluster && make helm-install` does not work.** Every substrate
-  workload mounts secrets that do not exist until the `kubectl-ate` pool commands have
-  run, so the controller crash-loops while its pod reports `1/1 Ready`.
-- **`kubectl-ate` exits 0 slightly before its secret is readable**, so the next step
-  waits for the secret rather than trusting the exit code.
-- **The chart installs published images**, so a cluster built without this script runs
-  somebody else's build of both the controller and the UI, and none of the local
-  changes are on it — while everything looks installed and healthy.
-- **A harness runs the Go ADK, not the Python one.** An actor starts by restoring its
-  template's golden snapshot, and the Python runtime does not survive that — it comes
-  back with `Fatal Python error: Illegal instruction` and never serves `/readyz`, so
-  the harness sits in `ResumeGoldenActor` and every message times out at the router
-  with a 504. A static Go binary restores cleanly. The chart names `golang-adk` as the
-  image for declarative agents, and the script builds that.
+- **An agent to talk to.** A harness runs the Go ADK, not the Python one. An actor starts by restoring its template's golden snapshot, and the Python runtime does not survive that — it comes back with `Fatal Python error: Illegal instruction` and never serves `/readyz`, so the harness sits in `ResumeGoldenActor` and every message times out at the router with a 504. A static Go binary restores cleanly, so the script builds `golang-adk`, pins it by digest, and waits for the agent to become ready.
+- **Both forwards held open together**, the UI on `8080` and the controller on `8083`, as described above.
 
 ## When a page looks wrong
 

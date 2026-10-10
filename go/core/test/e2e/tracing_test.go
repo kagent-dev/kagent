@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,11 +24,14 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
@@ -61,9 +65,25 @@ type capturedSpan struct {
 // accidentally accept a later batch-timer or shutdown export.
 type otlpTraceReceiver struct {
 	collectortrace.UnimplementedTraceServiceServer
-	mu      sync.Mutex
-	exports int
-	records []*tracepb.ResourceSpans
+	mu       sync.Mutex
+	exports  int
+	records  []*tracepb.ResourceSpans
+	requests []*collectortrace.ExportTraceServiceRequest
+	metrics  *otlpMetricsReceiver
+}
+
+// otlpMetricsReceiver keeps metric exports only for the live-check replay.
+type otlpMetricsReceiver struct {
+	collectormetrics.UnimplementedMetricsServiceServer
+	mu       sync.Mutex
+	requests []*collectormetrics.ExportMetricsServiceRequest
+}
+
+func (r *otlpMetricsReceiver) Export(_ context.Context, request *collectormetrics.ExportMetricsServiceRequest) (*collectormetrics.ExportMetricsServiceResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requests = append(r.requests, proto.Clone(request).(*collectormetrics.ExportMetricsServiceRequest))
+	return &collectormetrics.ExportMetricsServiceResponse{}, nil
 }
 
 // startOTLPTraceReceiver binds inside the go test process.
@@ -90,9 +110,10 @@ func startOTLPTraceReceiver(t *testing.T) *otlpTraceReceiver {
 }
 
 func serveOTLPTraceReceiver(listener net.Listener) (*otlpTraceReceiver, func() error) {
-	receiver := &otlpTraceReceiver{}
+	receiver := &otlpTraceReceiver{metrics: &otlpMetricsReceiver{}}
 	server := grpc.NewServer()
 	collectortrace.RegisterTraceServiceServer(server, receiver)
+	collectormetrics.RegisterMetricsServiceServer(server, receiver.metrics)
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
 	return receiver, func() error {
@@ -137,12 +158,95 @@ func (r *otlpTraceReceiver) Export(_ context.Context, request *collectortrace.Ex
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.exports++
+	r.requests = append(r.requests, proto.Clone(request).(*collectortrace.ExportTraceServiceRequest))
 	for _, resourceSpans := range request.GetResourceSpans() {
 		// The receiver owns its retained data after this RPC returns. Clone the
 		// protobuf rather than depending on the gRPC request's lifetime.
 		r.records = append(r.records, proto.Clone(resourceSpans).(*tracepb.ResourceSpans))
 	}
 	return &collectortrace.ExportTraceServiceResponse{}, nil
+}
+
+func TestOTLPTraceReceiverReplaysClearedExports(t *testing.T) {
+	serve := func() (*otlpTraceReceiver, string) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		receiver, stop := serveOTLPTraceReceiver(listener)
+		t.Cleanup(func() { require.NoError(t, stop()) })
+		return receiver, listener.Addr().String()
+	}
+	source, _ := serve()
+	target, address := serve()
+	resourceSpans := func(service, name string) *tracepb.ResourceSpans {
+		return &tracepb.ResourceSpans{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+				{Key: "service.name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: service}}},
+				{Key: tracing.AttributeMainAgentName, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "reporter"}}},
+			}},
+			ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{TraceId: make([]byte, 16), SpanId: make([]byte, 8), Name: name}}}},
+		}
+	}
+	request := &collectortrace.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{
+		resourceSpans("reporter", "replayed"), resourceSpans("claude-code", "native"),
+	}}
+	_, err := source.Export(t.Context(), request)
+	require.NoError(t, err)
+	_, err = source.metrics.Export(t.Context(), &collectormetrics.ExportMetricsServiceRequest{ResourceMetrics: []*metricspb.ResourceMetrics{{
+		Resource: request.ResourceSpans[0].Resource,
+	}}})
+	require.NoError(t, err)
+	source.clear()
+	require.NoError(t, source.replay(t.Context(), address))
+	require.Len(t, target.selectSpans(make([]byte, 16), "", "", "replayed", nil), 1)
+	require.Empty(t, target.selectSpans(make([]byte, 16), "", "", "native", nil))
+	require.Len(t, target.metrics.requests, 1)
+}
+
+// replay sends every export the receiver got, including cleared ones, to
+// target. It leaves out native child processes, which share the agent identity
+// but keep their own service.name, since kagent does not own their telemetry.
+func (r *otlpTraceReceiver) replay(ctx context.Context, target string) error {
+	r.mu.Lock()
+	traces := slices.Clone(r.requests)
+	r.mu.Unlock()
+	r.metrics.mu.Lock()
+	metrics := slices.Clone(r.metrics.requests)
+	r.metrics.mu.Unlock()
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	traceClient := collectortrace.NewTraceServiceClient(conn)
+	for _, request := range traces {
+		owned := slices.DeleteFunc(slices.Clone(request.GetResourceSpans()), func(resourceSpans *tracepb.ResourceSpans) bool {
+			return nativeChild(resourceSpans.GetResource())
+		})
+		if len(owned) == 0 {
+			continue
+		}
+		if _, err := traceClient.Export(ctx, &collectortrace.ExportTraceServiceRequest{ResourceSpans: owned}); err != nil {
+			return err
+		}
+	}
+	metricsClient := collectormetrics.NewMetricsServiceClient(conn)
+	for _, request := range metrics {
+		owned := slices.DeleteFunc(slices.Clone(request.GetResourceMetrics()), func(resourceMetrics *metricspb.ResourceMetrics) bool {
+			return nativeChild(resourceMetrics.GetResource())
+		})
+		if len(owned) == 0 {
+			continue
+		}
+		if _, err := metricsClient.Export(ctx, &collectormetrics.ExportMetricsServiceRequest{ResourceMetrics: owned}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nativeChild(resource *resourcepb.Resource) bool {
+	agent := stringAttribute(resource.GetAttributes(), tracing.AttributeMainAgentName)
+	return agent != "" && agent != stringAttribute(resource.GetAttributes(), "service.name")
 }
 
 func (r *otlpTraceReceiver) clear() {
@@ -328,7 +432,6 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 			for key, want := range map[string]string{
 				tracing.AttributeMethod:         "SendStreamingMessage",
 				tracing.AttributeTaskState:      string(a2atype.TaskStateCompleted),
-				tracing.AttributeRuntime:        string(test.runtime),
 				tracing.AttributeAgentName:      agentName,
 				tracing.AttributeAgentID:        "kagent/" + agentName,
 				tracing.AttributeProviderName:   test.provider,
@@ -349,7 +452,7 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 					t.Errorf("%s = %q with capture disabled", key, value)
 				}
 			}
-			for _, key := range []string{"kagent.user_id", "gen_ai.task.id", "kagent.app_name"} {
+			for _, key := range []string{"kagent.user_id", "gen_ai.task.id", "kagent.app_name", tracing.AttributeRuntime} {
 				if value := stringAttribute(invocation.span.GetAttributes(), key); value != "" {
 					t.Errorf("removed attribute %s = %q", key, value)
 				}
@@ -366,11 +469,11 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				t.Errorf("invocation has no exported SERVER parent: %s", receiver.diagnostic(traceID))
 			}
 			for key, want := range map[string]string{
-				"service.name":             agentName,
-				"service.namespace":        "kagent",
-				tracing.AttributeRuntime:   string(test.runtime),
-				tracing.AttributeAgentName: agentName,
-				tracing.AttributeAgentID:   "kagent/" + agentName,
+				"service.name":                 agentName,
+				"service.namespace":            "kagent",
+				tracing.AttributeRuntime:       string(test.runtime),
+				tracing.AttributeMainAgentName: agentName,
+				tracing.AttributeMainAgentID:   "kagent/" + agentName,
 			} {
 				if got := stringAttribute(invocation.resource.GetAttributes(), key); got != want {
 					t.Errorf("resource %s = %q, want %q", key, got, want)

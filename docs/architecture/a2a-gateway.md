@@ -127,8 +127,11 @@ persistence operations live in
 
 ## Runtime SDK adapters
 
-Go uses the SDK's local execution manager with `MaxExecutions: 1`. Cancellation
-uses its separate path, so it remains available while execution occupies the slot.
+Go uses the SDK's local execution manager. The runtime executor's call interceptor
+admits one send at a time and frees that slot before it settles the boundary, so
+a client that sees a terminal task can send again at once. The SDK's own
+`MaxExecutions` limiter is not used: it frees its slot only after settlement.
+Cancellation uses its separate path, so it remains available while work runs.
 The SDK's cluster workqueue is not enabled: with a single execution slot, that
 queue also rejects cancellation while work is running.
 
@@ -199,4 +202,7 @@ supplies actor JWT injection. That implementation will replace the header path
 outright, including trusted issuer/JWKS, signature, audience, and expiry validation;
 there will be no fallback to unsigned headers.
 
-Push notifications are outside this cutover and are rejected by the public gateway.
+## Push notifications
+
+See [A2A push notifications](a2a-push-notifications.md) for setup, callback
+behavior, delivery guarantees, and receiver responsibilities.

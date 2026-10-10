@@ -178,7 +178,7 @@ describe("the agent template draft", () => {
     draft.modelConfig = "gpt";
     draft.mcpTools = [{ serverRef: "kagent/tools", tools: [] }];
     draft.subAgentTools = [
-      { name: "", description: "", refKind: "templateRef", refName: "other" },
+      { name: "", description: "", refName: "other" },
     ];
 
     expect(specFromDraft(draft).tools).toEqual([
@@ -196,7 +196,7 @@ describe("the agent template draft", () => {
       name: "review", description: "Review changes", templateRef: {name: "review-context"},
     }}];
     const draft = draftFromTemplate(template);
-    expect(draft.subAgentTools[0]).toMatchObject({refKind: "templateRef", refName: "review-context"});
+    expect(draft.subAgentTools[0]).toMatchObject({refName: "review-context"});
     expect(specFromDraft(draft, template.resource.spec).tools).toEqual(template.resource.spec.tools);
   });
 
