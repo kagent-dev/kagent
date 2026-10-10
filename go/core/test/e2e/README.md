@@ -26,6 +26,11 @@ Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the test
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
 
+CI installs the controller with `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=1s`, so
+every test's sessions race the expiration sweeps: `TestRuntimeRevisionLifecycle`
+sends to a checkpoint's fork right after its Agent is deleted, which the
+deleted-Agent sweep must leave runnable.
+
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets

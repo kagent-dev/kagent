@@ -239,7 +239,12 @@ whose Agent was deleted and created again under the same name before the sweep
 reached it is a session of a replaced Agent, not of a deleted one: it keeps its
 pinned revision, as the definition model promises, until it idles out or its
 Agent is deleted for good. Retained checkpoints keep their revision pins as
-before.
+before, and a checkpoint retains runnable inputs after its Agent is deleted: a
+fork of it, made before or after the deletion, pins the checkpoint and is left
+alone by the sweep; it runs until it idles out or is deleted, and the GC
+collects the revision once the last fork and the checkpoint are gone. The sweep
+never cuts a turn off: a session with a running task, or a dispatch not yet
+accepted, is left for a later sweep, which deletes it once the turn ended.
 
 `kagent.session.agent_deleted` counts the completed deletions
 (`kagent_session_agent_deleted_total`); each logs `deleted the session of a

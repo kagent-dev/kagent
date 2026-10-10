@@ -175,6 +175,8 @@ jobs:
             --set otel.traces.enabled=true
             --set otel.metrics.enabled=true
             --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
+            --set controller.env[0].name=KAGENT_SESSION_EXPIRATION_POLL_INTERVAL
+            --set-string controller.env[0].value=1s
           KAGENT_SUBSTRATE_HELM_EXTRA_ARGS: >-
             --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000
             --set ateApi.extraArgs[0]=--template-resync-interval=250ms
