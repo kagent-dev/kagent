@@ -15,7 +15,7 @@ const sandboxInstructions = `Use standalone Sandboxes for commands and files; th
 Discover a prepared SandboxTemplate with the programs needed for the task. Sandboxes currently have no allowed network egress; upload inputs and use dependencies already in the image. Work in /data/workspace.
 Create with a unique request_id retained for retries, or reuse a sandbox belonging to the task. Check state, operation, and expires_at before work. Activity does not extend expiration.
 Start a process once, retain its process_id, and use get_sandbox_process to check terminal status and exit_code. A lost start response may mean the process is running: never blindly retry a start.
-Read output with read_sandbox_outputs and continue from the byte offsets on its first line. Empty output does not mean completion. MCP file transfers are limited to 1 MiB; file writes replace the destination.
+Read output with read_sandbox_outputs, decode base64, and continue with both returned byte offsets. Empty output does not mean completion. read_sandbox_file pages text and returns images you can see. File writes and output reads are limited to 1 MiB; file writes replace the destination.
 Retrieve artifacts before deleting a scratch sandbox. Suspend may interrupt processes and transfers; files survive resume but process handles are not durable.
 Lifecycle failures can leave work pending. Retry the same mutation with bounded backoff; creation retries require the same request_id and identical input. Get and List only observe state and never advance pending work.`
 

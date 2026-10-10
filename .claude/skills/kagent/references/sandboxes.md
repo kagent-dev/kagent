@@ -73,8 +73,8 @@ Clients that support MCP prompts can retrieve `sandbox-task` with required
 running tools. Server instructions describe the overall workflow; tool
 descriptions carry essential guidance for clients that only expose tools.
 
-Fields in the required column must be supplied. `write_sandbox_file` takes
-standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
+Fields in the required column must be supplied. `write_sandbox_file` input and
+`read_sandbox_outputs` output use standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
 
 | Tool | Required inputs | Optional inputs / result |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
 | `get_sandbox`, `suspend_sandbox`, `resume_sandbox`, `delete_sandbox` | `sandbox_id` | Return a sandbox summary |
 | `start_sandbox_process` | `sandbox_id`, `command` (argv array) | `cwd`, `env` (string map); returns `process_id` |
 | `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Get returns `status` and `exit_code`; Kill returns `exit_code` |
-| `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns text: a first line with the offsets to continue from, then the new stdout and stderr |
+| `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns base64 streams, continuation offsets, `truncated` |
 | `write_sandbox_file` | `sandbox_id`, `path`, `data_base64` | `mode` (decimal Unix bits, e.g. `420` for `0644`); returns `bytes_written` |
 | `read_sandbox_file` | `sandbox_id`, `path` | `offset`, `limit` (lines); returns numbered lines, an image, or a note describing the file |
 
@@ -104,8 +104,8 @@ result; a completed tool call can carry a service error.
    sandbox when needed.
 2. **Stage inputs.** Write source, data, or an archive with `write_sandbox_file`.
    Decode/encode bytes using available tools, and verify `bytes_written`. MCP
-   reads and writes accept at most 1 MiB of decoded file data per call. There is
-   no file-offset or append input: repeated writes replace the destination.
+   writes accept at most 1 MiB of decoded file data per call. There is no
+   file-offset or append input: repeated writes replace the destination.
 3. **Execute.** Pass executable and arguments as `command`, with an explicit
    `cwd` when useful. Shell syntax needs an explicit shell, e.g.
    `["sh", "-c", "command > result.txt"]`. The executable must exist in the
@@ -116,12 +116,11 @@ result; a completed tool call can carry a service error.
    `PROCESS_STATUS_COMPLETED`, `PROCESS_STATUS_FAILED`, and
    `PROCESS_STATUS_TERMINATED`; inspect the exit code and outputs before claiming
    success. Use `kill_sandbox_process` when the task needs to stop the command.
-5. **Collect.** Read output with `read_sandbox_outputs`. It reads currently
-   available output, up to 32 KiB per call, without following future output.
-   Its first line gives the `stdout_offset` and `stderr_offset` to pass into
-   subsequent reads; invalid UTF-8 is replaced with U+FFFD, so redirect binary
-   output to a file. Continue when it says more output remains, and read again
-   after process completion. No new output does not mean the process ended.
+5. **Collect.** Decode `stdout_base64` and `stderr_base64` from
+   `read_sandbox_outputs`. It reads currently available output, up to 1 MiB
+   combined, without following future output. Pass both returned byte offsets
+   into subsequent reads; continue when truncated and read again after process
+   completion. Empty output or `truncated: false` does not mean the process ended.
    Read result files with `read_sandbox_file`: text comes back as numbered
    lines, paged with `offset` and `limit`; PNG, JPEG, GIF and WebP images come
    back as images; other files come back as a description. Retrieve other

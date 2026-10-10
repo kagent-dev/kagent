@@ -238,8 +238,10 @@ The existing `/mcp` endpoint exposes template discovery, sandbox lifecycle,
 process execution, output reads, and file transfer. All sandbox tools call the
 same sandbox service as the gRPC handlers.
 There is no separate lifecycle or guest tool server. gRPC file transfers are
-bounded at 64 MiB. MCP file transfers and output reads are bounded at 1 MiB,
-use base64 for bytes, and expose continuation offsets for output reads.
+bounded at 64 MiB. MCP writes and output reads are bounded at 1 MiB and use
+base64; output reads expose continuation offsets. MCP file reads return content
+a model can read directly: text files as numbered pages of lines, and images
+scaled to the size models see.
 
 Helm installs a `RemoteMCPServer` named `<fullname>-api` (`kagent-api` for the
 standard release) in the controller namespace. It points at the controller's

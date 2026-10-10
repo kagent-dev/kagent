@@ -3,8 +3,10 @@ package mcp
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/png"
+	"math/rand/v2"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -28,8 +30,8 @@ func TestSandboxToolsRegisteredAndValidateBeforeDispatch(t *testing.T) {
 	for _, value := range list["result"].(map[string]any)["tools"].([]any) {
 		tool := value.(map[string]any)
 		registered[tool["name"].(string)] = true
-		if name := tool["name"]; name == "read_sandbox_outputs" || name == "read_sandbox_file" {
-			require.Nil(t, tool["outputSchema"], name)
+		if tool["name"] == "read_sandbox_file" {
+			require.Nil(t, tool["outputSchema"])
 		}
 	}
 	for _, test := range []struct {
@@ -54,47 +56,6 @@ func TestSandboxToolsRegisteredAndValidateBeforeDispatch(t *testing.T) {
 			result := rawMCPCall(t, server.URL, "tools/call", map[string]any{"name": test.name, "arguments": test.args}, false)
 			require.Nil(t, result["error"], "tool failures must not become protocol errors")
 			require.Equal(t, true, result["result"].(map[string]any)["isError"])
-		})
-	}
-}
-
-func TestDecodeText(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		data     []byte
-		text     string
-		consumed int
-	}{
-		{"empty", nil, "", 0},
-		{"text", []byte("héllo\n"), "héllo\n", 7},
-		{"read cut a rune short", []byte("h\xc3"), "h", 1},
-		{"read cut a four-byte rune short", []byte("ok\xf0\x9f\x98"), "ok", 2},
-		{"remainder of a cut rune alone", []byte("\xc3"), "\uFFFD", 1},
-		{"invalid bytes", []byte("a\xffb"), "a\uFFFDb", 3},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			text, consumed := decodeText(test.data)
-			require.Equal(t, test.text, text)
-			require.Equal(t, test.consumed, consumed)
-		})
-	}
-}
-
-func TestProcessOutputsRender(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		read processOutputs
-		want string
-	}{
-		{"nothing new", processOutputs{stdoutOffset: 4, stderrOffset: 2}, "stdout_offset=4 stderr_offset=2\nno new output"},
-		{"both streams", processOutputs{stdout: []byte("out\n"), stderr: []byte("err\n")},
-			"stdout_offset=4 stderr_offset=4\n--- stdout ---\nout\n\n--- stderr ---\nerr\n"},
-		{"more to read, holding back a cut rune", processOutputs{stdout: []byte("ab\xc3"), stdoutOffset: 10, more: true},
-			"stdout_offset=12 stderr_offset=0 (more output: read again from these offsets)\n--- stdout ---\nab"},
-		{"invalid bytes", processOutputs{stderr: []byte("\xff")}, "stdout_offset=0 stderr_offset=1\n--- stderr ---\n\uFFFD"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			require.Equal(t, test.want, test.read.render())
 		})
 	}
 }
@@ -138,6 +99,23 @@ func TestFileReader(t *testing.T) {
 		config, _, err := image.DecodeConfig(bytes.NewReader(scaled.Data))
 		require.NoError(t, err)
 		require.Equal(t, image.Config{ColorModel: config.ColorModel, Width: sandboxImageMaxPixels, Height: 2}, config)
+	})
+	t.Run("detailed image is shrunk to the result budget", func(t *testing.T) {
+		noise := image.NewGray(image.Rect(0, 0, sandboxImageMaxPixels, sandboxImageMaxPixels))
+		random := rand.New(rand.NewPCG(1, 2))
+		for i := range noise.Pix {
+			noise.Pix[i] = uint8(random.Uint32())
+		}
+		var b bytes.Buffer
+		require.NoError(t, png.Encode(&b, noise))
+		content := readFile(t, b.Bytes(), 1, 10)
+		require.Len(t, content, 2)
+		scaled := content[1].(*mcp.ImageContent)
+		require.LessOrEqual(t, len(scaled.Data), sandboxImageResultBytes)
+		config, _, err := image.DecodeConfig(bytes.NewReader(scaled.Data))
+		require.NoError(t, err)
+		require.Less(t, config.Width, sandboxImageMaxPixels)
+		require.Equal(t, fmt.Sprintf("image/png, 2000×2000 px, shown at %d×%d", config.Width, config.Height), content[0].(*mcp.TextContent).Text)
 	})
 	lines := "alpha\nbéta\ngamma\ndelta"
 	for _, test := range []struct {

@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
@@ -115,6 +114,14 @@ type sandboxOutputsInput struct {
 	StderrOffset int64  `json:"stderr_offset,omitempty"`
 }
 
+type sandboxOutputsOutput struct {
+	StdoutBase64 string `json:"stdout_base64"`
+	StderrBase64 string `json:"stderr_base64"`
+	StdoutOffset int64  `json:"stdout_offset"`
+	StderrOffset int64  `json:"stderr_offset"`
+	Truncated    bool   `json:"truncated"`
+}
+
 type sandboxReadInput struct {
 	SandboxID string `json:"sandbox_id"`
 	Path      string `json:"path"`
@@ -131,45 +138,6 @@ type sandboxWriteInput struct {
 
 type sandboxWriteOutput struct {
 	BytesWritten int64 `json:"bytes_written"`
-}
-
-// decodeText leaves a rune cut short by a mid-stream read for the next read.
-func decodeText(data []byte) (text string, consumed int) {
-	consumed = len(data)
-	for i := len(data) - 1; i > 0 && i >= len(data)-utf8.UTFMax; i-- {
-		if utf8.RuneStart(data[i]) {
-			if !utf8.FullRune(data[i:]) {
-				consumed = i
-			}
-			break
-		}
-	}
-	return strings.ToValidUTF8(string(data[:consumed]), "\uFFFD"), consumed
-}
-
-type processOutputs struct {
-	stdout, stderr             []byte
-	stdoutOffset, stderrOffset int64
-	more                       bool
-}
-
-func (o processOutputs) render() string {
-	stdout, stdoutUsed := decodeText(o.stdout)
-	stderr, stderrUsed := decodeText(o.stderr)
-	var b strings.Builder
-	fmt.Fprintf(&b, "stdout_offset=%d stderr_offset=%d", o.stdoutOffset+int64(stdoutUsed), o.stderrOffset+int64(stderrUsed))
-	if o.more {
-		b.WriteString(" (more output: read again from these offsets)")
-	}
-	if stdout == "" && stderr == "" {
-		b.WriteString("\nno new output")
-	}
-	for _, stream := range []struct{ name, text string }{{"stdout", stdout}, {"stderr", stderr}} {
-		if stream.text != "" {
-			fmt.Fprintf(&b, "\n--- %s ---\n%s", stream.name, stream.text)
-		}
-	}
-	return b.String()
 }
 
 func textContent(format string, args ...any) []mcp.Content {
@@ -257,20 +225,23 @@ func fitImage(data []byte) ([]byte, image.Point, error) {
 	}
 	bounds := src.Bounds()
 	scale := min(1, float64(sandboxImageMaxPixels)/float64(max(bounds.Dx(), bounds.Dy())))
-	dst := image.NewRGBA(image.Rect(0, 0, max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))))
-	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
 	var out bytes.Buffer
-	for _, quality := range []int{85, 70, 55, 40} {
-		out.Reset()
-		if err := jpeg.Encode(&out, dst, &jpeg.Options{Quality: quality}); err != nil {
-			return nil, image.Point{}, err
+	for {
+		dst := image.NewRGBA(image.Rect(0, 0, max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))))
+		draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+		draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+		for _, quality := range []int{85, 70, 55, 40} {
+			out.Reset()
+			if err := jpeg.Encode(&out, dst, &jpeg.Options{Quality: quality}); err != nil {
+				return nil, image.Point{}, err
+			}
+			if out.Len() <= sandboxImageResultBytes {
+				return out.Bytes(), dst.Bounds().Size(), nil
+			}
 		}
-		if out.Len() <= sandboxImageResultBytes {
-			break
-		}
+		// Detail too fine for compression to shrink takes fewer pixels.
+		scale *= 0.75
 	}
-	return out.Bytes(), dst.Bounds().Size(), nil
 }
 
 // linePage collects numbered lines from offset until it holds limit lines or
@@ -451,25 +422,28 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result, err := service.KillProcess(ctx, in.SandboxID, &guestpb.KillProcessRequest{ProcessId: in.ProcessID})
 		return sandboxProcessOutput{ProcessID: in.ProcessID, ExitCode: result.GetExitCode()}, err
 	})
-	addSandboxToolContent(server, "read_sandbox_outputs", "Read currently available stdout/stderr as text, up to 32 KiB per call. The first line gives the stdout_offset and stderr_offset to pass on the next call. This does not wait for completion; check get_sandbox_process and read again after it finishes.", func(ctx context.Context, in sandboxOutputsInput) ([]mcp.Content, error) {
+	addSandboxTool(server, "read_sandbox_outputs", "Read currently available stdout/stderr as base64, up to 1 MiB combined. Pass both returned byte offsets to continue. This does not wait for completion; check get_sandbox_process and read again after it finishes.", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
 		request := &guestpb.StreamProcessOutputsRequest{ProcessId: in.ProcessID, StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
-		read := processOutputs{stdoutOffset: in.StdoutOffset, stderrOffset: in.StderrOffset}
+		result := sandboxOutputsOutput{StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
+		var stdout, stderr []byte
 		limit := errors.New("output limit reached")
 		err := service.StreamProcessOutputs(ctx, in.SandboxID, request, func(chunk *guestpb.OutputChunk) error {
 			data := chunk.Data
-			if remaining := sandboxToolTextBytes - len(read.stdout) - len(read.stderr); len(data) > remaining {
+			if remaining := sandboxToolBytes - len(stdout) - len(stderr); len(data) > remaining {
 				data = data[:remaining]
-				read.more = true
+				result.Truncated = true
 			}
 			switch chunk.Source {
 			case guestpb.OutputSource_OUTPUT_SOURCE_STDOUT:
-				read.stdout = append(read.stdout, data...)
+				stdout = append(stdout, data...)
+				result.StdoutOffset += int64(len(data))
 			case guestpb.OutputSource_OUTPUT_SOURCE_STDERR:
-				read.stderr = append(read.stderr, data...)
+				stderr = append(stderr, data...)
+				result.StderrOffset += int64(len(data))
 			default:
 				return fmt.Errorf("unknown guest output source %s", chunk.Source)
 			}
-			if read.more {
+			if result.Truncated {
 				return limit
 			}
 			return nil
@@ -477,10 +451,8 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		if errors.Is(err, limit) {
 			err = nil
 		}
-		if err != nil {
-			return nil, err
-		}
-		return []mcp.Content{&mcp.TextContent{Text: read.render()}}, nil
+		result.StdoutBase64, result.StderrBase64 = base64.StdEncoding.EncodeToString(stdout), base64.StdEncoding.EncodeToString(stderr)
+		return result, err
 	})
 	addSandboxToolContent(server, "read_sandbox_file", "Read a file. Text comes back as numbered lines from offset, up to limit lines or 32 KiB, with the offset to continue from. PNG, JPEG, GIF and WebP images up to 16 MiB come back as images you can see, scaled to at most 2000 px on a side. Other files are described rather than returned. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) ([]mcp.Content, error) {
 		reader := fileReader{page: linePage{offset: max(in.Offset, 1), limit: sandboxFileLines}}

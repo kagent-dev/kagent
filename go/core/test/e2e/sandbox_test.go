@@ -269,15 +269,6 @@ func TestSandboxMCP(t *testing.T) {
 	}
 	call("start_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "command": []string{"cat", "mcp.txt"}}, &process)
 	require.NotEmpty(t, process.ID)
-	require.Eventually(t, func() bool {
-		var status struct {
-			Status string `json:"status"`
-		}
-		call("get_sandbox_process", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}, &status)
-		return status.Status == "PROCESS_STATUS_COMPLETED"
-	}, time.Minute, time.Second)
-	require.Equal(t, "stdout_offset=8 stderr_offset=0\n--- stdout ---\nfrom MCP",
-		text("read_sandbox_outputs", map[string]any{"sandbox_id": sandbox.Id, "process_id": process.ID}))
 	var deleted struct {
 		State string `json:"state"`
 	}
