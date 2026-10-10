@@ -212,6 +212,7 @@ file::memory:*
 /tmp/
 /reports/*.csv
 /reports/*.txt
+/reports/*/
 /go/tools/tool-server
 /contrib/memory/doc2vec/bun.lock
 
