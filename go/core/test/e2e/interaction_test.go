@@ -726,7 +726,9 @@ func newInteractionFixtureWith(t *testing.T, target, templateName string, config
 	err := wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
 		var err error
 		created, err = sessions.CreateSession(ctx, request)
-		if status.Code(err) == codes.FailedPrecondition {
+		// Unavailable: the admission's first fetch of a just-published JWKS
+		// can precede the Service's endpoints; it refetches within seconds.
+		if code := status.Code(err); code == codes.FailedPrecondition || code == codes.Unavailable {
 			return false, nil
 		}
 		return err == nil, err
