@@ -132,7 +132,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 	case "mcpToolCall":
 		name, arguments = item.Server+"."+item.Tool, map[string]any{"arguments": boundValue(item.Arguments)}
 		approvalServer = item.Server
-		result["result"], result["error"] = boundValue(item.Result), boundValue(item.Error)
+		result["result"], result["error"] = boundValue(runtime.OmitImageData(item.Result)), boundValue(item.Error)
 	case "collabAgentToolCall":
 		name, arguments = "Agent", map[string]any{"prompt": bounded(item.Prompt), "tool": item.Tool}
 	default:

@@ -476,7 +476,7 @@ func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	if event.ID == "" || event.Name == "" {
 		return nil, fmt.Errorf("runtime tool result requires an ID and name")
 	}
-	response := map[string]any{"result": event.Result}
+	response := map[string]any{"result": runtime.OmitImageData(event.Result)}
 	if event.IsError {
 		response["isError"] = true
 	}

@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"iter"
 	"reflect"
@@ -543,4 +544,25 @@ func collect(seq iter.Seq2[a2atype.Event, error]) ([]a2atype.Event, []error) {
 		}
 	}
 	return events, errs
+}
+
+func TestToolResultPart(t *testing.T) {
+	t.Run("image data is not stored", func(t *testing.T) {
+		image := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "AAAA"}}
+		part, err := toolResultPart(runtime.ToolResult{ID: "tool-1", Name: "read_sandbox_file", Result: []any{image}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		activity, ok := apia2a.ParseToolActivity(part)
+		if !ok {
+			t.Fatal("tool result part did not parse")
+		}
+		raw, err := json.Marshal(activity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "AAAA") {
+			t.Fatalf("stored tool result kept image data: %s", raw)
+		}
+	})
 }
