@@ -84,7 +84,7 @@ use standard base64, including for text. Sandbox IDs are UUIDs returned by kagen
 | `list_sandboxes` | none | `page_size`, `page_token`; returns `sandboxes`, `next_page_token` |
 | `get_sandbox`, `suspend_sandbox`, `resume_sandbox`, `delete_sandbox` | `sandbox_id` | Return a sandbox summary |
 | `start_sandbox_process` | `sandbox_id`, `command` (argv array) | `cwd`, `env` (string map); returns `process_id` |
-| `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Return `state` and `exit_code`; Kill sends SIGKILL and may return before the process exits |
+| `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Return `state` and `exit_code`; Kill sends SIGKILL and waits briefly for the exit |
 | `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns base64 streams, continuation offsets, `truncated`, `exited`, `exit_code` |
 | `write_sandbox_file` | `sandbox_id`, `path`, `data_base64` | `mode` (decimal Unix bits, e.g. `420` for `0644`); returns `bytes_written` |
 | `read_sandbox_file` | `sandbox_id`, `path` | Returns `data_base64` |

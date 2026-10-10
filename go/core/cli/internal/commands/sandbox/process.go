@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,12 +138,12 @@ func newKillCmd() *cobra.Command {
 		Use: "kill ID PROCESS_ID", Short: "Signal a process and its process group", Args: cobra.ExactArgs(2),
 		Long: "Deliver a signal to a process and its process group. The process may still be running when this returns; use sandbox wait for its exit code.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			signal, ok := guestpb.Signal_value["SIGNAL_"+strings.TrimPrefix(strings.ToUpper(name), "SIG")]
-			if !ok || signal == int32(guestpb.Signal_SIGNAL_UNSPECIFIED) {
-				return fmt.Errorf("unknown signal %q", name)
+			signal, err := parseSignal(name)
+			if err != nil {
+				return err
 			}
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
-				process, err := c.SignalProcess(ctx, args[0], &guestpb.SignalProcessRequest{ProcessId: args[1], Signal: guestpb.Signal(signal)})
+				process, err := c.SignalProcess(ctx, args[0], &guestpb.SignalProcessRequest{ProcessId: args[1], Signal: signal})
 				if err != nil {
 					return err
 				}
@@ -156,6 +157,29 @@ func newKillCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "signal", "KILL", "Signal to deliver, such as TERM, INT or KILL")
 	return cmd
+}
+
+// parseSignal accepts a signal number or a name such as TERM, SIGTERM or
+// SIGNAL_TERM.
+func parseSignal(name string) (guestpb.Signal, error) {
+	if number, err := strconv.Atoi(name); err == nil {
+		if _, ok := guestpb.Signal_name[int32(number)]; ok && number != int(guestpb.Signal_SIGNAL_UNSPECIFIED) {
+			return guestpb.Signal(number), nil
+		}
+		return 0, fmt.Errorf("unknown signal %q", name)
+	}
+	upper := strings.ToUpper(name)
+	for _, prefix := range []string{"SIGNAL_", "SIG"} {
+		if trimmed, ok := strings.CutPrefix(upper, prefix); ok {
+			upper = trimmed
+			break
+		}
+	}
+	value, ok := guestpb.Signal_value["SIGNAL_"+upper]
+	if !ok || value == int32(guestpb.Signal_SIGNAL_UNSPECIFIED) {
+		return 0, fmt.Errorf("unknown signal %q", name)
+	}
+	return guestpb.Signal(value), nil
 }
 
 func waitProcess(ctx context.Context, cmd *cobra.Command, c *client.SandboxClient, format clioutput.Format, event processEvent) (err error) {

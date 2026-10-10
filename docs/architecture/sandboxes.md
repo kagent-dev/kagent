@@ -228,7 +228,10 @@ Env's protobuf currently has no validation annotations. Guest payload validation
 is delegated to env; adding annotations upstream is a follow-up. Kagent validates
 sandbox routing and enforces authorization, expiration, and transfer limits.
 The env dependency remains pinned. Message changes come from the dependency;
-new upstream RPCs require explicit forwarding and access policies.
+new upstream RPCs require explicit forwarding and access policies. A sandbox keeps
+the guest image it was prepared with, and the controller talks to it with the
+pinned messages, so an env upgrade that changes them requires deleting existing
+sandboxes.
 
 Resource authorization and owner checks apply before routing guest traffic. Agent
 share tokens grant no sandbox access. An agent calling MCP operates under the
