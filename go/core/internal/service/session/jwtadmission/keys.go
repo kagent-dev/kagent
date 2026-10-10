@@ -101,6 +101,12 @@ func (k *keySet) fetch(ctx context.Context) (map[string]crypto.PublicKey, error)
 	request.Header.Set("Accept", "application/json")
 	response, err := k.client.Do(request)
 	if err != nil {
+		if ctx.Err() == nil {
+			// The client's own timeout wraps context.DeadlineExceeded, which
+			// would report an issuer that never answers as the caller's
+			// deadline; it is the keys that are unavailable.
+			return nil, fmt.Errorf("fetch JWKS: %v", err)
+		}
 		return nil, err
 	}
 	defer response.Body.Close()

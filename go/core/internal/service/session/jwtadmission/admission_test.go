@@ -1,6 +1,7 @@
 package jwtadmission
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -254,6 +255,18 @@ func TestAnUnreachableJWKSIsUnavailable(t *testing.T) {
 		signer := newSigner(t, issuer, audience)
 		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "Admit() error = %v, want Unavailable", err)
+	})
+	t.Run("no answer", func(t *testing.T) {
+		release := make(chan struct{})
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+		t.Cleanup(server.Close)
+		t.Cleanup(func() { close(release) })
+		admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience}, &http.Client{Timeout: 50 * time.Millisecond})
+		require.NoError(t, err)
+		signer := newSigner(t, issuer, audience)
+		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "Admit() error = %v, want Unavailable", err)
+		require.NotErrorIs(t, err, context.DeadlineExceeded, "the caller's deadline did not pass")
 	})
 	t.Run("fresh keys still admit, stale keys do not", func(t *testing.T) {
 		signer := newSigner(t, issuer, audience)
