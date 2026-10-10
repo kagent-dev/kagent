@@ -74,9 +74,11 @@ want agents that answer; without it everything installs and chats fail at the mo
 
 ```sh
 kind delete cluster --name kagent
-docker rm -f $(docker ps -aq)
-docker volume prune -f
 ```
+
+Then rerun `./scripts/setup-cluster/setup-cluster.sh` to rebuild the cluster.
+
+The local registry is reused. Other Docker containers and volumes are left intact.
 
 ## Why this is a script and not two commands
 
