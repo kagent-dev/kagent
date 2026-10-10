@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -16,10 +17,16 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const sandboxToolBytes = 1 << 20
+
+// A process stuck in uninterruptible sleep can outlive SIGKILL, so a kill
+// stops waiting for the exit after this long.
+const sandboxKillWait = 10 * time.Second
 
 type sandboxInput struct {
 	SandboxID string `json:"sandbox_id" jsonschema:"Sandbox UUID"`
@@ -71,8 +78,12 @@ type sandboxStartOutput struct {
 
 type sandboxProcessOutput struct {
 	ProcessID string `json:"process_id"`
-	Status    string `json:"status"`
+	State     string `json:"state"`
 	ExitCode  int32  `json:"exit_code"`
+}
+
+func summarizeProcess(process *guestpb.Process) sandboxProcessOutput {
+	return sandboxProcessOutput{ProcessID: process.GetProcessId(), State: process.GetState().String(), ExitCode: process.GetExitCode()}
 }
 
 type sandboxOutputsInput struct {
@@ -88,6 +99,8 @@ type sandboxOutputsOutput struct {
 	StdoutOffset int64  `json:"stdout_offset"`
 	StderrOffset int64  `json:"stderr_offset"`
 	Truncated    bool   `json:"truncated"`
+	Exited       bool   `json:"exited" jsonschema:"The process has exited and all of its output has been read"`
+	ExitCode     int32  `json:"exit_code" jsonschema:"Exit code, valid when exited"`
 }
 
 type sandboxReadInput struct {
@@ -201,34 +214,55 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result, err := service.StartProcess(ctx, in.SandboxID, request)
 		return sandboxStartOutput{ProcessID: result.GetProcessId()}, err
 	})
-	addSandboxTool(server, "get_sandbox_process", "Inspect process status. exit_code is meaningful only for COMPLETED, FAILED, or TERMINATED, not RUNNING. Read outputs and retrieve artifacts after completion.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
+	addSandboxTool(server, "get_sandbox_process", "Inspect process state. exit_code is meaningful only once state is PROCESS_STATE_EXITED: 0 for success, 128 plus the signal number if a signal ended it. Read outputs and retrieve artifacts after it exits.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
 		result, err := service.GetProcess(ctx, in.SandboxID, &guestpb.GetProcessRequest{ProcessId: in.ProcessID})
-		return sandboxProcessOutput{ProcessID: result.GetProcessId(), Status: result.GetStatus().String(), ExitCode: result.GetExitCode()}, err
+		return summarizeProcess(result), err
 	})
-	addSandboxTool(server, "kill_sandbox_process", "Terminate a sandbox process", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
-		result, err := service.KillProcess(ctx, in.SandboxID, &guestpb.KillProcessRequest{ProcessId: in.ProcessID})
-		return sandboxProcessOutput{ProcessID: in.ProcessID, ExitCode: result.GetExitCode()}, err
+	addSandboxTool(server, "kill_sandbox_process", "Send SIGKILL to a sandbox process and its process group, then wait briefly for it to exit. state is PROCESS_STATE_RUNNING if it has not exited yet; check get_sandbox_process later.", func(ctx context.Context, in sandboxProcessInput) (sandboxProcessOutput, error) {
+		result, err := service.SignalProcess(ctx, in.SandboxID, &guestpb.SignalProcessRequest{ProcessId: in.ProcessID, Signal: guestpb.Signal_SIGNAL_KILL})
+		if status.Code(err) == codes.FailedPrecondition {
+			// The guest refuses to signal a process that has exited; killing one
+			// reports how it exited, as it did before.
+			if process, getErr := service.GetProcess(ctx, in.SandboxID, &guestpb.GetProcessRequest{ProcessId: in.ProcessID}); getErr == nil && process.GetState() == guestpb.ProcessState_PROCESS_STATE_EXITED {
+				return summarizeProcess(process), nil
+			}
+		}
+		if err != nil {
+			return sandboxProcessOutput{}, err
+		}
+		exited, err := awaitExit(ctx, service, in.SandboxID, in.ProcessID)
+		if exited != nil {
+			result = exited
+		}
+		return summarizeProcess(result), err
 	})
-	addSandboxTool(server, "read_sandbox_outputs", "Read currently available stdout/stderr as base64, up to 1 MiB combined. Pass both returned byte offsets to continue. This does not wait for completion; check get_sandbox_process and read again after it finishes.", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
-		request := &guestpb.StreamProcessOutputsRequest{ProcessId: in.ProcessID, StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
+	addSandboxTool(server, "read_sandbox_outputs", "Read currently available stdout/stderr as base64, up to 1 MiB combined. Pass both returned byte offsets to continue. This does not wait; exited becomes true once the process has exited and all of its output has been read.", func(ctx context.Context, in sandboxOutputsInput) (sandboxOutputsOutput, error) {
+		request := &guestpb.StreamProcessOutputRequest{ProcessId: in.ProcessID, StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
 		result := sandboxOutputsOutput{StdoutOffset: in.StdoutOffset, StderrOffset: in.StderrOffset}
 		var stdout, stderr []byte
 		limit := errors.New("output limit reached")
-		err := service.StreamProcessOutputs(ctx, in.SandboxID, request, func(chunk *guestpb.OutputChunk) error {
-			data := chunk.Data
+		capOutput := func(data []byte) []byte {
 			if remaining := sandboxToolBytes - len(stdout) - len(stderr); len(data) > remaining {
-				data = data[:remaining]
 				result.Truncated = true
+				return data[:remaining]
 			}
-			switch chunk.Source {
-			case guestpb.OutputSource_OUTPUT_SOURCE_STDOUT:
+			return data
+		}
+		err := service.StreamProcessOutput(ctx, in.SandboxID, request, func(output *guestpb.ProcessOutput) error {
+			switch output := output.Output.(type) {
+			case *guestpb.ProcessOutput_Exit:
+				result.Exited, result.ExitCode = true, output.Exit.GetExitCode()
+				return nil
+			case *guestpb.ProcessOutput_Stdout:
+				data := capOutput(output.Stdout)
 				stdout = append(stdout, data...)
 				result.StdoutOffset += int64(len(data))
-			case guestpb.OutputSource_OUTPUT_SOURCE_STDERR:
+			case *guestpb.ProcessOutput_Stderr:
+				data := capOutput(output.Stderr)
 				stderr = append(stderr, data...)
 				result.StderrOffset += int64(len(data))
 			default:
-				return fmt.Errorf("unknown guest output source %s", chunk.Source)
+				return fmt.Errorf("unknown guest process output %T", output)
 			}
 			if result.Truncated {
 				return limit
@@ -243,11 +277,11 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 	})
 	addSandboxTool(server, "read_sandbox_file", "Read a file up to 1 MiB as base64. Decode data_base64 and save artifacts outside the sandbox before deletion or expiration. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) (sandboxReadOutput, error) {
 		var data []byte
-		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.FileChunk) error {
-			if len(data)+len(chunk.Data) > sandboxToolBytes {
+		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.ReadFileResponse) error {
+			if len(data)+len(chunk.GetChunk()) > sandboxToolBytes {
 				return fmt.Errorf("file exceeds MCP 1 MiB limit; use the streaming API")
 			}
-			data = append(data, chunk.Data...)
+			data = append(data, chunk.GetChunk()...)
 			return nil
 		})
 		return sandboxReadOutput{DataBase64: base64.StdEncoding.EncodeToString(data)}, err
@@ -280,4 +314,22 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		})
 		return sandboxWriteOutput{BytesWritten: result.GetBytesWritten()}, err
 	})
+}
+
+// awaitExit follows a process's output from past its end, which delivers no
+// output but ends with the exit message. It returns nil if the process is
+// still running when the wait ends.
+func awaitExit(ctx context.Context, service *sandbox.Service, sandboxID, processID string) (*guestpb.Process, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, sandboxKillWait)
+	defer cancel()
+	request := &guestpb.StreamProcessOutputRequest{ProcessId: processID, StdoutOffset: math.MaxInt64, StderrOffset: math.MaxInt64, Follow: true}
+	var exited *guestpb.Process
+	err := service.StreamProcessOutput(waitCtx, sandboxID, request, func(output *guestpb.ProcessOutput) error {
+		exited = output.GetExit()
+		return nil
+	})
+	if waitCtx.Err() != nil && ctx.Err() == nil {
+		return nil, nil
+	}
+	return exited, err
 }

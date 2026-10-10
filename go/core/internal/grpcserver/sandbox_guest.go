@@ -31,7 +31,7 @@ func sandboxID(ctx context.Context) (string, error) {
 	return values[0], nil
 }
 
-func (s *sandboxGuestServer) StartProcess(ctx context.Context, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {
+func (s *sandboxGuestServer) StartProcess(ctx context.Context, request *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 	id, err := sandboxID(ctx)
 	if err != nil {
 		return nil, err
@@ -47,23 +47,35 @@ func (s *sandboxGuestServer) GetProcess(ctx context.Context, request *guestpb.Ge
 	return s.service.GetProcess(ctx, id, request)
 }
 
-func (s *sandboxGuestServer) KillProcess(ctx context.Context, request *guestpb.KillProcessRequest) (*guestpb.KillProcessResponse, error) {
+func (s *sandboxGuestServer) SignalProcess(ctx context.Context, request *guestpb.SignalProcessRequest) (*guestpb.Process, error) {
 	id, err := sandboxID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.service.KillProcess(ctx, id, request)
+	return s.service.SignalProcess(ctx, id, request)
 }
 
-func (s *sandboxGuestServer) StreamProcessOutputs(request *guestpb.StreamProcessOutputsRequest, stream grpc.ServerStreamingServer[guestpb.OutputChunk]) error {
+func (s *sandboxGuestServer) StreamProcessOutput(request *guestpb.StreamProcessOutputRequest, stream grpc.ServerStreamingServer[guestpb.ProcessOutput]) error {
 	id, err := sandboxID(stream.Context())
 	if err != nil {
 		return err
 	}
-	return s.service.StreamProcessOutputs(stream.Context(), id, request, stream.Send)
+	return s.service.StreamProcessOutput(stream.Context(), id, request, stream.Send)
 }
 
-func (s *sandboxGuestServer) ReadFile(request *guestpb.ReadFileRequest, stream grpc.ServerStreamingServer[guestpb.FileChunk]) error {
+func (s *sandboxGuestServer) WriteProcessInput(stream grpc.ClientStreamingServer[guestpb.WriteProcessInputRequest, guestpb.WriteProcessInputResponse]) error {
+	id, err := sandboxID(stream.Context())
+	if err != nil {
+		return err
+	}
+	result, err := s.service.WriteProcessInput(stream.Context(), id, stream.Recv)
+	if err != nil {
+		return err
+	}
+	return stream.SendAndClose(result)
+}
+
+func (s *sandboxGuestServer) ReadFile(request *guestpb.ReadFileRequest, stream grpc.ServerStreamingServer[guestpb.ReadFileResponse]) error {
 	id, err := sandboxID(stream.Context())
 	if err != nil {
 		return err

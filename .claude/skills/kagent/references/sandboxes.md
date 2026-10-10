@@ -39,12 +39,13 @@ bounds the command, including waiting. A timeout or interrupt stops observing;
 it does not kill the remote process. Retain the printed process ID and use
 `kagent sandbox wait SANDBOX_ID PROCESS_ID --stdout-offset N --stderr-offset N`
 to continue from the reported offsets. `exec --wait=false` returns after start;
-`process SANDBOX_ID PROCESS_ID` inspects and `kill SANDBOX_ID PROCESS_ID` stops it.
+`process SANDBOX_ID PROCESS_ID` inspects and `kill SANDBOX_ID PROCESS_ID` stops it
+(SIGKILL by default; `--signal TERM` for a graceful stop).
 
 For automation, `exec` and `wait` with `-o json` emit newline-delimited records:
 `started`, `output`, `finished`, or `interrupted`. Each contains `sandbox_id`,
 `process_id`, and stdout/stderr byte offsets. Output records contain `source` and
-base64 `data`; finished records contain `status` and `exit_code`. Other commands
+base64 `data`; finished records contain `state` and `exit_code`. Other commands
 emit one JSON value; protobuf fields use camelCase, unlike MCP's snake_case.
 The process ID in the start record remains usable if waiting fails.
 
@@ -83,8 +84,8 @@ use standard base64, including for text. Sandbox IDs are UUIDs returned by kagen
 | `list_sandboxes` | none | `page_size`, `page_token`; returns `sandboxes`, `next_page_token` |
 | `get_sandbox`, `suspend_sandbox`, `resume_sandbox`, `delete_sandbox` | `sandbox_id` | Return a sandbox summary |
 | `start_sandbox_process` | `sandbox_id`, `command` (argv array) | `cwd`, `env` (string map); returns `process_id` |
-| `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Get returns `status` and `exit_code`; Kill returns `exit_code` |
-| `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns base64 streams, continuation offsets, `truncated` |
+| `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Return `state` and `exit_code`; Kill sends SIGKILL and waits briefly for the exit |
+| `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns base64 streams, continuation offsets, `truncated`, `exited`, `exit_code` |
 | `write_sandbox_file` | `sandbox_id`, `path`, `data_base64` | `mode` (decimal Unix bits, e.g. `420` for `0644`); returns `bytes_written` |
 | `read_sandbox_file` | `sandbox_id`, `path` | Returns `data_base64` |
 
@@ -111,16 +112,17 @@ result; a completed tool call can carry a service error.
    `["sh", "-c", "command > result.txt"]`. The executable must exist in the
    template's image. Each start returns immediately with a new process handle.
 4. **Observe.** Retain `process_id`; poll `get_sandbox_process` with a bounded
-   delay and task deadline. `PROCESS_STATUS_RUNNING` is not completion and its
-   `exit_code` is not yet meaningful. Terminal statuses are
-   `PROCESS_STATUS_COMPLETED`, `PROCESS_STATUS_FAILED`, and
-   `PROCESS_STATUS_TERMINATED`; inspect the exit code and outputs before claiming
-   success. Use `kill_sandbox_process` when the task needs to stop the command.
+   delay and task deadline. `PROCESS_STATE_RUNNING` is not completion and its
+   `exit_code` is not yet meaningful. Once the state is `PROCESS_STATE_EXITED`,
+   `exit_code` is 0 for success, or 128 plus the signal number if a signal ended
+   it; inspect the exit code and outputs before claiming success. Use
+   `kill_sandbox_process` when the task needs to stop the command.
 5. **Collect.** Decode `stdout_base64` and `stderr_base64` from
    `read_sandbox_outputs`. It reads currently available output, up to 1 MiB
    combined, without following future output. Pass both returned byte offsets
    into subsequent reads; continue when truncated and read again after process
-   completion. Empty output or `truncated: false` does not mean the process ended.
+   completion. Empty output or `truncated: false` does not mean the process
+   ended; `exited: true` does, and means all of its output has been read.
    Read result files, decode them, and save deliverables into the user's working
    environment before cleanup. A path inside a sandbox is not a local artifact.
 6. **Finish.** Delete scratch sandboxes created for the task after retrieving

@@ -118,8 +118,9 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1alpha1.SandboxService_DeleteSandbox_FullMethodName] = auth.AccessDelete
 	policies[guestpb.ProcessService_StartProcess_FullMethodName] = auth.AccessCreate
 	policies[guestpb.ProcessService_GetProcess_FullMethodName] = auth.AccessRead
-	policies[guestpb.ProcessService_KillProcess_FullMethodName] = auth.AccessUpdate
-	policies[guestpb.ProcessService_StreamProcessOutputs_FullMethodName] = auth.AccessRead
+	policies[guestpb.ProcessService_StreamProcessOutput_FullMethodName] = auth.AccessRead
+	policies[guestpb.ProcessService_WriteProcessInput_FullMethodName] = auth.AccessUpdate
+	policies[guestpb.ProcessService_SignalProcess_FullMethodName] = auth.AccessUpdate
 	policies[guestpb.FileSystemService_ReadFile_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_WriteFile_FullMethodName] = auth.AccessUpdate
 	return policies

@@ -94,7 +94,7 @@ func TestServe(t *testing.T) {
 	require.NoError(t, err, "first operation must not depend on a preceding file write")
 	require.Eventually(t, func() bool {
 		result, err := processes.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: started.ProcessId})
-		return err == nil && result.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED
+		return err == nil && result.State == ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED && result.ExitCode == 0
 	}, time.Second, 10*time.Millisecond)
 	first, err := os.ReadFile(filepath.Join(cfg.Workspace, "first.txt"))
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestServe(t *testing.T) {
 	require.NoError(t, err)
 	chunk, err := reader.Recv()
 	require.NoError(t, err)
-	require.Equal(t, payload, chunk.Data)
+	require.Equal(t, payload, chunk.Chunk)
 	_, err = reader.Recv()
 	require.ErrorIs(t, err, io.EOF)
 }

@@ -95,7 +95,7 @@ func (s *Service) guestAccess(ctx context.Context, id string, verb auth.Verb) (c
 	return guestCtx, cancel, nil
 }
 
-func (s *Service) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {
+func (s *Service) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (s *Service) GetProcess(ctx context.Context, sandboxID string, request *gue
 	return guestpb.NewProcessServiceClient(s.config.Guests.conn).GetProcess(callCtx, request)
 }
 
-func (s *Service) KillProcess(ctx context.Context, sandboxID string, request *guestpb.KillProcessRequest) (*guestpb.KillProcessResponse, error) {
+func (s *Service) SignalProcess(ctx context.Context, sandboxID string, request *guestpb.SignalProcessRequest) (*guestpb.Process, error) {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
@@ -125,16 +125,16 @@ func (s *Service) KillProcess(ctx context.Context, sandboxID string, request *gu
 	defer cancelGuest()
 	callCtx, cancel := context.WithTimeout(guestCtx, 30*time.Second)
 	defer cancel()
-	return guestpb.NewProcessServiceClient(s.config.Guests.conn).KillProcess(callCtx, request)
+	return guestpb.NewProcessServiceClient(s.config.Guests.conn).SignalProcess(callCtx, request)
 }
 
-func (s *Service) StreamProcessOutputs(ctx context.Context, sandboxID string, request *guestpb.StreamProcessOutputsRequest, send func(*guestpb.OutputChunk) error) error {
+func (s *Service) StreamProcessOutput(ctx context.Context, sandboxID string, request *guestpb.StreamProcessOutputRequest, send func(*guestpb.ProcessOutput) error) error {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbGet)
 	if err != nil {
 		return err
 	}
 	defer cancelGuest()
-	stream, err := guestpb.NewProcessServiceClient(s.config.Guests.conn).StreamProcessOutputs(guestCtx, request)
+	stream, err := guestpb.NewProcessServiceClient(s.config.Guests.conn).StreamProcessOutput(guestCtx, request)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,35 @@ func (s *Service) StreamProcessOutputs(ctx context.Context, sandboxID string, re
 	}
 }
 
-func (s *Service) ReadFile(ctx context.Context, sandboxID string, request *guestpb.ReadFileRequest, send func(*guestpb.FileChunk) error) error {
+func (s *Service) WriteProcessInput(ctx context.Context, sandboxID string, recv func() (*guestpb.WriteProcessInputRequest, error)) (*guestpb.WriteProcessInputResponse, error) {
+	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbUpdate)
+	if err != nil {
+		return nil, err
+	}
+	defer cancelGuest()
+	stream, err := guestpb.NewProcessServiceClient(s.config.Guests.conn).WriteProcessInput(guestCtx)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		chunk, err := recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := stream.Send(chunk); errors.Is(err, io.EOF) {
+			// Receive the guest's status when it rejects the input early.
+			return stream.CloseAndRecv()
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	return stream.CloseAndRecv()
+}
+
+func (s *Service) ReadFile(ctx context.Context, sandboxID string, request *guestpb.ReadFileRequest, send func(*guestpb.ReadFileResponse) error) error {
 	guestCtx, cancelGuest, err := s.guestAccess(ctx, sandboxID, auth.VerbGet)
 	if err != nil {
 		return err
@@ -171,7 +199,7 @@ func (s *Service) ReadFile(ctx context.Context, sandboxID string, request *guest
 		if err != nil {
 			return err
 		}
-		total += int64(len(chunk.Data))
+		total += int64(len(chunk.GetChunk()))
 		if total > maxFileBytes {
 			return serviceerrors.NewResourceExhausted("File exceeds 64 MiB transfer limit", nil)
 		}

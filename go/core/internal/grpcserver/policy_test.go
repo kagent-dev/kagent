@@ -87,12 +87,13 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
 	policies := DefaultMethodPolicies()
 	for method, expected := range map[string]pkgauth.AccessMode{
-		guestpb.ProcessService_StartProcess_FullMethodName:         pkgauth.AccessCreate,
-		guestpb.ProcessService_GetProcess_FullMethodName:           pkgauth.AccessRead,
-		guestpb.ProcessService_KillProcess_FullMethodName:          pkgauth.AccessUpdate,
-		guestpb.ProcessService_StreamProcessOutputs_FullMethodName: pkgauth.AccessRead,
-		guestpb.FileSystemService_ReadFile_FullMethodName:          pkgauth.AccessRead,
-		guestpb.FileSystemService_WriteFile_FullMethodName:         pkgauth.AccessUpdate,
+		guestpb.ProcessService_StartProcess_FullMethodName:        pkgauth.AccessCreate,
+		guestpb.ProcessService_GetProcess_FullMethodName:          pkgauth.AccessRead,
+		guestpb.ProcessService_StreamProcessOutput_FullMethodName: pkgauth.AccessRead,
+		guestpb.ProcessService_WriteProcessInput_FullMethodName:   pkgauth.AccessUpdate,
+		guestpb.ProcessService_SignalProcess_FullMethodName:       pkgauth.AccessUpdate,
+		guestpb.FileSystemService_ReadFile_FullMethodName:         pkgauth.AccessRead,
+		guestpb.FileSystemService_WriteFile_FullMethodName:        pkgauth.AccessUpdate,
 	} {
 		t.Run(method, func(t *testing.T) {
 			if actual, ok := policies[method]; !ok || actual != expected {
