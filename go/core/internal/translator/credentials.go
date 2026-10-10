@@ -85,6 +85,20 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
+	// Harness credentialRef entries name their own destination, so they bind
+	// like model keys: the Secret stays in the gateway and the process sees
+	// only the placeholder.
+	boundHarness := map[string]bool{}
+	for _, variable := range input.Harness.Spec.Env {
+		ref := variable.CredentialRef
+		if ref == nil {
+			continue
+		}
+		if err := bind(ref.URL, ref.Header, ref.Prefix, input.Harness.Namespace, ref.Name, ref.Key); err != nil {
+			return nil, nil, NewValidationError("Harness env %q: %v", variable.Name, err)
+		}
+		boundHarness[variable.Name+"\x00"+ref.Name+"\x00"+ref.Key] = true
+	}
 	bindings, err := egress.CanonicalCredentials(bindings)
 	if err != nil {
 		return nil, nil, NewValidationError("%v", err)
@@ -112,7 +126,11 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		ref := variable.ValueFrom.SecretKeyRef
 		isMCP := strings.HasPrefix(variable.Name, "KAGENT_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CODEX_MCP_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CLAUDE_MCP_CREDENTIAL_")
-		if ref == nil || (!boundModels[variable.Name+"\x00"+ref.Name+"\x00"+ref.Key] && (!isMCP || !boundMCP[ref.Name+"\x00"+ref.Key])) {
+		identity := ""
+		if ref != nil {
+			identity = variable.Name + "\x00" + ref.Name + "\x00" + ref.Key
+		}
+		if ref == nil || (!boundModels[identity] && !boundHarness[identity] && (!isMCP || !boundMCP[ref.Name+"\x00"+ref.Key])) {
 			return nil, nil, NewValidationError("environment credential %q cannot use gateway header injection; local signing and arbitrary secret environment variables are unsupported", variable.Name)
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
@@ -178,4 +196,36 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		}
 	}
 	return name, endpoint, header, prefix
+}
+
+// HarnessEnvVar converts a Harness env entry to a Pod environment variable. A
+// credentialRef becomes a Secret reference so revision provenance validates it
+// like any other credential; CompileCredentials then binds it to its gateway
+// destination and replaces it with CredentialPlaceholder.
+func HarnessEnvVar(variable v1alpha3.RuntimeEnvVar) corev1.EnvVar {
+	ref := variable.CredentialRef
+	if ref == nil {
+		return corev1.EnvVar{Name: variable.Name, Value: variable.Value}
+	}
+	return corev1.EnvVar{Name: variable.Name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: ref.Name}, Key: ref.Key,
+	}}}
+}
+
+// HarnessCredentialDestinations returns the egress origins that Harness
+// credentialRef entries inject into. The gateway only rewrites requests the
+// egress policy allows, so each binding's origin must be allowed.
+func HarnessCredentialDestinations(harness *HarnessConfiguration) ([]string, error) {
+	var destinations []string
+	for _, variable := range harness.Spec.Env {
+		if variable.CredentialRef == nil {
+			continue
+		}
+		u, err := url.Parse(strings.TrimSpace(variable.CredentialRef.URL))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return nil, NewValidationError("Harness env %q: credentialRef url must be an absolute HTTP(S) URL", variable.Name)
+		}
+		destinations = append(destinations, egress.Origin(u))
+	}
+	return destinations, nil
 }

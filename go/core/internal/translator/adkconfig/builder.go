@@ -53,7 +53,7 @@ type Result struct {
 func HarnessEnvironment(harness *translator.HarnessConfiguration) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
 	for _, value := range harness.Spec.Env {
-		environment = append(environment, corev1.EnvVar{Name: value.Name, Value: value.Value})
+		environment = append(environment, v2translator.HarnessEnvVar(value))
 	}
 	return environment
 }

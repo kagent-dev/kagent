@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -168,4 +169,60 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 			require.Equal(t, tt.wantEndpoint, endpoint)
 		})
 	}
+}
+
+func harnessCredentialEnv(name, url, header, prefix string) v1alpha3.RuntimeEnvVar {
+	return v1alpha3.RuntimeEnvVar{Name: name, CredentialRef: &v1alpha3.RuntimeCredentialRef{Name: "api-auth", Key: "token", URL: url, Header: header, Prefix: prefix}}
+}
+
+func TestCompileCredentialsBindsHarnessCredentialRef(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{})
+	variable := harnessCredentialEnv("TICKETS_API_TOKEN", "https://Tickets.Example.com:8443/v2", "Authorization", "Bearer ")
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{variable, {Name: "LANG", Value: "C.UTF-8"}}
+	environment := []corev1.EnvVar{HarnessEnvVar(input.Harness.Spec.Env[0]), HarnessEnvVar(input.Harness.Spec.Env[1])}
+	require.Equal(t, credentialEnv("TICKETS_API_TOKEN", "api-auth", "token"), environment[0])
+	require.Equal(t, corev1.EnvVar{Name: "LANG", Value: "C.UTF-8"}, environment[1])
+
+	got, bindings, err := CompileCredentials(input, nil, environment)
+	require.NoError(t, err)
+	require.Equal(t, []corev1.EnvVar{{Name: "TICKETS_API_TOKEN", Value: CredentialPlaceholder}, {Name: "LANG", Value: "C.UTF-8"}}, got)
+	require.Equal(t, []egress.Credential{{Hostname: "tickets.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/api-auth/token"}}, bindings)
+
+	destinations, err := HarnessCredentialDestinations(input.Harness)
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://tickets.example.com:8443"}, destinations)
+}
+
+func TestCompileCredentialsRejectsInvalidHarnessCredentialRef(t *testing.T) {
+	for _, test := range []struct {
+		name, url, header, want string
+		model                   v1alpha3.ModelConfigSpec
+	}{
+		{name: "IP destination", url: "https://10.0.0.1/api", header: "authorization", want: "exact DNS hostname"},
+		{name: "relative URL", url: "/api", header: "authorization", want: "absolute HTTP(S) URL"},
+		{name: "conflicts with model key", url: "https://api.openai.com/v1", header: "authorization", want: "conflicting credentials",
+			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "model-auth", APIKeySecretKey: "key"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := credentialInput(test.model)
+			input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{harnessCredentialEnv("TOKEN", test.url, test.header, "")}
+			environment := []corev1.EnvVar{HarnessEnvVar(input.Harness.Spec.Env[0])}
+			if test.model.APIKeySecret != "" {
+				environment = append(environment, credentialEnv("OPENAI_API_KEY", "model-auth", "key"))
+			}
+			_, _, err := CompileCredentials(input, nil, environment)
+			var validation *ValidationError
+			require.ErrorAs(t, err, &validation)
+			require.ErrorContains(t, err, test.want)
+		})
+	}
+}
+
+// A Secret reference that no binding claims is still rejected: credentialRef
+// only authorizes the variable it is declared on.
+func TestCompileCredentialsRejectsUnboundHarnessSecretReference(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{})
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{harnessCredentialEnv("TOKEN", "https://api.example.com", "authorization", "")}
+	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{HarnessEnvVar(input.Harness.Spec.Env[0]), credentialEnv("OTHER", "api-auth", "token")})
+	require.ErrorContains(t, err, `environment credential "OTHER" cannot use gateway header injection`)
 }
