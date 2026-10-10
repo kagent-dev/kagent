@@ -1,11 +1,19 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	"image/png"
 	"io"
+	"math"
+	"net/http"
+	"strings"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -16,10 +24,34 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const sandboxToolBytes = 1 << 20
+
+const sandboxToolTextBytes = 32 << 10
+
+const (
+	// Claude Code writes two base64 copies of a result's images on one harness
+	// line, so larger images would overflow it. Harnesses downscale further for
+	// their models.
+	sandboxImageResultBytes = 5 << 20
+	sandboxImageBytes       = 16 << 20
+	// Decoding allocates per pixel, so larger images are refused unread.
+	sandboxImageMaxArea = 50_000_000
+)
+
+// Codex otherwise downscales images to its default detail.
+var sandboxImageMeta = mcp.Meta{"codex/imageDetail": "original"}
+
+const (
+	sandboxFileLines     = 2000
+	sandboxFileLineBytes = 2000
+)
+
+var errReadDone = errors.New("read done")
 
 type sandboxInput struct {
 	SandboxID string `json:"sandbox_id" jsonschema:"Sandbox UUID"`
@@ -93,10 +125,8 @@ type sandboxOutputsOutput struct {
 type sandboxReadInput struct {
 	SandboxID string `json:"sandbox_id"`
 	Path      string `json:"path"`
-}
-
-type sandboxReadOutput struct {
-	DataBase64 string `json:"data_base64"`
+	Offset    int    `json:"offset,omitempty" jsonschema:"First line of a text file to read, from 1"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Lines of a text file to read; defaults to 2000"`
 }
 
 type sandboxWriteInput struct {
@@ -108,6 +138,199 @@ type sandboxWriteInput struct {
 
 type sandboxWriteOutput struct {
 	BytesWritten int64 `json:"bytes_written"`
+}
+
+func textContent(format string, args ...any) []mcp.Content {
+	return []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(format, args...)}}
+}
+
+// fileReader classifies a file from its first bytes, then pages text by line,
+// keeps an image whole, and reads no further into any other file.
+type fileReader struct {
+	sniffed, text, tooLarge bool
+	mediaType               string
+	data                    []byte
+	page                    linePage
+}
+
+func (r *fileReader) write(chunk []byte) error {
+	if r.text {
+		return r.page.write(chunk)
+	}
+	r.data = append(r.data, chunk...)
+	if !r.sniffed && len(r.data) >= 512 {
+		if err := r.sniff(); err != nil || r.text {
+			return err
+		}
+	}
+	if r.sniffed && !strings.HasPrefix(r.mediaType, "image/") {
+		return errReadDone
+	}
+	if len(r.data) > sandboxImageBytes {
+		r.tooLarge = true
+		return errReadDone
+	}
+	return nil
+}
+
+// sniff decides on the bytes http.DetectContentType reads.
+func (r *fileReader) sniff() error {
+	r.sniffed = true
+	r.mediaType = http.DetectContentType(r.data)
+	r.text = strings.HasPrefix(r.mediaType, "text/")
+	if !r.text {
+		return nil
+	}
+	data := r.data
+	r.data = nil
+	return r.page.write(data)
+}
+
+// content decodes images with the registered PNG, JPEG, GIF and WebP decoders,
+// all formats that models accept.
+func (r *fileReader) content() []mcp.Content {
+	if !r.sniffed {
+		_ = r.sniff()
+	}
+	if r.text {
+		return textContent("%s", r.page.finish())
+	}
+	if r.tooLarge {
+		return textContent("%s image over 16 MiB, too large to read", r.mediaType)
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(r.data))
+	if err != nil {
+		return textContent("binary file, %s", r.mediaType)
+	}
+	if config.Width*config.Height > sandboxImageMaxArea {
+		return textContent("%s, %d×%d px: too large to read", r.mediaType, config.Width, config.Height)
+	}
+	if len(r.data) <= sandboxImageResultBytes {
+		return append(textContent("%s, %d×%d px", r.mediaType, config.Width, config.Height), &mcp.ImageContent{Meta: sandboxImageMeta, Data: r.data, MIMEType: r.mediaType})
+	}
+	data, mediaType, size, err := shrinkImage(r.data, r.mediaType)
+	if err != nil {
+		return textContent("binary file, %s", r.mediaType)
+	}
+	return append(textContent("%s, %d×%d px, shown at %d×%d", r.mediaType, config.Width, config.Height, size.X, size.Y),
+		&mcp.ImageContent{Meta: sandboxImageMeta, Data: data, MIMEType: mediaType})
+}
+
+// lossless reports whether an image would lose detail as a JPEG: PNG, GIF and
+// lossless WebP hold screenshots and drawings that JPEG blurs.
+func lossless(data []byte, mediaType string) bool {
+	if mediaType == "image/webp" {
+		return len(data) >= 16 && string(data[12:16]) == "VP8L"
+	}
+	return mediaType != "image/jpeg"
+}
+
+// shrinkImage scales an image down until it fits the result budget, as a PNG
+// if it was lossless and otherwise as a JPEG with transparency flattened onto
+// white.
+func shrinkImage(data []byte, mediaType string) ([]byte, string, image.Point, error) {
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", image.Point{}, err
+	}
+	keepPNG := lossless(data, mediaType)
+	bounds := src.Bounds()
+	size := len(data)
+	scale := 1.0
+	var out bytes.Buffer
+	for {
+		// Encoded size roughly tracks pixel count; the margin and the cap on
+		// each step guarantee progress when it doesn't.
+		scale *= min(0.9, 0.95*math.Sqrt(float64(sandboxImageResultBytes)/float64(size)))
+		dst := image.NewRGBA(image.Rect(0, 0, max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))))
+		out.Reset()
+		if keepPNG {
+			draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Src, nil)
+			err = pngEncoder.Encode(&out, dst)
+		} else {
+			draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+			draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+			err = jpeg.Encode(&out, dst, &jpeg.Options{Quality: 85})
+		}
+		if err != nil {
+			return nil, "", image.Point{}, err
+		}
+		if size = out.Len(); size <= sandboxImageResultBytes {
+			if keepPNG {
+				return out.Bytes(), "image/png", dst.Bounds().Size(), nil
+			}
+			return out.Bytes(), "image/jpeg", dst.Bounds().Size(), nil
+		}
+	}
+}
+
+var pngEncoder = png.Encoder{CompressionLevel: png.BestCompression}
+
+// linePage collects numbered lines from offset until it holds limit lines or
+// the text budget, cutting overlong lines.
+type linePage struct {
+	offset, limit int
+	line, last    int
+	current, text []byte
+	cut, more     bool
+}
+
+func (p *linePage) write(data []byte) error {
+	for len(data) > 0 {
+		end := bytes.IndexByte(data, '\n')
+		if end < 0 {
+			p.extend(data)
+			return nil
+		}
+		p.extend(data[:end])
+		data = data[end+1:]
+		if err := p.endLine(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *linePage) extend(data []byte) {
+	room := sandboxFileLineBytes - len(p.current)
+	if len(data) > room {
+		data, p.cut = data[:max(room, 0)], true
+	}
+	p.current = append(p.current, data...)
+}
+
+func (p *linePage) endLine() error {
+	p.line++
+	line, cut := p.current, p.cut
+	p.current, p.cut = p.current[:0], false
+	if p.line < p.offset {
+		return nil
+	}
+	if p.line >= p.offset+p.limit || len(p.text)+len(line) > sandboxToolTextBytes {
+		p.more = true
+		return errReadDone
+	}
+	p.text = fmt.Appendf(p.text, "%d: %s", p.line, line)
+	if cut {
+		p.text = append(p.text, " [line cut]"...)
+	}
+	p.text = append(p.text, '\n')
+	p.last = p.line
+	return nil
+}
+
+func (p *linePage) finish() string {
+	if len(p.current) > 0 && !p.more {
+		_ = p.endLine()
+	}
+	text := strings.ToValidUTF8(string(p.text), "\uFFFD")
+	switch {
+	case p.more:
+		return fmt.Sprintf("%s(lines %d–%d; continue with offset=%d)", text, p.offset, p.last, p.last+1)
+	case p.last == 0:
+		return fmt.Sprintf("(the file has %d lines)", p.line)
+	}
+	return text
 }
 
 func summarizeSandbox(value *apiv1alpha1.Sandbox) sandboxSummary {
@@ -124,6 +347,18 @@ func addSandboxTool[In, Out any](server *mcp.Server, name, description string, c
 			return toolError(errors.New(serviceerrors.MessageOf(err))), output, nil
 		}
 		return nil, output, nil
+	})
+}
+
+// addSandboxToolContent registers a tool whose result is content for the model,
+// with no structured output.
+func addSandboxToolContent[In any](server *mcp.Server, name, description string, call func(context.Context, In) ([]mcp.Content, error)) {
+	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description}, func(ctx context.Context, _ *mcp.CallToolRequest, input In) (*mcp.CallToolResult, any, error) {
+		content, err := call(ctx, input)
+		if err != nil {
+			return toolError(errors.New(serviceerrors.MessageOf(err))), nil, nil
+		}
+		return &mcp.CallToolResult{Content: content}, nil, nil
 	})
 }
 
@@ -241,16 +476,18 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result.StdoutBase64, result.StderrBase64 = base64.StdEncoding.EncodeToString(stdout), base64.StdEncoding.EncodeToString(stderr)
 		return result, err
 	})
-	addSandboxTool(server, "read_sandbox_file", "Read a file up to 1 MiB as base64. Decode data_base64 and save artifacts outside the sandbox before deletion or expiration. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) (sandboxReadOutput, error) {
-		var data []byte
+	addSandboxToolContent(server, "read_sandbox_file", "Read a file. Text comes back as numbered lines from offset, up to limit lines or 32 KiB, with the offset to continue from. PNG, JPEG, GIF and WebP images up to 16 MiB come back as images you can see, shrunk to fit 5 MiB. Other files are described rather than returned. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) ([]mcp.Content, error) {
+		reader := fileReader{page: linePage{offset: max(in.Offset, 1), limit: sandboxFileLines}}
+		if in.Limit > 0 {
+			reader.page.limit = in.Limit
+		}
 		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.FileChunk) error {
-			if len(data)+len(chunk.Data) > sandboxToolBytes {
-				return fmt.Errorf("file exceeds MCP 1 MiB limit; use the streaming API")
-			}
-			data = append(data, chunk.Data...)
-			return nil
+			return reader.write(chunk.Data)
 		})
-		return sandboxReadOutput{DataBase64: base64.StdEncoding.EncodeToString(data)}, err
+		if err != nil && !errors.Is(err, errReadDone) {
+			return nil, err
+		}
+		return reader.content(), nil
 	})
 	addSandboxTool(server, "write_sandbox_file", "Replace a file with decoded base64 data, up to 1 MiB. Paths are absolute or relative to /data/workspace. Verify bytes_written; interrupted writes may leave partial files. There is no append or offset input.", func(ctx context.Context, in sandboxWriteInput) (sandboxWriteOutput, error) {
 		header := &guestpb.WriteFileRequest{Path: in.Path, Mode: in.Mode}

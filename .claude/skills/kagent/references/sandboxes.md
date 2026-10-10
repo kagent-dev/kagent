@@ -73,8 +73,8 @@ Clients that support MCP prompts can retrieve `sandbox-task` with required
 running tools. Server instructions describe the overall workflow; tool
 descriptions carry essential guidance for clients that only expose tools.
 
-Fields in the required column must be supplied. File contents and output bytes
-use standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
+Fields in the required column must be supplied. `write_sandbox_file` input and
+`read_sandbox_outputs` output use standard base64, including for text. Sandbox IDs are UUIDs returned by kagent.
 
 | Tool | Required inputs | Optional inputs / result |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ use standard base64, including for text. Sandbox IDs are UUIDs returned by kagen
 | `get_sandbox_process`, `kill_sandbox_process` | `sandbox_id`, `process_id` | Get returns `status` and `exit_code`; Kill returns `exit_code` |
 | `read_sandbox_outputs` | `sandbox_id`, `process_id` | `stdout_offset`, `stderr_offset`; returns base64 streams, continuation offsets, `truncated` |
 | `write_sandbox_file` | `sandbox_id`, `path`, `data_base64` | `mode` (decimal Unix bits, e.g. `420` for `0644`); returns `bytes_written` |
-| `read_sandbox_file` | `sandbox_id`, `path` | Returns `data_base64` |
+| `read_sandbox_file` | `sandbox_id`, `path` | `offset`, `limit` (lines); returns numbered lines, an image, or a note describing the file |
 
 Sandbox summaries contain `id`, `sandbox_template`, `state`, `operation`,
 `expires_at`, and optional `name` and `failure`. MCP returns the summary directly,
@@ -104,8 +104,8 @@ result; a completed tool call can carry a service error.
    sandbox when needed.
 2. **Stage inputs.** Write source, data, or an archive with `write_sandbox_file`.
    Decode/encode bytes using available tools, and verify `bytes_written`. MCP
-   reads and writes accept at most 1 MiB of decoded file data per call. There is
-   no file-offset or append input: repeated writes replace the destination.
+   writes accept at most 1 MiB of decoded file data per call. There is no
+   file-offset or append input: repeated writes replace the destination.
 3. **Execute.** Pass executable and arguments as `command`, with an explicit
    `cwd` when useful. Shell syntax needs an explicit shell, e.g.
    `["sh", "-c", "command > result.txt"]`. The executable must exist in the
@@ -121,8 +121,11 @@ result; a completed tool call can carry a service error.
    combined, without following future output. Pass both returned byte offsets
    into subsequent reads; continue when truncated and read again after process
    completion. Empty output or `truncated: false` does not mean the process ended.
-   Read result files, decode them, and save deliverables into the user's working
-   environment before cleanup. A path inside a sandbox is not a local artifact.
+   Read result files with `read_sandbox_file`: text comes back as numbered
+   lines, paged with `offset` and `limit`; PNG, JPEG, GIF and WebP images come
+   back as images, shrunk only to fit 5 MiB; other files come back as a description. Retrieve other
+   files with a gRPC streaming client, and save deliverables into the user's
+   working environment before cleanup. A path inside a sandbox is not a local artifact.
 6. **Finish.** Delete scratch sandboxes created for the task after retrieving
    results. Reused or deliberately retained sandboxes need an explicit handoff
    of their ID, expiration, and artifact paths. If cleanup fails, report it and
@@ -170,7 +173,7 @@ needed):
 {"sandbox_id":"SANDBOX_ID","process_id":"PROCESS_ID","stdout_offset":0,"stderr_offset":0}
 ```
 
-After successful completion, call `read_sandbox_file` and decode `data_base64`:
+After successful completion, call `read_sandbox_file`; the JSON arrives as line 1:
 
 ```json
 {"sandbox_id":"SANDBOX_ID","path":"summary.json"}

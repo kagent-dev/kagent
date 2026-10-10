@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -81,3 +82,16 @@ func TestRPCClientPropagatesTraceContext(t *testing.T) {
 type nopWriteCloser struct{ *bytes.Buffer }
 
 func (n nopWriteCloser) Close() error { return nil }
+
+func TestRPCClientAcceptsImageSizedFrames(t *testing.T) {
+	image := strings.Repeat("A", 2<<20)
+	response := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"image","data":"` + image + `"}]}}` + "\n"
+	client := newRPCClient(nopWriteCloser{Buffer: &bytes.Buffer{}}, strings.NewReader(response), config.Production("", "").MaxFrameBytes)
+	result, err := client.call(context.Background(), 1, "initialize", map[string]any{})
+	if err != nil {
+		t.Fatalf("call() error = %v", err)
+	}
+	if !strings.Contains(string(result), image) {
+		t.Fatal("result lost the image data")
+	}
+}

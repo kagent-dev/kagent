@@ -77,11 +77,14 @@ type MCPServer struct {
 	RequireApproval bool              `json:"require_approval,omitempty"`
 }
 
+// App Server notifications carry a tool result's images as base64.
+const maxFrameBytes = 16 << 20
+
 func Production(model, instruction string) Config {
 	return Config{
 		Version: Version, CodexExecutable: "codex", ExpectedCodexVersion: PinnedCodexVersion,
 		StrictVersion: true, Model: model, DeveloperInstruction: instruction,
-		MaxFrameBytes: 1 << 20, MaxStderrBytes: 64 << 10, InterruptGraceMillis: 2000,
+		MaxFrameBytes: maxFrameBytes, MaxStderrBytes: 64 << 10, InterruptGraceMillis: 2000,
 	}
 }
 
