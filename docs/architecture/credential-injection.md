@@ -77,8 +77,9 @@ on the Vertex AI hostname for its location, and Substrate's Kubernetes credentia
 provider signs the key's JWT assertion and exchanges it for a `cloud-platform`
 access token when the gateway fetches the credential. The runtime never holds the
 key: the Go ADK runs with `KAGENT_SKIP_VERTEX_AUTH=true` and Claude Code with
-`CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the request for the gateway to
-complete. Tokens live an hour and the provider refreshes them ahead of the
+`CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the request with the placeholder
+`Authorization: Bearer kagent-credential-injected` for the gateway to complete:
+the gateway replaces a header the request carries and adds none. Tokens live an hour and the provider refreshes them ahead of the
 gateway cache, so rotating the key needs no recompilation. The compiler checks
 the key when the agent is compiled (a service account key of the ModelConfig's
 project, with Google's token endpoint), so a misconfigured Secret is reported

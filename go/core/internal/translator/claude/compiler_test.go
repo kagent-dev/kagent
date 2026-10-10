@@ -96,14 +96,16 @@ func TestCompileProviderCredentials(t *testing.T) {
 		{
 			// The key stays in the Secret: Substrate mints the access token when the
 			// gateway fetches the credential and Claude Code skips its own Google
-			// authentication.
+			// authentication; the placeholder bearer is the header the gateway
+			// replaces, since it adds none.
 			name: "Anthropic Vertex AI",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
 				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
 			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
 			wantEnv: map[string]string{claudeconfig.UseVertexEnvName: "1", claudeconfig.SkipVertexAuthEnvName: "1",
-				claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5"},
+				claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5",
+				claudeconfig.AnthropicCustomHeadersEnvName: "Authorization: Bearer kagent-credential-injected\nx-kagent-agent: assistant\nx-kagent-agent-namespace: test"},
 			wantEgress:      []string{"http://kagent-controller.kagent:8083", "https://us-east5-aiplatform.googleapis.com:443"},
 			wantCredentials: []egress.Credential{{Hostname: "us-east5-aiplatform.googleapis.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://google-access-token.k8s.io/default/test/model-auth/credentials.json"}},
 		},
@@ -145,8 +147,10 @@ func TestCompileProviderCredentials(t *testing.T) {
 				t.Errorf("environment[%s] = %q, want %q", claudeconfig.SandboxEnvName, gotEnvironment[claudeconfig.SandboxEnvName], "1")
 			}
 			// The template's identity on every model call, in Claude's "Name: Value" lines.
-			if want := "x-kagent-agent: assistant\nx-kagent-agent-namespace: test"; gotEnvironment[claudeconfig.AnthropicCustomHeadersEnvName] != want {
-				t.Errorf("environment[%s] = %q, want %q", claudeconfig.AnthropicCustomHeadersEnvName, gotEnvironment[claudeconfig.AnthropicCustomHeadersEnvName], want)
+			if _, ok := tt.wantEnv[claudeconfig.AnthropicCustomHeadersEnvName]; !ok {
+				if want := "x-kagent-agent: assistant\nx-kagent-agent-namespace: test"; gotEnvironment[claudeconfig.AnthropicCustomHeadersEnvName] != want {
+					t.Errorf("environment[%s] = %q, want %q", claudeconfig.AnthropicCustomHeadersEnvName, gotEnvironment[claudeconfig.AnthropicCustomHeadersEnvName], want)
+				}
 			}
 			if !reflect.DeepEqual(revision.EgressDestinations, tt.wantEgress) {
 				t.Errorf("egress = %v", revision.EgressDestinations)

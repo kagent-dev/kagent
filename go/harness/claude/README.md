@@ -33,7 +33,8 @@ harness.
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 A Vertex AI service account key is exchanged for an access token by Substrate's
 credential provider, and Claude Code runs with `CLAUDE_CODE_SKIP_VERTEX_AUTH` so it
-never holds the key. AWS IAM keys require local signing and are rejected by the
+never holds the key; `ANTHROPIC_CUSTOM_HEADERS` carries the placeholder bearer the
+gateway replaces. AWS IAM keys require local signing and are rejected by the
 compiler. Harness environment entries accept only literal values.
 
 With `KAGENT_PROPAGATE_TOKEN=true` in the Harness environment, the caller's `authorization`

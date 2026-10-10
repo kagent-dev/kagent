@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -311,32 +312,13 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		})
 
 	case *adk.GeminiVertexAI:
-		project := env.GoogleCloudProject.Get()
-		location := env.GoogleCloudLocation.Get()
-		if location == "" {
-			location = env.GoogleCloudRegion.Get()
-		}
-		if project == "" || location == "" {
-			return nil, fmt.Errorf("GeminiVertexAI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_CLOUD_REGION) environment variables")
-		}
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		clientConfig := &genai.ClientConfig{
-			Backend:  genai.BackendVertexAI,
-			Project:  project,
-			Location: location,
-		}
-		if env.SkipVertexAuth.Get() {
-			// The egress gateway sets the access token on every call: handed an
-			// HTTP client, the SDK sends the request as it is and never looks for
-			// Application Default Credentials.
-			httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
-			if err != nil {
-				return nil, fmt.Errorf("failed to build HTTP client for Gemini on Vertex AI: %w", err)
-			}
-			clientConfig.HTTPClient = httpClient
+		clientConfig, err := geminiVertexAIClientConfig(m)
+		if err != nil {
+			return nil, err
 		}
 		return adkgemini.NewModel(ctx, modelName, clientConfig)
 
@@ -481,6 +463,37 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
 	}
+}
+
+// geminiVertexAIClientConfig is the genai client configuration for Gemini on
+// Vertex AI. Under KAGENT_SKIP_VERTEX_AUTH the egress gateway sets the access
+// token on every call: handed an HTTP client, the SDK sends the request as it
+// is and never looks for Application Default Credentials, and the request
+// carries the placeholder bearer, since the gateway replaces the
+// Authorization header a request carries and adds none.
+func geminiVertexAIClientConfig(m *adk.GeminiVertexAI) (*genai.ClientConfig, error) {
+	project := env.GoogleCloudProject.Get()
+	location := env.GoogleCloudLocation.Get()
+	if location == "" {
+		location = env.GoogleCloudRegion.Get()
+	}
+	if project == "" || location == "" {
+		return nil, fmt.Errorf("GeminiVertexAI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_CLOUD_REGION) environment variables")
+	}
+	clientConfig := &genai.ClientConfig{
+		Backend:  genai.BackendVertexAI,
+		Project:  project,
+		Location: location,
+	}
+	if env.SkipVertexAuth.Get() {
+		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
+		if err != nil {
+			return nil, fmt.Errorf("failed to build HTTP client for Gemini on Vertex AI: %w", err)
+		}
+		clientConfig.HTTPClient = httpClient
+		clientConfig.HTTPOptions.Headers = http.Header{"Authorization": {"Bearer " + models.VertexGatewayToken}}
+	}
+	return clientConfig, nil
 }
 
 // transportConfigFromBase builds a TransportConfig from the shared BaseModel fields.

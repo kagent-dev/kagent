@@ -130,12 +130,18 @@ func NewAnthropicVertexAIModel(ctx context.Context, config *AnthropicConfig, reg
 	}, nil
 }
 
+// VertexGatewayToken is the placeholder access token a Vertex AI call carries
+// when the egress gateway authenticates it (KAGENT_SKIP_VERTEX_AUTH). The
+// gateway replaces the Authorization header a request carries with the access
+// token it minted from the service account key and adds none, so a call
+// without the placeholder leaves unauthenticated.
+const VertexGatewayToken = "kagent-credential-injected"
+
 // gatewayCredentials stand in for Google credentials when the egress gateway
 // authenticates the Vertex AI call: the SDK's Vertex adaptation needs a token
-// source to build its client, and the placeholder it sends is overwritten by
-// the access token the gateway minted from the service account key.
+// source to build its client, and sends the placeholder as its bearer.
 func gatewayCredentials() *google.Credentials {
-	return &google.Credentials{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "kagent-credential-injected"})}
+	return &google.Credentials{TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: VertexGatewayToken})}
 }
 
 // NewAnthropicBedrockModel creates an Anthropic model that uses

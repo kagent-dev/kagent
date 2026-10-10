@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
+	"google.golang.org/genai"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -644,5 +647,40 @@ func TestCreateLLMGeminiVertexAIWithGatewayCredential(t *testing.T) {
 	}
 	if llm == nil {
 		t.Fatal("CreateLLM() returned no model")
+	}
+}
+
+// The gateway replaces the Authorization header a request carries and adds
+// none, so the Gemini Vertex AI request carries the placeholder bearer.
+func TestGeminiVertexAIClientConfigSendsGatewayPlaceholder(t *testing.T) {
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "project")
+	t.Setenv("GOOGLE_CLOUD_LOCATION", "europe-west4")
+	t.Setenv("KAGENT_SKIP_VERTEX_AUTH", "true")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/credentials.json")
+	var got *http.Request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}]}`))
+	}))
+	defer server.Close()
+
+	clientConfig, err := geminiVertexAIClientConfig(&adk.GeminiVertexAI{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientConfig.HTTPOptions.BaseURL = server.URL
+	client, err := genai.NewClient(context.Background(), clientConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Models.GenerateContent(context.Background(), "gemini-2.5-flash", genai.Text("hi"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := "/v1beta1/projects/project/locations/europe-west4/publishers/google/models/gemini-2.5-flash:generateContent"; got.URL.Path != want {
+		t.Fatalf("path = %q, want %q", got.URL.Path, want)
+	}
+	if want := "Bearer kagent-credential-injected"; got.Header.Get("Authorization") != want {
+		t.Fatalf("Authorization = %q, want %q", got.Header.Get("Authorization"), want)
 	}
 }

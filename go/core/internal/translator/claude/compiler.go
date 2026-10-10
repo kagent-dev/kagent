@@ -80,6 +80,15 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
+	// Claude sends these on every model call: the identity the Go ADK runtime
+	// sends from KAGENT_AGENT_TEMPLATE and KAGENT_NAMESPACE. The Claude harness
+	// knows no user per turn, so it names the agent only.
+	modelHeaders := map[string]string{adk.AgentHeader: input.Root.Template.Name, adk.AgentNamespaceHeader: input.Root.Template.Namespace}
+	if model.Spec.Provider == v1alpha3.ModelProviderAnthropicVertexAI {
+		// Under CLAUDE_CODE_SKIP_VERTEX_AUTH Claude Code sends no Authorization,
+		// and the gateway replaces the header a request carries and adds none.
+		modelHeaders["Authorization"] = "Bearer " + translator.CredentialPlaceholder
+	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
 	environment = append(environment,
@@ -87,12 +96,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-		// Claude sends these on every model call: the identity the Go ADK runtime
-		// sends from KAGENT_AGENT_TEMPLATE and KAGENT_NAMESPACE. The Claude harness
-		// knows no user per turn, so it names the agent only.
-		corev1.EnvVar{Name: claudeconfig.AnthropicCustomHeadersEnvName, Value: claudeconfig.CustomHeaders(map[string]string{
-			adk.AgentHeader: input.Root.Template.Name, adk.AgentNamespaceHeader: input.Root.Template.Namespace,
-		})},
+		corev1.EnvVar{Name: claudeconfig.AnthropicCustomHeadersEnvName, Value: claudeconfig.CustomHeaders(modelHeaders)},
 	)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
 	// The adapter derives Claude Code's own telemetry flags; raw bodies have no
